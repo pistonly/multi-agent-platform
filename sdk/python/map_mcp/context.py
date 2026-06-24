@@ -32,3 +32,7 @@ class AgentContext:
         if self.project_id:
             return self.project_id
         raise ValueError("project_id is required for admin agents without a bound project")
+
+    def require_admin(self) -> None:
+        if not self.is_admin:
+            raise ValueError("Admin role required for this tool")

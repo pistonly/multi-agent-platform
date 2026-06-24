@@ -127,7 +127,24 @@ docker compose up --build
 }
 ```
 
-客户端无需安装 Python 包，填 URL 即可（MAP 后端调用仍使用容器内 `MAP_TOKEN`）。
+客户端无需安装 Python 包，填 URL 即可。MCP 服务可不配置 `MAP_TOKEN`（见下方「按调用传 Token」）。
+
+### 多 Agent 协作：按调用传 Token
+
+每个 MCP tool 均支持可选参数 **`token`**（Agent API Token）：
+
+- **传入 `token`**：以该注册 Agent 身份执行本次调用（推荐多 Cursor Session 协作）
+- **省略 `token`**：使用 MCP 服务环境变量 `MAP_TOKEN`（若已配置）
+
+示例：Session A 创建实验、Session B 提交评审（同一 MCP HTTP 地址）：
+
+```
+get_me(token="<creator-token>")
+create_experiment(title="...", plan_content_md="...", token="<creator-token>")
+create_review(experiment_id="...", unreasonable_items=["..."], token="<reviewer-token>")
+```
+
+Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须传 `token`。`/health` 返回 `mode: token_per_call` 或 `mode: default_token`。
 
 ---
 
@@ -136,7 +153,7 @@ docker compose up --build
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `MAP_API_URL` | `http://localhost:8000` | MAP REST API 地址 |
-| `MAP_TOKEN` | — | Agent API Token（必填） |
+| `MAP_TOKEN` | — | 可选；省略时每次 tool 调用须传 `token` 参数 |
 | `MAP_PROJECT_KEY` | — | 可选；CLI 未指定 `--project-key` 时的默认项目 |
 | `MAP_MCP_TRANSPORT` | `stdio` | `stdio` / `streamable-http` / `sse` |
 | `MAP_MCP_HOST` | `127.0.0.1`（stdio）/ `0.0.0.0`（HTTP） | 绑定地址 |
@@ -147,7 +164,9 @@ docker compose up --build
 
 ## Tools（按角色）
 
-### 普通 Agent（24 个）
+所有 tools 均暴露；Admin 类 tool 在调用时校验 token 对应角色。每个 tool 可选参数 **`token`** 覆盖环境默认身份。
+
+### 普通 Agent tools（24 个）
 
 | 分类 | Tools |
 |------|-------|
@@ -158,9 +177,9 @@ docker compose up --build
 | 评论 | `create_comment`, `list_comments` |
 | 日志 | `create_log`, `list_logs` |
 
-项目级 tools 的 `project_id` **可省略**（默认使用 Token 绑定项目）。
+项目级 tools 的 `project_id` **可省略**（默认使用 token 绑定项目）。
 
-### Admin 额外（+5，共 29 个）
+### Admin tools（5 个，须 admin token）
 
 | Tool | 说明 |
 |------|------|
@@ -169,8 +188,6 @@ docker compose up --build
 | `create_project` | 创建项目 |
 | `get_global_status` | 全局看板 |
 | `revise_project_status` | 修订 Current Status MD |
-
-MCP 在启动时调用 `get_me()` 确定角色，**Admin 与普通 Agent 工具面不同**。
 
 ## Resources（只读上下文）
 
@@ -200,8 +217,8 @@ MCP 在启动时调用 `get_me()` 确定角色，**Admin 与普通 Agent 工具�
 | 现象 | 处理 |
 |------|------|
 | `MCP support requires the 'mcp' package` | `pip install -e ".[mcp]"` |
-| `MAP_TOKEN not set` | 设置环境变量或 `~/.map/config.yaml` |
-| Docker MCP 启动失败 `MAP_TOKEN` | 在 `.env` 中设置已注册的 token |
+| `MAP_TOKEN not set` | 设置环境变量，或在每次 tool 调用时传 `token` |
+| Docker MCP 启动失败 `MAP_TOKEN` | 已改为可选；可不设 `MAP_TOKEN`，改由调用方传 `token` |
 | Tool 返回 401/403 | 检查 Token 是否有效 |
 | HTTP 421 / Invalid Host | 使用 `localhost` 或 `127.0.0.1` 访问，勿用随意 Host 头 |
 | 连接失败 | 确认 API / MCP 端口可达 |

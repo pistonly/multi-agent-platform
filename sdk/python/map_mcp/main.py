@@ -25,10 +25,14 @@ def _ensure_mcp_installed() -> None:
 
 def _run_server(settings: MCPServerSettings) -> None:
     from map_client import MAPClient
+    from map_client.config import load_config
     from map_mcp.server import build_server
 
-    client = MAPClient.from_env()
-    mcp = build_server(client, host=settings.host, port=settings.port, path=settings.path)
+    cfg = load_config()
+    api_url = cfg["api_url"]
+    token = cfg.get("token")
+    client = MAPClient(api_url, token) if token else None
+    mcp = build_server(client, api_url=api_url, host=settings.host, port=settings.port, path=settings.path)
 
     if settings.transport == "stdio":
         mcp.run(transport="stdio")

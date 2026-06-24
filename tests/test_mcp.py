@@ -1,8 +1,10 @@
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
+from map_client.testing import MAPTestClientTransport
 from map_mcp.server import build_server
 
-AGENT_ONLY_TOOLS = {
+AGENT_TOOLS = {
     "get_me",
     "get_project_status",
     "list_project_status_versions",
@@ -28,7 +30,7 @@ AGENT_ONLY_TOOLS = {
     "list_logs",
 }
 
-ADMIN_ONLY_TOOLS = {
+ADMIN_TOOLS = {
     "get_global_status",
     "list_projects",
     "get_project",
@@ -36,14 +38,15 @@ ADMIN_ONLY_TOOLS = {
     "revise_project_status",
 }
 
+ALL_TOOLS = AGENT_TOOLS | ADMIN_TOOLS
+
 
 @pytest.mark.asyncio
 async def test_mcp_agent_tool_surface(map_client):
     mcp = build_server(map_client)
     tools = await mcp.list_tools()
     names = {tool.name for tool in tools}
-    assert names == AGENT_ONLY_TOOLS
-    assert not names & ADMIN_ONLY_TOOLS
+    assert names == ALL_TOOLS
 
 
 @pytest.mark.asyncio
@@ -51,8 +54,7 @@ async def test_mcp_admin_tool_surface(admin_map_client):
     mcp = build_server(admin_map_client)
     tools = await mcp.list_tools()
     names = {tool.name for tool in tools}
-    assert AGENT_ONLY_TOOLS <= names
-    assert ADMIN_ONLY_TOOLS <= names
+    assert names == ALL_TOOLS
 
 
 @pytest.mark.asyncio
@@ -61,6 +63,54 @@ async def test_mcp_get_me(map_client, project):
     _, payload = await mcp.call_tool("get_me", {})
     assert payload["name"] == "test-agent"
     assert payload["project_key"] == project["project_key"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_me_with_token_param(client, map_client, reviewer):
+    mcp = build_server(map_client)
+    reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
+    _, payload = await mcp.call_tool("get_me", {"token": reviewer_token})
+    assert payload["name"] == "reviewer-agent"
+
+
+@pytest.mark.asyncio
+async def test_mcp_gateway_mode_requires_token(client, agent_token):
+    _, creator_token = agent_token
+    mcp = build_server(None, api_url="http://test", transport=MAPTestClientTransport(client))
+
+    with pytest.raises(ToolError, match="token is required"):
+        await mcp.call_tool("get_me", {})
+
+    _, payload = await mcp.call_tool("get_me", {"token": creator_token})
+    assert payload["name"] == "test-agent"
+
+
+@pytest.mark.asyncio
+async def test_mcp_multi_agent_collaboration(client, map_client, reviewer):
+    mcp = build_server(map_client)
+    reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
+
+    _, exp_payload = await mcp.call_tool(
+        "create_experiment",
+        {
+            "title": "Multi-agent MCP experiment",
+            "plan_content_md": "# Plan\nCollaboration via per-call tokens.",
+            "submit_for_review": True,
+        },
+    )
+    experiment_id = exp_payload["id"]
+
+    _, review_payload = await mcp.call_tool(
+        "create_review",
+        {
+            "experiment_id": experiment_id,
+            "reasonable_items": ["Clear scope"],
+            "unreasonable_items": ["Add acceptance criteria"],
+            "token": reviewer_token,
+        },
+    )
+    assert review_payload["experiment_id"] == experiment_id
+    assert len(review_payload["items"]) == 2
 
 
 @pytest.mark.asyncio
@@ -85,7 +135,7 @@ async def test_mcp_project_and_experiment_flow(map_client, project):
     uris = {resource.uriTemplate for resource in resources}
     assert "map://experiment/{experiment_id}" in uris
     assert "map://project/{project_key}/current-status" in uris
-    assert "map://project/{project_id}/status" not in uris
+    assert "map://project/{project_id}/status" in uris
 
     content = await mcp.read_resource(f"map://experiment/{experiment_id}")
     assert "MCP experiment" in content[0].content
@@ -102,3 +152,12 @@ async def test_mcp_create_experiment_without_project_id(map_client):
         },
     )
     assert payload["title"] == "Bound project experiment"
+
+
+@pytest.mark.asyncio
+async def test_mcp_admin_tool_rejects_agent_token(map_client, reviewer):
+    mcp = build_server(map_client)
+    reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
+
+    with pytest.raises(ToolError, match="Admin role required"):
+        await mcp.call_tool("list_projects", {"token": reviewer_token})
