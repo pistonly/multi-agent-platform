@@ -3,23 +3,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def reviewer(client: TestClient) -> dict[str, str]:
-    response = client.post("/api/v1/agents", params={"name": "reviewer-agent"})
-    assert response.status_code == 201
-    data = response.json()
-    return {
-        "id": data["id"],
-        "headers": {"Authorization": f"Bearer {data['api_token']}"},
-    }
-
-
-@pytest.fixture
-def experiment_in_review(client: TestClient, auth_headers: dict[str, str]) -> dict:
-    project = client.post(
-        "/api/v1/projects",
-        headers=auth_headers,
-        json={"name": "M2 项目", "workspace_path": "/tmp/m2"},
-    ).json()
+def experiment_in_review(client: TestClient, auth_headers: dict[str, str], project: dict) -> dict:
     experiment = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,

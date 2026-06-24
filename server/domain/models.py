@@ -47,13 +47,34 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     workspace_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_status_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     experiments: Mapped[list["Experiment"]] = relationship(back_populates="project")
+    status_versions: Mapped[list["ProjectStatusVersion"]] = relationship(
+        back_populates="project", order_by="ProjectStatusVersion.version"
+    )
+
+
+class ProjectStatusVersion(Base):
+    __tablename__ = "project_status_versions"
+    __table_args__ = (UniqueConstraint("project_id", "version", name="uq_project_status_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_md: Mapped[str] = mapped_column(Text, nullable=False)
+    author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    change_note: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    project: Mapped["Project"] = relationship(back_populates="status_versions")
+    author: Mapped["Agent"] = relationship()
 
 
 class Agent(Base):
@@ -63,8 +84,10 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     api_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[AgentRole] = mapped_column(Enum(AgentRole), default=AgentRole.agent, nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    project: Mapped["Project | None"] = relationship()
     created_experiments: Mapped[list["Experiment"]] = relationship(back_populates="creator")
     plan_versions: Mapped[list["PlanVersion"]] = relationship(back_populates="author")
     reviews: Mapped[list["Review"]] = relationship(back_populates="reviewer")

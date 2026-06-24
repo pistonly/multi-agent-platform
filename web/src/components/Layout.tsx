@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { Link, Outlet, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { CreateProjectForm } from "./CreateProjectForm";
 
 export function Layout() {
-  const { token, agentName, isReady, clearToken } = useAuth();
+  const { token, agentName, role, projectKey, isAdmin, isReady, clearToken } = useAuth();
+  const [showCreateProject, setShowCreateProject] = useState(false);
 
   if (!isReady) {
     return (
@@ -24,12 +27,31 @@ export function Layout() {
             </Link>
             <nav className="flex gap-4 text-sm text-slate-300">
               <Link to="/" className="hover:text-white">
-                看板
+                {isAdmin ? "看板" : "Current Status"}
               </Link>
+              {!isAdmin && projectKey && (
+                <span className="font-mono text-slate-500">{projectKey}</span>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-400">
+            {role && (
+              <span
+                className={`badge ${isAdmin ? "bg-accent-muted text-accent" : "bg-surface text-slate-400"}`}
+              >
+                {role}
+              </span>
+            )}
             <span>{agentName ?? "Agent"}</span>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-secondary py-1 text-xs"
+                onClick={() => setShowCreateProject(true)}
+              >
+                创建项目
+              </button>
+            )}
             <Link to="/settings" className="hover:text-white">
               设置
             </Link>
@@ -39,6 +61,19 @@ export function Layout() {
           </div>
         </div>
       </header>
+
+      {showCreateProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="card w-full max-w-md">
+            <h2 className="mb-4 text-lg font-semibold text-white">创建项目</h2>
+            <CreateProjectForm
+              onCancel={() => setShowCreateProject(false)}
+              onCreated={() => setShowCreateProject(false)}
+            />
+          </div>
+        </div>
+      )}
+
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />
       </main>

@@ -14,12 +14,9 @@ from server.domain.schemas import (
 )
 
 
-def test_sdk_project_and_experiment(map_client: MAPClient):
-    project = map_client.create_project("SDK 项目", "/tmp/sdk")
-    assert project.name == "SDK 项目"
-
+def test_sdk_project_and_experiment(map_client: MAPClient, project: dict):
     experiment = map_client.create_experiment(
-        project.id,
+        uuid.UUID(project["id"]),
         ExperimentCreate(
             title="SDK 实验",
             plan=PlanInput(content_md="## plan"),
@@ -32,17 +29,19 @@ def test_sdk_project_and_experiment(map_client: MAPClient):
     assert detail.current_plan_version == 1
 
 
-def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient):
-    reviewer = client.post("/api/v1/agents", params={"name": "sdk-reviewer"}).json()
+def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: dict):
+    reviewer = client.post(
+        "/api/v1/agents",
+        params={"name": "sdk-reviewer", "role": "agent", "project_key": project["project_key"]},
+    ).json()
     reviewer_client = MAPClient(
         "http://test",
         reviewer["api_token"],
         transport=MAPTestClientTransport(client),
     )
 
-    project = map_client.create_project("生命周期", "/tmp/lc")
     exp = map_client.create_experiment(
-        project.id,
+        uuid.UUID(project["id"]),
         ExperimentCreate(title="LC", plan=PlanInput(content_md="p"), submit_for_review=True),
     )
 
@@ -67,7 +66,12 @@ def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient):
     reviewer_client.close()
 
 
-def test_sdk_http_error(map_client: MAPClient):
+def test_sdk_http_error(map_client: MAPClient, admin_headers, client: TestClient):
+    other = client.post(
+        "/api/v1/projects",
+        headers=admin_headers,
+        json={"project_key": "other-sdk", "name": "Other", "workspace_path": "/tmp/other"},
+    ).json()
     with pytest.raises(MAPHTTPError) as exc:
-        map_client.get_project(uuid.uuid4())
-    assert exc.value.status_code == 404
+        map_client.get_project(uuid.UUID(other["id"]))
+    assert exc.value.status_code == 403

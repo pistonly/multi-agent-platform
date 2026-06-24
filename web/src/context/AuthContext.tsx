@@ -1,11 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getMe, setAuthToken } from "../api/client";
+import type { Agent, AgentRole } from "../api/types";
 
 const TOKEN_KEY = "map_api_token";
 
 interface AuthContextValue {
   token: string | null;
+  agent: Agent | null;
   agentName: string | null;
+  role: AgentRole | null;
+  projectId: string | null;
+  projectKey: string | null;
+  isAdmin: boolean;
   setToken: (token: string) => Promise<void>;
   clearToken: () => void;
   isReady: boolean;
@@ -15,7 +21,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [agentName, setAgentName] = useState<string | null>(null);
+  const [agent, setAgent] = useState<Agent | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -23,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function verify() {
       if (!token) {
         setAuthToken(null);
-        setAgentName(null);
+        setAgent(null);
         setIsReady(true);
         return;
       }
@@ -31,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await getMe();
         if (!cancelled) {
-          setAgentName(me.name);
+          setAgent(me);
           setIsReady(true);
         }
       } catch {
@@ -39,7 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem(TOKEN_KEY);
           setTokenState(null);
           setAuthToken(null);
-          setAgentName(null);
+          setAgent(null);
           setIsReady(true);
         }
       }
@@ -53,23 +59,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       token,
-      agentName,
+      agent,
+      agentName: agent?.name ?? null,
+      role: agent?.role ?? null,
+      projectId: agent?.project_id ?? null,
+      projectKey: agent?.project_key ?? null,
+      isAdmin: agent?.role === "admin",
       isReady,
       setToken: async (newToken: string) => {
         localStorage.setItem(TOKEN_KEY, newToken);
         setAuthToken(newToken);
         const me = await getMe();
-        setAgentName(me.name);
+        setAgent(me);
         setTokenState(newToken);
       },
       clearToken: () => {
         localStorage.removeItem(TOKEN_KEY);
         setAuthToken(null);
         setTokenState(null);
-        setAgentName(null);
+        setAgent(null);
       },
     }),
-    [token, agentName, isReady]
+    [token, agent, isReady]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

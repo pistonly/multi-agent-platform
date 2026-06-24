@@ -6,6 +6,8 @@ export type ExperimentPhase =
   | "done"
   | "cancelled";
 
+export type AgentRole = "agent" | "admin";
+
 export type ReviewItemKind = "reasonable" | "unreasonable";
 
 export type ReviewItemStatus =
@@ -20,9 +22,11 @@ export type CommentAnchorType = "plan" | "review" | "review_item" | "comment";
 
 export interface Project {
   id: string;
+  project_key: string;
   name: string;
   workspace_path: string;
   description: string | null;
+  current_status_version: number;
   created_at: string;
   archived_at: string | null;
 }
@@ -105,7 +109,21 @@ export interface ExperimentLog {
 export interface ProjectStatus {
   project: Project;
   experiment_counts_by_phase: Record<string, number>;
+  active_experiments: ExperimentSummary[];
   recent_experiments: ExperimentSummary[];
+  status_version: number;
+  status_md: string | null;
+  status_updated_at: string | null;
+}
+
+export interface ProjectStatusVersion {
+  id: string;
+  project_id: string;
+  version: number;
+  content_md: string;
+  author_agent_id: string;
+  change_note: string | null;
+  created_at: string;
 }
 
 export interface GlobalStatus {
@@ -117,6 +135,15 @@ export interface GlobalStatus {
 export interface Agent {
   id: string;
   name: string;
-  role: string;
+  role: AgentRole;
+  project_id: string | null;
+  project_key: string | null;
   created_at: string;
+}
+
+export interface ProjectCreatePayload {
+  project_key: string;
+  name: string;
+  workspace_path: string;
+  description?: string | null;
 }

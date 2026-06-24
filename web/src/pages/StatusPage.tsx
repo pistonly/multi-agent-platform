@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { fetchGlobalStatus } from "../api/client";
+import { useAuth } from "../context/AuthContext";
+import { ProjectStatusPanel } from "../components/ProjectStatusPanel";
 import { PhaseBadge } from "../components/PhaseStepper";
 
-export function StatusPage() {
+function AdminDashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["status"],
     queryFn: () => fetchGlobalStatus(),
@@ -17,7 +19,7 @@ export function StatusPage() {
   return (
     <div className="space-y-8">
       <section>
-        <h1 className="mb-4 text-2xl font-bold text-white">Current Status</h1>
+        <h1 className="mb-4 text-2xl font-bold text-white">全局看板</h1>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
           {Object.entries(data.total_experiments_by_phase).map(([phase, count]) => (
             <div key={phase} className="card text-center">
@@ -74,7 +76,10 @@ export function StatusPage() {
               to={`/projects/${ps.project.id}`}
               className="card block transition-colors hover:border-accent/50"
             >
-              <h3 className="mb-1 font-semibold text-white">{ps.project.name}</h3>
+              <div className="mb-1 flex items-center gap-2">
+                <h3 className="font-semibold text-white">{ps.project.name}</h3>
+                <span className="font-mono text-xs text-slate-500">{ps.project.project_key}</span>
+              </div>
               <p className="mb-3 truncate text-xs text-slate-500">{ps.project.workspace_path}</p>
               <div className="flex flex-wrap gap-2 text-xs">
                 {Object.entries(ps.experiment_counts_by_phase)
@@ -92,4 +97,25 @@ export function StatusPage() {
       </section>
     </div>
   );
+}
+
+export function StatusPage() {
+  const { isAdmin, projectId } = useAuth();
+
+  if (isAdmin) {
+    return <AdminDashboard />;
+  }
+
+  if (!projectId) {
+    return (
+      <div className="card">
+        <h1 className="mb-2 text-xl font-bold text-white">未绑定项目</h1>
+        <p className="text-slate-400">
+          当前 Agent 未绑定项目，请联系 Admin 注册并绑定 project_key。
+        </p>
+      </div>
+    );
+  }
+
+  return <ProjectStatusPanel projectId={projectId} isAdmin={false} />;
 }

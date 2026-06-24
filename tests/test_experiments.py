@@ -1,10 +1,4 @@
-def test_experiment_crud(client, auth_headers):
-    project = client.post(
-        "/api/v1/projects",
-        headers=auth_headers,
-        json={"name": "实验项目", "workspace_path": "/tmp/lab"},
-    ).json()
-
+def test_experiment_crud(client, auth_headers, project):
     create = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
@@ -53,13 +47,7 @@ def test_experiment_crud(client, auth_headers):
     assert after_delete.status_code == 404
 
 
-def test_experiment_draft_phase(client, auth_headers):
-    project = client.post(
-        "/api/v1/projects",
-        headers=auth_headers,
-        json={"name": "草稿项目", "workspace_path": "/tmp/draft"},
-    ).json()
-
+def test_experiment_draft_phase(client, auth_headers, project):
     create = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
@@ -73,13 +61,7 @@ def test_experiment_draft_phase(client, auth_headers):
     assert create.json()["phase"] == "draft"
 
 
-def test_project_status_with_experiments(client, auth_headers):
-    project = client.post(
-        "/api/v1/projects",
-        headers=auth_headers,
-        json={"name": "状态项目", "workspace_path": "/tmp/status"},
-    ).json()
-
+def test_project_status_with_experiments(client, auth_headers, project):
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
@@ -95,3 +77,5 @@ def test_project_status_with_experiments(client, auth_headers):
     body = status.json()
     assert body["experiment_counts_by_phase"]["review"] == 1
     assert len(body["recent_experiments"]) == 1
+    assert len(body["active_experiments"]) == 1
+    assert body["status_version"] == 1

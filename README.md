@@ -5,8 +5,10 @@
 ## 文档
 
 - [产品需求文档（PRD）](docs/PRD.md)
+- [产品需求文档 v0.2（角色与项目边界）](docs/PRD-v0.2.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
+- [MCP Server 指南（stdio）](docs/MCP.md)
 
 ## 状态
 
@@ -14,7 +16,10 @@
 **M2 已完成**：Plans 修订、Reviews、Comments、实验阶段与不合理项状态机。  
 **M3 已完成**：实验日志、Start/Complete、全局 Status API、CLI（`map` 命令）。  
 **M4 已完成**：React + Vite Web UI（看板、项目、实验话题页）。  
-**M5 已完成**：Python SDK（`map_client`）、SDK 文档、CLI 基于 SDK 重构、Docker 部署。
+**M5 已完成**：Python SDK（`map_client`）、SDK 文档、CLI 基于 SDK 重构、Docker 部署。  
+**M6 已完成**：MCP stdio + HTTP 服务（`map-mcp`），供 IDE Agent 调用。  
+**M7 已完成**：项目角色边界（`project_key`、Agent 项目绑定、权限门控、Status MD v1）。  
+**M8 已完成**：项目 Current Status MD 版本化（修订 API、历史查询、CLI/MCP）。
 
 ## 快速开始
 
@@ -58,6 +63,22 @@ docker compose up --build
 # Python SDK
 python -c "from map_client import MAPClient; print(MAPClient.from_env().get_me())"
 # 详见 docs/SDK.md
+
+# Docker（API + Web + MCP）
+# 1. 注册 Agent 获取 token，写入 .env: MAP_TOKEN=...
+docker compose up --build
+# API :8000  Web :3000  MCP :8080/mcp
+
+# MCP（IDE Agent）
+pip install -e ".[mcp]"
+export MAP_TOKEN=<your-token>
+
+# stdio — Cursor 本地子进程（默认）
+map-mcp
+
+# HTTP — Docker 或本机独立服务
+map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
+# 详见 docs/MCP.md
 ```
 
 ## 核心流程（简述）

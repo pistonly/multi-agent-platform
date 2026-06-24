@@ -12,4 +12,10 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
         config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     api_url = config.get("api_url") or os.environ.get("MAP_API_URL", "http://localhost:8000")
     token = config.get("token") or os.environ.get("MAP_TOKEN")
-    return {"api_url": str(api_url).rstrip("/"), "token": token, "config_path": path}
+    project_key = config.get("project_key") or os.environ.get("MAP_PROJECT_KEY")
+    return {
+        "api_url": str(api_url).rstrip("/"),
+        "token": token,
+        "project_key": project_key,
+        "config_path": path,
+    }

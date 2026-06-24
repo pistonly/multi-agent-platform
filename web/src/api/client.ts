@@ -8,6 +8,9 @@ import type {
   GlobalStatus,
   PlanVersion,
   Project,
+  ProjectCreatePayload,
+  ProjectStatus,
+  ProjectStatusVersion,
   Review,
 } from "./types";
 
@@ -45,6 +48,29 @@ export async function fetchProjects(): Promise<Project[]> {
 
 export async function fetchProject(id: string): Promise<Project> {
   const { data } = await api.get<Project>(`/projects/${id}`);
+  return data;
+}
+
+export async function createProject(payload: ProjectCreatePayload): Promise<Project> {
+  const { data } = await api.post<Project>("/projects", payload);
+  return data;
+}
+
+export async function fetchProjectStatus(projectId: string): Promise<ProjectStatus> {
+  const { data } = await api.get<ProjectStatus>(`/projects/${projectId}/status`);
+  return data;
+}
+
+export async function fetchProjectStatusVersions(projectId: string): Promise<ProjectStatusVersion[]> {
+  const { data } = await api.get<ProjectStatusVersion[]>(`/projects/${projectId}/status/versions`);
+  return data;
+}
+
+export async function reviseProjectStatus(
+  projectId: string,
+  body: { content_md: string; change_note?: string | null }
+): Promise<ProjectStatusVersion> {
+  const { data } = await api.post<ProjectStatusVersion>(`/projects/${projectId}/status/revisions`, body);
   return data;
 }
 

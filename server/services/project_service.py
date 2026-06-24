@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from server.domain.models import Experiment, ExperimentPhase, PlanVersion, Project
+from server.domain.models import Agent, Experiment, ExperimentPhase, PlanVersion, Project
 from server.domain.schemas import (
     ExperimentCreate,
     ExperimentDetailRead,
@@ -16,19 +16,32 @@ from server.domain.schemas import (
     ProjectStatusRead,
     ProjectUpdate,
 )
-from server.services.errors import NotFoundError
+from server.services.errors import ConflictError, NotFoundError
+from server.services import project_status_service as status_doc_service
 
 
-def create_project(db: Session, payload: ProjectCreate) -> Project:
+def create_project(db: Session, payload: ProjectCreate, *, author_agent_id: uuid.UUID) -> Project:
+    existing = db.scalar(select(Project).where(Project.project_key == payload.project_key))
+    if existing is not None:
+        raise ConflictError("project_key already exists")
     project = Project(**payload.model_dump())
     db.add(project)
+    db.flush()
+    status_doc_service.create_initial_status(db, project=project, author_agent_id=author_agent_id)
     db.commit()
     db.refresh(project)
     return project
 
 
-def list_projects(db: Session, *, include_archived: bool = False) -> list[Project]:
+def list_projects(
+    db: Session,
+    *,
+    include_archived: bool = False,
+    project_id: uuid.UUID | None = None,
+) -> list[Project]:
     stmt = select(Project).order_by(Project.created_at.desc())
+    if project_id is not None:
+        stmt = stmt.where(Project.id == project_id)
     if not include_archived:
         stmt = stmt.where(Project.archived_at.is_(None))
     return list(db.scalars(stmt))
@@ -36,6 +49,13 @@ def list_projects(db: Session, *, include_archived: bool = False) -> list[Projec
 
 def get_project(db: Session, project_id: uuid.UUID) -> Project:
     project = db.get(Project, project_id)
+    if project is None:
+        raise NotFoundError("Project not found")
+    return project
+
+
+def get_project_by_key(db: Session, project_key: str) -> Project:
+    project = db.scalar(select(Project).where(Project.project_key == project_key))
     if project is None:
         raise NotFoundError("Project not found")
     return project
@@ -65,6 +85,23 @@ def get_project_status(db: Session, project_id: uuid.UUID) -> ProjectStatusRead:
     for phase in ExperimentPhase:
         counts.setdefault(phase.value, 0)
 
+    active_phases = (
+        ExperimentPhase.draft,
+        ExperimentPhase.review,
+        ExperimentPhase.approved,
+        ExperimentPhase.running,
+    )
+    active_stmt = (
+        select(Experiment)
+        .where(
+            Experiment.project_id == project_id,
+            Experiment.deleted_at.is_(None),
+            Experiment.phase.in_(active_phases),
+        )
+        .order_by(Experiment.updated_at.desc())
+    )
+    active = [ExperimentSummaryRead.model_validate(e) for e in db.scalars(active_stmt)]
+
     recent_stmt = (
         select(Experiment)
         .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
@@ -73,10 +110,16 @@ def get_project_status(db: Session, project_id: uuid.UUID) -> ProjectStatusRead:
     )
     recent = [ExperimentSummaryRead.model_validate(e) for e in db.scalars(recent_stmt)]
 
+    status_version, status_md, status_updated_at = status_doc_service.get_current_status_md(db, project_id)
+
     return ProjectStatusRead(
         project=ProjectRead.model_validate(project),
         experiment_counts_by_phase=counts,
+        active_experiments=active,
         recent_experiments=recent,
+        status_version=status_version,
+        status_md=status_md,
+        status_updated_at=status_updated_at,
     )
 
 

@@ -27,6 +27,8 @@ from server.domain.schemas import (
     ProjectCreate,
     ProjectRead,
     ProjectStatusRead,
+    ProjectStatusRevise,
+    ProjectStatusVersionRead,
     ProjectUpdate,
     ReviewCreate,
     ReviewItemRead,
@@ -116,10 +118,36 @@ class MAPClient:
     def get_me(self) -> AgentRead:
         return AgentRead.model_validate(self._json("GET", "/agents/me"))
 
+    def resolve_project_id(
+        self,
+        project_id: uuid.UUID | None = None,
+        *,
+        project_key: str | None = None,
+    ) -> uuid.UUID:
+        if project_id is not None:
+            return project_id
+        if project_key is not None:
+            return self.get_project_by_key(project_key).id
+        me = self.get_me()
+        if me.project_id is not None:
+            return me.project_id
+        raise ValueError("project_id or project_key is required")
+
     # --- projects ---
 
-    def create_project(self, name: str, workspace_path: str, description: str | None = None) -> ProjectRead:
-        payload = ProjectCreate(name=name, workspace_path=workspace_path, description=description)
+    def create_project(
+        self,
+        project_key: str,
+        name: str,
+        workspace_path: str,
+        description: str | None = None,
+    ) -> ProjectRead:
+        payload = ProjectCreate(
+            project_key=project_key,
+            name=name,
+            workspace_path=workspace_path,
+            description=description,
+        )
         data = self._json("POST", "/projects", json=payload.model_dump())
         return ProjectRead.model_validate(data)
 
@@ -130,12 +158,35 @@ class MAPClient:
     def get_project(self, project_id: uuid.UUID) -> ProjectRead:
         return ProjectRead.model_validate(self._json("GET", f"/projects/{project_id}"))
 
+    def get_project_by_key(self, project_key: str) -> ProjectRead:
+        return ProjectRead.model_validate(self._json("GET", f"/projects/by-key/{project_key}"))
+
     def update_project(self, project_id: uuid.UUID, payload: ProjectUpdate) -> ProjectRead:
         data = self._json("PATCH", f"/projects/{project_id}", json=payload.model_dump(exclude_unset=True))
         return ProjectRead.model_validate(data)
 
     def get_project_status(self, project_id: uuid.UUID) -> ProjectStatusRead:
         return ProjectStatusRead.model_validate(self._json("GET", f"/projects/{project_id}/status"))
+
+    def revise_project_status(
+        self,
+        project_id: uuid.UUID,
+        payload: ProjectStatusRevise,
+    ) -> ProjectStatusVersionRead:
+        data = self._json("POST", f"/projects/{project_id}/status/revisions", json=payload.model_dump())
+        return ProjectStatusVersionRead.model_validate(data)
+
+    def list_project_status_versions(self, project_id: uuid.UUID) -> list[ProjectStatusVersionRead]:
+        data = self._json("GET", f"/projects/{project_id}/status/versions")
+        return [ProjectStatusVersionRead.model_validate(item) for item in data]
+
+    def get_project_status_version(
+        self,
+        project_id: uuid.UUID,
+        version: int,
+    ) -> ProjectStatusVersionRead:
+        data = self._json("GET", f"/projects/{project_id}/status/versions/{version}")
+        return ProjectStatusVersionRead.model_validate(data)
 
     # --- experiments ---
 

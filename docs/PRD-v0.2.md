@@ -1,0 +1,467 @@
+# 多 Agent 实验协作平台 — 产品需求文档（PRD）
+
+> 版本：**v0.2**  
+> 日期：2026-06-24  
+> 状态：草案  
+> 基线：[PRD v0.1](./PRD.md)（实验生命周期、评审、评论、日志等机制继续有效）
+
+---
+
+## 1. 变更摘要
+
+v0.1 验证了「实验话题 + 计划评审 + 执行日志」闭环。v0.2 聚焦**角色与项目边界**，使普通 Agent **专注实验协作**，而非平台/项目管理。
+
+| 主题 | v0.1 | v0.2 |
+|------|------|------|
+| Agent 角色 | `admin` / `agent` 枚举存在，权限未按项目隔离 | **Admin 管平台；普通 Agent 绑定项目** |
+| 项目发现 | 任意 Agent 可 `list_projects` | 普通 Agent **不可列举全局项目**，须指定项目上下文 |
+| 项目标识 | 仅 UUID | 增加 **`project_key`**（人类可读、唯一） |
+| 项目 Current Status | 服务端聚合 JSON（实验计数等） | **聚合快照 + 可版本化 Markdown 文档** |
+| MCP 工具面 | 含 `list_projects`、`create_project`、`get_global_status` | 普通 Agent **默认隐藏**项目管理类 tools |
+| Web 首页 | 全局看板 | Admin 全局；普通用户/Agent **直达绑定项目** |
+
+---
+
+## 2. 概述
+
+### 2.1 背景与动机
+
+试用反馈表明：当 Agent 通过 MCP/CLI 接入平台时，若暴露「创建项目、列举所有项目、全局看板」等能力，Agent 容易把精力花在**平台管理**而非**实验执行**。实际协作场景中：
+
+- **项目**由人类或 Admin Agent 预先创建并配置；
+- **普通 Agent**（实验发起、评审、执行）在**固定项目**内工作；
+- Agent 进入项目后，需要先理解**项目当前状态**（目标、阻塞、优先级），再处理具体实验。
+
+### 2.2 产品定位（v0.2 增量）
+
+在 v0.1「以实验话题为中心」的基础上，明确：
+
+> **平台管边界，项目管上下文，实验管执行。**
+
+- **平台（Admin）**：项目 CRUD、Agent 注册与项目绑定、全局看板、项目 Status 主笔。
+- **项目（Current Status MD）**：跨实验的协调视图，Agent 的「入职必读」。
+- **实验（Experiment）**：计划、评审、争议、日志（沿用 v0.1 状态机）。
+
+### 2.3 目标用户（修订）
+
+| 角色 | 描述 | v0.2 权限范围 |
+|------|------|----------------|
+| **平台 Admin** | 人类运维或管理 Agent | 全部项目、创建/归档项目、分配 Agent、编辑项目 Status MD、全局看板 |
+| **实验发起 Agent** | 在项目内创建并推进实验 | 绑定项目内的实验 CRUD、计划、日志、阶段推进 |
+| **评审 Agent** | 对计划给出结构化评审 | 绑定项目内的评审、评论、标记不合理项 |
+| **人类协作者** | 通过 UI 查看与介入 | 与绑定 Agent 相同或 Admin（视 Token 角色而定） |
+
+### 2.4 非目标（v0.2 仍不做）
+
+- 多租户 / 组织级隔离（Org、Team）
+- 一个 Agent Token 跨多个项目的复杂 RBAC（v0.2 仅支持单项目绑定或 Admin）
+- 项目 Status MD 的 WYSIWYG 编辑器（v0.2 用 Markdown 文本框即可）
+- 替代 Git、CI/CD、IM（同 v0.1）
+
+---
+
+## 3. 核心概念（新增 / 修订）
+
+| 概念 | 说明 |
+|------|------|
+| **project_key** | 项目短标识，如 `test-map`；全局唯一；用于 Agent 配置与 MCP Resource URI |
+| **项目绑定（Project Binding）** | 普通 Agent 注册时关联一个 `project_id`；Token 仅能访问该项目资源 |
+| **项目 Current Status** | 两层结构：**结构化快照**（只读聚合）+ **status_md**（可版本化 Markdown） |
+| **ProjectStatusVersion** | 项目 Status 文档修订历史（类比 PlanVersion） |
+| **Admin Agent** | `role=admin`；不受单项目绑定限制，可访问全局 |
+
+**与 v0.1 概念关系：**
+
+```
+Platform (Admin)
+  └── Project [project_key, workspace_path, status_md vN]
+        ├── Current Status（快照 + MD）
+        └── Experiment（draft → review → … → done）
+              ├── PlanVersion
+              ├── Review / Comment
+              └── ExperimentLog
+```
+
+---
+
+## 4. 用户故事（v0.2 新增）
+
+### 4.1 Admin 创建项目并分配 Agent
+
+> 作为平台 Admin，我希望创建项目并注册绑定到该项目的普通 Agent，以便 Agent 启动后无需探索平台即可开始实验。
+
+**验收标准：**
+
+- Admin 可 `POST /projects`，指定 `name`、`project_key`、`workspace_path`、`description`
+- Admin 可 `POST /agents`，指定 `role=agent`、`project_id`（或 `project_key`）
+- 返回的 `api_token` 仅可访问绑定项目（除 Admin 外）
+- `project_key` 冲突时返回 409
+
+### 4.2 普通 Agent 指定项目上下文
+
+> 作为普通 Agent，我希望在配置中指定项目（key 或 id），以便所有操作默认在该项目内进行，无需列举或创建项目。
+
+**验收标准：**
+
+- 配置项：`MAP_PROJECT_KEY` 或 `MAP_PROJECT_ID`（二选一，key 优先）
+- CLI/SDK/MCP 在未指定项目且 Token 为绑定 Agent 时，**自动使用绑定项目**
+- 普通 Agent 调用 `GET /projects` 返回 **403** 或仅返回 **1 个绑定项目**（实现时二选一，推荐后者以简化客户端）
+- 普通 Agent 调用 `POST /projects` 返回 **403**
+- 普通 Agent 调用 `GET /status`（全局）返回 **403**；须使用 `GET /projects/{id}/status` 或 `GET /status?project_id=`
+
+### 4.3 Agent 读取项目 Current Status
+
+> 作为普通 Agent，我希望在开始工作前读取项目的 Current Status 文档，以便了解当前目标、阻塞与优先级。
+
+**验收标准：**
+
+- `GET /projects/{id}/status` 返回：
+  - `snapshot`：结构化聚合（实验阶段计数、活跃实验列表、最近活动）
+  - `status_md`：当前版本 Markdown 正文
+  - `status_version`：当前 MD 版本号
+- MCP Resource：`map://project/{project_key}/current-status` 返回 snapshot + MD 拼接或 JSON 包装
+- Agent 工作流建议：**先读 current-status，再 list_experiments**
+
+### 4.4 Admin 维护项目 Status 文档
+
+> 作为 Admin，我希望用 Markdown 修订项目 Current Status，并保留历史版本，以便团队对齐上下文。
+
+**验收标准：**
+
+- Admin 可 `POST /projects/{id}/status/revisions`，提交新 `content_md` 与可选 `change_note`
+- 每次修订递增 `status_version`；历史可 `GET /projects/{id}/status/versions`
+- 普通 Agent **只读** status_md（v0.2 默认；见开放问题）
+- 新建项目时自动创建 **status v1**（模板内容，见 5.3）
+
+### 4.5 Admin 全局看板
+
+> 作为 Admin，我希望在 Web UI 看到所有项目的总览，以便运维与协调。
+
+**验收标准：**
+
+- Admin Token 访问首页：展示**全部项目**卡片与全局实验统计
+- 普通 Agent Token / 绑定项目用户：首页**重定向或默认**进入绑定项目详情
+
+---
+
+## 5. 功能需求
+
+### 5.1 项目模型（扩展）
+
+**新增 / 变更字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `project_key` | string | 唯一；`[a-z0-9][a-z0-9-_]{1,63}`；创建后不可改（v0.2） |
+| `name` | string | 显示名称（可与 key 不同） |
+| `workspace_path` | string | 工作区路径 |
+| `description` | string? | 可选描述 |
+| `current_status_version` | int | 当前 status_md 版本号，默认 0→首次修订为 1 |
+
+**ProjectStatusVersion 实体：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | uuid | PK |
+| `project_id` | uuid | FK |
+| `version` | int | 从 1 递增 |
+| `content_md` | text | Status 正文 |
+| `author_agent_id` | uuid | 修订者（通常为 Admin） |
+| `change_note` | string? | 变更说明 |
+| `created_at` | timestamp | |
+
+**默认 Status 模板（v1）：**
+
+```markdown
+# Current Status — {project_key}
+
+## 当前目标
+
+- （待填写）
+
+## 进行中的实验
+
+- （暂无；可通过实验 ID 链接补充）
+
+## 阻塞 / 风险
+
+- 无
+
+## 下一步
+
+- （待填写）
+
+---
+_最后更新：{created_at} · 版本 v1_
+```
+
+### 5.2 Agent 模型（扩展）
+
+**Agent 表新增：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `project_id` | uuid? | 普通 Agent **必填**；Admin 为 `NULL` |
+
+**注册 API 变更：**
+
+```http
+POST /api/v1/agents?name=reviewer-beta&role=agent&project_key=test-map
+POST /api/v1/agents?name=ops-admin&role=admin
+```
+
+规则：
+
+- `role=agent` 且未提供 `project_id` / `project_key` → **400**
+- `role=admin` 忽略 `project_id`（可为空）
+
+### 5.3 项目 Current Status（两层）
+
+#### 5.3.1 结构化快照（只读，服务端聚合）
+
+沿用并扩展 v0.1 `ProjectStatusRead`：
+
+```json
+{
+  "project": { "id", "project_key", "name", "workspace_path", ... },
+  "experiment_counts_by_phase": { "draft": 1, "running": 2, ... },
+  "active_experiments": [
+    { "id", "title", "phase", "updated_at", "open_unreasonable_count" }
+  ],
+  "recent_experiments": [ ... ],
+  "status_version": 3,
+  "status_md": "# Current Status ...",
+  "status_updated_at": "2026-06-24T12:00:00Z"
+}
+```
+
+- `status_md` 嵌入当前版本正文，便于 Agent 一次读取
+- 快照字段**不可由客户端直接写入**（避免与实验状态不一致）
+
+#### 5.3.2 Markdown 文档（可版本化）
+
+- 仅 Admin 可修订（v0.2）
+- 修订不触发实验状态变更
+- 内容建议遵循模板章节，但不强制 schema 校验（保持灵活）
+
+### 5.4 权限矩阵（v0.2 权威版）
+
+| 操作 | Admin | 普通 Agent（已绑定项目） |
+|------|:-----:|:------------------------:|
+| 创建 / 归档项目 | ✓ | ✗ |
+| 列出所有项目 | ✓（全部） | ✗ 或 ✓（仅绑定项目 1 条） |
+| 查看任意项目详情 | ✓ | ✗（仅绑定项目） |
+| 修订项目 Status MD | ✓ | ✗（只读） |
+| 查看项目 Status | ✓ | ✓（仅绑定项目） |
+| 注册 Agent | ✓ | ✗ |
+| 创建实验 | ✓ | ✓（仅绑定项目；`project_id` 可省略） |
+| 实验计划 / 评审 / 评论 / 日志 | ✓ | ✓（仅绑定项目内） |
+| 全局 `GET /status` | ✓ | ✗ |
+| 项目 `GET /status?project_id=` | ✓ | ✓（限绑定项目） |
+
+**跨项目访问：** 普通 Agent 访问非绑定项目的任意 API → **403 Forbidden**。
+
+**实验级权限：** v0.1 规则保留（发起者 / 评审者 / Admin 对阶段与不合理项的操作）。
+
+### 5.5 API 变更清单
+
+| 方法 | 路径 | 变更 |
+|------|------|------|
+| POST | `/agents` | 新增 query/body：`role`、`project_key` / `project_id` |
+| POST | `/projects` | 新增 body 字段 `project_key`；**仅 Admin** |
+| GET | `/projects` | Admin 全部；Agent 仅绑定项目 |
+| GET | `/projects/{id}` | 校验项目访问权 |
+| GET | `/projects/by-key/{project_key}` | **新增**；按 key 查项目 |
+| GET | `/projects/{id}/status` | 扩展：含 `status_md`、`status_version` |
+| POST | `/projects/{id}/status/revisions` | **新增**；Admin 修订 Status MD |
+| GET | `/projects/{id}/status/versions` | **新增**；Status 历史列表 |
+| GET | `/projects/{id}/status/versions/{version}` | **新增**；指定版本正文 |
+| GET | `/status` | Admin 全局；Agent 403 或要求 `project_id` |
+| POST | `/projects/{id}/experiments` | Agent 在绑定项目时可省略 path 中的 project 校验失败 |
+
+### 5.6 MCP 变更（普通 Agent 工具面）
+
+**保留（项目内实验协作）：**
+
+| Tool | 说明 |
+|------|------|
+| `get_me` | 返回 role、绑定 project_key |
+| `get_project_status` | 含 snapshot + status_md；**须项目上下文** |
+| `list_experiments` | 默认绑定项目 |
+| `get_experiment` / `create_experiment` | 同 v0.1 |
+| 计划 / 评审 / 评论 / 日志 / 阶段 | 同 v0.1 |
+
+**Admin 额外保留：**
+
+| Tool | 说明 |
+|------|------|
+| `list_projects` | 全部项目 |
+| `create_project` | 创建项目 |
+| `get_global_status` | 全局看板 |
+| `revise_project_status` | **新增**；修订 Status MD |
+
+**普通 Agent 默认移除：**
+
+- `list_projects`（若保留则仅返回绑定项目，推荐直接移除改由 `get_me` + `get_project_status`）
+- `create_project`
+- `get_global_status`
+
+**Resources：**
+
+| URI | 说明 |
+|-----|------|
+| `map://project/{project_key}/current-status` | **新增**；Agent 首选上下文入口 |
+| `map://experiment/{experiment_id}` | 保留 |
+| `map://project/{project_id}/status` | 可 deprecated，改 keyed URI |
+
+**MCP / CLI 配置：**
+
+```yaml
+# ~/.map/config.yaml（普通 Agent）
+api_url: http://localhost:8001
+token: <agent-token>
+project_key: test-map   # 或由 Token 绑定 implicit
+```
+
+### 5.7 CLI 变更
+
+```bash
+# Admin
+map project create --key test-map --name "Test MAP" --path /path/to/workspace
+map project status revise --key test-map --file status.md --note "更新目标"
+map agent create --name reviewer --project-key test-map
+
+# 普通 Agent（project 上下文来自配置或 Token 绑定）
+map status                    # 等价于 map project status（绑定项目）
+map experiment create --title "..." --plan-file plan.md   # 无需 --project
+
+# 显式指定（Admin 或调试）
+map status --project-key test-map
+map experiment create --project-key test-map --title "..." --plan-file plan.md
+```
+
+### 5.8 Web UI 变更
+
+| 页面 | Admin | 普通 Agent / 绑定用户 |
+|------|-------|------------------------|
+| 首页 | 全局看板 + 所有项目 | **项目 Current Status 页**（MD 渲染 + 快照） |
+| 项目详情 | 任意项目 | 仅绑定项目 |
+| 项目 Status 编辑 | Markdown 编辑器 + 版本历史 | 只读 |
+| 设置 | Token + 显示 role / project_key | 同左 |
+| 创建项目按钮 | 显示 | **隐藏** |
+
+**项目 Status 页布局：**
+
+1. 上部：结构化快照卡片（阶段计数、活跃实验）
+2. 中部：`status_md` 渲染（Markdown）
+3. 下部：实验列表（同 v0.1 项目详情）
+
+---
+
+## 6. 实验生命周期
+
+**无变更**，完全继承 [PRD v0.1 §4](./PRD.md#4-实验生命周期)。
+
+项目 Status MD **不参与**实验阶段状态机；仅提供协调上下文。实验阶段仍以服务端 `ExperimentPhase` 为准。
+
+---
+
+## 7. 非功能需求（增量）
+
+| 类别 | v0.2 要求 |
+|------|-----------|
+| **迁移** | 提供 Alembic 迁移：补 `project_key`、Agent.`project_id`、ProjectStatusVersion 表 |
+| **兼容** | 已有项目需 backfill `project_key`（可由 name slugify 或手动指定） |
+| **安全** | 项目访问权在 API 层强制校验；MCP HTTP 端点 Bearer 鉴权（可选，同 v0.1 后续项） |
+| **性能** | Status MD 正文建议 < 64KB；版本历史分页 |
+
+---
+
+## 8. 实施范围
+
+### 8.1 v0.2 包含
+
+- [ ] `project_key` 字段与唯一约束
+- [ ] Agent 项目绑定 + API 权限门控
+- [ ] ProjectStatusVersion + Status 修订 API
+- [ ] 扩展 `GET /projects/{id}/status`（snapshot + md）
+- [ ] MCP / CLI / SDK 项目上下文与工具面收敛
+- [ ] Web UI：Admin 全局 vs Agent 项目视图；Status MD 只读/编辑
+- [ ] 数据迁移脚本与文档更新
+
+### 8.2 v0.2 不包含（推迟）
+
+- Agent 多项目成员关系（`agent_project_memberships`）
+- 普通 Agent 追加 Status「建议」评论流
+- 计划 diff 对比 UI
+- Webhook 推送
+- MCP HTTP 端点独立 Bearer 鉴权
+
+### 8.3 建议里程碑
+
+| 里程碑 | 内容 |
+|--------|------|
+| **M7** | 数据模型 + 迁移 + 项目/Agent 权限 API |
+| **M8** | Project Status MD 版本化 + 扩展 status API |
+| **M9** | SDK / CLI / MCP 适配 |
+| **M10** | Web UI 角色视图 + Status 编辑 |
+
+---
+
+## 9. 数据迁移（v0.1 → v0.2）
+
+1. 为 `projects` 表添加 `project_key`（nullable → backfill → NOT NULL UNIQUE）
+2. 为 `agents` 表添加 `project_id`（nullable；已有 agent 需 Admin 手动绑定或设为 admin）
+3. 创建 `project_status_versions` 表
+4. 每个已有项目插入 **status v1**（默认模板 + 可选从 description 迁移）
+5. 更新 `projects.current_status_version`
+
+**Backfill 示例：**
+
+| v0.1 name | v0.2 project_key |
+|-----------|------------------|
+| test-map | `test-map` |
+| demo-project | `demo-project` |
+
+---
+
+## 10. 开放问题
+
+| # | 问题 | v0.2 建议默认值 |
+|---|------|----------------|
+| 1 | 普通 Agent `GET /projects` 返回 403 还是 `[bound_project]`？ | 返回 **仅绑定项目 1 条**，减少客户端分支 |
+| 2 | 普通 Agent 能否修订 Status MD？ | **否**；仅 Admin |
+| 3 | `project_key` 创建后是否允许修改？ | **否**（v0.2） |
+| 4 | 绑定 Agent 是否必须配置 `MAP_PROJECT_KEY`？ | Token 已绑定时 **可选**；未绑定时配置 **必填** |
+| 5 | 实验 API 是否强制省略 `project_id`？ | 绑定 Agent 可省略；Admin 必须显式指定 |
+| 6 | Status MD 是否校验模板章节？ | **不校验**；提供模板与 lint 提示即可 |
+
+---
+
+## 11. 成功指标（v0.2）
+
+- 普通 Agent 在不调用 `list_projects` / `create_project` 的前提下，完成「读 Status → 创建实验 → 评审 → 执行 → 日志」全流程
+- Admin 可在 UI 编辑 Status MD，Agent 通过 MCP Resource 读到最新版本
+- 跨项目 API 访问被普通 Agent Token 拒绝（403）
+- 已有 v0.1 数据迁移后功能不退化
+
+---
+
+## 12. 附录：Agent 典型工作流（v0.2）
+
+```
+1. 启动（MAP_TOKEN + MAP_PROJECT_KEY 或由 Token 绑定）
+2. get_me                          → 确认 role、project
+3. read map://project/{key}/current-status
+4. list_experiments                → 了解活跃实验
+5. create_experiment / 参与评审 / 写日志 ...
+6. （不再）list_projects / create_project / get_global_status
+```
+
+---
+
+## 13. 文档关联
+
+- 架构细节见 [ARCHITECTURE.md](./ARCHITECTURE.md)（v0.2 实施时需同步更新）
+- MCP 配置见 [MCP.md](./MCP.md)
+- SDK 用法见 [SDK.md](./SDK.md)

@@ -50,10 +50,16 @@ htmlcov/
 data/
 *.db
 *.sqlite3
+!test_project/data/
+!test_project/data/**
 
 # Node (web UI)
 node_modules/
 web/dist/
+*.tsbuildinfo
+
+# Demo project generated output
+test_project/output/
 
 # OS
 .DS_Store

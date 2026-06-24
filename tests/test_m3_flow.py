@@ -5,12 +5,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def approved_experiment(client: TestClient, auth_headers: dict[str, str], reviewer: dict) -> dict:
-    project = client.post(
-        "/api/v1/projects",
-        headers=auth_headers,
-        json={"name": "M3 项目", "workspace_path": "/tmp/m3"},
-    ).json()
+def approved_experiment(client: TestClient, auth_headers: dict[str, str], reviewer: dict, project: dict) -> dict:
     experiment = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,

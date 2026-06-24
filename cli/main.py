@@ -8,12 +8,14 @@ import typer
 import yaml
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
+from server.domain.models import AgentRole
 from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
     ExperimentLogCreate,
     PlanInput,
     PlanRevise,
+    ProjectStatusRevise,
     ReviewCreate,
 )
 
@@ -54,15 +56,31 @@ def _run(action) -> None:
     except MAPHTTPError as exc:
         typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
         raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: str | None) -> uuid.UUID:
+    cfg_key = None
+    try:
+        from map_client.config import load_config
+
+        cfg_key = load_config().get("project_key")
+    except Exception:
+        pass
+    key = project_key or cfg_key
+    return client.resolve_project_id(project, project_key=key)
 
 
 @project_app.command("create")
 def project_create(
+    key: str = typer.Option(..., "--key"),
     name: str = typer.Option(..., "--name"),
     path: str = typer.Option(..., "--path"),
     description: str | None = typer.Option(None, "--description"),
 ) -> None:
-    _run(lambda c: c.create_project(name, path, description))
+    _run(lambda c: c.create_project(key, name, path, description))
 
 
 @project_app.command("list")
@@ -70,11 +88,51 @@ def project_list(include_archived: bool = typer.Option(False, "--include-archive
     _run(lambda c: c.list_projects(include_archived=include_archived))
 
 
+status_app = typer.Typer(help="Project Current Status commands")
+project_app.add_typer(status_app, name="status")
+
+
+@status_app.command("revise")
+def project_status_revise(
+    status_file: Path = typer.Option(..., "--file"),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    note: str | None = typer.Option(None, "--note"),
+) -> None:
+    payload = ProjectStatusRevise(content_md=status_file.read_text(encoding="utf-8"), change_note=note)
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        return c.revise_project_status(pid, payload)
+
+    _run(action)
+
+
+@status_app.command("versions")
+def project_status_versions(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    _run(lambda c: c.list_project_status_versions(_resolve_project(c, project, project_key)))
+
+
+@status_app.command("show")
+def project_status_show(
+    version: int = typer.Option(..., "--version"),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    _run(
+        lambda c: c.get_project_status_version(_resolve_project(c, project, project_key), version)
+    )
+
+
 @experiment_app.command("create")
 def experiment_create(
-    project: uuid.UUID = typer.Option(..., "--project"),
     title: str = typer.Option(..., "--title"),
     plan_file: Path = typer.Option(..., "--plan-file"),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
     description: str | None = typer.Option(None, "--description"),
     submit_for_review: bool = typer.Option(False, "--submit-for-review"),
 ) -> None:
@@ -85,7 +143,12 @@ def experiment_create(
         plan=PlanInput(content_md=content),
         submit_for_review=submit_for_review,
     )
-    _run(lambda c: c.create_experiment(project, payload))
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        return c.create_experiment(pid, payload)
+
+    _run(action)
 
 
 @experiment_app.command("submit-review")
@@ -193,8 +256,21 @@ def experiment_comment(
 
 
 @app.command("status")
-def global_status(project: uuid.UUID | None = typer.Option(None, "--project")) -> None:
-    _run(lambda c: c.get_global_status(project))
+def project_or_global_status(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    def action(c: MAPClient):
+        if project is not None or project_key is not None:
+            pid = _resolve_project(c, project, project_key)
+            return c.get_project_status(pid)
+        me = c.get_me()
+        if me.role == AgentRole.admin:
+            return c.get_global_status()
+        pid = _resolve_project(c, None, None)
+        return c.get_project_status(pid)
+
+    _run(action)
 
 
 def main() -> None:
