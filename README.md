@@ -6,10 +6,59 @@
 
 - [产品需求文档（PRD）](docs/PRD.md)
 - [架构设计](docs/ARCHITECTURE.md)
+- [Python SDK 指南](docs/SDK.md)
 
 ## 状态
 
-项目处于 **需求与架构设计阶段**（v0.1 草案），尚未开始实现。
+**M1 已完成**：数据模型、Alembic 迁移、Projects/Experiments CRUD REST API。  
+**M2 已完成**：Plans 修订、Reviews、Comments、实验阶段与不合理项状态机。  
+**M3 已完成**：实验日志、Start/Complete、全局 Status API、CLI（`map` 命令）。  
+**M4 已完成**：React + Vite Web UI（看板、项目、实验话题页）。  
+**M5 已完成**：Python SDK（`map_client`）、SDK 文档、CLI 基于 SDK 重构、Docker 部署。
+
+## 快速开始
+
+```bash
+# 安装依赖（含开发工具）
+pip install -e ".[dev]"
+
+# 运行数据库迁移
+alembic upgrade head
+
+# 启动 API 服务
+map-server
+# 或: uvicorn server.main:app --reload
+
+# 注册 Agent 并保存返回的 api_token
+curl -X POST "http://localhost:8000/api/v1/agents?name=agent-alpha"
+
+# 创建项目
+curl -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"demo","workspace_path":"/tmp/demo"}' \
+  http://localhost:8000/api/v1/projects
+
+# 运行测试
+pytest
+
+# CLI 用法（需设置 MAP_TOKEN 或 ~/.map/config.yaml）
+export MAP_TOKEN=<your-token>
+map project list
+map status
+map experiment start --id <exp-id>
+map experiment complete --id <exp-id> --summary "完成" --file log.md
+
+# Web UI（React + Vite）
+cd web && npm install && npm run dev   # http://localhost:5173
+# 开发模式通过 Vite 代理访问 API；先在设置页填入 API Token
+
+# Docker（API + Web）
+docker compose up --build
+
+# Python SDK
+python -c "from map_client import MAPClient; print(MAPClient.from_env().get_me())"
+# 详见 docs/SDK.md
+```
 
 ## 核心流程（简述）
 
@@ -21,4 +70,4 @@
 
 ## 后续
 
-实现将按架构文档中的里程碑 M1–M5 推进：API → 状态机 → CLI → UI → SDK。
+M1–M5 里程碑已全部完成。可继续扩展：计划 diff 对比、Webhook 通知、Agent 待办视图等（见 PRD v0.2）。

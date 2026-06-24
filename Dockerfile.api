@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY server ./server
+COPY cli ./cli
+COPY sdk ./sdk
+COPY alembic ./alembic
+COPY alembic.ini ./
+RUN pip install --no-cache-dir .
+RUN mkdir -p /app/data
+EXPOSE 8000
+CMD ["sh", "-c", "alembic upgrade head && map-server"]

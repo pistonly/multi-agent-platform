@@ -1,0 +1,15 @@
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def load_config(config_path: Path | None = None) -> dict[str, Any]:
+    path = config_path or Path.home() / ".map" / "config.yaml"
+    config: dict[str, Any] = {}
+    if path.exists():
+        config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    api_url = config.get("api_url") or os.environ.get("MAP_API_URL", "http://localhost:8000")
+    token = config.get("token") or os.environ.get("MAP_TOKEN")
+    return {"api_url": str(api_url).rstrip("/"), "token": token, "config_path": path}
