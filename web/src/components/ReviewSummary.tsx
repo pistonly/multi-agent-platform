@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { createReview } from "../api/client";
 import type { Review, ReviewItem, ReviewItemStatus } from "../api/types";
 
 const STATUS_LABELS: Record<ReviewItemStatus, string> = {
@@ -39,7 +42,38 @@ function ItemRow({ item }: { item: ReviewItem }) {
   );
 }
 
-export function ReviewSummary({ reviews }: { reviews: Review[] }) {
+function splitLines(s: string): string[] {
+  return s
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+interface ReviewSummaryProps {
+  experimentId: string;
+  reviews: Review[];
+  onUpdated: () => void;
+}
+
+export function ReviewSummary({ experimentId, reviews, onUpdated }: ReviewSummaryProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [okText, setOkText] = useState("");
+  const [badText, setBadText] = useState("");
+
+  const reviewMutation = useMutation({
+    mutationFn: () =>
+      createReview(experimentId, {
+        reasonable_items: splitLines(okText),
+        unreasonable_items: splitLines(badText),
+      }),
+    onSuccess: () => {
+      setOkText("");
+      setBadText("");
+      setExpanded(false);
+      onUpdated();
+    },
+  });
+
   const reasonable = reviews.flatMap((r) => r.items.filter((i) => i.kind === "reasonable"));
   const unreasonable = reviews.flatMap((r) => r.items.filter((i) => i.kind === "unreasonable"));
   const openCount = unreasonable.filter(
@@ -80,6 +114,47 @@ export function ReviewSummary({ reviews }: { reviews: Review[] }) {
         </div>
       )}
       {reviews.length === 0 && <p className="text-sm text-slate-500">暂无评审</p>}
+
+      <div className="mt-4 border-t border-surface-border pt-3">
+        {expanded ? (
+          <div className="space-y-2">
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">合理项（每行一条，可选）</label>
+              <textarea
+                className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+                value={okText}
+                onChange={(e) => setOkText(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">不合理项（每行一条，可选）</label>
+              <textarea
+                className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+                value={badText}
+                onChange={(e) => setBadText(e.target.value)}
+              />
+            </div>
+            {reviewMutation.isError && <p className="text-sm text-red-400">提交失败</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setExpanded(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={reviewMutation.isPending || (!okText.trim() && !badText.trim())}
+                onClick={() => reviewMutation.mutate()}
+              >
+                {reviewMutation.isPending ? "提交中…" : "提交评审"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
+            提交评审
+          </button>
+        )}
+      </div>
     </div>
   );
 }

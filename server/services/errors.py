@@ -6,6 +6,10 @@ class ConflictError(Exception):
     pass
 
 
+class UnauthorizedError(Exception):
+    pass
+
+
 class ForbiddenError(Exception):
     pass
 

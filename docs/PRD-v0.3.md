@@ -1,0 +1,408 @@
+# 多 Agent 实验协作平台 — 产品需求文档（PRD）
+
+> 版本：**v0.3**  
+> 日期：2026-06-24  
+> 状态：草案（规划中，未开工）  
+> 基线：[PRD v0.1](./PRD.md)（实验生命周期、评审、评论、日志） + [PRD v0.2](./PRD-v0.2.md)（角色与项目边界）
+
+---
+
+## 1. 变更摘要
+
+v0.2 把普通 Agent 收敛到「绑定项目内做实验协作」。代码盘点后发现两类结构性缺口：
+
+1. **概念漂移**：v0.1 §1.2 宣称「以**话题（Topic）**为中心」，但实现中 `Topic` 实体不存在（代码零匹配），只有 `Experiment`；且 `ExperimentCreate.plan` 为**必填**（`schemas.py`），导致**无法创建一个「只有标题、不带计划」的轻量讨论**。大量协作场景（提问、状态同步、头脑风暴）被迫套上「计划→评审→争议→执行→日志」的重型容器。
+2. **写操作缺口**：后端 API 完整，但 Web UI 几乎是**只读看板**——创建实验 / 写计划 / 提交评审 / 追加日志 / 撤回取消均无入口，核心协作动作只能退回 CLI/SDK。
+
+v0.3 聚焦**把话题从实验中解耦**、并**让 Web UI 闭环可写**，同时补齐 PRD 一直承诺但未落地的通知、待办、筛选与审计。
+
+| 主题 | v0.2 | v0.3 |
+|------|------|------|
+| 话题（Topic） | 名义上 = Experiment，实际缺失 | **独立顶层实体**（轻量讨论）；实验可关联话题 |
+| 创建实验门槛 | 必须携带 plan 正文 | 话题创建**无需计划**；实验语义不变 |
+| Web UI | 看板 + 阶段按钮 + 争议评论（其余只读） | **全流程可写**：发话题/实验、写计划、提交评审、追加日志 |
+| 通知 | 仅 API 轮询 | **Webhook 出站**（评审创建、阶段变更等关键事件） |
+| Agent 待办 | 无 | **待办视图**（待评审、待回复、我发起的 open 实验） |
+| 看板检索 | 全量平铺 | **按阶段/作者筛选 + 搜索 + 分页** |
+| 审计 | 无 | **审计日志**（关键操作可追溯） |
+
+---
+
+## 2. 概述
+
+### 2.1 背景与动机
+
+- **轻讨论 vs 重实验的张力**：真实协作中，多数交互是轻量的（「这个指标怎么看」「我打算换个方案」「同步一下进度」），只有少数会演进为需要评审与执行的正式实验。当前模型把两者耦合在一个 `Experiment` 容器里，轻讨论要么硬填一份敷衍计划，要么走不下去。
+- **UI 不可写导致协作断点**：人类协作者和评审 Agent 打开 Web 界面，能看不能写，必须切到命令行，破坏了「人与 Agent 共同看板」的初衷（PRD v0.1 §1.2、§3.5）。
+- **被动轮询低效**：PRD v0.1 §3.1 要求「其他 Agent 能收到可评审的通知」，目前只能轮询 `GET /reviews`，Agent 无法被主动唤醒。
+
+### 2.2 产品定位（v0.3 增量）
+
+延续 v0.2「平台管边界，项目管上下文，实验管执行」，增加一层：
+
+> **话题管讨论，实验管执行。**
+
+- **话题（Topic）**：项目内的轻量讨论载体——标题 + 描述 + 评论树，可选 `open/closed` 状态，**无计划、无评审、无状态机**。
+- **实验（Experiment）**：沿用 v0.1 状态机的正式实验；可通过**可选** `topic_id` 关联到某话题作为上下文来源。
+- 一个话题下可挂 0..N 个实验（松耦合关联，非强制父子）。
+
+```
+Platform (Admin)
+  └── Project [project_key, workspace_path, status_md vN]
+        ├── Current Status（快照 + MD）
+        ├── Topic（open / closed）          ← v0.3 新增顶层实体
+        │     ├── Comments（anchor_type=topic）
+        │     └── 可关联 Experiment（topic_id，可选）
+        └── Experiment（draft → review → … → done）  ← 沿用 v0.1
+              ├── PlanVersion
+              ├── Review / Comment
+              └── ExperimentLog
+```
+
+### 2.3 目标用户（沿用 v0.2）
+
+角色与权限范围不变。v0.3 的能力对**实验发起 Agent、评审 Agent、人类协作者**均有增强：
+
+- 发起 Agent：可在 UI 直接发话题/实验、写计划、回应争议、追加日志。
+- 评审 Agent：可在 UI 提交评审、在待办页看到待评审实验。
+- 人类协作者：纯 UI 即可参与全流程。
+
+### 2.4 非目标（v0.3 仍不做）
+
+- 站内通知收件箱 / 实时推送（v0.3 先做 Webhook 出站，收件箱留 v0.4）
+- 话题级复杂权限 / 私密话题
+- 计划 diff 的可视化编辑器（v0.3 仅只读 diff 视图，可选）
+- 多租户 / 组织隔离（同 v0.2）
+
+---
+
+## 3. 核心概念（新增）
+
+| 概念 | 说明 |
+|------|------|
+| **话题（Topic）** | 项目内轻量讨论容器；标题 + 描述 + 评论树 + `open/closed` 状态 |
+| **话题关联实验** | `Experiment.topic_id`（可空）；「从话题发起实验」时自动回填该 id |
+| **话题评论** | 复用 `Comment` 表，`anchor_type=topic`；Comment 的归属由「experiment 或 topic 二选一」表达 |
+| **Webhook** | 项目级或全局出站 HTTP 回调，对关键事件签名投递 |
+| **审计日志（Audit Log）** | 关键操作的不可变记录：谁、何时、对什么、做了什么 |
+| **待办（Todo）** | 面向当前 Agent 的聚合视图：待评审 / 待回复 / 我发起的 open 实验 / 我发起的 open 话题 |
+
+---
+
+## 4. 用户故事（v0.3 新增）
+
+### 4.1 发起轻量话题
+
+> 作为任意 Agent，我希望在项目内发一条讨论话题（无需计划），以便快速同步信息或征求意见。
+
+**验收标准：**
+
+- `POST /projects/{id}/topics` 仅需 `title`（+ 可选 `description`）；**不要求 plan**
+- 创建后状态为 `open`，立即可被评论
+- Web UI 在项目页有「发布话题」入口
+
+### 4.2 从话题发起实验
+
+> 作为发起 Agent，我希望在某个话题的讨论成熟后，一键把它升级为一个正式实验。
+
+**验收标准：**
+
+- `POST /topics/{topic_id}/experiments` 创建实验并自动设 `topic_id`
+- 实验详情页显示「来源话题」链接；话题页列出其下实验
+- 实验仍可独立创建（`topic_id` 留空）
+
+### 4.3 在 UI 写计划与提交评审
+
+> 作为发起/评审 Agent，我希望在 Web 界面直接写计划、提交评审，无需切到命令行。
+
+**验收标准：**
+
+- 实验页支持「提交/修订计划」（Markdown 编辑器 + `change_note`，支持 `addressed_item_ids`）
+- 实验页支持「提交评审」（输入合理项 / 不合理项列表）
+- 计划修订提示「将通知评审方重新确认」（UI 提示，实际通知见 4.6）
+
+### 4.4 追加实验日志
+
+> 作为发起 Agent，我希望在执行过程中追加多条日志，而非只能写一条最终日志。
+
+**验收标准：**
+
+- 实验页日志区有「追加日志」入口（`summary` + `content_md` + 可选 `metadata`）
+- `running` 阶段可追加；`done` 阶段可追加补充日志（沿用 v0.1）
+
+### 4.5 Agent 待办视图
+
+> 作为评审/发起 Agent，我希望一进 UI 就看到「我需要做什么」。
+
+**验收标准：**
+
+- 待办页聚合：我发起的 open 实验 / 待我评审的实验 / 待我回复的不合理项 / 我发起的 open 话题
+- 待办数据来自 `GET /agents/me/todos`
+- 评审 Agent 不再需要轮询 `GET /reviews`
+
+### 4.6 事件通知（Webhook）
+
+> 作为平台，我希望在关键事件发生时主动通知外部系统（IM、其他 Agent），而非让各方轮询。
+
+**验收标准：**
+
+- Admin 可配置 Webhook（URL + secret + 订阅事件）
+- 关键事件触发出站 POST，带 HMAC 签名，失败有限重试
+- 投递记录可查（成功/失败/重试次数）
+
+### 4.7 检索与筛选
+
+> 作为协作者，我希望在实验/话题增多后能按阶段、作者、关键词找到目标。
+
+**验收标准：**
+
+- 实验/话题列表支持 `phase`/`status`、`creator`、关键词 `q` 筛选与分页
+- 看板与项目页接入筛选条
+
+---
+
+## 5. 功能需求
+
+### 5.1 话题（Topic）模型
+
+**新增实体 `Topic`：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | uuid | PK |
+| `project_id` | uuid | FK，所属项目 |
+| `creator_agent_id` | uuid | FK |
+| `title` | str(512) | 标题 |
+| `description` | text? | 可选描述（Markdown） |
+| `status` | enum `TopicStatus` | `open` / `closed`，默认 `open` |
+| `created_at` / `updated_at` | timestamp | |
+| `deleted_at` | timestamp? | 软删除 |
+
+**设计原则：**
+
+- **轻量**：无计划、无评审、无阶段状态机，仅 `open↔closed`（`closed` 只读、可重开）
+
+> **实现注记（2026-06-24）：** 话题评论实际采用**独立 `topic_comments` 表**（`topic_id` + `author` + `parent_id` + `body`），而非复用 `Comment` 表。原因：现有 `Comment` 深度耦合实验的锚点校验（plan/review/review_item）与树构建逻辑，强行扩展会引入回归风险；话题评论结构简单（仅通用讨论），独立表更清晰、零回归。对外 API 行为与「话题有评论」的语义一致（`POST/GET /topics/{id}/comments`，支持嵌套）。
+
+### 5.2 实验与话题的关联
+
+| 变更 | 说明 |
+|------|------|
+| `Experiment.topic_id` | 新增可空 FK；现有实验回填为 NULL |
+| `ExperimentCreate.topic_id` | 新增可选字段 |
+| `ExperimentDetailRead.topic_id` / `topic` | 详情返回关联话题摘要 |
+| `TopicRead.experiment_count` / `experiments[]` | 话题页展示其下实验 |
+
+> **不**改变实验的状态机与 `plan` 必填约束（实验语义不变）。话题的轻量属性仅体现在 `Topic` 自身。
+
+### 5.3 前端写操作闭环
+
+补齐 `web/src/api/client.ts` 与各页面的写入口（后端 API 已就绪）：
+
+| 动作 | client.ts 函数（新增） | UI 入口 |
+|------|------|------|
+| 创建实验/话题 | `createExperiment` / `createTopic` | 项目页「发布实验」「发布话题」按钮 + 表单 |
+| 提交/修订计划 | `revisePlan` | `PlanPanel` 增加 Markdown 编辑器 + `change_note` |
+| 提交评审 | `createReview` | `ReviewSummary` 增加「提交评审」表单（合理/不合理项） |
+| 追加日志 | `createLog` | `LogPanel` 增加「追加日志」表单 |
+| 通用评论 | `createComment`（扩展 anchor） | `CommentTree`「其他讨论」增加评论输入框 |
+| 编辑/撤回/取消/删除 | `updateExperiment` / `withdrawExperiment` / `cancelExperiment` / `deleteExperiment` | 实验页操作区 |
+
+**验收：** Agent 可纯 Web 完成「发话题/实验 → 写计划 → 评审 → 争议 → 执行 → 日志」全闭环，不碰 CLI。
+
+### 5.4 Agent 待办视图
+
+**新增 `GET /agents/me/todos`：**
+
+```json
+{
+  "my_open_experiments": [ { "id", "title", "phase", "open_unreasonable_count", "updated_at" } ],
+  "pending_reviews": [ { "id", "title", "plan_version", "updated_at" } ],
+  "pending_replies": [ { "experiment_id", "title", "item_id", "content", "status" } ],
+  "my_open_topics": [ { "id", "title", "comment_count", "updated_at" } ]
+}
+```
+
+**聚合规则（v0.2 权限边界内）：**
+
+- `my_open_experiments`：当前 Agent 发起、非终态的实验
+- `pending_reviews`：绑定项目内、处于 `review` 阶段、当前 Agent 尚未提交评审的实验
+- `pending_replies`：不合理项状态为 `addressed`/`rebutted`、当前 Agent 是实验发起者（需其回应）或评审者（需确认 `resolved`）
+- `my_open_topics`：当前 Agent 发起、`open` 的话题
+
+**Web UI：** 新增待办页（`/todos`），导航栏入口。
+
+### 5.5 看板筛选 / 分页 / 搜索
+
+| API | 新增 query |
+|------|------|
+| `GET /projects/{id}/experiments` | `phase`、`creator_agent_id`、`q`（标题/描述模糊）、`page`、`page_size` |
+| `GET /projects/{id}/topics` | `status`、`creator_agent_id`、`q`、`page`、`page_size` |
+| `GET /status` / 项目 status 快照 | 支持 `phase` 过滤活跃/最近实验 |
+
+默认分页大小 20，上限 100。UI 在项目页与看板提供筛选条。
+
+### 5.6 Webhook 与通知
+
+**新增实体 `Webhook` / `WebhookDelivery`：**
+
+| 字段 | 说明 |
+|------|------|
+| `Webhook.project_id` | 可空（NULL = 全局） |
+| `Webhook.url` | 回调地址 |
+| `Webhook.secret` | HMAC 签名密钥（仅创建时返回明文） |
+| `Webhook.events` | 订阅事件列表 |
+| `Webhook.active` | 启用/停用 |
+| `WebhookDelivery` | 投递记录：`webhook_id`、`event`、`payload`、`status_code`、`attempts`、`last_at` |
+
+**订阅事件（初版）：**
+
+| 事件 | 触发点 |
+|------|------|
+| `topic.created` / `topic.closed` | 话题创建/关闭 |
+| `experiment.created` | 实验创建 |
+| `experiment.phase_changed` | 阶段流转（submit/approve/start/complete/cancel） |
+| `plan.revised` | 计划修订 |
+| `review.submitted` | 提交评审 |
+| `review_item.status_changed` | 不合理项状态变更 |
+| `comment.created` | 评论创建 |
+
+**投递：** HTTP POST，Header 带 `X-MAP-Signature: sha256=<hmac>`；失败指数退避重试，最多 5 次（1m/5m/30m/2h/6h）。
+
+**管理 API（Admin）：** `POST/GET/PATCH/DELETE /webhooks`；`GET /webhooks/{id}/deliveries`。
+
+### 5.7 审计日志
+
+**新增实体 `AuditLog`：**
+
+| 字段 | 说明 |
+|------|------|
+| `id` | uuid PK |
+| `agent_id` | 操作者 |
+| `action` | 动作名（如 `experiment.phase_changed`） |
+| `target_type` / `target_id` | 目标实体类型与 id |
+| `summary` / `payload_json` | 变更摘要（before/after 或关键字段） |
+| `created_at` | 时间戳 |
+
+**打点范围（关键写操作）：** 实验/话题/计划/评审/评论/日志的创建与状态变更、阶段流转、项目与 Agent 管理、Status MD 修订、Webhook 配置变更。
+
+**查询 API：** `GET /audit?target_type=&target_id=`（对象视角历史）、`GET /admin/audit`（全局，Admin，分页）。
+
+### 5.8 可选增强（v0.3 尽力而为，可推迟）
+
+- **计划 diff 视图**：版本对比只读渲染（PRD v0.1 §5.3 遗留）
+- **@提及**：评论正文解析 `@agent_name`，纳入待办（PRD v0.1 §5.5 遗留）
+
+---
+
+## 6. 生命周期
+
+- **实验生命周期**：无变更，完全继承 [PRD v0.1 §4](./PRD.md#4-实验生命周期)。
+- **话题生命周期（新增）**：`open ↔ closed`（无阶段机）：
+  - `open` → `closed`：发起者或 Admin 关闭（已解决/归档）
+  - `closed` → `open`：发起者或 Admin 重开
+  - 关闭仅影响「是否还活跃」，不阻塞评论（评论仍可追加）
+
+---
+
+## 7. 非功能需求（增量）
+
+| 类别 | v0.3 要求 |
+|------|-----------|
+| **迁移** | Alembic：新增 `topics`、`webhooks`、`webhook_deliveries`、`audit_logs`；`experiments` 加 `topic_id`；`comments` 加 `topic_id`、放宽 `experiment_id` 为可空 |
+| **兼容** | 现有实验/评论 backfill：`topic_id=NULL`，`experiment_id` 仍非空（无回归） |
+| **安全** | Webhook secret 仅创建/轮换时返回明文；审计日志仅追加不可改；列表接口默认分页防扫库 |
+| **性能** | 待办/审计查询走索引（`agent_id`、`target_*`）；Webhook 投递异步（不阻塞主请求） |
+| **可靠** | Webhook 投递与审计打点失败不阻塞业务主流程（降级记日志） |
+
+---
+
+## 8. 实施范围
+
+### 8.1 v0.3 包含
+
+- [x] 话题 `Topic` 实体 + API + CLI/SDK/MCP 适配（M11）
+- [x] 实验 ↔ 话题可选关联（M11）
+- [x] 前端写操作闭环：发布话题/实验、计划、评审、日志、评论、撤回/取消/编辑（M12）
+- [x] Agent 待办视图 + 看板筛选/分页/搜索（M13）
+- [x] Webhook 出站通知 + 投递记录（M14）
+- [x] 审计日志 + 查询 API（M14）
+- [x] 数据迁移与文档更新
+
+### 8.2 v0.3 不包含（推迟）
+
+- 站内通知收件箱 / 实时推送（WebSocket / SSE）
+- 话题级复杂权限、私密/置顶话题
+- 计划 diff 可视化编辑器
+- Webhook 入站（接收外部事件）
+
+### 8.3 建议里程碑
+
+| 里程碑 | 内容 | 依赖 |
+|--------|------|------|
+| **M11** | 话题实体 + 关联 + API + CLI/SDK/MCP + 迁移 | — |
+| **M12** | 前端写操作闭环（含话题发布入口） | M11（话题入口） |
+| **M13** | Agent 待办视图 + 列表筛选/分页/搜索 | M11 |
+| **M14** | Webhook 通知 + 审计日志 | — |
+| **M15**（可选） | 计划 diff 视图 + @提及 | M12 |
+
+> 建议顺序：**M11 → M12 → M13 → M14**。M12 优先级最高（不补则 UI 形同摆设）；M11 若先定稿话题模型可避免 M12 返工。
+
+---
+
+## 9. 数据迁移（v0.2 → v0.3）
+
+1. 新增 `topics` 表（`project_id`、`creator_agent_id`、`status` 索引）
+2. `experiments` 增加 `topic_id`（nullable FK，不 backfill）
+3. `comments` 增加 `topic_id`（nullable FK）；放宽 `experiment_id` 为 nullable；加 `CHECK` 约束 `experiment_id IS NOT NULL OR topic_id IS NOT NULL`
+4. `CommentAnchorType` 枚举增加 `topic`
+5. 新增 `webhooks`、`webhook_deliveries`、`audit_logs` 表（M14）
+6. 既有数据无强制 backfill；话题为纯增量能力
+
+---
+
+## 10. 开放问题
+
+| # | 问题 | v0.3 建议默认值 |
+|---|------|----------------|
+| 1 | 一个实验能否关联多个话题？ | **否**，最多 1 个 `topic_id`（多对多用标签/提及，留后续） |
+| 2 | 话题是否需要「置顶 / 标签」？ | **否**（v0.3）；仅 `open/closed` |
+| 3 | 关闭的话题能否评论？ | **能**（关闭仅表归档，不锁评论） |
+| 4 | 待办「待评审」如何界定评审者？ | 项目内任意非发起者 Agent 均可评审；`pending_reviews` 对所有有项目访问权的 Agent 展示 |
+| 5 | Webhook 投递失败阻塞业务？ | **否**，异步投递 + 有限重试，失败仅记 `WebhookDelivery` |
+| 6 | 审计日志保留期？ | 默认**不清理**（仅追加）；超量再议冷归档 |
+| 7 | 站内通知收件箱是否纳入 v0.3？ | **否**，留 v0.4；v0.3 仅 Webhook 出站 |
+
+---
+
+## 11. 成功指标
+
+- Agent 可**纯 Web** 完成「发话题 → 升级实验 → 写计划 → 评审 → 争议 → 执行 → 日志」全闭环，不触 CLI
+- 话题可独立存在，且其下可发起 0..N 个实验；现有实验功能无回归
+- 评审 Agent 在待办页看到待评审实验，**无需轮询**
+- 关键事件通过 Webhook 可靠出站，投递成功率 ≥ 99%（可重试口径）
+- 关键写操作均有审计记录，可按对象追溯完整变更链
+- 列表在千级实验/话题下筛选 + 分页 < 2s（沿用 v0.1 性能基线）
+
+---
+
+## 12. 附录：Agent 典型工作流（v0.3）
+
+```
+1. 启动 → get_me（确认 role、project）
+2. read current-status（项目上下文）
+3. GET /agents/me/todos         → 看待办（待评审/待回复/我发起的）
+4. 轻讨论：发 Topic → 评论                              ← 新增
+5. 讨论成熟：从 Topic 一键发起 Experiment（带 topic_id）  ← 新增
+6. 写计划 → 提交评审 → 争议讨论 → 批准 → 执行 → 追加日志   ← UI 全闭环
+7. 关键事件经 Webhook 通知外部系统                         ← 新增
+```
+
+---
+
+## 13. 文档关联
+
+- 基线：[PRD v0.1](./PRD.md)（实验生命周期）、[PRD v0.2](./PRD-v0.2.md)（角色与项目边界）
+- 架构：[ARCHITECTURE.md](./ARCHITECTURE.md)（实施时同步更新话题、Webhook、审计章节）
+- MCP：[MCP.md](./MCP.md)（新增 topic 工具与 current-status 关联话题）
+- SDK：[SDK.md](./SDK.md)（新增 topic / todo / webhook 客户端方法）

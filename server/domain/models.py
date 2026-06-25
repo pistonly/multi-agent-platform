@@ -1,46 +1,18 @@
-import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from map_types.enums import (
+    AgentRole,
+    CommentAnchorType,
+    ExperimentPhase,
+    ReviewItemKind,
+    ReviewItemStatus,
+    TopicStatus,
+)
 from server.db.base import Base
-
-
-class AgentRole(str, enum.Enum):
-    agent = "agent"
-    admin = "admin"
-
-
-class ExperimentPhase(str, enum.Enum):
-    draft = "draft"
-    review = "review"
-    approved = "approved"
-    running = "running"
-    done = "done"
-    cancelled = "cancelled"
-
-
-class ReviewItemKind(str, enum.Enum):
-    reasonable = "reasonable"
-    unreasonable = "unreasonable"
-
-
-class ReviewItemStatus(str, enum.Enum):
-    open = "open"
-    addressed = "addressed"
-    rebutted = "rebutted"
-    resolved = "resolved"
-    withdrawn = "withdrawn"
-    escalated = "escalated"
-
-
-class CommentAnchorType(str, enum.Enum):
-    plan = "plan"
-    review = "review"
-    review_item = "review_item"
-    comment = "comment"
 
 
 class Project(Base):
@@ -59,6 +31,7 @@ class Project(Base):
     status_versions: Mapped[list["ProjectStatusVersion"]] = relationship(
         back_populates="project", order_by="ProjectStatusVersion.version"
     )
+    topics: Mapped[list["Topic"]] = relationship(back_populates="project")
 
 
 class ProjectStatusVersion(Base):
@@ -83,6 +56,7 @@ class Agent(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     api_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    api_token_prefix: Mapped[str] = mapped_column(String(8), nullable=False, default="", index=True)
     role: Mapped[AgentRole] = mapped_column(Enum(AgentRole), default=AgentRole.agent, nullable=False)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -113,14 +87,54 @@ class Experiment(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True, index=True)
     project: Mapped["Project"] = relationship(back_populates="experiments")
     creator: Mapped["Agent"] = relationship(back_populates="created_experiments")
+    topic: Mapped["Topic | None"] = relationship(back_populates="experiments")
     plan_versions: Mapped[list["PlanVersion"]] = relationship(
         back_populates="experiment", order_by="PlanVersion.version"
     )
     reviews: Mapped[list["Review"]] = relationship(back_populates="experiment", order_by="Review.created_at")
     comments: Mapped[list["Comment"]] = relationship(back_populates="experiment", order_by="Comment.created_at")
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="experiment", order_by="ExperimentLog.created_at")
+
+
+class Topic(Base):
+    __tablename__ = "topics"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    creator_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[TopicStatus] = mapped_column(Enum(TopicStatus), default=TopicStatus.open, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    project: Mapped["Project"] = relationship(back_populates="topics")
+    creator: Mapped["Agent"] = relationship()
+    comments: Mapped[list["TopicComment"]] = relationship(
+        back_populates="topic", order_by="TopicComment.created_at"
+    )
+    experiments: Mapped[list["Experiment"]] = relationship(back_populates="topic")
+
+
+class TopicComment(Base):
+    __tablename__ = "topic_comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id"), nullable=False, index=True)
+    author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    parent_comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topic_comments.id"), nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    topic: Mapped["Topic"] = relationship(back_populates="comments")
+    author: Mapped["Agent"] = relationship()
+    parent: Mapped["TopicComment | None"] = relationship(remote_side="TopicComment.id")
 
 
 class PlanVersion(Base):
@@ -203,3 +217,50 @@ class ExperimentLog(Base):
 
     experiment: Mapped["Experiment"] = relationship(back_populates="logs")
     author: Mapped["Agent"] = relationship(back_populates="logs")
+
+
+class Webhook(Base):
+    __tablename__ = "webhooks"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    events: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    deliveries: Mapped[list["WebhookDelivery"]] = relationship(back_populates="webhook")
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    webhook_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("webhooks.id"), nullable=False, index=True)
+    event: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    webhook: Mapped["Webhook"] = relationship(back_populates="deliveries")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agents.id"), nullable=True, index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    summary: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from server.domain.models import (
@@ -33,9 +33,24 @@ def get_unreasonable_items(db: Session, experiment_id: uuid.UUID) -> list[Review
 
 
 def count_open_unreasonable_for_experiment(db: Session, experiment_id: uuid.UUID) -> int:
-    from server.domain.state_machine import count_open_unreasonable
-
-    return count_open_unreasonable(get_unreasonable_items(db, experiment_id))
+    stmt = (
+        select(func.count())
+        .select_from(ReviewItem)
+        .join(Review)
+        .where(
+            Review.experiment_id == experiment_id,
+            ReviewItem.kind == ReviewItemKind.unreasonable,
+            ReviewItem.status.in_(
+                (
+                    ReviewItemStatus.open,
+                    ReviewItemStatus.addressed,
+                    ReviewItemStatus.rebutted,
+                    ReviewItemStatus.escalated,
+                )
+            ),
+        )
+    )
+    return db.scalar(stmt) or 0
 
 
 def create_review(

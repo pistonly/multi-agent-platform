@@ -19,3 +19,12 @@ def get_current_agent(
     if agent is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid API token")
     return agent
+
+
+def get_optional_current_agent(
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> Agent | None:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    return get_agent_by_token(db, credentials.credentials)

@@ -8,18 +8,21 @@ import httpx
 
 from map_client.config import load_config
 from map_client.exceptions import MAPHTTPError
-from server.domain.models import CommentAnchorType, ExperimentPhase, ReviewItemStatus
-from server.domain.schemas import (
+from map_types import (
     AgentCreateResponse,
     AgentRead,
+    AuditLogRead,
+    CommentAnchorType,
     CommentCreate,
     CommentRead,
     CommentTreeNode,
     ExperimentComplete,
     ExperimentCreate,
     ExperimentDetailRead,
+    ExperimentBundleRead,
     ExperimentLogCreate,
     ExperimentLogRead,
+    ExperimentPhase,
     ExperimentSummaryRead,
     GlobalStatusRead,
     PlanRevise,
@@ -32,8 +35,22 @@ from server.domain.schemas import (
     ProjectUpdate,
     ReviewCreate,
     ReviewItemRead,
+    ReviewItemStatus,
     ReviewItemUpdate,
     ReviewRead,
+    TopicCommentCreate,
+    TopicCommentRead,
+    TopicCommentTreeNode,
+    TopicCreate,
+    TopicRead,
+    TopicStatus,
+    TopicSummaryRead,
+    TopicUpdate,
+    TodoRead,
+    WebhookCreate,
+    WebhookCreateResponse,
+    WebhookDeliveryRead,
+    WebhookRead,
 )
 
 
@@ -111,8 +128,20 @@ class MAPClient:
 
     # --- agents ---
 
-    def register_agent(self, name: str, role: str = "agent") -> AgentCreateResponse:
-        data = self._json("POST", "/agents", params={"name": name, "role": role})
+    def register_agent(
+        self,
+        name: str,
+        role: str = "agent",
+        *,
+        project_key: str | None = None,
+        project_id: uuid.UUID | None = None,
+    ) -> AgentCreateResponse:
+        params: dict[str, str] = {"name": name, "role": role}
+        if project_key is not None:
+            params["project_key"] = project_key
+        if project_id is not None:
+            params["project_id"] = str(project_id)
+        data = self._json("POST", "/agents", params=params)
         return AgentCreateResponse.model_validate(data)
 
     def get_me(self) -> AgentRead:
@@ -206,6 +235,9 @@ class MAPClient:
 
     def get_experiment(self, experiment_id: uuid.UUID) -> ExperimentDetailRead:
         return ExperimentDetailRead.model_validate(self._json("GET", f"/experiments/{experiment_id}"))
+
+    def get_experiment_bundle(self, experiment_id: uuid.UUID) -> ExperimentBundleRead:
+        return ExperimentBundleRead.model_validate(self._json("GET", f"/experiments/{experiment_id}/bundle"))
 
     def delete_experiment(self, experiment_id: uuid.UUID) -> None:
         self._request("DELETE", f"/experiments/{experiment_id}")
@@ -302,6 +334,95 @@ class MAPClient:
         data = self._json("GET", f"/experiments/{experiment_id}/logs")
         return [ExperimentLogRead.model_validate(item) for item in data]
 
+    # --- topics ---
+
+    def create_topic(self, project_id: uuid.UUID, payload: TopicCreate) -> TopicSummaryRead:
+        data = self._json("POST", f"/projects/{project_id}/topics", json=payload.model_dump())
+        return TopicSummaryRead.model_validate(data)
+
+    def list_topics(
+        self,
+        project_id: uuid.UUID,
+        *,
+        status: TopicStatus | None = None,
+    ) -> list[TopicSummaryRead]:
+        params = {"status": status.value} if status else None
+        data = self._json("GET", f"/projects/{project_id}/topics", params=params)
+        return [TopicSummaryRead.model_validate(item) for item in data]
+
+    def get_topic(self, topic_id: uuid.UUID) -> TopicRead:
+        return TopicRead.model_validate(self._json("GET", f"/topics/{topic_id}"))
+
+    def update_topic(self, topic_id: uuid.UUID, payload: TopicUpdate) -> TopicSummaryRead:
+        data = self._json("PATCH", f"/topics/{topic_id}", json=payload.model_dump(exclude_unset=True))
+        return TopicSummaryRead.model_validate(data)
+
+    def delete_topic(self, topic_id: uuid.UUID) -> None:
+        self._request("DELETE", f"/topics/{topic_id}")
+
+    def close_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
+        return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/close"))
+
+    def reopen_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
+        return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/reopen"))
+
+    def create_topic_comment(
+        self,
+        topic_id: uuid.UUID,
+        payload: TopicCommentCreate,
+    ) -> TopicCommentRead:
+        data = self._json("POST", f"/topics/{topic_id}/comments", json=payload.model_dump())
+        return TopicCommentRead.model_validate(data)
+
+    def list_topic_comments(
+        self,
+        topic_id: uuid.UUID,
+        *,
+        tree: bool = False,
+    ) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
+        data = self._json("GET", f"/topics/{topic_id}/comments", params={"tree": tree})
+        if tree:
+            return [TopicCommentTreeNode.model_validate(item) for item in data]
+        return [TopicCommentRead.model_validate(item) for item in data]
+
+    # --- todos ---
+
+    def get_todos(self) -> TodoRead:
+        return TodoRead.model_validate(self._json("GET", "/agents/me/todos"))
+
+    # --- webhooks (admin) ---
+
+    def create_webhook(self, payload: WebhookCreate) -> WebhookCreateResponse:
+        data = self._json("POST", "/webhooks", json=payload.model_dump(mode="json"))
+        return WebhookCreateResponse.model_validate(data)
+
+    def list_webhooks(self, project_id: uuid.UUID | None = None) -> list[WebhookRead]:
+        params = {"project_id": str(project_id)} if project_id else None
+        data = self._json("GET", "/webhooks", params=params)
+        return [WebhookRead.model_validate(w) for w in data]
+
+    def delete_webhook(self, webhook_id: uuid.UUID) -> None:
+        self._request("DELETE", f"/webhooks/{webhook_id}")
+
+    def list_webhook_deliveries(self, webhook_id: uuid.UUID) -> list[WebhookDeliveryRead]:
+        data = self._json("GET", f"/webhooks/{webhook_id}/deliveries")
+        return [WebhookDeliveryRead.model_validate(d) for d in data]
+
+    # --- audit ---
+
+    def list_audit_for_target(self, target_type: str, target_id: uuid.UUID) -> list[AuditLogRead]:
+        data = self._json(
+            "GET",
+            "/audit",
+            params={"target_type": target_type, "target_id": str(target_id)},
+        )
+        return [AuditLogRead.model_validate(a) for a in data]
+
+    def list_audit_global(self, *, page: int = 1, page_size: int = 50) -> tuple[list[AuditLogRead], int]:
+        resp = self._request("GET", "/admin/audit", params={"page": page, "page_size": page_size})
+        items = [AuditLogRead.model_validate(a) for a in resp.json()]
+        return items, int(resp.headers.get("X-Total-Count", len(items)))
+
     # --- status ---
 
     def get_global_status(self, project_id: uuid.UUID | None = None) -> GlobalStatusRead:
@@ -322,4 +443,8 @@ __all__ = [
     "ReviewCreate",
     "CommentCreate",
     "ProjectUpdate",
+    "TopicCreate",
+    "TopicUpdate",
+    "TopicCommentCreate",
+    "TopicStatus",
 ]

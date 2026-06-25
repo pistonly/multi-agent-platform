@@ -1,0 +1,109 @@
+def test_todos_aggregation(client, auth_headers, reviewer, project):
+    # 发起人创建实验并提交评审
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "待办实验", "plan": {"content_md": "p"}, "submit_for_review": True},
+    ).json()
+
+    # 评审者应看到待评审
+    reviewer_headers = reviewer["headers"]
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert any(e["id"] == exp["id"] for e in reviewer_todos["pending_reviews"])
+
+    # 发起者应看到自己的进行中实验
+    agent_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert any(e["id"] == exp["id"] for e in agent_todos["my_open_experiments"])
+
+    # 评审后，pending_reviews 不再包含该实验
+    client.post(
+        f"/api/v1/experiments/{exp['id']}/reviews",
+        headers=reviewer_headers,
+        json={"unreasonable_items": ["需要补充验收标准"]},
+    )
+    reviewer_todos2 = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert not any(e["id"] == exp["id"] for e in reviewer_todos2["pending_reviews"])
+
+    # 发起者修订计划并标记该不合理项为「已修改」(addressed) → 双方都应看到待回复
+    item = client.get(f"/api/v1/experiments/{exp['id']}/reviews", headers=reviewer_headers).json()[0]
+    unreasonable = [i for i in item["items"] if i["kind"] == "unreasonable"][0]
+    client.post(
+        f"/api/v1/experiments/{exp['id']}/plans",
+        headers=auth_headers,
+        json={
+            "content_md": "p v2",
+            "change_note": "已处理不合理项",
+            "addressed_item_ids": [unreasonable["id"]],
+        },
+    )
+
+    agent_todos2 = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert any(r["item_id"] == unreasonable["id"] for r in agent_todos2["pending_replies"])
+    reviewer_todos3 = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert any(r["item_id"] == unreasonable["id"] for r in reviewer_todos3["pending_replies"])
+
+    # 发起者创建话题 → 出现在 my_open_topics
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "待办话题"},
+    ).json()
+    agent_todos3 = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert any(t["id"] == topic["id"] for t in agent_todos3["my_open_topics"])
+
+
+def test_list_experiments_filter_search_pagination(client, auth_headers, project):
+    for i in range(3):
+        client.post(
+            f"/api/v1/projects/{project['id']}/experiments",
+            headers=auth_headers,
+            json={"title": f"实验 {i}", "plan": {"content_md": "p"}, "submit_for_review": i == 0},
+        )
+
+    review_list = client.get(
+        f"/api/v1/projects/{project['id']}/experiments?phase=review", headers=auth_headers
+    )
+    assert review_list.status_code == 200
+    assert len(review_list.json()) == 1
+
+    search = client.get(
+        f"/api/v1/projects/{project['id']}/experiments?q=%E5%AE%9E%E9%AA%8C%201",
+        headers=auth_headers,
+    )
+    assert len(search.json()) == 1
+
+    paged = client.get(
+        f"/api/v1/projects/{project['id']}/experiments?page=1&page_size=2", headers=auth_headers
+    )
+    assert len(paged.json()) == 2
+    assert paged.headers["X-Total-Count"] == "3"
+
+
+def test_list_topics_search_pagination(client, auth_headers, project):
+    for i in range(3):
+        client.post(
+            f"/api/v1/projects/{project['id']}/topics",
+            headers=auth_headers,
+            json={"title": f"话题 {i}"},
+        )
+
+    closed = client.post(
+        f"/api/v1/projects/{project['id']}/topics", headers=auth_headers, json={"title": "要关闭的"}
+    ).json()
+    client.post(f"/api/v1/topics/{closed['id']}/close", headers=auth_headers)
+
+    open_list = client.get(
+        f"/api/v1/projects/{project['id']}/topics?status=open", headers=auth_headers
+    )
+    assert len(open_list.json()) == 3
+
+    search = client.get(
+        f"/api/v1/projects/{project['id']}/topics?q=%E8%AF%9D%E9%A2%98%201", headers=auth_headers
+    )
+    assert len(search.json()) == 1
+
+    paged = client.get(
+        f"/api/v1/projects/{project['id']}/topics?page=1&page_size=2", headers=auth_headers
+    )
+    assert len(paged.json()) == 2
+    assert paged.headers["X-Total-Count"] == "4"

@@ -1,25 +1,37 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { ApiErrorBridge } from "./components/ApiErrorBridge";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
+import { ToastProvider } from "./context/ToastContext";
 import { ExperimentPage } from "./pages/ExperimentPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StatusPage } from "./pages/StatusPage";
+import { TodosPage } from "./pages/TodosPage";
+import { TopicPage } from "./pages/TopicPage";
 
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route element={<Layout />}>
-            <Route index element={<StatusPage />} />
-            <Route path="projects/:projectId" element={<ProjectPage />} />
-            <Route path="experiments/:experimentId" element={<ExperimentPage />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+      <ToastProvider>
+        <ApiErrorBridge />
+        <BrowserRouter>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route element={<Layout />}>
+                <Route index element={<StatusPage />} />
+                <Route path="todos" element={<TodosPage />} />
+                <Route path="projects/:projectId" element={<ProjectPage />} />
+                <Route path="experiments/:experimentId" element={<ExperimentPage />} />
+                <Route path="topics/:topicId" element={<TopicPage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </ErrorBoundary>
+        </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
   );
 }

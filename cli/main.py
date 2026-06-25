@@ -273,6 +273,71 @@ def project_or_global_status(
     _run(action)
 
 
+topic_app = typer.Typer(help="Topic commands")
+app.add_typer(topic_app, name="topic")
+
+
+@topic_app.command("create")
+def topic_create(
+    title: str = typer.Option(..., "--title"),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    description: str | None = typer.Option(None, "--description"),
+) -> None:
+    from server.domain.schemas import TopicCreate
+
+    payload = TopicCreate(title=title, description=description)
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        return c.create_topic(pid, payload)
+
+    _run(action)
+
+
+@topic_app.command("list")
+def topic_list(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    status: str | None = typer.Option(None, "--status"),
+) -> None:
+    from server.domain.models import TopicStatus
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        st = TopicStatus(status) if status else None
+        return c.list_topics(pid, status=st)
+
+    _run(action)
+
+
+@topic_app.command("show")
+def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.get_topic(topic_id))
+
+
+@topic_app.command("comment")
+def topic_comment(
+    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    body: str = typer.Option(..., "--body"),
+    parent: uuid.UUID | None = typer.Option(None, "--parent"),
+) -> None:
+    from server.domain.schemas import TopicCommentCreate
+
+    payload = TopicCommentCreate(body=body, parent_id=parent)
+    _run(lambda c: c.create_topic_comment(topic_id, payload))
+
+
+@topic_app.command("close")
+def topic_close(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.close_topic(topic_id))
+
+
+@topic_app.command("reopen")
+def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.reopen_topic(topic_id))
+
+
 def main() -> None:
     app()
 

@@ -6,6 +6,7 @@
 
 - [产品需求文档（PRD）](docs/PRD.md)
 - [产品需求文档 v0.2（角色与项目边界）](docs/PRD-v0.2.md)
+- [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/PRD-v0.3.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -21,6 +22,15 @@
 **M7 已完成**：项目角色边界（`project_key`、Agent 项目绑定、权限门控、Status MD v1）。  
 **M8 已完成**：项目 Current Status MD 版本化（修订 API、历史查询、CLI/MCP）。
 
+**v0.3 已完成（M11–M14）**：
+
+- **M11**：话题（Topic）独立实体 + 评论树 + 实验↔话题可选关联 + Alembic 迁移 + CLI/SDK/MCP 适配。
+- **M12**：Web UI 写操作闭环——发布话题/实验、修订计划、提交评审、追加日志、撤回/取消/编辑、通用讨论；新增话题详情页。
+- **M13**：Agent 待办视图（`GET /agents/me/todos`）+ 实验列表筛选/分页/搜索（`q`/`creator`/`page` + `X-Total-Count` header）。
+- **M14**：Webhook 出站通知（HMAC 签名 + 投递记录 + Admin CRUD）+ 审计日志（关键写操作打点 + 对象/全局查询）。
+
+详见 [PRD v0.3](docs/PRD-v0.3.md)。
+
 ## 快速开始
 
 ```bash
@@ -34,8 +44,12 @@ alembic upgrade head
 map-server
 # 或: uvicorn server.main:app --reload
 
-# 注册 Agent 并保存返回的 api_token
-curl -X POST "http://localhost:8000/api/v1/agents?name=agent-alpha"
+# 注册首个 Admin（仅当系统中尚无 Agent 时可匿名调用）
+curl -X POST "http://localhost:8000/api/v1/agents?name=ops-admin&role=admin"
+
+# 后续 Agent 须由 Admin 注册
+curl -H "Authorization: Bearer <admin-token>" \
+  -X POST "http://localhost:8000/api/v1/agents?name=agent-alpha&role=agent&project_key=<project-key>"
 
 # 创建项目
 curl -H "Authorization: Bearer <token>" \
@@ -91,4 +105,4 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-M1–M5 里程碑已全部完成。可继续扩展：计划 diff 对比、Webhook 通知、Agent 待办视图等（见 PRD v0.2）。
+M1–M14（v0.3）已完成。近期优化包括：实验页 **Bundle API**（单次加载详情/计划/评审/评论/日志）、Webhook 异步投递、API 路由模块化、GitHub Actions CI 等。详见 [架构文档](docs/ARCHITECTURE.md) 与 [PRD v0.3](docs/PRD-v0.3.md)。

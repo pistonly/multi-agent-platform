@@ -12,16 +12,21 @@ from map_client.client import MAPClient
 from map_client.config import load_config
 from map_mcp._utils import dump, dumps_json, parse_uuid
 from map_mcp.session import ClientResolver, token_param
-from server.domain.models import CommentAnchorType, ExperimentPhase, ReviewItemStatus
-from server.domain.schemas import (
+from map_types import (
+    CommentAnchorType,
     CommentCreate,
     ExperimentComplete,
     ExperimentCreate,
     ExperimentLogCreate,
+    ExperimentPhase,
     PlanInput,
     PlanRevise,
     ProjectStatusRevise,
     ReviewCreate,
+    ReviewItemStatus,
+    TopicCommentCreate,
+    TopicCreate,
+    TopicStatus,
 )
 
 Token = Annotated[str | None, token_param()]
@@ -93,6 +98,18 @@ def build_server(
         return JSONResponse(body)
 
     @mcp.tool()
+    def get_todos(token: Token = None) -> dict[str, Any]:
+        """Return the current agent's to-do list: pending reviews, pending replies, own open experiments and topics."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.get_todos())
+
+    @mcp.tool()
+    def get_audit_history(target_type: str, target_id: str, token: Token = None) -> list[dict[str, Any]]:
+        """Return the audit trail for a given object (e.g. target_type='experiment', 'topic')."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.list_audit_for_target(target_type, parse_uuid(target_id, "target_id")))
+
+    @mcp.tool()
     def get_me(token: Token = None) -> dict[str, Any]:
         """Return the authenticated agent profile (role, project_id, project_key)."""
         with resolver.use(token) as (c, _ctx):
@@ -134,6 +151,64 @@ def build_server(
             pid = ctx.resolve_project_id(project_id)
             phase_enum = ExperimentPhase(phase) if phase else None
             return dump(c.list_experiments(pid, phase=phase_enum))
+
+    @mcp.tool()
+    def list_topics(
+        project_id: str | None = None,
+        status: str | None = None,
+        token: Token = None,
+    ) -> list[dict[str, Any]]:
+        """List discussion topics in a project, optionally filtered by status (open/closed)."""
+        with resolver.use(token) as (c, ctx):
+            pid = ctx.resolve_project_id(project_id)
+            st = TopicStatus(status) if status else None
+            return dump(c.list_topics(pid, status=st))
+
+    @mcp.tool()
+    def get_topic(topic_id: str, token: Token = None) -> dict[str, Any]:
+        """Get a topic detail: discussion thread, linked experiments, and counts."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.get_topic(parse_uuid(topic_id, "topic_id")))
+
+    @mcp.tool()
+    def create_topic(
+        title: str,
+        project_id: str | None = None,
+        description: str | None = None,
+        token: Token = None,
+    ) -> dict[str, Any]:
+        """Create a lightweight discussion topic (no plan required) in the bound or specified project."""
+        with resolver.use(token) as (c, ctx):
+            pid = ctx.resolve_project_id(project_id)
+            payload = TopicCreate(title=title, description=description)
+            return dump(c.create_topic(pid, payload))
+
+    @mcp.tool()
+    def create_topic_comment(
+        topic_id: str,
+        body: str,
+        parent_id: str | None = None,
+        token: Token = None,
+    ) -> dict[str, Any]:
+        """Add a comment to a topic discussion thread."""
+        with resolver.use(token) as (c, _ctx):
+            payload = TopicCommentCreate(
+                body=body,
+                parent_id=parse_uuid(parent_id, "parent_id") if parent_id else None,
+            )
+            return dump(c.create_topic_comment(parse_uuid(topic_id, "topic_id"), payload))
+
+    @mcp.tool()
+    def close_topic(topic_id: str, token: Token = None) -> dict[str, Any]:
+        """Close a topic (open → closed)."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.close_topic(parse_uuid(topic_id, "topic_id")))
+
+    @mcp.tool()
+    def reopen_topic(topic_id: str, token: Token = None) -> dict[str, Any]:
+        """Reopen a closed topic (closed → open)."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.reopen_topic(parse_uuid(topic_id, "topic_id")))
 
     @mcp.tool()
     def get_experiment(experiment_id: str, token: Token = None) -> dict[str, Any]:

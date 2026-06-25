@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from map_client.client import MAPClient
 from map_mcp._utils import parse_uuid
-from server.domain.models import AgentRole
+from map_types import AgentRole
 
 
 @dataclass(frozen=True)

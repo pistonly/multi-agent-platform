@@ -5,14 +5,13 @@ from sqlalchemy.orm import Session
 
 from server.domain.models import Experiment, ExperimentPhase
 from server.domain.schemas import ExperimentSummaryRead, GlobalStatusRead
-from server.services.errors import NotFoundError
-from server.services.project_service import get_project, get_project_status, list_projects
+from server.services.project_service import build_projects_status, get_project, list_projects
 
 
 def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> GlobalStatusRead:
     if project_id is not None:
-        get_project(db, project_id)
-        project_status = get_project_status(db, project_id)
+        project = get_project(db, project_id)
+        project_status = build_projects_status(db, [project])[0]
         counts_stmt = (
             select(Experiment.phase, func.count())
             .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
@@ -35,7 +34,7 @@ def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> Gl
         )
 
     projects = list_projects(db)
-    project_statuses = [get_project_status(db, p.id) for p in projects]
+    project_statuses = build_projects_status(db, projects)
 
     counts_stmt = (
         select(Experiment.phase, func.count())

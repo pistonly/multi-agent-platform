@@ -28,6 +28,14 @@ AGENT_TOOLS = {
     "list_comments",
     "create_log",
     "list_logs",
+    "get_audit_history",
+    "get_todos",
+    "list_topics",
+    "get_topic",
+    "create_topic",
+    "create_topic_comment",
+    "close_topic",
+    "reopen_topic",
 }
 
 ADMIN_TOOLS = {
@@ -161,3 +169,26 @@ async def test_mcp_admin_tool_rejects_agent_token(map_client, reviewer):
 
     with pytest.raises(ToolError, match="Admin role required"):
         await mcp.call_tool("list_projects", {"token": reviewer_token})
+
+
+@pytest.mark.asyncio
+async def test_mcp_topic_flow(map_client):
+    mcp = build_server(map_client)
+    _, topic = await mcp.call_tool("create_topic", {"title": "MCP 话题", "description": "讨论"})
+    assert topic["status"] == "open"
+    topic_id = topic["id"]
+
+    _, comment = await mcp.call_tool(
+        "create_topic_comment", {"topic_id": topic_id, "body": "一条讨论"}
+    )
+    assert comment["body"] == "一条讨论"
+
+    _, detail = await mcp.call_tool("get_topic", {"topic_id": topic_id})
+    assert detail["comment_count"] == 1
+    assert detail["comments"][0]["body"] == "一条讨论"
+
+    _, closed = await mcp.call_tool("close_topic", {"topic_id": topic_id})
+    assert closed["status"] == "closed"
+
+    _, opened = await mcp.call_tool("reopen_topic", {"topic_id": topic_id})
+    assert opened["status"] == "open"

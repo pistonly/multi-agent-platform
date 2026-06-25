@@ -38,8 +38,18 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+
+    test_engine = db_session.get_bind()
+    test_session_local = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
+    import server.db.session as db_session_module
+
+    original_session_local = db_session_module.SessionLocal
+    db_session_module.SessionLocal = test_session_local
+
     with TestClient(app) as test_client:
         yield test_client
+
+    db_session_module.SessionLocal = original_session_local
 
 
 @pytest.fixture
@@ -73,9 +83,10 @@ def project(client: TestClient, admin_headers: dict[str, str]) -> dict:
 
 
 @pytest.fixture
-def agent_token(client: TestClient, project: dict) -> tuple[str, str]:
+def agent_token(client: TestClient, project: dict, admin_headers: dict[str, str]) -> tuple[str, str]:
     response = client.post(
         "/api/v1/agents",
+        headers=admin_headers,
         params={"name": "test-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201
@@ -91,9 +102,10 @@ def auth_headers(agent_token: tuple[str, str]) -> dict[str, str]:
 
 
 @pytest.fixture
-def reviewer(client: TestClient, project: dict) -> dict[str, str]:
+def reviewer(client: TestClient, project: dict, admin_headers: dict[str, str]) -> dict[str, str]:
     response = client.post(
         "/api/v1/agents",
+        headers=admin_headers,
         params={"name": "reviewer-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201

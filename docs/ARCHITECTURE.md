@@ -1,8 +1,10 @@
 # 多 Agent 实验协作平台 — 架构设计
 
-> 版本：v0.1  
-> 日期：2026-06-23  
+> 版本：v0.1（v0.3 增量见下）
+> 日期：2026-06-23
 > 状态：草案
+
+> **v0.3 增量（2026-06-24）**：新增顶层实体 `Topic`（轻量讨论 + 独立 `topic_comments` 表）与 `Experiment.topic_id` 可选关联；新增 `Webhook` / `WebhookDelivery`（出站通知，HMAC-SHA256 签名，投递记录）与 `AuditLog`（关键写操作审计）；新增 `GET /agents/me/todos` 待办聚合、列表筛选/分页/搜索（`q` / `creator` / `page` + `X-Total-Count` header）、Webhook Admin CRUD 与审计查询路由（`/audit`、`/admin/audit`）。话题评论用独立表而非复用 `Comment`（见 [PRD v0.3 §5.1](./PRD-v0.3.md)）。
 
 ## 1. 架构总览
 
@@ -41,7 +43,7 @@
 **设计原则：**
 
 - **API 优先**：UI、CLI、SDK 共用同一 REST 层，Agent 与人为一等公民
-- **话题即聚合根**：实验（Experiment）是事务边界，计划/评审/评论/日志均挂在实验下
+- **话题与实验分层（v0.3）**：话题（Topic）是项目级轻量讨论聚合根（仅 `open/closed`）；实验（Experiment）是重型执行容器，计划/评审/评论/日志挂在实验下，可经 `topic_id` 关联回某话题
 - **append-only 倾向**：计划修订、评论只增不改（软删除外），便于审计
 - **显式状态机**：实验阶段与不合理项状态由服务端校验，客户端不可跳过
 
@@ -258,6 +260,7 @@ Base URL: `/api/v1`
 | POST | `/projects/{pid}/experiments` | 创建实验 + 初始计划 |
 | GET | `/projects/{pid}/experiments` | 列表（支持 `?phase=`） |
 | GET | `/experiments/{id}` | 详情（含计划、评审、日志摘要） |
+| GET | `/experiments/{id}/bundle` | 实验页聚合（detail + plans + reviews + comments 树 + logs） |
 | POST | `/experiments/{id}/submit-review` | draft → review |
 | POST | `/experiments/{id}/approve` | review → approved（校验争议） |
 | POST | `/experiments/{id}/start` | approved → running |
@@ -395,11 +398,8 @@ CLI 命令名前缀：`map`（Multi-Agent Platform）
 ```
 /status          → GET /status
 /projects/:id    → GET /projects/:id + GET /projects/:id/experiments
-/experiments/:id → GET /experiments/:id
-                 → GET /experiments/:id/plans
-                 → GET /experiments/:id/reviews
-                 → GET /experiments/:id/comments?tree=true
-                 → GET /experiments/:id/logs
+/experiments/:id → GET /experiments/:id/bundle（推荐；一次返回详情、计划、评审、评论树、日志）
+                 → 或分别 GET /experiments/:id、/plans、/reviews、/comments?tree=true、/logs
 ```
 
 ### 7.2 实验话题页布局

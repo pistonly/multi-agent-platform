@@ -95,8 +95,9 @@ export function SettingsPage() {
       <div className="card w-full max-w-md">
         <h1 className="mb-2 text-xl font-bold text-white">连接 MAP</h1>
         <p className="mb-6 text-sm text-slate-400">
-          输入 Agent API Token 以访问看板。可通过{" "}
-          <code className="rounded bg-surface px-1">POST /api/v1/agents?name=...</code> 注册获取。
+          输入 Agent API Token 以访问看板。首次部署可匿名注册 Admin（
+          <code className="rounded bg-surface px-1">POST /api/v1/agents?name=...&amp;role=admin</code>
+          ）；其余 Agent 须由 Admin 注册后获取 Token。
         </p>
         <form onSubmit={handleSave} className="space-y-4">
           <div>

@@ -77,6 +77,7 @@ with MAPClient.from_env() as client:
 | `list_projects` | `GET /projects` |
 | `create_experiment` | `POST /projects/{id}/experiments` |
 | `get_experiment` | `GET /experiments/{id}` |
+| `get_experiment_bundle` | `GET /experiments/{id}/bundle` |
 | `submit_for_review` | `POST /experiments/{id}/submit-review` |
 | `create_review` | `POST /experiments/{id}/reviews` |
 | `revise_plan` | `POST /experiments/{id}/plans` |
@@ -96,6 +97,7 @@ SDK 返回值使用 `server.domain.schemas` 中的 Pydantic 模型，与 API JSO
 
 - `ProjectRead`
 - `ExperimentDetailRead`
+- `ExperimentBundleRead`
 - `ReviewRead`
 - `GlobalStatusRead`
 
@@ -120,7 +122,13 @@ from server.domain.models import ReviewItemStatus
 from server.domain.schemas import ReviewCreate
 
 with MAPClient.from_env() as client:
-    exp = client.get_experiment(experiment_id)
+    # 实验页一次性加载（Web UI 同款）
+    bundle = client.get_experiment_bundle(experiment_id)
+    exp = bundle.experiment
+    plans = bundle.plans
+
+    # 或仅拉取详情
+    # exp = client.get_experiment(experiment_id)
 
     # 评审 Agent 提交反馈
     review = client.create_review(

@@ -39,6 +39,7 @@ export interface ExperimentSummary {
   description: string | null;
   phase: ExperimentPhase;
   current_plan_version: number;
+  topic_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +61,14 @@ export interface ExperimentDetail extends ExperimentSummary {
   review_count: number;
   log_count: number;
   latest_log_summary: string | null;
+}
+
+export interface ExperimentBundle {
+  experiment: ExperimentDetail;
+  plans: PlanVersion[];
+  reviews: Review[];
+  comments: CommentTreeNode[];
+  logs: ExperimentLog[];
 }
 
 export interface ReviewItem {
@@ -146,4 +155,66 @@ export interface ProjectCreatePayload {
   name: string;
   workspace_path: string;
   description?: string | null;
+}
+
+export interface ExperimentCreatePayload {
+  title: string;
+  description?: string | null;
+  plan: { content_md: string; change_note?: string | null };
+  submit_for_review?: boolean;
+  topic_id?: string | null;
+}
+
+export interface TopicCreatePayload {
+  title: string;
+  description?: string | null;
+}
+
+export type TopicStatus = "open" | "closed";
+
+export interface TopicSummary {
+  id: string;
+  project_id: string;
+  creator_agent_id: string;
+  title: string;
+  description: string | null;
+  status: TopicStatus;
+  comment_count: number;
+  experiment_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TopicComment {
+  id: string;
+  topic_id: string;
+  author_agent_id: string;
+  parent_comment_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface TopicCommentTreeNode extends TopicComment {
+  children: TopicCommentTreeNode[];
+}
+
+export interface TopicRead extends TopicSummary {
+  experiments: ExperimentSummary[];
+  comments: TopicCommentTreeNode[];
+}
+
+export interface PendingReply {
+  item_id: string;
+  experiment_id: string;
+  experiment_title: string;
+  content: string;
+  status: ReviewItemStatus;
+  updated_at: string;
+}
+
+export interface TodoRead {
+  my_open_experiments: ExperimentSummary[];
+  pending_reviews: ExperimentSummary[];
+  pending_replies: PendingReply[];
+  my_open_topics: TopicSummary[];
 }

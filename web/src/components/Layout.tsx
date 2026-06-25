@@ -29,6 +29,9 @@ export function Layout() {
               <Link to="/" className="hover:text-white">
                 {isAdmin ? "看板" : "Current Status"}
               </Link>
+              <Link to="/todos" className="hover:text-white">
+                待办
+              </Link>
               {!isAdmin && projectKey && (
                 <span className="font-mono text-slate-500">{projectKey}</span>
               )}

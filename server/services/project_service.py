@@ -4,10 +4,12 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from server.domain.models import Agent, Experiment, ExperimentPhase, PlanVersion, Project
+from server.domain.models import Agent, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
 from server.domain.schemas import (
+    ExperimentBundleRead,
     ExperimentCreate,
     ExperimentDetailRead,
+    ExperimentLogRead,
     ExperimentSummaryRead,
     ExperimentUpdate,
     PlanVersionRead,
@@ -76,14 +78,25 @@ def update_project(db: Session, project_id: uuid.UUID, payload: ProjectUpdate) -
 
 def get_project_status(db: Session, project_id: uuid.UUID) -> ProjectStatusRead:
     project = get_project(db, project_id)
+    return build_projects_status(db, [project])[0]
+
+
+def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectStatusRead]:
+    if not projects:
+        return []
+
+    project_ids = [project.id for project in projects]
+    counts_map: dict[uuid.UUID, dict[str, int]] = {pid: {} for pid in project_ids}
     counts_stmt = (
-        select(Experiment.phase, func.count())
-        .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
-        .group_by(Experiment.phase)
+        select(Experiment.project_id, Experiment.phase, func.count())
+        .where(Experiment.project_id.in_(project_ids), Experiment.deleted_at.is_(None))
+        .group_by(Experiment.project_id, Experiment.phase)
     )
-    counts = {phase.value: count for phase, count in db.execute(counts_stmt)}
-    for phase in ExperimentPhase:
-        counts.setdefault(phase.value, 0)
+    for project_id, phase, count in db.execute(counts_stmt):
+        counts_map[project_id][phase.value] = count
+    for project_id in project_ids:
+        for phase in ExperimentPhase:
+            counts_map[project_id].setdefault(phase.value, 0)
 
     active_phases = (
         ExperimentPhase.draft,
@@ -91,36 +104,61 @@ def get_project_status(db: Session, project_id: uuid.UUID) -> ProjectStatusRead:
         ExperimentPhase.approved,
         ExperimentPhase.running,
     )
+    active_map: dict[uuid.UUID, list[ExperimentSummaryRead]] = {pid: [] for pid in project_ids}
     active_stmt = (
         select(Experiment)
         .where(
-            Experiment.project_id == project_id,
+            Experiment.project_id.in_(project_ids),
             Experiment.deleted_at.is_(None),
             Experiment.phase.in_(active_phases),
         )
-        .order_by(Experiment.updated_at.desc())
+        .order_by(Experiment.project_id, Experiment.updated_at.desc())
     )
-    active = [ExperimentSummaryRead.model_validate(e) for e in db.scalars(active_stmt)]
+    for experiment in db.scalars(active_stmt):
+        active_map[experiment.project_id].append(ExperimentSummaryRead.model_validate(experiment))
 
+    recent_map: dict[uuid.UUID, list[ExperimentSummaryRead]] = {pid: [] for pid in project_ids}
     recent_stmt = (
         select(Experiment)
-        .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
-        .order_by(Experiment.updated_at.desc())
-        .limit(5)
+        .where(Experiment.project_id.in_(project_ids), Experiment.deleted_at.is_(None))
+        .order_by(Experiment.project_id, Experiment.updated_at.desc())
     )
-    recent = [ExperimentSummaryRead.model_validate(e) for e in db.scalars(recent_stmt)]
+    for experiment in db.scalars(recent_stmt):
+        recent = recent_map[experiment.project_id]
+        if len(recent) < 5:
+            recent.append(ExperimentSummaryRead.model_validate(experiment))
 
-    status_version, status_md, status_updated_at = status_doc_service.get_current_status_md(db, project_id)
-
-    return ProjectStatusRead(
-        project=ProjectRead.model_validate(project),
-        experiment_counts_by_phase=counts,
-        active_experiments=active,
-        recent_experiments=recent,
-        status_version=status_version,
-        status_md=status_md,
-        status_updated_at=status_updated_at,
+    status_rows = list(
+        db.scalars(select(ProjectStatusVersion).where(ProjectStatusVersion.project_id.in_(project_ids)))
     )
+    status_by_key = {(row.project_id, row.version): row for row in status_rows}
+
+    results: list[ProjectStatusRead] = []
+    for project in projects:
+        status_version = 0
+        status_md: str | None = None
+        status_updated_at = None
+        if project.current_status_version > 0:
+            row = status_by_key.get((project.id, project.current_status_version))
+            if row is not None:
+                status_version = row.version
+                status_md = row.content_md
+                status_updated_at = row.created_at
+            else:
+                status_version = project.current_status_version
+
+        results.append(
+            ProjectStatusRead(
+                project=ProjectRead.model_validate(project),
+                experiment_counts_by_phase=counts_map[project.id],
+                active_experiments=active_map[project.id],
+                recent_experiments=recent_map[project.id],
+                status_version=status_version,
+                status_md=status_md,
+                status_updated_at=status_updated_at,
+            )
+        )
+    return results
 
 
 def create_experiment(
@@ -130,6 +168,10 @@ def create_experiment(
     payload: ExperimentCreate,
 ) -> Experiment:
     get_project(db, project_id)
+    if payload.topic_id is not None:
+        topic = db.get(Topic, payload.topic_id)
+        if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
+            raise NotFoundError("Topic not found")
     phase = ExperimentPhase.review if payload.submit_for_review else ExperimentPhase.draft
     experiment = Experiment(
         project_id=project_id,
@@ -138,6 +180,7 @@ def create_experiment(
         description=payload.description,
         phase=phase,
         current_plan_version=1,
+        topic_id=payload.topic_id,
     )
     db.add(experiment)
     db.flush()
@@ -160,16 +203,31 @@ def list_experiments(
     project_id: uuid.UUID,
     *,
     phase: ExperimentPhase | None = None,
-) -> list[Experiment]:
+    creator_agent_id: uuid.UUID | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> tuple[list[Experiment], int]:
     get_project(db, project_id)
-    stmt = (
-        select(Experiment)
-        .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
-        .order_by(Experiment.updated_at.desc())
+    stmt = select(Experiment).where(
+        Experiment.project_id == project_id, Experiment.deleted_at.is_(None)
     )
     if phase is not None:
         stmt = stmt.where(Experiment.phase == phase)
-    return list(db.scalars(stmt))
+    if creator_agent_id is not None:
+        stmt = stmt.where(Experiment.creator_agent_id == creator_agent_id)
+    if q:
+        pattern = f"%{q}%"
+        stmt = stmt.where(Experiment.title.ilike(pattern) | Experiment.description.ilike(pattern))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    stmt = (
+        stmt.order_by(Experiment.updated_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return list(db.scalars(stmt)), total
 
 
 def get_experiment(db: Session, experiment_id: uuid.UUID) -> Experiment:
@@ -180,6 +238,7 @@ def get_experiment(db: Session, experiment_id: uuid.UUID) -> Experiment:
 
 
 def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDetailRead:
+    from server.domain.models import ExperimentLog, Review
     from server.services.log_service import get_latest_log
     from server.services.review_service import count_open_unreasonable_for_experiment
 
@@ -195,6 +254,15 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
             current_plan = PlanVersionRead.model_validate(plan)
 
     latest = get_latest_log(db, experiment.id)
+    plan_version_count = db.scalar(
+        select(func.count()).select_from(PlanVersion).where(PlanVersion.experiment_id == experiment.id)
+    ) or 0
+    review_count = db.scalar(
+        select(func.count()).select_from(Review).where(Review.experiment_id == experiment.id)
+    ) or 0
+    log_count = db.scalar(
+        select(func.count()).select_from(ExperimentLog).where(ExperimentLog.experiment_id == experiment.id)
+    ) or 0
 
     return ExperimentDetailRead(
         id=experiment.id,
@@ -207,11 +275,28 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
         current_plan=current_plan,
-        plan_version_count=len(experiment.plan_versions),
+        plan_version_count=plan_version_count,
         open_unreasonable_count=count_open_unreasonable_for_experiment(db, experiment.id),
-        review_count=len(experiment.reviews),
-        log_count=len(experiment.logs),
+        review_count=review_count,
+        log_count=log_count,
         latest_log_summary=latest.summary if latest else None,
+    )
+
+
+def get_experiment_bundle(db: Session, experiment_id: uuid.UUID) -> ExperimentBundleRead:
+    from server.services import comment_service, log_service, plan_service, review_service
+
+    experiment = get_experiment_detail(db, experiment_id)
+    plans = [PlanVersionRead.model_validate(p) for p in plan_service.list_plans(db, experiment_id)]
+    reviews = [review_service.review_to_read(r) for r in review_service.list_reviews(db, experiment_id)]
+    comments = comment_service.build_comment_tree(comment_service.list_comments(db, experiment_id))
+    logs = [ExperimentLogRead.model_validate(entry) for entry in log_service.list_logs(db, experiment_id)]
+    return ExperimentBundleRead(
+        experiment=experiment,
+        plans=plans,
+        reviews=reviews,
+        comments=comments,
+        logs=logs,
     )
 
 

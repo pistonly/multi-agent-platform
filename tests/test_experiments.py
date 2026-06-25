@@ -47,6 +47,30 @@ def test_experiment_crud(client, auth_headers, project):
     assert after_delete.status_code == 404
 
 
+def test_experiment_bundle(client, auth_headers, project):
+    create = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "Bundle 测试",
+            "plan": {"content_md": "## plan", "change_note": "v1"},
+            "submit_for_review": True,
+        },
+    )
+    assert create.status_code == 201
+    experiment_id = create.json()["id"]
+
+    bundle = client.get(f"/api/v1/experiments/{experiment_id}/bundle", headers=auth_headers)
+    assert bundle.status_code == 200
+    body = bundle.json()
+    assert body["experiment"]["id"] == experiment_id
+    assert len(body["plans"]) == 1
+    assert body["plans"][0]["content_md"] == "## plan"
+    assert body["reviews"] == []
+    assert body["comments"] == []
+    assert body["logs"] == []
+
+
 def test_experiment_draft_phase(client, auth_headers, project):
     create = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
