@@ -37,6 +37,47 @@ body {
   @apply mb-2 list-disc pl-5;
 }
 
+.markdown-body ol {
+  @apply mb-2 list-decimal pl-5;
+}
+
+.markdown-body blockquote {
+  @apply mb-2 border-l-4 border-surface-border pl-4 text-slate-400;
+}
+
+.markdown-body code {
+  @apply rounded bg-surface px-1 py-0.5 font-mono text-xs text-slate-200;
+}
+
+.markdown-body pre {
+  @apply mb-2 overflow-x-auto rounded bg-surface p-3;
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0;
+}
+
+.markdown-body table {
+  @apply mb-2 w-full border-collapse text-left text-sm;
+}
+
+.markdown-body th,
+.markdown-body td {
+  @apply border border-surface-border px-3 py-1.5;
+}
+
+.markdown-body th {
+  @apply bg-surface-raised font-medium text-slate-200;
+}
+
+.markdown-body a {
+  @apply text-accent hover:underline;
+}
+
+.markdown-body hr {
+  @apply my-4 border-surface-border;
+}
+
 .card {
   @apply rounded-lg border border-surface-border bg-surface-raised p-4;
 }

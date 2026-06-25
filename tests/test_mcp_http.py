@@ -3,6 +3,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from map_client.testing import MAPTestClientTransport
 from map_mcp.config import MCPServerSettings
 from map_mcp.server import build_server
 
@@ -27,14 +28,16 @@ def test_mcp_settings_http(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mcp_streamable_http_get_me(map_client):
-    mcp = build_server(map_client, host="127.0.0.1", port=8080, path="/mcp")
+async def test_mcp_streamable_http_bearer_auth(client, agent_token):
+    _, token = agent_token
+    mcp = build_server(None, api_url="http://test", transport=MAPTestClientTransport(client))
     app = mcp.streamable_http_app()
     session_manager = mcp.session_manager
 
     async with session_manager.run():
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8080") as http_client:
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8080", headers=headers) as http_client:
             async with streamable_http_client("http://127.0.0.1:8080/mcp", http_client=http_client) as (
                 read,
                 write,

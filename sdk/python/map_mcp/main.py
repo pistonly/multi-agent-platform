@@ -30,8 +30,10 @@ def _run_server(settings: MCPServerSettings) -> None:
 
     cfg = load_config()
     api_url = cfg["api_url"]
+    # HTTP: identity comes from Authorization Bearer per connection.
+    # stdio: use MAP_TOKEN from env/config as the default client.
     token = cfg.get("token")
-    client = MAPClient(api_url, token) if token else None
+    client = MAPClient(api_url, token) if token and settings.transport == "stdio" else None
     mcp = build_server(client, api_url=api_url, host=settings.host, port=settings.port, path=settings.path)
 
     if settings.transport == "stdio":

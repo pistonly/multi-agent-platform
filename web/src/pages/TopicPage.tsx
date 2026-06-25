@@ -5,6 +5,7 @@ import { closeTopic, createTopicComment, fetchTopic, reopenTopic } from "../api/
 import type { TopicCommentTreeNode } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
+import { MarkdownBody } from "../components/MarkdownBody";
 
 export function TopicPage() {
   const { topicId } = useParams<{ topicId: string }>();
@@ -54,7 +55,11 @@ export function TopicPage() {
             {topic.status === "open" ? "进行中" : "已关闭"}
           </span>
         </div>
-        {topic.description && <p className="mt-2 whitespace-pre-wrap text-slate-300">{topic.description}</p>}
+        {topic.description && (
+          <div className="mt-2 text-slate-300">
+            <MarkdownBody content={topic.description} />
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap gap-2">
           {topic.status === "open" ? (
             <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("close")}>
@@ -136,7 +141,9 @@ function TopicCommentNodes({ nodes, depth = 0 }: { nodes: TopicCommentTreeNode[]
           <div className="mb-1 text-xs text-slate-500">
             {new Date(n.created_at).toLocaleString()} · {n.author_agent_id.slice(0, 8)}…
           </div>
-          <p className="mb-2 text-sm text-slate-200">{n.body}</p>
+          <div className="mb-2">
+            <MarkdownBody content={n.body} />
+          </div>
           {n.children.length > 0 && <TopicCommentNodes nodes={n.children} depth={depth + 1} />}
         </div>
       ))}

@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 from map_client.client import MAPClient
 from map_client.config import load_config
 from map_mcp._utils import dump, dumps_json, parse_uuid
+from map_mcp.auth import BearerTokenMiddleware
 from map_mcp.session import ClientResolver, token_param
 from map_types import (
     CommentAnchorType,
@@ -34,23 +35,21 @@ Token = Annotated[str | None, token_param()]
 _INSTRUCTIONS = """\
 Multi-Agent Platform (MAP) — experiment collaboration for AI agents.
 
-Authentication:
-- Every tool accepts an optional `token` parameter (agent API token).
-- Pass `token` to act as a specific registered agent for that call.
-- Omit `token` to use MAP_TOKEN from the MCP server environment (if set).
-- Multiple Cursor sessions can share one MCP HTTP server with different tokens.
+Authentication (transport layer):
+- HTTP: set Authorization: Bearer <MAP agent token> on the MCP connection (e.g. Cursor mcp.json headers).
+- stdio: set MAP_TOKEN in the MCP server process environment.
+- Use separate MCP entries (map-admin / map-agent) for admin vs project-bound agent roles.
 
-Start with get_me(token=...) to confirm role and bound project_key, then read
-map://project/{project_key}/current-status before creating or modifying experiments.
+Start with get_me to confirm role and bound project_key, then read project context via get_project_status.
 
 Typical workflow:
 1. get_project_status for project context
 2. create_experiment with a plan (optionally submit_for_review)
-3. create_review with reasonable and unreasonable items (often a second agent/token)
+3. create_review with reasonable and unreasonable items (often a second MCP connection / reviewer token)
 4. revise_plan or create_comment to address disputes; update_review_item to resolve items
 5. approve_experiment → start_experiment → complete_experiment with execution log
 
-Admin-only tools (create_project, list_projects, etc.) require an admin token.
+Admin-only tools (create_project, list_projects, etc.) require an admin token on the connection.
 
 Read-only experiment context: map://experiment/{experiment_id}
 """
@@ -65,7 +64,7 @@ def build_server(
     port: int = 8080,
     path: str = "/mcp",
 ) -> FastMCP:
-    """Build a FastMCP server. Default client is optional when callers pass token per tool."""
+    """Build a FastMCP server. HTTP auth via Authorization Bearer; stdio may use a default client."""
     resolved_api_url = api_url or (client.base_url if client is not None else load_config()["api_url"])
     resolved_transport = transport or (client._transport if client is not None else None)
     resolver = ClientResolver(resolved_api_url, client, transport=resolved_transport)
@@ -89,13 +88,7 @@ def build_server(
 
     @mcp.custom_route("/health", methods=["GET"], name="health")
     async def health(_: Request) -> JSONResponse:
-        body: dict[str, str] = {"status": "ok", "service": "map-mcp"}
-        if resolver.default_ctx is not None:
-            body["mode"] = "default_token"
-            body["role"] = resolver.default_ctx.role.value
-        else:
-            body["mode"] = "token_per_call"
-        return JSONResponse(body)
+        return JSONResponse({"status": "ok", "service": "map-mcp", "auth": "bearer"})
 
     @mcp.tool()
     def get_todos(token: Token = None) -> dict[str, Any]:
@@ -430,55 +423,56 @@ def build_server(
             key = project_key or name.lower().replace(" ", "-")
             return dump(c.create_project(key, name, workspace_path, description))
 
-    default_client = client
-
     @mcp.resource("map://project/{project_id}/status")
     def project_status_resource(project_id: str) -> str:
-        """Read-only project status board snapshot (UUID form, Admin). Uses default MAP_TOKEN if set."""
-        if default_client is None:
-            raise ValueError("Resources require MAP_TOKEN on the MCP server; use get_project_status tool with token")
-        ctx = resolver.default_ctx
-        if ctx is None or not ctx.is_admin:
-            raise ValueError("Admin role required for this resource")
-        return dumps_json(default_client.get_project_status(parse_uuid(project_id, "project_id")))
+        """Read-only project status board snapshot (UUID form, Admin)."""
+        with resolver.use(None) as (c, ctx):
+            if not ctx.is_admin:
+                raise ValueError("Admin role required for this resource")
+            return dumps_json(c.get_project_status(parse_uuid(project_id, "project_id")))
 
     @mcp.resource("map://experiment/{experiment_id}")
     def experiment_context(experiment_id: str) -> str:
-        """Read-only snapshot: experiment detail, plans, reviews, disputes, comments. Uses default MAP_TOKEN if set."""
-        if default_client is None:
-            raise ValueError("Resources require MAP_TOKEN on the MCP server; use get_experiment tool with token")
-        eid = parse_uuid(experiment_id, "experiment_id")
-        detail = default_client.get_experiment(eid)
-        plans = default_client.list_plans(eid)
-        reviews = default_client.list_reviews(eid)
-        comments = default_client.list_comments(eid, tree=True)
-        logs = default_client.list_logs(eid)
+        """Read-only snapshot: experiment detail, plans, reviews, disputes, comments."""
+        with resolver.use(None) as (c, _ctx):
+            eid = parse_uuid(experiment_id, "experiment_id")
+            detail = c.get_experiment(eid)
+            plans = c.list_plans(eid)
+            reviews = c.list_reviews(eid)
+            comments = c.list_comments(eid, tree=True)
+            logs = c.list_logs(eid)
 
-        open_items: list[dict[str, Any]] = []
-        for review in reviews:
-            for item in review.items:
-                if item.kind.value == "unreasonable" and item.status and item.status.value == "open":
-                    open_items.append(dump(item))
+            open_items: list[dict[str, Any]] = []
+            for review in reviews:
+                for item in review.items:
+                    if item.kind.value == "unreasonable" and item.status and item.status.value == "open":
+                        open_items.append(dump(item))
 
-        context = {
-            "experiment": dump(detail),
-            "current_plan": dump(detail.current_plan),
-            "plan_versions": dump(plans),
-            "reviews": dump(reviews),
-            "open_unreasonable_items": open_items,
-            "comments_tree": dump(comments),
-            "logs": dump(logs),
-        }
-        return dumps_json(context)
+            context = {
+                "experiment": dump(detail),
+                "current_plan": dump(detail.current_plan),
+                "plan_versions": dump(plans),
+                "reviews": dump(reviews),
+                "open_unreasonable_items": open_items,
+                "comments_tree": dump(comments),
+                "logs": dump(logs),
+            }
+            return dumps_json(context)
 
     @mcp.resource("map://project/{project_key}/current-status")
     def project_current_status_resource(project_key: str) -> str:
-        """Read-only project Current Status. Uses default MAP_TOKEN if set."""
-        if default_client is None:
-            raise ValueError(
-                "Resources require MAP_TOKEN on the MCP server; use get_project_status tool with token"
-            )
-        project = default_client.get_project_by_key(project_key)
-        return dumps_json(default_client.get_project_status(project.id))
+        """Read-only project Current Status."""
+        with resolver.use(None) as (c, _ctx):
+            project = c.get_project_by_key(project_key)
+            return dumps_json(c.get_project_status(project.id))
+
+    _original_streamable_http_app = mcp.streamable_http_app
+
+    def streamable_http_app_with_bearer():
+        app = _original_streamable_http_app()
+        app.add_middleware(BearerTokenMiddleware)
+        return app
+
+    mcp.streamable_http_app = streamable_http_app_with_bearer  # type: ignore[method-assign]
 
     return mcp

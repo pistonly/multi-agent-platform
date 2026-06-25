@@ -1,9 +1,5 @@
-import ReactMarkdown from "react-markdown";
+import { MarkdownBody } from "./MarkdownBody";
 
 export function StatusMarkdown({ content }: { content: string }) {
-  return (
-    <div className="markdown-body">
-      <ReactMarkdown>{content}</ReactMarkdown>
-    </div>
-  );
+  return <MarkdownBody content={content} />;
 }

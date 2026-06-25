@@ -86,7 +86,7 @@ async def test_mcp_gateway_mode_requires_token(client, agent_token):
     _, creator_token = agent_token
     mcp = build_server(None, api_url="http://test", transport=MAPTestClientTransport(client))
 
-    with pytest.raises(ToolError, match="token is required"):
+    with pytest.raises(ToolError, match="Authentication required"):
         await mcp.call_tool("get_me", {})
 
     _, payload = await mcp.call_tool("get_me", {"token": creator_token})

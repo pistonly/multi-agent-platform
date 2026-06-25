@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CommentTreeNode, ReviewItem } from "../api/types";
 import { createComment, updateReviewItem } from "../api/client";
+import { MarkdownBody } from "./MarkdownBody";
 
 function CommentNode({ node, depth = 0 }: { node: CommentTreeNode; depth?: number }) {
   return (
@@ -8,7 +9,9 @@ function CommentNode({ node, depth = 0 }: { node: CommentTreeNode; depth?: numbe
       <div className="mb-1 text-xs text-slate-500">
         {new Date(node.created_at).toLocaleString()} · {node.author_agent_id.slice(0, 8)}…
       </div>
-      <p className="mb-2 text-sm text-slate-200">{node.body}</p>
+      <div className="mb-2">
+        <MarkdownBody content={node.body} />
+      </div>
       {node.children.map((child) => (
         <CommentNode key={child.id} node={child} depth={depth + 1} />
       ))}
