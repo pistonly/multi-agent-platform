@@ -166,10 +166,21 @@ def create_topic_comment(
     agent: Agent = Depends(get_current_agent),
 ) -> TopicCommentRead:
     try:
-        perm.ensure_topic_access(db, agent, topic_id)
+        topic = perm.ensure_topic_access(db, agent, topic_id)
         comment = topic_service.create_topic_comment(db, topic_id, agent, payload)
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
+    emit(
+        db,
+        agent,
+        action="topic.comment.created",
+        target_type="topic_comment",
+        target_id=comment.id,
+        project_id=topic.project_id,
+        summary="话题新评论",
+        event="topic.comment.created",
+        event_payload={"topic_id": str(topic_id), "comment_id": str(comment.id)},
+    )
     return TopicCommentRead.model_validate(comment)
 
 

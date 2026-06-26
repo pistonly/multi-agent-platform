@@ -100,3 +100,41 @@ def test_sdk_topic_flow(map_client: MAPClient, project: dict):
 
     reopened = map_client.reopen_topic(topic.id)
     assert reopened.status.value == "open"
+
+
+def test_sdk_notifications(map_client: MAPClient, client: TestClient, project: dict, admin_headers):
+    reviewer = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        params={"name": "sdk-notify-reviewer", "role": "agent", "project_key": project["project_key"]},
+    ).json()
+    reviewer_client = MAPClient(
+        "http://test",
+        reviewer["api_token"],
+        transport=MAPTestClientTransport(client),
+    )
+
+    map_client.create_experiment(
+        uuid.UUID(project["id"]),
+        ExperimentCreate(title="SDK notify", plan=PlanInput(content_md="p")),
+    )
+    exp = map_client.list_experiments(uuid.UUID(project["id"]))[-1]
+    map_client.submit_for_review(exp.id)
+
+    inbox = reviewer_client.list_notifications()
+    assert inbox.unread_count >= 1
+    assert inbox.total >= 1
+    notif = next(n for n in inbox.items if n.event == "experiment.phase_changed")
+    assert notif.read_at is None
+
+    read = reviewer_client.mark_notification_read(notif.id)
+    assert read.read_at is not None
+
+    unread = reviewer_client.list_notifications(unread_only=True)
+    assert all(n.read_at is not None for n in unread.items if n.id == notif.id)
+
+    marked = reviewer_client.mark_all_notifications_read()
+    assert marked["marked"] >= 0
+    assert reviewer_client.list_notifications().unread_count == 0
+
+    reviewer_client.close()

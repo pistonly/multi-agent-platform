@@ -9,6 +9,7 @@ import { ProjectPage } from "./pages/ProjectPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StatusPage } from "./pages/StatusPage";
 import { TodosPage } from "./pages/TodosPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { TopicPage } from "./pages/TopicPage";
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
               <Route element={<Layout />}>
                 <Route index element={<StatusPage />} />
                 <Route path="todos" element={<TodosPage />} />
+                <Route path="notifications" element={<NotificationsPage />} />
                 <Route path="projects/:projectId" element={<ProjectPage />} />
                 <Route path="experiments/:experimentId" element={<ExperimentPage />} />
                 <Route path="topics/:topicId" element={<TopicPage />} />

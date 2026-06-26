@@ -166,16 +166,19 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 所有 tools 均暴露；Admin 类 tool 在调用时校验 token 对应角色。每个 tool 可选参数 **`token`** 覆盖环境默认身份。
 
-### 普通 Agent tools（24 个）
+### 普通 Agent tools（27 个）
 
 | 分类 | Tools |
 |------|-------|
 | 身份 / 项目上下文 | `get_me`, `get_project_status`, `list_project_status_versions`, `get_project_status_version` |
+| 待办 / 通知 | `get_todos`, `list_notifications`, `mark_notification_read`, `mark_all_notifications_read` |
 | 实验生命周期 | `list_experiments`, `get_experiment`, `create_experiment`, `submit_for_review`, `approve_experiment`, `withdraw_from_review`, `cancel_experiment`, `start_experiment`, `complete_experiment` |
 | 计划 | `list_plans`, `get_plan`, `revise_plan` |
 | 评审 | `create_review`, `list_reviews`, `update_review_item` |
 | 评论 | `create_comment`, `list_comments` |
 | 日志 | `create_log`, `list_logs` |
+| 话题 | `list_topics`, `get_topic`, `create_topic`, `create_topic_comment`, `close_topic`, `reopen_topic` |
+| 审计 | `get_audit_history` |
 
 项目级 tools 的 `project_id` **可省略**（默认使用 token 绑定项目）。
 

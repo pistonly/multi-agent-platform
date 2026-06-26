@@ -242,7 +242,7 @@ export function ExperimentPage() {
         />
         <div className="mt-6 border-t border-surface-border pt-4">
           <h3 className="mb-2 text-sm font-medium text-slate-400">其他讨论</h3>
-          <CommentTree nodes={comments} />
+          <CommentTree nodes={comments} experimentId={experimentId!} onUpdated={invalidate} />
           {selectedPlan ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input

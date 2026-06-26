@@ -59,6 +59,7 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
             title=topic.title,
             description=topic.description,
             status=topic.status,
+            pinned=topic.pinned,
             comment_count=comment_counts.get(topic.id, 0),
             experiment_count=experiment_counts.get(topic.id, 0),
             created_at=topic.created_at,
@@ -110,7 +111,7 @@ def list_topics(
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
-    stmt = stmt.order_by(Topic.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    stmt = stmt.order_by(Topic.pinned.desc(), Topic.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)
     topics = list(db.scalars(stmt))
     return topic_summaries_for_topics(db, topics), total
 
@@ -193,7 +194,7 @@ def create_topic_comment(
     author: Agent,
     payload: TopicCommentCreate,
 ) -> TopicComment:
-    _get_topic(db, topic_id)
+    topic = _get_topic(db, topic_id)
     if payload.parent_id is not None:
         parent = db.scalar(
             select(TopicComment).where(
@@ -211,6 +212,10 @@ def create_topic_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+
+    from server.services import mention_service
+
+    mention_service.process_topic_comment_mentions(db, comment=comment, author=author, topic=topic)
     return comment
 
 

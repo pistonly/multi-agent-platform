@@ -1,11 +1,22 @@
 import { useState } from "react";
 import { Link, Outlet, Navigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { fetchNotifications } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { CreateProjectForm } from "./CreateProjectForm";
 
 export function Layout() {
   const { token, agentName, role, projectKey, isAdmin, isReady, clearToken } = useAuth();
   const [showCreateProject, setShowCreateProject] = useState(false);
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications", "badge"],
+    queryFn: () => fetchNotifications({ unread_only: true, limit: 1 }),
+    enabled: isReady && !!token,
+    refetchInterval: 30_000,
+  });
+
+  const unreadCount = notificationsQuery.data?.unread_count ?? 0;
 
   if (!isReady) {
     return (
@@ -31,6 +42,14 @@ export function Layout() {
               </Link>
               <Link to="/todos" className="hover:text-white">
                 待办
+              </Link>
+              <Link to="/notifications" className="relative hover:text-white">
+                通知
+                {unreadCount > 0 && (
+                  <span className="absolute -right-3 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
               {!isAdmin && projectKey && (
                 <span className="font-mono text-slate-500">{projectKey}</span>

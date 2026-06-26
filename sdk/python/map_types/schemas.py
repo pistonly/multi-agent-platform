@@ -267,6 +267,7 @@ class TopicCreate(BaseModel):
 class TopicUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=512)
     description: str | None = None
+    pinned: bool | None = None
 
 
 class TopicSummaryRead(BaseModel):
@@ -276,6 +277,7 @@ class TopicSummaryRead(BaseModel):
     title: str
     description: str | None
     status: TopicStatus
+    pinned: bool = False
     comment_count: int = 0
     experiment_count: int = 0
     created_at: datetime
@@ -314,11 +316,48 @@ class PendingReplyRead(BaseModel):
     updated_at: datetime
 
 
+class MentionTodoRead(BaseModel):
+    id: uuid.UUID
+    mentioned_agent_id: uuid.UUID
+    author_agent_id: uuid.UUID
+    author_name: str | None = None
+    source_type: str
+    source_id: uuid.UUID
+    project_id: uuid.UUID
+    experiment_id: uuid.UUID | None
+    topic_id: uuid.UUID | None
+    excerpt: str
+    created_at: datetime
+
+
 class TodoRead(BaseModel):
     my_open_experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_replies: list[PendingReplyRead] = Field(default_factory=list)
     my_open_topics: list[TopicSummaryRead] = Field(default_factory=list)
+    mentions: list[MentionTodoRead] = Field(default_factory=list)
+
+
+# --- Notification ---
+
+
+class NotificationRead(ORMModel):
+    id: uuid.UUID
+    recipient_agent_id: uuid.UUID
+    project_id: uuid.UUID | None
+    event: str
+    summary: str
+    target_type: str
+    target_id: uuid.UUID | None
+    payload_json: dict | None
+    read_at: datetime | None
+    created_at: datetime
+
+
+class NotificationListRead(BaseModel):
+    items: list[NotificationRead]
+    total: int
+    unread_count: int
 
 
 # --- Webhook ---

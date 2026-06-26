@@ -10,9 +10,12 @@ from server.domain.models import Agent, AgentRole
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
+    NotificationListRead,
+    NotificationRead,
     TodoRead,
 )
 from server.services import auth as auth_service
+from server.services import notification_service
 from server.services import todo_service
 from server.services import permissions as perm
 from server.services import project_service as svc
@@ -96,5 +99,33 @@ def get_my_todos(
     db: Session = Depends(get_db),
 ) -> TodoRead:
     return todo_service.get_todos(db, agent)
+
+
+@agents_router.get("/me/notifications", response_model=NotificationListRead)
+def list_my_notifications(
+    unread_only: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> NotificationListRead:
+    items, total = notification_service.list_for_agent(
+        db, agent, unread_only=unread_only, limit=limit, offset=offset
+    )
+    unread_count = notification_service.count_unread(db, agent)
+    return NotificationListRead(
+        items=[NotificationRead.model_validate(n) for n in items],
+        total=total,
+        unread_count=unread_count,
+    )
+
+
+@agents_router.post("/me/notifications/read-all")
+def mark_all_notifications_read(
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    count = notification_service.mark_all_read(db, agent)
+    return {"marked": count}
 
 

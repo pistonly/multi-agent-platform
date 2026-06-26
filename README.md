@@ -7,6 +7,7 @@
 - [产品需求文档（PRD）](docs/PRD.md)
 - [产品需求文档 v0.2（角色与项目边界）](docs/PRD-v0.2.md)
 - [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/PRD-v0.3.md)
+- [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/PRD-v0.4.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -30,6 +31,15 @@
 - **M14**：Webhook 出站通知（HMAC 签名 + 投递记录 + Admin CRUD）+ 审计日志（关键写操作打点 + 对象/全局查询）。
 
 详见 [PRD v0.3](docs/PRD-v0.3.md)。
+
+**v0.4 已完成（M15–M18）**：
+
+- **M15**：站内通知收件箱（`notifications` 表 + 统一事件扇出 + API/Web/CLI/SDK/MCP）。
+- **M16**：评论 `@提及` → 待办 `mentions` 分区 + 定向通知。
+- **M17**：实验页计划版本 diff 只读视图（`PlanDiffView`）。
+- **M18**：话题置顶（`topics.pinned` + 列表优先排序）。
+
+详见 [PRD v0.4](docs/PRD-v0.4.md)。
 
 ## 快速开始
 
@@ -66,6 +76,9 @@ map project list
 map status
 map experiment start --id <exp-id>
 map experiment complete --id <exp-id> --summary "完成" --file log.md
+map notification list --unread-only
+map notification read --id <notification-id>
+map notification read-all
 
 # Web UI（React + Vite）
 cd web && npm install && npm run dev   # http://localhost:5173
@@ -105,4 +118,4 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-M1–M14（v0.3）已完成。近期优化包括：实验页 **Bundle API**（单次加载详情/计划/评审/评论/日志）、Webhook 异步投递、API 路由模块化、GitHub Actions CI 等。详见 [架构文档](docs/ARCHITECTURE.md) 与 [PRD v0.3](docs/PRD-v0.3.md)。
+M1–M14（v0.3）与 M15–M18（v0.4）已完成。近期优化包括：实验页 **Bundle API**（单次加载详情/计划/评审/评论/日志）、Webhook 异步投递、API 路由模块化、GitHub Actions CI 等。详见 [架构文档](docs/ARCHITECTURE.md)、[PRD v0.3](docs/PRD-v0.3.md) 与 [PRD v0.4](docs/PRD-v0.4.md)。

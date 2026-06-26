@@ -97,6 +97,29 @@ def build_server(
             return dump(c.get_todos())
 
     @mcp.tool()
+    def list_notifications(
+        unread_only: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+        token: Token = None,
+    ) -> dict[str, Any]:
+        """List in-app notifications for the current agent (paginated, optional unread filter)."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.list_notifications(unread_only=unread_only, limit=limit, offset=offset))
+
+    @mcp.tool()
+    def mark_notification_read(notification_id: str, token: Token = None) -> dict[str, Any]:
+        """Mark a single in-app notification as read."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.mark_notification_read(parse_uuid(notification_id, "notification_id")))
+
+    @mcp.tool()
+    def mark_all_notifications_read(token: Token = None) -> dict[str, Any]:
+        """Mark all in-app notifications as read for the current agent."""
+        with resolver.use(token) as (c, _ctx):
+            return dump(c.mark_all_notifications_read())
+
+    @mcp.tool()
     def get_audit_history(target_type: str, target_id: str, token: Token = None) -> list[dict[str, Any]]:
         """Return the audit trail for a given object (e.g. target_type='experiment', 'topic')."""
         with resolver.use(token) as (c, _ctx):

@@ -46,6 +46,8 @@ from map_types import (
     TopicStatus,
     TopicSummaryRead,
     TopicUpdate,
+    NotificationListRead,
+    NotificationRead,
     TodoRead,
     WebhookCreate,
     WebhookCreateResponse,
@@ -389,6 +391,29 @@ class MAPClient:
 
     def get_todos(self) -> TodoRead:
         return TodoRead.model_validate(self._json("GET", "/agents/me/todos"))
+
+    # --- notifications ---
+
+    def list_notifications(
+        self,
+        *,
+        unread_only: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> NotificationListRead:
+        data = self._json(
+            "GET",
+            "/agents/me/notifications",
+            params={"unread_only": unread_only, "limit": limit, "offset": offset},
+        )
+        return NotificationListRead.model_validate(data)
+
+    def mark_notification_read(self, notification_id: uuid.UUID) -> NotificationRead:
+        data = self._json("POST", f"/notifications/{notification_id}/read")
+        return NotificationRead.model_validate(data)
+
+    def mark_all_notifications_read(self) -> dict[str, int]:
+        return self._json("POST", "/agents/me/notifications/read-all")
 
     # --- webhooks (admin) ---
 

@@ -18,12 +18,38 @@ export function TodosPage() {
     data.my_open_experiments.length === 0 &&
     data.pending_reviews.length === 0 &&
     data.pending_replies.length === 0 &&
-    data.my_open_topics.length === 0;
+    data.my_open_topics.length === 0 &&
+    data.mentions.length === 0;
 
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold text-white">待办</h1>
       {empty && <p className="text-slate-500">暂无待办，一切就绪 🎉</p>}
+
+      {data.mentions.length > 0 && (
+        <Section title={`@提及我（${data.mentions.length}）`}>
+          {data.mentions.map((m) => {
+            const to = m.experiment_id
+              ? `/experiments/${m.experiment_id}`
+              : m.topic_id
+                ? `/topics/${m.topic_id}`
+                : "/todos";
+            return (
+              <Row key={m.id} to={to}>
+                <div>
+                  <div className="text-accent hover:underline">
+                    {m.author_name ?? m.author_agent_id.slice(0, 8)} 提及了你
+                  </div>
+                  <div className="text-xs text-slate-400">{m.excerpt}</div>
+                </div>
+                <span className="text-xs text-slate-500">
+                  {new Date(m.created_at).toLocaleDateString()}
+                </span>
+              </Row>
+            );
+          })}
+        </Section>
+      )}
 
       {data.pending_reviews.length > 0 && (
         <Section title={`待评审（${data.pending_reviews.length}）`}>

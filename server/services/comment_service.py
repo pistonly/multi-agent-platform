@@ -61,6 +61,17 @@ def create_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+
+    from server.services import mention_service
+
+    experiment = get_experiment(db, experiment_id)
+    mention_service.process_experiment_comment_mentions(
+        db,
+        comment=comment,
+        author=author,
+        project_id=experiment.project_id,
+        experiment_title=experiment.title,
+    )
     return comment
 
 

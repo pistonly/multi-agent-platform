@@ -6,6 +6,7 @@ from server.api.router import (
     agents_router,
     audit_router,
     experiments_router,
+    notifications_router,
     router as projects_router,
     status_router,
     topics_router,
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router, prefix=prefix)
     app.include_router(experiments_router, prefix=prefix)
     app.include_router(agents_router, prefix=prefix)
+    app.include_router(notifications_router, prefix=prefix)
     app.include_router(status_router, prefix=prefix)
     app.include_router(topics_router, prefix=prefix)
     app.include_router(webhooks_router, prefix=prefix)
@@ -44,7 +46,8 @@ app = create_app()
 
 
 def run() -> None:
-    uvicorn.run("server.main:app", host="0.0.0.0", port=8000, reload=get_settings().debug)
+    settings = get_settings()
+    uvicorn.run("server.main:app", host="0.0.0.0", port=settings.port, reload=settings.debug)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/map.db"
     api_prefix: str = "/api/v1"
+    port: int = 8000
     debug: bool = False
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 

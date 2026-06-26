@@ -30,6 +30,9 @@ AGENT_TOOLS = {
     "list_logs",
     "get_audit_history",
     "get_todos",
+    "list_notifications",
+    "mark_notification_read",
+    "mark_all_notifications_read",
     "list_topics",
     "get_topic",
     "create_topic",
@@ -192,3 +195,31 @@ async def test_mcp_topic_flow(map_client):
 
     _, opened = await mcp.call_tool("reopen_topic", {"topic_id": topic_id})
     assert opened["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_mcp_notifications(client, map_client, reviewer):
+    mcp = build_server(map_client)
+    reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
+
+    _, exp_payload = await mcp.call_tool(
+        "create_experiment",
+        {
+            "title": "MCP notify",
+            "plan_content_md": "# Plan",
+        },
+    )
+    await mcp.call_tool("submit_for_review", {"experiment_id": exp_payload["id"]})
+
+    _, inbox = await mcp.call_tool("list_notifications", {"token": reviewer_token})
+    assert inbox["unread_count"] >= 1
+    notif = next(n for n in inbox["items"] if n["event"] == "experiment.phase_changed")
+
+    _, read = await mcp.call_tool(
+        "mark_notification_read",
+        {"notification_id": notif["id"], "token": reviewer_token},
+    )
+    assert read["read_at"] is not None
+
+    _, marked = await mcp.call_tool("mark_all_notifications_read", {"token": reviewer_token})
+    assert marked["marked"] >= 0

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { closeTopic, createTopicComment, fetchTopic, reopenTopic } from "../api/client";
+import { closeTopic, createTopicComment, fetchTopic, reopenTopic, updateTopic } from "../api/client";
 import type { TopicCommentTreeNode } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
@@ -33,6 +33,11 @@ export function TopicPage() {
   const statusMutation = useMutation({
     mutationFn: (action: "close" | "reopen") =>
       action === "close" ? closeTopic(topicId!) : reopenTopic(topicId!),
+    onSuccess: invalidate,
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: (pinned: boolean) => updateTopic(topicId!, { pinned }),
     onSuccess: invalidate,
   });
 
@@ -73,6 +78,14 @@ export function TopicPage() {
           <button type="button" className="btn-primary" onClick={() => setShowCreateExp(true)}>
             从此话题发起实验
           </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={pinMutation.isPending}
+            onClick={() => pinMutation.mutate(!topic.pinned)}
+          >
+            {topic.pinned ? "取消置顶" : "置顶话题"}
+          </button>
         </div>
       </div>
 
@@ -95,7 +108,7 @@ export function TopicPage() {
       <section className="card">
         <h2 className="mb-4 text-lg font-semibold text-white">讨论</h2>
         {topic.comments.length > 0 ? (
-          <TopicCommentNodes nodes={topic.comments} />
+          <TopicCommentNodes nodes={topic.comments} topicId={topicId!} onUpdated={invalidate} />
         ) : (
           <p className="text-sm text-slate-500">暂无讨论</p>
         )}
@@ -133,7 +146,32 @@ export function TopicPage() {
   );
 }
 
-function TopicCommentNodes({ nodes, depth = 0 }: { nodes: TopicCommentTreeNode[]; depth?: number }) {
+interface TopicCommentNodesProps {
+  nodes: TopicCommentTreeNode[];
+  topicId: string;
+  onUpdated: () => void;
+  depth?: number;
+}
+
+function TopicCommentNodes({ nodes, topicId, onUpdated, depth = 0 }: TopicCommentNodesProps) {
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState<string | null>(null);
+
+  async function handleReply(commentId: string) {
+    const body = replyText[commentId]?.trim();
+    if (!body) return;
+    setLoading(commentId);
+    try {
+      await createTopicComment(topicId, { body, parent_id: commentId });
+      setReplyText((prev) => ({ ...prev, [commentId]: "" }));
+      setReplyingTo(null);
+      onUpdated();
+    } finally {
+      setLoading(null);
+    }
+  }
+
   return (
     <div className="space-y-2">
       {nodes.map((n) => (
@@ -144,7 +182,45 @@ function TopicCommentNodes({ nodes, depth = 0 }: { nodes: TopicCommentTreeNode[]
           <div className="mb-2">
             <MarkdownBody content={n.body} />
           </div>
-          {n.children.length > 0 && <TopicCommentNodes nodes={n.children} depth={depth + 1} />}
+          <button
+            type="button"
+            className="mb-2 text-xs text-accent hover:underline"
+            onClick={() => setReplyingTo((id) => (id === n.id ? null : n.id))}
+          >
+            回复
+          </button>
+          {replyingTo === n.id ? (
+            <div className="mb-3 flex flex-wrap gap-2">
+              <input
+                className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+                placeholder="写下回复…"
+                value={replyText[n.id] ?? ""}
+                onChange={(e) => setReplyText((prev) => ({ ...prev, [n.id]: e.target.value }))}
+              />
+              <button
+                type="button"
+                className="btn-secondary py-1 text-xs"
+                disabled={!replyText[n.id]?.trim() || loading === n.id}
+                onClick={() => handleReply(n.id)}
+              >
+                {loading === n.id ? "发送中…" : "发送"}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary py-1 text-xs"
+                disabled={loading === n.id}
+                onClick={() => {
+                  setReplyingTo(null);
+                  setReplyText((prev) => ({ ...prev, [n.id]: "" }));
+                }}
+              >
+                取消
+              </button>
+            </div>
+          ) : null}
+          {n.children.length > 0 && (
+            <TopicCommentNodes nodes={n.children} topicId={topicId} onUpdated={onUpdated} depth={depth + 1} />
+          )}
         </div>
       ))}
     </div>

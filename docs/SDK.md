@@ -86,6 +86,10 @@ with MAPClient.from_env() as client:
 | `start_experiment` | `POST /experiments/{id}/start` |
 | `complete_experiment` | `POST /experiments/{id}/complete` |
 | `create_log` | `POST /experiments/{id}/logs` |
+| `get_todos` | `GET /agents/me/todos` |
+| `list_notifications` | `GET /agents/me/notifications` |
+| `mark_notification_read` | `POST /notifications/{id}/read` |
+| `mark_all_notifications_read` | `POST /agents/me/notifications/read-all` |
 | `list_comments(tree=True)` | `GET /experiments/{id}/comments?tree=true` |
 | `get_global_status` | `GET /status` |
 

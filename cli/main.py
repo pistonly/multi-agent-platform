@@ -255,6 +255,29 @@ def experiment_comment(
     _run(lambda c: c.create_comment(experiment_id, payload))
 
 
+notification_app = typer.Typer(help="In-app notification commands")
+app.add_typer(notification_app, name="notification")
+
+
+@notification_app.command("list")
+def notification_list(
+    unread_only: bool = typer.Option(False, "--unread-only"),
+    limit: int = typer.Option(50, "--limit"),
+    offset: int = typer.Option(0, "--offset"),
+) -> None:
+    _run(lambda c: c.list_notifications(unread_only=unread_only, limit=limit, offset=offset))
+
+
+@notification_app.command("read")
+def notification_read(notification_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.mark_notification_read(notification_id))
+
+
+@notification_app.command("read-all")
+def notification_read_all() -> None:
+    _run(lambda c: c.mark_all_notifications_read())
+
+
 @app.command("status")
 def project_or_global_status(
     project: uuid.UUID | None = typer.Option(None, "--project"),

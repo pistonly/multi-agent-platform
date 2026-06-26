@@ -148,6 +148,7 @@ function TopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?
           className="flex flex-wrap items-center justify-between gap-2 border-b border-surface-border py-2 last:border-0"
         >
           <Link to={`/topics/${t.id}`} className="text-accent hover:underline">
+            {t.pinned ? "📌 " : ""}
             {t.title}
           </Link>
           <div className="flex items-center gap-3 text-xs text-slate-500">

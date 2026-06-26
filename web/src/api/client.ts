@@ -19,6 +19,7 @@ import type {
   TopicRead,
   TopicStatus,
   TopicSummary,
+  NotificationList,
 } from "./types";
 
 const baseURL = import.meta.env.VITE_API_URL || "";
@@ -258,7 +259,7 @@ export async function createTopic(projectId: string, payload: TopicCreatePayload
 
 export async function updateTopic(
   topicId: string,
-  body: { title?: string; description?: string | null }
+  body: { title?: string; description?: string | null; pinned?: boolean }
 ): Promise<TopicSummary> {
   const { data } = await api.patch<TopicSummary>(`/topics/${topicId}`, body);
   return data;
@@ -285,5 +286,23 @@ export async function createTopicComment(
 
 export async function fetchTodos(): Promise<TodoRead> {
   const { data } = await api.get<TodoRead>("/agents/me/todos");
+  return data;
+}
+
+export async function fetchNotifications(params?: {
+  unread_only?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<NotificationList> {
+  const { data } = await api.get<NotificationList>("/agents/me/notifications", { params });
+  return data;
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await api.post(`/notifications/${notificationId}/read`);
+}
+
+export async function markAllNotificationsRead(): Promise<{ marked: number }> {
+  const { data } = await api.post<{ marked: number }>("/agents/me/notifications/read-all");
   return data;
 }

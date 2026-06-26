@@ -179,6 +179,7 @@ export interface TopicSummary {
   title: string;
   description: string | null;
   status: TopicStatus;
+  pinned: boolean;
   comment_count: number;
   experiment_count: number;
   created_at: string;
@@ -212,9 +213,43 @@ export interface PendingReply {
   updated_at: string;
 }
 
+export interface MentionTodo {
+  id: string;
+  mentioned_agent_id: string;
+  author_agent_id: string;
+  author_name: string | null;
+  source_type: string;
+  source_id: string;
+  project_id: string;
+  experiment_id: string | null;
+  topic_id: string | null;
+  excerpt: string;
+  created_at: string;
+}
+
 export interface TodoRead {
   my_open_experiments: ExperimentSummary[];
   pending_reviews: ExperimentSummary[];
   pending_replies: PendingReply[];
   my_open_topics: TopicSummary[];
+  mentions: MentionTodo[];
+}
+
+export interface Notification {
+  id: string;
+  recipient_agent_id: string;
+  project_id: string | null;
+  event: string;
+  summary: string;
+  target_type: string;
+  target_id: string | null;
+  payload_json: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationList {
+  items: Notification[];
+  total: number;
+  unread_count: number;
 }

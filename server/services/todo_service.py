@@ -13,9 +13,11 @@ from server.domain.models import (
 )
 from server.domain.schemas import (
     ExperimentSummaryRead,
+    MentionTodoRead,
     PendingReplyRead,
     TodoRead,
 )
+from server.services import mention_service
 from server.services import permissions as perm
 from server.services.topic_service import topic_summaries_for_topics
 
@@ -106,9 +108,33 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         for item in db.scalars(reply_stmt)
     ]
 
+    mention_rows = mention_service.list_mentions_for_agent(db, agent.id)
+    author_ids = {m.author_agent_id for m in mention_rows}
+    authors = {
+        a.id: a.name
+        for a in db.scalars(select(Agent).where(Agent.id.in_(author_ids))).all()
+    } if author_ids else {}
+    mentions = [
+        MentionTodoRead(
+            id=m.id,
+            mentioned_agent_id=m.mentioned_agent_id,
+            author_agent_id=m.author_agent_id,
+            author_name=authors.get(m.author_agent_id),
+            source_type=m.source_type.value,
+            source_id=m.source_id,
+            project_id=m.project_id,
+            experiment_id=m.experiment_id,
+            topic_id=m.topic_id,
+            excerpt=m.excerpt,
+            created_at=m.created_at,
+        )
+        for m in mention_rows
+    ]
+
     return TodoRead(
         my_open_experiments=my_open_experiments,
         pending_reviews=pending_reviews,
         pending_replies=pending_replies,
         my_open_topics=my_open_topics,
+        mentions=mentions,
     )

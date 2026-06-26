@@ -3,7 +3,37 @@ import type { CommentTreeNode, ReviewItem } from "../api/types";
 import { createComment, updateReviewItem } from "../api/client";
 import { MarkdownBody } from "./MarkdownBody";
 
-function CommentNode({ node, depth = 0 }: { node: CommentTreeNode; depth?: number }) {
+interface CommentNodeProps {
+  node: CommentTreeNode;
+  depth?: number;
+  experimentId: string;
+  onUpdated: () => void;
+}
+
+function CommentNode({ node, depth = 0, experimentId, onUpdated }: CommentNodeProps) {
+  const [showReply, setShowReply] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleReply() {
+    const body = replyText.trim();
+    if (!body) return;
+    setLoading(true);
+    try {
+      await createComment(experimentId, {
+        anchor_type: "comment",
+        anchor_id: node.id,
+        parent_id: node.id,
+        body,
+      });
+      setReplyText("");
+      setShowReply(false);
+      onUpdated();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={{ marginLeft: depth * 16 }} className="border-l border-surface-border pl-3">
       <div className="mb-1 text-xs text-slate-500">
@@ -12,8 +42,50 @@ function CommentNode({ node, depth = 0 }: { node: CommentTreeNode; depth?: numbe
       <div className="mb-2">
         <MarkdownBody content={node.body} />
       </div>
+      <button
+        type="button"
+        className="mb-2 text-xs text-accent hover:underline"
+        onClick={() => setShowReply((v) => !v)}
+      >
+        回复
+      </button>
+      {showReply ? (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <input
+            className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+            placeholder="写下回复…"
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn-secondary py-1 text-xs"
+            disabled={!replyText.trim() || loading}
+            onClick={handleReply}
+          >
+            {loading ? "发送中…" : "发送"}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary py-1 text-xs"
+            disabled={loading}
+            onClick={() => {
+              setShowReply(false);
+              setReplyText("");
+            }}
+          >
+            取消
+          </button>
+        </div>
+      ) : null}
       {node.children.map((child) => (
-        <CommentNode key={child.id} node={child} depth={depth + 1} />
+        <CommentNode
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          experimentId={experimentId}
+          onUpdated={onUpdated}
+        />
       ))}
     </div>
   );
@@ -71,7 +143,7 @@ export function DisputeSection({ experimentId, items, comments, onUpdated }: Dis
           <div className="mb-2 font-medium text-red-200">{item.content}</div>
           <div className="mb-3 space-y-2">
             {commentsForItem(item.id).map((c) => (
-              <CommentNode key={c.id} node={c} />
+              <CommentNode key={c.id} node={c} experimentId={experimentId} onUpdated={onUpdated} />
             ))}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -116,13 +188,19 @@ export function DisputeSection({ experimentId, items, comments, onUpdated }: Dis
   );
 }
 
-export function CommentTree({ nodes }: { nodes: CommentTreeNode[] }) {
+interface CommentTreeProps {
+  nodes: CommentTreeNode[];
+  experimentId: string;
+  onUpdated: () => void;
+}
+
+export function CommentTree({ nodes, experimentId, onUpdated }: CommentTreeProps) {
   const roots = nodes.filter((n) => n.anchor_type !== "review_item");
   if (roots.length === 0) return null;
   return (
     <div className="space-y-3">
       {roots.map((node) => (
-        <CommentNode key={node.id} node={node} />
+        <CommentNode key={node.id} node={node} experimentId={experimentId} onUpdated={onUpdated} />
       ))}
     </div>
   );

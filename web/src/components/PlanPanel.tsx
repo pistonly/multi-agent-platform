@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { revisePlan } from "../api/client";
 import type { PlanVersion } from "../api/types";
+import { PlanDiffView } from "./PlanDiffView";
 
 interface PlanPanelProps {
   experimentId: string;
@@ -24,6 +25,11 @@ export function PlanPanel({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
+  const [diffMode, setDiffMode] = useState(false);
+  const [compareVersion, setCompareVersion] = useState<number | null>(null);
+
+  const comparePlan =
+    compareVersion != null ? versions.find((p) => p.version === compareVersion) ?? null : null;
 
   const reviseMutation = useMutation({
     mutationFn: () =>
@@ -43,22 +49,65 @@ export function PlanPanel({
     <div className="card h-full">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">实验计划 v{version}</h2>
-        {versions.length > 1 && (
-          <select
-            className="rounded border border-surface-border bg-surface px-2 py-1 text-sm text-slate-200"
-            value={version}
-            onChange={(e) => onSelectVersion(Number(e.target.value))}
-          >
-            {versions.map((p) => (
-              <option key={p.id} value={p.version}>
-                v{p.version}
-                {p.change_note ? ` — ${p.change_note}` : ""}
-              </option>
-            ))}
-          </select>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {versions.length > 1 && (
+            <>
+              <button
+                type="button"
+                className={`btn-secondary py-1 text-xs ${diffMode ? "ring-1 ring-accent" : ""}`}
+                onClick={() => {
+                  setDiffMode((v) => !v);
+                  if (!diffMode && compareVersion == null) {
+                    const prevVersions = versions.filter((p) => p.version < version);
+                    const prev = prevVersions.length > 0 ? prevVersions[prevVersions.length - 1] : undefined;
+                    setCompareVersion(prev?.version ?? versions[0]?.version ?? null);
+                  }
+                }}
+              >
+                {diffMode ? "关闭对比" : "对比版本"}
+              </button>
+              {diffMode && (
+                <select
+                  className="rounded border border-surface-border bg-surface px-2 py-1 text-sm text-slate-200"
+                  value={compareVersion ?? ""}
+                  onChange={(e) => setCompareVersion(Number(e.target.value))}
+                >
+                  {versions
+                    .filter((p) => p.version !== version)
+                    .map((p) => (
+                      <option key={p.id} value={p.version}>
+                        对比 v{p.version}
+                        {p.change_note ? ` — ${p.change_note}` : ""}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </>
+          )}
+          {versions.length > 1 && !diffMode && (
+            <select
+              className="rounded border border-surface-border bg-surface px-2 py-1 text-sm text-slate-200"
+              value={version}
+              onChange={(e) => onSelectVersion(Number(e.target.value))}
+            >
+              {versions.map((p) => (
+                <option key={p.id} value={p.version}>
+                  v{p.version}
+                  {p.change_note ? ` — ${p.change_note}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
-      {plan ? (
+      {plan && diffMode && comparePlan && comparePlan.version !== plan.version ? (
+        <PlanDiffView
+          oldText={comparePlan.content_md}
+          newText={plan.content_md}
+          oldLabel={`v${comparePlan.version}`}
+          newLabel={`v${plan.version}`}
+        />
+      ) : plan ? (
         <div className="markdown-body max-h-[480px] overflow-y-auto">
           <ReactMarkdown>{plan.content_md}</ReactMarkdown>
         </div>

@@ -39,3 +39,8 @@ class CommentAnchorType(str, enum.Enum):
 class TopicStatus(str, enum.Enum):
     open = "open"
     closed = "closed"
+
+
+class MentionSourceType(str, enum.Enum):
+    experiment_comment = "experiment_comment"
+    topic_comment = "topic_comment"

@@ -1,14 +1,16 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
 from server.api.common import emit, http_error
 from server.api.deps import get_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent
+from server.domain.models import Agent, AgentRole
 from server.domain.schemas import (
+    AgentRead,
     ProjectCreate,
     ProjectRead,
     ProjectStatusRead,
@@ -89,6 +91,37 @@ def get_project(
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
     return ProjectRead.model_validate(project)
+
+
+@router.get("/{project_id}/agents", response_model=list[AgentRead])
+def list_project_agents(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> list[AgentRead]:
+    try:
+        perm.ensure_project_access(agent, project_id)
+        svc.get_project(db, project_id)
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+    agents = list(
+        db.scalars(
+            select(Agent)
+            .where(or_(Agent.project_id == project_id, Agent.role == AgentRole.admin))
+            .order_by(Agent.name)
+        )
+    )
+    return [
+        AgentRead(
+            id=a.id,
+            name=a.name,
+            role=a.role,
+            project_id=a.project_id,
+            project_key=None,
+            created_at=a.created_at,
+        )
+        for a in agents
+    ]
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)

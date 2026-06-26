@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from server.api.background_tasks import get_background_tasks
 from server.domain.models import Agent
-from server.services import audit_service, webhook_service
+from server.services import audit_service, notification_service, webhook_service
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError, UnauthorizedError
 
 def http_error(exc: Exception) -> HTTPException:
@@ -45,8 +45,19 @@ def emit(
         summary=summary,
     )
     if event is not None:
+        payload = event_payload or {}
+        notification_service.enqueue_from_event(
+            db,
+            project_id=project_id,
+            actor_id=agent.id,
+            event=event,
+            summary=summary or event,
+            target_type=target_type,
+            target_id=target_id,
+            payload=payload,
+        )
         delivery_ids = webhook_service.enqueue_event_deliveries(
-            db, event, event_payload or {}, project_id
+            db, event, payload, project_id
         )
         background_tasks = get_background_tasks()
         if background_tasks is not None:
