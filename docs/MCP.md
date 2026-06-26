@@ -197,6 +197,20 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 | URI | 可见角色 | 说明 |
 |-----|----------|------|
 | `map://project/{project_key}/current-status` | 全部 | 项目 Current Status（快照 + status_md，Agent 首选入口） |
+
+### Agent 读取约定（Current Status）
+
+`get_project_status` / `map://project/{project_key}/current-status` 返回两层信息，**分工明确**：
+
+| 层级 | 字段 | 用途 |
+|------|------|------|
+| **快照（事实）** | `active_experiments`、`recent_experiments`、`experiment_counts_by_phase`、`open_topics` | 实验与 open 话题清单，服务端自动聚合 |
+| **叙事（判断）** | `status_md` | 当前目标、阻塞/风险、下一步等人写上下文 |
+
+**规则**：清单类数据以快照为准，**勿从 `status_md` 解析实验或话题列表**。`open_topics` 仅含 `status=open` 的话题（置顶优先、按更新时间倒序）。
+
+| URI | 可见角色 | 说明 |
+|-----|----------|------|
 | `map://experiment/{experiment_id}` | 全部 | 实验详情、计划版本、评审、开放争议、评论树、日志 |
 | `map://project/{project_id}/status` | Admin | UUID 形式（兼容） |
 

@@ -1,12 +1,21 @@
 FROM python:3.12-slim
 WORKDIR /app
+
+# Layer 1: install third-party deps (invalidated only when pyproject.toml changes)
 COPY pyproject.toml README.md ./
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 120 --retries 5 \
+    $(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(' '.join(d['project']['dependencies']))")
+
+# Layer 2: copy application source
 COPY server ./server
 COPY cli ./cli
 COPY sdk ./sdk
 COPY alembic ./alembic
 COPY alembic.ini ./
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 120 --retries 5 .
+
+# Install local package only (deps already present)
+RUN pip install --no-cache-dir --no-deps -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 120 --retries 5 .
+
 RUN mkdir -p /app/data
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && map-server"]

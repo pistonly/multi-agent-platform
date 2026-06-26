@@ -123,3 +123,20 @@ def test_topic_cross_project_isolation(client, auth_headers, project, admin_head
         json={"title": "x", "plan": {"content_md": "p"}, "topic_id": other_topic["id"]},
     )
     assert resp.status_code == 404
+
+
+def test_project_status_includes_open_topics(client, auth_headers, project):
+    open_topic = _create_topic(client, auth_headers, project, title="进行中的讨论")
+    closed_topic = _create_topic(client, auth_headers, project, title="已关闭的讨论")
+    client.post(f"/api/v1/topics/{closed_topic['id']}/close", headers=auth_headers)
+
+    status = client.get(f"/api/v1/projects/{project['id']}/status", headers=auth_headers)
+    assert status.status_code == 200
+    body = status.json()
+    assert "open_topics" in body
+    open_ids = {t["id"] for t in body["open_topics"]}
+    assert open_topic["id"] in open_ids
+    assert closed_topic["id"] not in open_ids
+    match = next(t for t in body["open_topics"] if t["id"] == open_topic["id"])
+    assert match["title"] == "进行中的讨论"
+    assert match["status"] == "open"

@@ -120,6 +120,7 @@ export interface ProjectStatus {
   experiment_counts_by_phase: Record<string, number>;
   active_experiments: ExperimentSummary[];
   recent_experiments: ExperimentSummary[];
+  open_topics: TopicSummary[];
   status_version: number;
   status_md: string | null;
   status_updated_at: string | null;

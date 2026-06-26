@@ -61,6 +61,7 @@ class ProjectStatusRead(BaseModel):
     experiment_counts_by_phase: dict[str, int]
     active_experiments: list["ExperimentSummaryRead"] = Field(default_factory=list)
     recent_experiments: list["ExperimentSummaryRead"]
+    open_topics: list["TopicSummaryRead"] = Field(default_factory=list)
     status_version: int = 0
     status_md: str | None = None
     status_updated_at: datetime | None = None

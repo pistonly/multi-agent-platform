@@ -26,10 +26,6 @@ def default_status_template(*, project_key: str, created_at: datetime | None = N
 
 - （待填写）
 
-## 进行中的实验
-
-- （暂无）
-
 ## 阻塞 / 风险
 
 - 无
@@ -40,6 +36,8 @@ def default_status_template(*, project_key: str, created_at: datetime | None = N
 
 ---
 _最后更新：{ts} · 版本 v1_
+
+> 实验/话题清单由 `get_project_status` 快照字段提供（`active_experiments`、`recent_experiments` 等），勿在本 MD 中维护。
 """
 
 

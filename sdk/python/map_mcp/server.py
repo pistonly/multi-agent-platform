@@ -133,7 +133,7 @@ def build_server(
 
     @mcp.tool()
     def get_project_status(project_id: str | None = None, token: Token = None) -> dict[str, Any]:
-        """Get project status snapshot including experiments and current status_md."""
+        """Get project status: structured snapshot (active_experiments, open_topics, experiment_counts_by_phase, etc.) plus narrative status_md. Prefer snapshot fields for experiment/topic lists; use status_md for goals, blockers, and next steps only."""
         with resolver.use(token) as (c, ctx):
             pid = ctx.resolve_project_id(project_id)
             return dump(c.get_project_status(pid))

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from map_types.enums import TopicStatus
 from server.domain.models import Agent, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
 from server.domain.schemas import (
     ExperimentBundleRead,
@@ -20,6 +21,7 @@ from server.domain.schemas import (
 )
 from server.services.errors import ConflictError, NotFoundError
 from server.services import project_status_service as status_doc_service
+from server.services import topic_service
 
 
 def create_project(db: Session, payload: ProjectCreate, *, author_agent_id: uuid.UUID) -> Project:
@@ -128,6 +130,24 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
         if len(recent) < 5:
             recent.append(ExperimentSummaryRead.model_validate(experiment))
 
+    open_topics_by_project: dict[uuid.UUID, list[Topic]] = {pid: [] for pid in project_ids}
+    open_topics_stmt = (
+        select(Topic)
+        .where(
+            Topic.project_id.in_(project_ids),
+            Topic.deleted_at.is_(None),
+            Topic.status == TopicStatus.open,
+        )
+        .order_by(Topic.pinned.desc(), Topic.updated_at.desc())
+    )
+    for topic in db.scalars(open_topics_stmt):
+        open_topics_by_project[topic.project_id].append(topic)
+
+    open_topics_map: dict[uuid.UUID, list] = {
+        project_id: topic_service.topic_summaries_for_topics(db, topics)
+        for project_id, topics in open_topics_by_project.items()
+    }
+
     status_rows = list(
         db.scalars(select(ProjectStatusVersion).where(ProjectStatusVersion.project_id.in_(project_ids)))
     )
@@ -153,6 +173,7 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
                 experiment_counts_by_phase=counts_map[project.id],
                 active_experiments=active_map[project.id],
                 recent_experiments=recent_map[project.id],
+                open_topics=open_topics_map[project.id],
                 status_version=status_version,
                 status_md=status_md,
                 status_updated_at=status_updated_at,

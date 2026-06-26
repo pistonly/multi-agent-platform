@@ -36,7 +36,14 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
     return <p className="text-red-400">项目不存在或无权访问</p>;
   }
 
-  const { project, experiment_counts_by_phase, active_experiments, recent_experiments, status_md } = data;
+  const {
+    project,
+    experiment_counts_by_phase,
+    active_experiments,
+    recent_experiments,
+    open_topics,
+    status_md,
+  } = data;
   const topics = topicsQuery.data ?? [];
 
   return (
@@ -71,6 +78,14 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="card">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">进行中话题</h2>
+          <span className="text-xs text-slate-500">{open_topics.length} 个</span>
+        </div>
+        <TopicList topics={open_topics} emptyLabel="暂无进行中的话题" />
       </section>
 
       <section className="card">

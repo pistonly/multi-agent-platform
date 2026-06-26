@@ -65,6 +65,8 @@ def test_project_status_includes_md(client, admin_headers):
     assert body["recent_experiments"] == []
     assert body["status_version"] == 1
     assert "Current Status" in body["status_md"]
+    assert "进行中的实验" not in body["status_md"]
+    assert "快照字段" in body["status_md"]
 
 
 def test_agent_cannot_create_project(client, auth_headers):
