@@ -319,6 +319,18 @@ class PendingReplyRead(BaseModel):
     updated_at: datetime
 
 
+class PendingTopicReplyTodoRead(BaseModel):
+    topic_id: uuid.UUID
+    topic_title: str
+    comment_id: uuid.UUID
+    parent_comment_id: uuid.UUID | None = None
+    thread_root_id: uuid.UUID
+    author_agent_id: uuid.UUID
+    author_name: str | None = None
+    excerpt: str
+    created_at: datetime
+
+
 class MentionTodoRead(BaseModel):
     id: uuid.UUID
     mentioned_agent_id: uuid.UUID
@@ -337,6 +349,7 @@ class TodoRead(BaseModel):
     my_open_experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_replies: list[PendingReplyRead] = Field(default_factory=list)
+    pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)
     my_open_topics: list[TopicSummaryRead] = Field(default_factory=list)
     mentions: list[MentionTodoRead] = Field(default_factory=list)
 

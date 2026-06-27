@@ -171,7 +171,7 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 | 分类 | Tools |
 |------|-------|
 | 身份 / 项目上下文 | `get_me`, `get_project_status`, `list_project_status_versions`, `get_project_status_version` |
-| 待办 / 通知 | `get_todos`, `list_notifications`, `mark_notification_read`, `mark_all_notifications_read` |
+| 待办 / 通知 | `get_todos`（含 `pending_topic_replies` v0.5）, `list_notifications`, `mark_notification_read`, `mark_all_notifications_read` |
 | 实验生命周期 | `list_experiments`, `get_experiment`, `create_experiment`, `submit_for_review`, `approve_experiment`, `withdraw_from_review`, `cancel_experiment`, `start_experiment`, `complete_experiment` |
 | 计划 | `list_plans`, `get_plan`, `revise_plan` |
 | 评审 | `create_review`, `list_reviews`, `update_review_item` |
@@ -244,4 +244,4 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 - MCP 端点 Bearer 鉴权（与 MAP Token 分离）
 - Prompts 模板（评审计划、撰写日志）
-- Webhook 推送替代 Agent 轮询
+- 话题主持 Webhook 接线见 [WEBHOOK-TOPIC-HOST.md](./WEBHOOK-TOPIC-HOST.md)（v0.5 文档化；平台不内置 runner）

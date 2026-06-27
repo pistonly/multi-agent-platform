@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -9,12 +11,14 @@ from server.domain.models import (
     ReviewItem,
     ReviewItemStatus,
     Topic,
+    TopicComment,
     TopicStatus,
 )
 from server.domain.schemas import (
     ExperimentSummaryRead,
     MentionTodoRead,
     PendingReplyRead,
+    PendingTopicReplyTodoRead,
     TodoRead,
 )
 from server.services import mention_service
@@ -28,6 +32,90 @@ _ACTIVE_PHASES = (
     ExperimentPhase.running,
 )
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
+_EXCERPT_LEN = 200
+
+
+def _excerpt(body: str) -> str:
+    text = body.strip().replace("\n", " ")
+    if len(text) <= _EXCERPT_LEN:
+        return text
+    return text[: _EXCERPT_LEN - 1] + "…"
+
+
+def thread_root_id(comment_id: uuid.UUID, by_id: dict[uuid.UUID, TopicComment]) -> uuid.UUID:
+    """Walk parent_comment_id to the top-level comment; that id is the thread root."""
+    current = by_id[comment_id]
+    while current.parent_comment_id is not None:
+        current = by_id[current.parent_comment_id]
+    return current.id
+
+
+def _host_replied_in_thread(
+    thread_root: uuid.UUID,
+    host_comment_ids: set[uuid.UUID],
+    by_id: dict[uuid.UUID, TopicComment],
+) -> bool:
+    return any(thread_root_id(cid, by_id) == thread_root for cid in host_comment_ids)
+
+
+def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicReplyTodoRead]:
+    open_topics = list(
+        db.scalars(
+            select(Topic)
+            .where(
+                Topic.creator_agent_id == agent.id,
+                Topic.deleted_at.is_(None),
+                Topic.status == TopicStatus.open,
+            )
+            .order_by(Topic.updated_at.desc())
+        )
+    )
+    if not open_topics:
+        return []
+
+    topic_by_id = {t.id: t for t in open_topics}
+    topic_ids = list(topic_by_id.keys())
+    comments = list(
+        db.scalars(
+            select(TopicComment)
+            .where(TopicComment.topic_id.in_(topic_ids))
+            .options(joinedload(TopicComment.author))
+            .order_by(TopicComment.created_at.asc())
+        )
+    )
+
+    comments_by_topic: dict[uuid.UUID, list[TopicComment]] = {}
+    for comment in comments:
+        comments_by_topic.setdefault(comment.topic_id, []).append(comment)
+
+    pending: list[PendingTopicReplyTodoRead] = []
+    for topic_id, topic_comments in comments_by_topic.items():
+        topic = topic_by_id[topic_id]
+        by_id = {c.id: c for c in topic_comments}
+        host_comment_ids = {c.id for c in topic_comments if c.author_agent_id == agent.id}
+
+        for comment in topic_comments:
+            if comment.author_agent_id == agent.id:
+                continue
+            root = thread_root_id(comment.id, by_id)
+            if _host_replied_in_thread(root, host_comment_ids, by_id):
+                continue
+            pending.append(
+                PendingTopicReplyTodoRead(
+                    topic_id=topic.id,
+                    topic_title=topic.title,
+                    comment_id=comment.id,
+                    parent_comment_id=comment.parent_comment_id,
+                    thread_root_id=root,
+                    author_agent_id=comment.author_agent_id,
+                    author_name=comment.author.name if comment.author else None,
+                    excerpt=_excerpt(comment.body),
+                    created_at=comment.created_at,
+                )
+            )
+
+    pending.sort(key=lambda p: p.created_at, reverse=True)
+    return pending
 
 
 def get_todos(db: Session, agent: Agent) -> TodoRead:
@@ -131,10 +219,13 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         for m in mention_rows
     ]
 
+    pending_topic_replies = list_pending_topic_replies(db, agent)
+
     return TodoRead(
         my_open_experiments=my_open_experiments,
         pending_reviews=pending_reviews,
         pending_replies=pending_replies,
+        pending_topic_replies=pending_topic_replies,
         my_open_topics=my_open_topics,
         mentions=mentions,
     )

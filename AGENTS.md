@@ -36,6 +36,8 @@ Agent **必须**：
 | **participant** | 参与话题评论、讨论 |
 | **reviewer** | 实验 review、reasonable/unreasonable |
 
+主持话题（两轮讨论、开实验门禁）见 [.cursor/skills/topic-host/SKILL.md](.cursor/skills/topic-host/SKILL.md)。
+
 ## 常用命令
 
 ```bash

@@ -52,6 +52,89 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     assert any(t["id"] == topic["id"] for t in agent_todos3["my_open_topics"])
 
 
+def test_pending_topic_replies(client, auth_headers, reviewer, project):
+    host_headers = auth_headers
+    participant_headers = reviewer["headers"]
+
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=host_headers,
+        json={"title": "主持待回复测试"},
+    ).json()
+
+    top = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=participant_headers,
+        json={"body": "顶层评论需要主持回复"},
+    ).json()
+
+    todos = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert len(todos["pending_topic_replies"]) == 1
+    pending = todos["pending_topic_replies"][0]
+    assert pending["topic_id"] == topic["id"]
+    assert pending["comment_id"] == top["id"]
+    assert pending["thread_root_id"] == top["id"]
+    assert pending["topic_title"] == "主持待回复测试"
+
+    child = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=participant_headers,
+        json={"body": "子评论也需要回复", "parent_id": top["id"]},
+    ).json()
+
+    todos2 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert len(todos2["pending_topic_replies"]) == 2
+    child_pending = next(p for p in todos2["pending_topic_replies"] if p["comment_id"] == child["id"])
+    assert child_pending["thread_root_id"] == top["id"]
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=host_headers,
+        json={"body": "主持回复整 thread", "parent_id": top["id"]},
+    )
+
+    todos3 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert todos3["pending_topic_replies"] == []
+
+    client.post(f"/api/v1/topics/{topic['id']}/close", headers=host_headers)
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=participant_headers,
+        json={"body": "关闭后不应出现"},
+    )
+    client.post(f"/api/v1/topics/{topic['id']}/reopen", headers=host_headers)
+
+    other_topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=participant_headers,
+        json={"title": "他人主持话题"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{other_topic['id']}/comments",
+        headers=host_headers,
+        json={"body": "主持在他人话题评论"},
+    )
+    todos4 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert not any(p["topic_id"] == other_topic["id"] for p in todos4["pending_topic_replies"])
+
+
+def test_thread_root_id_helper():
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from server.services.todo_service import thread_root_id
+
+    a, b, c = uuid4(), uuid4(), uuid4()
+    by_id = {
+        a: SimpleNamespace(id=a, parent_comment_id=None),
+        b: SimpleNamespace(id=b, parent_comment_id=a),
+        c: SimpleNamespace(id=c, parent_comment_id=b),
+    }
+    assert thread_root_id(a, by_id) == a
+    assert thread_root_id(b, by_id) == a
+    assert thread_root_id(c, by_id) == a
+
+
 def test_list_experiments_filter_search_pagination(client, auth_headers, project):
     for i in range(3):
         client.post(

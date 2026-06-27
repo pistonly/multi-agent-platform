@@ -8,6 +8,8 @@
 - [产品需求文档 v0.2（角色与项目边界）](docs/PRD-v0.2.md)
 - [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/PRD-v0.3.md)
 - [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/PRD-v0.4.md)
+- [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/PRD-v0.5.md)
+- [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -40,6 +42,14 @@
 - **M18**：话题置顶（`topics.pinned` + 列表优先排序）。
 
 详见 [PRD v0.4](docs/PRD-v0.4.md)。
+
+**v0.5 进行中（M19–M21）**：
+
+- **M19**：`GET /agents/me/todos` 新增 `pending_topic_replies`（话题主持 thread 级待回复）。
+- **M20**：topic-host Skill（`.cursor/skills/topic-host/SKILL.md`）。
+- **M21**：Webhook 主持接线文档（[WEBHOOK-TOPIC-HOST.md](docs/WEBHOOK-TOPIC-HOST.md)）。
+
+详见 [PRD v0.5](docs/PRD-v0.5.md)。
 
 ## 快速开始
 

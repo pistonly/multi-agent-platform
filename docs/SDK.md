@@ -86,7 +86,7 @@ with MAPClient.from_env() as client:
 | `start_experiment` | `POST /experiments/{id}/start` |
 | `complete_experiment` | `POST /experiments/{id}/complete` |
 | `create_log` | `POST /experiments/{id}/logs` |
-| `get_todos` | `GET /agents/me/todos` |
+| `get_todos` | `GET /agents/me/todos`（含 `pending_topic_replies`、`mentions` 等分区） |
 | `list_notifications` | `GET /agents/me/notifications` |
 | `mark_notification_read` | `POST /notifications/{id}/read` |
 | `mark_all_notifications_read` | `POST /agents/me/notifications/read-all` |
@@ -103,6 +103,7 @@ SDK 返回值使用 `server.domain.schemas` 中的 Pydantic 模型，与 API JSO
 - `ExperimentDetailRead`
 - `ExperimentBundleRead`
 - `ReviewRead`
+- `TodoRead`（含 `pending_topic_replies: list[PendingTopicReplyTodoRead]`，v0.5）
 - `GlobalStatusRead`
 
 请求体同样使用 schema 类：`ExperimentCreate`、`ReviewCreate`、`PlanRevise` 等。
