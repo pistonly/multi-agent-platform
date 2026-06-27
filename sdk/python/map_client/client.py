@@ -222,7 +222,7 @@ class MAPClient:
     # --- experiments ---
 
     def create_experiment(self, project_id: uuid.UUID, payload: ExperimentCreate) -> ExperimentSummaryRead:
-        data = self._json("POST", f"/projects/{project_id}/experiments", json=payload.model_dump())
+        data = self._json("POST", f"/projects/{project_id}/experiments", json=payload.model_dump(mode="json"))
         return ExperimentSummaryRead.model_validate(data)
 
     def list_experiments(
@@ -286,7 +286,7 @@ class MAPClient:
         )
 
     def revise_plan(self, experiment_id: uuid.UUID, payload: PlanRevise) -> PlanVersionRead:
-        data = self._json("POST", f"/experiments/{experiment_id}/plans", json=payload.model_dump())
+        data = self._json("POST", f"/experiments/{experiment_id}/plans", json=payload.model_dump(mode="json"))
         return PlanVersionRead.model_validate(data)
 
     # --- reviews ---
@@ -373,7 +373,7 @@ class MAPClient:
         topic_id: uuid.UUID,
         payload: TopicCommentCreate,
     ) -> TopicCommentRead:
-        data = self._json("POST", f"/topics/{topic_id}/comments", json=payload.model_dump())
+        data = self._json("POST", f"/topics/{topic_id}/comments", json=payload.model_dump(mode="json"))
         return TopicCommentRead.model_validate(data)
 
     def list_topic_comments(

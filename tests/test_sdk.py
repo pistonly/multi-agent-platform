@@ -102,6 +102,61 @@ def test_sdk_topic_flow(map_client: MAPClient, project: dict):
     assert reopened.status.value == "open"
 
 
+def test_sdk_topic_comment_reply(map_client: MAPClient, project: dict):
+    """Regression: create_topic_comment with parent_id (UUID) must serialize the request body."""
+    from server.domain.schemas import TopicCommentCreate, TopicCreate
+
+    topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="回复话题"))
+    parent = map_client.create_topic_comment(topic.id, TopicCommentCreate(body="顶层"))
+    reply = map_client.create_topic_comment(
+        topic.id, TopicCommentCreate(body="回复", parent_id=parent.id)
+    )
+    assert reply.parent_comment_id == parent.id
+
+    detail = map_client.get_topic(topic.id)
+    assert detail.comment_count == 2
+    assert detail.comments[0].children  # reply nested under its parent
+
+
+def test_sdk_experiment_with_topic_id(map_client: MAPClient, project: dict):
+    """Regression: create_experiment with topic_id (UUID) must serialize the request body."""
+    from server.domain.schemas import ExperimentCreate, PlanInput, TopicCreate
+
+    topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="实验源话题"))
+    experiment = map_client.create_experiment(
+        uuid.UUID(project["id"]),
+        ExperimentCreate(title="带话题的实验", plan=PlanInput(content_md="p"), topic_id=topic.id),
+    )
+    assert experiment.topic_id == topic.id
+
+
+def test_sdk_revise_plan_with_addressed_items(
+    map_client: MAPClient, reviewer: dict, client: TestClient, project: dict
+):
+    """Regression: revise_plan with addressed_item_ids (list[UUID]) must serialize the request body."""
+    from server.domain.schemas import PlanRevise, ReviewCreate
+
+    exp = map_client.create_experiment(
+        uuid.UUID(project["id"]),
+        ExperimentCreate(title="争议实验", plan=PlanInput(content_md="p")),
+    )
+    map_client.submit_for_review(exp.id)
+
+    reviewer_client = MAPClient(
+        "http://test",
+        reviewer["headers"]["Authorization"].split(" ", 1)[1],
+        transport=MAPTestClientTransport(client),
+    )
+    review = reviewer_client.create_review(exp.id, ReviewCreate(unreasonable_items=["这里有问题"]))
+    item = next(i for i in review.items if i.kind.value == "unreasonable")
+
+    version = map_client.revise_plan(
+        exp.id, PlanRevise(content_md="## 修订", addressed_item_ids=[item.id])
+    )
+    assert version.version == 2
+    reviewer_client.close()
+
+
 def test_sdk_notifications(map_client: MAPClient, client: TestClient, project: dict, admin_headers):
     reviewer = client.post(
         "/api/v1/agents",
