@@ -86,3 +86,12 @@ def test_cli_topic_flow(runner, patched_cli, project):
     result = runner.invoke(app, ["topic", "close", "--id", topic_id])
     assert result.exit_code == 0, result.output
     assert yaml.safe_load(result.output)["status"] == "closed"
+
+
+def test_cli_persona_list_missing_map_dir(runner, monkeypatch, tmp_path: Path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MAP_TOKEN", raising=False)
+    result = runner.invoke(app, ["persona", "list"])
+    assert result.exit_code == 1, result.output
+    assert "map bootstrap" in result.output
+    assert "config.yaml" in result.output

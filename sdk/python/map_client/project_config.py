@@ -17,6 +17,16 @@ AGENTS_FILE = "agents.yaml"
 AGENTS_LOCAL_FILE = "agents.local.yaml"
 DEFAULT_PERSONA = "host"
 
+BOOTSTRAP_HINT = (
+    "Run:\n"
+    "  map bootstrap --key <project-key> --name \"<Project Name>\" --api-url http://localhost:8001\n"
+    f"Or copy from {MAP_DIR_NAME}/config.yaml.example."
+)
+
+
+def missing_map_config_message() -> str:
+    return f"No {MAP_DIR_NAME}/{CONFIG_FILE} found. {BOOTSTRAP_HINT}"
+
 
 @dataclass(frozen=True)
 class PersonaInfo:
@@ -70,9 +80,7 @@ def load_project_map_config(
 ) -> ProjectMapConfig:
     resolved_map_dir = map_dir or find_map_dir(project_root)
     if resolved_map_dir is None:
-        raise ValueError(
-            f"No {MAP_DIR_NAME}/{CONFIG_FILE} found. Run `map bootstrap` or copy from {MAP_DIR_NAME}/config.yaml.example."
-        )
+        raise ValueError(missing_map_config_message())
 
     config = _read_yaml(resolved_map_dir / CONFIG_FILE)
     agents_meta = _read_yaml(resolved_map_dir / AGENTS_FILE)
@@ -139,6 +147,7 @@ def resolve_client(
     env_cfg = load_config()
     if not env_cfg.get("token"):
         raise ValueError(
-            "No MAP credentials: add .map/agents.local.yaml (map bootstrap) or set MAP_TOKEN / ~/.map/config.yaml"
+            f"No MAP credentials: add .map/agents.local.yaml ({BOOTSTRAP_HINT.strip()}) "
+            "or set MAP_TOKEN / ~/.map/config.yaml"
         )
     return MAPClient(env_cfg["api_url"], env_cfg["token"], transport=transport)

@@ -88,6 +88,18 @@ def _run(action) -> None:
         raise typer.Exit(1) from exc
 
 
+def _require_map_dir(project_root: Path | None = None) -> Path:
+    """Require `.map/config.yaml`; exit with bootstrap hint if missing."""
+    root = project_root or _cli_options.get("project_root")
+    map_dir = find_map_dir(root)
+    if map_dir is None:
+        from map_client.project_config import missing_map_config_message
+
+        typer.echo(f"Error: {missing_map_config_message()}", err=True)
+        raise typer.Exit(1)
+    return map_dir
+
+
 def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: str | None) -> uuid.UUID:
     map_dir = find_map_dir(_cli_options.get("project_root"))
     if map_dir is not None:
@@ -162,10 +174,7 @@ def persona_list(
     project_root: Path | None = typer.Option(None, "--project-root"),
 ) -> None:
     """List personas defined in .map/agents.yaml."""
-    map_dir = find_map_dir(project_root)
-    if map_dir is None:
-        typer.echo("No .map/config.yaml found.", err=True)
-        raise typer.Exit(1)
+    map_dir = _require_map_dir(project_root)
     cfg = load_project_map_config(map_dir=map_dir)
     rows = []
     for key, info in cfg.personas.items():

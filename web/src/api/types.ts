@@ -230,10 +230,23 @@ export interface MentionTodo {
   created_at: string;
 }
 
+export interface PendingTopicReplyTodo {
+  topic_id: string;
+  topic_title: string;
+  comment_id: string;
+  parent_comment_id: string | null;
+  thread_root_id: string;
+  author_agent_id: string;
+  author_name: string | null;
+  excerpt: string;
+  created_at: string;
+}
+
 export interface TodoRead {
   my_open_experiments: ExperimentSummary[];
   pending_reviews: ExperimentSummary[];
   pending_replies: PendingReply[];
+  pending_topic_replies: PendingTopicReplyTodo[];
   my_open_topics: TopicSummary[];
   mentions: MentionTodo[];
 }

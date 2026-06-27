@@ -18,6 +18,7 @@ export function TodosPage() {
     data.my_open_experiments.length === 0 &&
     data.pending_reviews.length === 0 &&
     data.pending_replies.length === 0 &&
+    (data.pending_topic_replies?.length ?? 0) === 0 &&
     data.my_open_topics.length === 0 &&
     data.mentions.length === 0;
 
@@ -48,6 +49,24 @@ export function TodosPage() {
               </Row>
             );
           })}
+        </Section>
+      )}
+
+      {(data.pending_topic_replies?.length ?? 0) > 0 && (
+        <Section title={`话题待回复（${data.pending_topic_replies.length}）`}>
+          {data.pending_topic_replies.map((r) => (
+            <Row key={r.comment_id} to={`/topics/${r.topic_id}`}>
+              <div>
+                <div className="text-accent hover:underline">{r.topic_title}</div>
+                <div className="text-xs text-slate-400">
+                  {r.author_name ?? r.author_agent_id.slice(0, 8)}：{r.excerpt}
+                </div>
+              </div>
+              <span className="text-xs text-slate-500">
+                {new Date(r.created_at).toLocaleDateString()}
+              </span>
+            </Row>
+          ))}
         </Section>
       )}
 

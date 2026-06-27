@@ -51,6 +51,23 @@
 
 详见 [PRD v0.5](docs/PRD-v0.5.md)。
 
+### 连接已有 MAP 服务（本仓库协作）
+
+MAP API 运行后，在本仓库根目录执行一次 bootstrap（生成 `.map/config.yaml` 与 persona token，详见 [AGENTS.md](AGENTS.md)）：
+
+```bash
+export MAP_ADMIN_TOKEN=<admin-token>   # 或 ~/.map/admin.yaml
+map bootstrap \
+  --key multi-agents-platform \
+  --name "Multi Agents Platform" \
+  --api-url http://localhost:8001
+
+map --persona host persona whoami
+map --persona host todos
+```
+
+与 `docker compose up` 并列：先起服务，再 bootstrap，再用 `--persona` 协作。
+
 ## 快速开始
 
 ```bash
