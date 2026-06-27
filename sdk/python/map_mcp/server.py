@@ -44,7 +44,7 @@ Start with get_me to confirm role and bound project_key, then read project conte
 
 Typical workflow:
 1. get_project_status for project context
-2. create_experiment with a plan (optionally submit_for_review)
+2. create_experiment with a plan (optionally submit_for_review; topic_id only if you are the topic host)
 3. create_review with reasonable and unreasonable items (often a second MCP connection / reviewer token)
 4. revise_plan or create_comment to address disputes; update_review_item to resolve items
 5. approve_experiment → start_experiment → complete_experiment with execution log
@@ -239,9 +239,10 @@ def build_server(
         project_id: str | None = None,
         description: str | None = None,
         submit_for_review: bool = False,
+        topic_id: str | None = None,
         token: Token = None,
     ) -> dict[str, Any]:
-        """Create an experiment topic with an initial plan in the bound or specified project."""
+        """Create an experiment with an initial plan. When topic_id is set, only the topic host (or admin) may call this."""
         with resolver.use(token) as (c, ctx):
             pid = ctx.resolve_project_id(project_id)
             payload = ExperimentCreate(
@@ -249,6 +250,7 @@ def build_server(
                 description=description,
                 plan=PlanInput(content_md=plan_content_md),
                 submit_for_review=submit_for_review,
+                topic_id=parse_uuid(topic_id, "topic_id") if topic_id else None,
             )
             return dump(c.create_experiment(pid, payload))
 

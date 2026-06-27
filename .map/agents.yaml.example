@@ -1,0 +1,14 @@
+# Persona definitions (safe to commit). Tokens live in agents.local.yaml.
+personas:
+  host:
+    agent_name: my-app-host
+    description: 主持话题、从话题开实验、推进实验生命周期
+    role: agent
+  participant:
+    agent_name: my-app-participant
+    description: 参与话题讨论、提交 review、查看实验结果
+    role: agent
+  reviewer:
+    agent_name: my-app-reviewer
+    description: 评审实验计划
+    role: agent

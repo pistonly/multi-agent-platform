@@ -177,6 +177,7 @@ export interface TopicSummary {
   id: string;
   project_id: string;
   creator_agent_id: string;
+  creator_name: string | null;
   title: string;
   description: string | null;
   status: TopicStatus;
@@ -191,6 +192,7 @@ export interface TopicComment {
   id: string;
   topic_id: string;
   author_agent_id: string;
+  author_name: string | null;
   parent_comment_id: string | null;
   body: string;
   created_at: string;

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from map_types.enums import ExperimentPhase
 from server.domain.models import Agent, Experiment, Topic, TopicComment, TopicStatus
 from server.domain.schemas import (
     ExperimentSummaryRead,
@@ -24,6 +25,15 @@ def _get_topic(db: Session, topic_id: uuid.UUID) -> Topic:
     if topic is None or topic.deleted_at is not None:
         raise NotFoundError("Topic not found")
     return topic
+
+
+def _agent_names_by_ids(db: Session, agent_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not agent_ids:
+        return {}
+    return {
+        agent.id: agent.name
+        for agent in db.scalars(select(Agent).where(Agent.id.in_(agent_ids)))
+    }
 
 
 def topic_summary(db: Session, topic: Topic) -> TopicSummaryRead:
@@ -47,15 +57,21 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
         topic_id: count
         for topic_id, count in db.execute(
             select(Experiment.topic_id, func.count())
-            .where(Experiment.topic_id.in_(topic_ids), Experiment.deleted_at.is_(None))
+            .where(
+                Experiment.topic_id.in_(topic_ids),
+                Experiment.deleted_at.is_(None),
+                Experiment.phase != ExperimentPhase.cancelled,
+            )
             .group_by(Experiment.topic_id)
         )
     }
+    creator_names = _agent_names_by_ids(db, {topic.creator_agent_id for topic in topics})
     return [
         TopicSummaryRead(
             id=topic.id,
             project_id=topic.project_id,
             creator_agent_id=topic.creator_agent_id,
+            creator_name=creator_names.get(topic.creator_agent_id),
             title=topic.title,
             description=topic.description,
             status=topic.status,
@@ -122,17 +138,24 @@ def get_topic_detail(db: Session, topic_id: uuid.UUID) -> TopicRead:
 
     exp_stmt = (
         select(Experiment)
-        .where(Experiment.topic_id == topic.id, Experiment.deleted_at.is_(None))
+        .where(
+            Experiment.topic_id == topic.id,
+            Experiment.deleted_at.is_(None),
+            Experiment.phase != ExperimentPhase.cancelled,
+        )
         .order_by(Experiment.created_at.desc())
     )
     experiments = [ExperimentSummaryRead.model_validate(e) for e in db.scalars(exp_stmt)]
-    comments = _build_comment_tree(list(db.scalars(
+    comments = list(db.scalars(
         select(TopicComment)
         .where(TopicComment.topic_id == topic.id)
         .order_by(TopicComment.created_at.asc())
-    )))
+    ))
+    comments_tree = _build_comment_tree(comments, _agent_names_by_ids(
+        db, {comment.author_agent_id for comment in comments}
+    ))
 
-    return TopicRead(**summary.model_dump(), experiments=experiments, comments=comments)
+    return TopicRead(**summary.model_dump(), experiments=experiments, comments=comments_tree)
 
 
 def update_topic(db: Session, topic_id: uuid.UUID, payload: TopicUpdate) -> Topic:
@@ -166,13 +189,17 @@ def set_topic_status(db: Session, topic_id: uuid.UUID, target: TopicStatus) -> T
     return topic
 
 
-def _build_comment_tree(comments: list[TopicComment]) -> list[TopicCommentTreeNode]:
+def _build_comment_tree(
+    comments: list[TopicComment],
+    author_names: dict[uuid.UUID, str],
+) -> list[TopicCommentTreeNode]:
     nodes: dict[uuid.UUID, TopicCommentTreeNode] = {}
     for comment in comments:
         nodes[comment.id] = TopicCommentTreeNode(
             id=comment.id,
             topic_id=comment.topic_id,
             author_agent_id=comment.author_agent_id,
+            author_name=author_names.get(comment.author_agent_id),
             parent_comment_id=comment.parent_comment_id,
             body=comment.body,
             created_at=comment.created_at,
@@ -219,6 +246,19 @@ def create_topic_comment(
     return comment
 
 
+def topic_comment_read(db: Session, comment: TopicComment) -> TopicCommentRead:
+    author_names = _agent_names_by_ids(db, {comment.author_agent_id})
+    return TopicCommentRead(
+        id=comment.id,
+        topic_id=comment.topic_id,
+        author_agent_id=comment.author_agent_id,
+        author_name=author_names.get(comment.author_agent_id),
+        parent_comment_id=comment.parent_comment_id,
+        body=comment.body,
+        created_at=comment.created_at,
+    )
+
+
 def list_topic_comments(
     db: Session,
     topic_id: uuid.UUID,
@@ -232,6 +272,18 @@ def list_topic_comments(
         .order_by(TopicComment.created_at.asc())
     )
     comments = list(db.scalars(stmt))
+    author_names = _agent_names_by_ids(db, {comment.author_agent_id for comment in comments})
     if tree:
-        return _build_comment_tree(comments)
-    return [TopicCommentRead.model_validate(c) for c in comments]
+        return _build_comment_tree(comments, author_names)
+    return [
+        TopicCommentRead(
+            id=comment.id,
+            topic_id=comment.topic_id,
+            author_agent_id=comment.author_agent_id,
+            author_name=author_names.get(comment.author_agent_id),
+            parent_comment_id=comment.parent_comment_id,
+            body=comment.body,
+            created_at=comment.created_at,
+        )
+        for comment in comments
+    ]

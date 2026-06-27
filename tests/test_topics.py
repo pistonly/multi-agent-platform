@@ -93,6 +93,15 @@ def test_experiment_linked_to_topic(client, auth_headers, project):
     )
     assert exp.status_code == 201
     assert exp.json()["topic_id"] == topic["id"]
+    exp_id = exp.json()["id"]
+
+    exp_detail = client.get(f"/api/v1/experiments/{exp_id}", headers=auth_headers)
+    assert exp_detail.status_code == 200
+    assert exp_detail.json()["topic_id"] == topic["id"]
+
+    bundle = client.get(f"/api/v1/experiments/{exp_id}/bundle", headers=auth_headers)
+    assert bundle.status_code == 200
+    assert bundle.json()["experiment"]["topic_id"] == topic["id"]
 
     detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
     assert detail.json()["experiment_count"] == 1
@@ -140,3 +149,92 @@ def test_project_status_includes_open_topics(client, auth_headers, project):
     match = next(t for t in body["open_topics"] if t["id"] == open_topic["id"])
     assert match["title"] == "进行中的讨论"
     assert match["status"] == "open"
+    assert match["creator_name"] == "test-agent"
+
+
+def test_topic_shows_creator_and_comment_author_names(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project, title="作者展示测试")
+    assert topic["creator_name"] == "test-agent"
+
+    comment = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "一条评论"},
+    )
+    assert comment.status_code == 201
+    assert comment.json()["author_name"] == "test-agent"
+
+    detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+    assert detail.json()["creator_name"] == "test-agent"
+    assert detail.json()["comments"][0]["author_name"] == "test-agent"
+
+
+def test_cannot_create_second_active_experiment_on_topic(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    first = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "唯一活跃实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "重复实验", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
+    )
+    assert second.status_code == 409
+
+    client.post(f"/api/v1/experiments/{first.json()['id']}/cancel", headers=auth_headers)
+    third = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "取消后可再建", "plan": {"content_md": "p3"}, "topic_id": topic["id"]},
+    )
+    assert third.status_code == 201
+
+
+def test_cannot_create_experiment_on_closed_topic(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    closed = client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+    assert closed.status_code == 200
+
+    resp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "关闭后实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert resp.status_code == 409
+    assert "closed" in resp.json()["detail"].lower()
+
+
+def test_only_topic_host_can_create_experiment_from_topic(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+
+    denied = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=reviewer["headers"],
+        json={"title": "非主持抢开", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert denied.status_code == 403
+    assert "host" in denied.json()["detail"].lower()
+
+    allowed = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "主持开实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert allowed.status_code == 201
+
+
+def test_admin_can_create_experiment_from_others_topic(client, admin_headers, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project, title="他人主持的话题")
+
+    resp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=admin_headers,
+        json={"title": "管理员代开", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["topic_id"] == topic["id"]
+    assert resp.json()["creator_agent_id"] != topic["creator_agent_id"]

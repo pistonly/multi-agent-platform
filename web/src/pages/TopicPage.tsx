@@ -6,9 +6,14 @@ import type { TopicCommentTreeNode } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
 import { MarkdownBody } from "../components/MarkdownBody";
+import { PhaseBadge } from "../components/PhaseStepper";
+import { useAuth } from "../context/AuthContext";
+
+const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running"]);
 
 export function TopicPage() {
   const { topicId } = useParams<{ topicId: string }>();
+  const { agent, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [reply, setReply] = useState("");
   const [showCreateExp, setShowCreateExp] = useState(false);
@@ -45,6 +50,16 @@ export function TopicPage() {
   if (query.error || !query.data) return <p className="text-red-400">话题不存在或无权访问</p>;
 
   const topic = query.data;
+  const isTopicHost = !!agent && (agent.id === topic.creator_agent_id || isAdmin);
+  const hasActiveExperiment = topic.experiments.some((e) => ACTIVE_EXPERIMENT_PHASES.has(e.phase));
+  const canCreateExperiment = topic.status === "open" && !hasActiveExperiment && isTopicHost;
+  const createExperimentTitle = !canCreateExperiment
+    ? !isTopicHost
+      ? "仅话题主持 Agent 可从此话题发起实验"
+      : topic.status !== "open"
+        ? "话题已关闭，无法发起新实验"
+        : "该话题已有进行中的实验，请先完成或取消后再创建"
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -65,6 +80,10 @@ export function TopicPage() {
             <MarkdownBody content={topic.description} />
           </div>
         )}
+        <p className="mt-2 text-sm text-slate-500">
+          由 {topic.creator_name ?? `${topic.creator_agent_id.slice(0, 8)}…`} 发布于{" "}
+          {new Date(topic.created_at).toLocaleString()}
+        </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {topic.status === "open" ? (
             <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("close")}>
@@ -75,7 +94,13 @@ export function TopicPage() {
               重新开启
             </button>
           )}
-          <button type="button" className="btn-primary" onClick={() => setShowCreateExp(true)}>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!canCreateExperiment}
+            title={createExperimentTitle}
+            onClick={() => setShowCreateExp(true)}
+          >
             从此话题发起实验
           </button>
           <button
@@ -94,11 +119,15 @@ export function TopicPage() {
           <h2 className="mb-3 text-lg font-semibold text-white">关联实验</h2>
           <ul className="space-y-1 text-sm">
             {topic.experiments.map((e) => (
-              <li key={e.id}>
+              <li key={e.id} className="flex flex-wrap items-center gap-2">
                 <Link to={`/experiments/${e.id}`} className="text-accent hover:underline">
                   {e.title}
                 </Link>
-                <span className="ml-2 text-xs text-slate-500">（{e.phase}）</span>
+                <PhaseBadge phase={e.phase as never} />
+                <span className="font-mono text-xs text-slate-500">{e.id.slice(0, 8)}…</span>
+                <span className="text-xs text-slate-500">
+                  {new Date(e.updated_at).toLocaleString()}
+                </span>
               </li>
             ))}
           </ul>
@@ -177,7 +206,7 @@ function TopicCommentNodes({ nodes, topicId, onUpdated, depth = 0 }: TopicCommen
       {nodes.map((n) => (
         <div key={n.id} style={{ marginLeft: depth * 16 }} className="border-l border-surface-border pl-3">
           <div className="mb-1 text-xs text-slate-500">
-            {new Date(n.created_at).toLocaleString()} · {n.author_agent_id.slice(0, 8)}…
+            {new Date(n.created_at).toLocaleString()} · {n.author_name ?? `${n.author_agent_id.slice(0, 8)}…`}
           </div>
           <div className="mb-2">
             <MarkdownBody content={n.body} />

@@ -8,6 +8,8 @@ import typer
 import yaml
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
+from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
+from map_client.bootstrap import bootstrap_project_map
 from server.domain.models import AgentRole
 from server.domain.schemas import (
     ExperimentComplete,
@@ -22,16 +24,41 @@ from server.domain.schemas import (
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI")
 project_app = typer.Typer(help="Project commands")
 experiment_app = typer.Typer(help="Experiment commands")
+persona_app = typer.Typer(help="Persona / identity commands")
 app.add_typer(project_app, name="project")
 app.add_typer(experiment_app, name="experiment")
+app.add_typer(persona_app, name="persona")
 
 _transport: httpx.BaseTransport | None = None
+_cli_options: dict[str, Any] = {"persona": None, "project_root": None}
+
+
+@app.callback()
+def cli_global_options(
+    persona: str | None = typer.Option(
+        None,
+        "--persona",
+        "-p",
+        help="Persona from .map/agents.local.yaml (host, participant, reviewer, …)",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="Code repo root containing .map/ (default: search upward from cwd)",
+    ),
+) -> None:
+    _cli_options["persona"] = persona
+    _cli_options["project_root"] = project_root
 
 
 @contextmanager
 def _client_ctx() -> Iterator[MAPClient]:
     try:
-        client = MAPClient.from_env(transport=_transport)
+        client = resolve_client(
+            persona=_cli_options.get("persona"),
+            project_root=_cli_options.get("project_root"),
+            transport=_transport,
+        )
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -62,6 +89,14 @@ def _run(action) -> None:
 
 
 def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: str | None) -> uuid.UUID:
+    map_dir = find_map_dir(_cli_options.get("project_root"))
+    if map_dir is not None:
+        try:
+            cfg = load_project_map_config(map_dir=map_dir)
+            if project is None and project_key is None:
+                return client.get_project_by_key(cfg.project_key).id
+        except ValueError:
+            pass
     cfg_key = None
     try:
         from map_client.config import load_config
@@ -71,6 +106,127 @@ def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: 
         pass
     key = project_key or cfg_key
     return client.resolve_project_id(project, project_key=key)
+
+
+@app.command("bootstrap")
+def map_bootstrap(
+    key: str = typer.Option(..., "--key", help="MAP project_key for this code repo"),
+    name: str | None = typer.Option(None, "--name", help="Human-readable MAP project name"),
+    path: Path | None = typer.Option(None, "--path", help="workspace_path stored on MAP project"),
+    description: str | None = typer.Option(None, "--description"),
+    api_url: str | None = typer.Option(None, "--api-url", help="MAP API base URL"),
+    project_root: Path | None = typer.Option(None, "--project-root", help="Where to write .map/"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing .map/agents.local.yaml"),
+) -> None:
+    """Register MAP project + persona agents; write .map/ config (requires admin token)."""
+    root = (project_root or Path.cwd()).resolve()
+    workspace = path or root
+    display_name = name or key
+    try:
+        result = bootstrap_project_map(
+            project_key=key,
+            project_name=display_name,
+            workspace_path=workspace,
+            project_root=root,
+            api_url=api_url,
+            description=description,
+            force=force,
+            transport=_transport,
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except MAPHTTPError as exc:
+        typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Wrote {result.config.map_dir}/")
+    typer.echo(f"MAP project_key={result.config.project_key} id={result.config.project_id}")
+    if result.created_project:
+        typer.echo("Created new MAP project.")
+    else:
+        typer.echo("Reused existing MAP project.")
+    if result.skipped_agent_names:
+        typer.echo(
+            "Skipped existing agents (tokens not recoverable): "
+            + ", ".join(result.skipped_agent_names),
+            err=True,
+        )
+        typer.echo("Keep your existing .map/agents.local.yaml or delete agents on MAP before re-bootstrap.")
+    typer.echo("Personas: " + ", ".join(result.config.tokens.keys()))
+    typer.echo("Try: map --persona host status")
+
+
+@persona_app.command("list")
+def persona_list(
+    project_root: Path | None = typer.Option(None, "--project-root"),
+) -> None:
+    """List personas defined in .map/agents.yaml."""
+    map_dir = find_map_dir(project_root)
+    if map_dir is None:
+        typer.echo("No .map/config.yaml found.", err=True)
+        raise typer.Exit(1)
+    cfg = load_project_map_config(map_dir=map_dir)
+    rows = []
+    for key, info in cfg.personas.items():
+        has_token = key in cfg.tokens
+        rows.append(
+            {
+                "persona": key,
+                "agent_name": info.agent_name,
+                "has_token": has_token,
+                "description": info.description,
+            }
+        )
+    _print_json(rows)
+
+
+@persona_app.command("whoami")
+def persona_whoami(
+    persona: str | None = typer.Option(None, "--persona", "-p"),
+    project_root: Path | None = typer.Option(None, "--project-root"),
+) -> None:
+    """Show MAP identity for the selected persona (default from .map/config.yaml)."""
+    if persona is not None:
+        _cli_options["persona"] = persona
+    if project_root is not None:
+        _cli_options["project_root"] = project_root
+
+    def action(c: MAPClient):
+        me = c.get_me()
+        payload = me.model_dump(mode="json")
+        if _cli_options.get("persona"):
+            payload["persona"] = _cli_options["persona"]
+        elif find_map_dir(_cli_options.get("project_root")):
+            payload["persona"] = load_project_map_config(
+                project_root=_cli_options.get("project_root")
+            ).default_persona
+        return payload
+
+    _run(action)
+
+
+@app.command("me")
+def map_me() -> None:
+    """Alias for `map persona whoami`."""
+
+    def action(c: MAPClient):
+        me = c.get_me()
+        payload = me.model_dump(mode="json")
+        if _cli_options.get("persona"):
+            payload["persona"] = _cli_options["persona"]
+        elif find_map_dir(_cli_options.get("project_root")):
+            payload["persona"] = load_project_map_config(
+                project_root=_cli_options.get("project_root")
+            ).default_persona
+        return payload
+
+    _run(action)
+
+
+@app.command("todos")
+def map_todos() -> None:
+    _run(lambda c: c.get_todos())
 
 
 @project_app.command("create")
@@ -135,6 +291,7 @@ def experiment_create(
     project_key: str | None = typer.Option(None, "--project-key"),
     description: str | None = typer.Option(None, "--description"),
     submit_for_review: bool = typer.Option(False, "--submit-for-review"),
+    topic_id: uuid.UUID | None = typer.Option(None, "--topic-id"),
 ) -> None:
     content = plan_file.read_text(encoding="utf-8")
     payload = ExperimentCreate(
@@ -142,6 +299,7 @@ def experiment_create(
         description=description,
         plan=PlanInput(content_md=content),
         submit_for_review=submit_for_review,
+        topic_id=topic_id,
     )
 
     def action(c: MAPClient):

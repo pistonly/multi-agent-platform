@@ -1,0 +1,11 @@
+# MAP API base URL (match docker-compose.override: host port 8001)
+api_url: http://localhost:8001
+
+# MAP project_key for this code repository
+project_key: my-app
+
+# Filled by `map bootstrap`
+# project_id: ...
+
+# CLI/API default persona when --persona is omitted
+default_persona: host

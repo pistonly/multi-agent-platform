@@ -181,7 +181,7 @@ def create_topic_comment(
         event="topic.comment.created",
         event_payload={"topic_id": str(topic_id), "comment_id": str(comment.id)},
     )
-    return TopicCommentRead.model_validate(comment)
+    return topic_service.topic_comment_read(db, comment)
 
 
 @topics_router.get("/topics/{topic_id}/comments")

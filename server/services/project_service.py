@@ -2,10 +2,11 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from map_types.enums import TopicStatus
-from server.domain.models import Agent, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
+from server.domain.models import Agent, AgentRole, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
 from server.domain.schemas import (
     ExperimentBundleRead,
     ExperimentCreate,
@@ -19,9 +20,16 @@ from server.domain.schemas import (
     ProjectStatusRead,
     ProjectUpdate,
 )
-from server.services.errors import ConflictError, NotFoundError
+from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 from server.services import project_status_service as status_doc_service
 from server.services import topic_service
+
+_ACTIVE_TOPIC_EXPERIMENT_PHASES = (
+    ExperimentPhase.draft,
+    ExperimentPhase.review,
+    ExperimentPhase.approved,
+    ExperimentPhase.running,
+)
 
 
 def create_project(db: Session, payload: ProjectCreate, *, author_agent_id: uuid.UUID) -> Project:
@@ -193,6 +201,22 @@ def create_experiment(
         topic = db.get(Topic, payload.topic_id)
         if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
             raise NotFoundError("Topic not found")
+        if topic.status != TopicStatus.open:
+            raise ConflictError("Cannot create experiment on a closed topic")
+        creator = db.get(Agent, creator_agent_id)
+        if topic.creator_agent_id != creator_agent_id and (creator is None or creator.role != AgentRole.admin):
+            raise ForbiddenError("Only the topic host can create an experiment from this topic")
+        active = db.scalar(
+            select(Experiment).where(
+                Experiment.topic_id == payload.topic_id,
+                Experiment.deleted_at.is_(None),
+                Experiment.phase.in_(_ACTIVE_TOPIC_EXPERIMENT_PHASES),
+            )
+        )
+        if active is not None:
+            raise ConflictError(
+                f"Topic already has an active experiment ({active.id}); complete or cancel it first"
+            )
     phase = ExperimentPhase.review if payload.submit_for_review else ExperimentPhase.draft
     experiment = Experiment(
         project_id=project_id,
@@ -214,7 +238,13 @@ def create_experiment(
         change_note=payload.plan.change_note or "初始版本",
     )
     db.add(plan)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ConflictError(
+            "Topic already has an active experiment; complete or cancel it first"
+        ) from exc
     db.refresh(experiment)
     return experiment
 
@@ -293,6 +323,7 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         description=experiment.description,
         phase=experiment.phase,
         current_plan_version=experiment.current_plan_version,
+        topic_id=experiment.topic_id,
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
         current_plan=current_plan,

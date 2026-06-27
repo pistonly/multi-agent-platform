@@ -84,6 +84,18 @@ map notification read-all
 cd web && npm install && npm run dev   # http://localhost:5173
 # 开发模式通过 Vite 代理访问 API；先在设置页填入 API Token
 
+## 多项目协作（Skill + `.map/`，推荐）
+
+不依赖 Cursor MCP 换 token。每个代码仓库：
+
+```bash
+export MAP_ADMIN_TOKEN=<admin-token>   # 或 ~/.map/admin.yaml
+map bootstrap --key my-app --name "My App" --api-url http://localhost:8001
+map --persona host status              # 查看 open_topics
+```
+
+详见 [AGENTS.md](./AGENTS.md) 与 [.cursor/skills/map-project-collab/SKILL.md](./.cursor/skills/map-project-collab/SKILL.md)。
+
 # Docker（API + Web）
 docker compose up --build
 

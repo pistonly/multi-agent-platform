@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { useState } from "react";
-import { createExperiment } from "../api/client";
+import { createExperiment, formatApiError } from "../api/client";
 import type { ExperimentSummary } from "../api/types";
 
 interface CreateExperimentFormProps {
@@ -84,7 +85,11 @@ export function CreateExperimentForm({
       </label>
       {topicId && <p className="text-xs text-slate-500">将自动关联到当前话题</p>}
       {createMutation.isError && (
-        <p className="text-sm text-red-400">创建失败，请检查权限与输入</p>
+        <p className="text-sm text-red-400">
+          {axios.isAxiosError(createMutation.error)
+            ? formatApiError(createMutation.error)
+            : "创建失败，请检查权限与输入"}
+        </p>
       )}
       <div className="flex justify-end gap-2 pt-1">
         {onCancel && (

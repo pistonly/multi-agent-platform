@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from map_types.enums import (
@@ -70,8 +70,23 @@ class Agent(Base):
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="author")
 
 
+_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL = "('draft','review','approved','running')"
+_ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE = (
+    f"topic_id IS NOT NULL AND deleted_at IS NULL AND phase IN {_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL}"
+)
+
+
 class Experiment(Base):
     __tablename__ = "experiments"
+    __table_args__ = (
+        Index(
+            "uq_experiment_one_active_per_topic",
+            "topic_id",
+            unique=True,
+            sqlite_where=text(_ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE),
+            postgresql_where=text(_ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)

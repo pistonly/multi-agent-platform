@@ -45,6 +45,13 @@ htmlcov/
 .env
 .env.*
 !.env.example
+.mcp.json
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
+
+# MAP project-local secrets (committed templates: .map/*.example)
+.map/agents.local.yaml
 
 # Local data
 data/

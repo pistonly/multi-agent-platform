@@ -1,0 +1,11 @@
+# Copy to agents.local.yaml — NEVER commit real tokens.
+personas:
+  host:
+    token: "<paste-from-map-bootstrap>"
+    agent_name: my-app-host
+  participant:
+    token: "<paste-from-map-bootstrap>"
+    agent_name: my-app-participant
+  reviewer:
+    token: "<paste-from-map-bootstrap>"
+    agent_name: my-app-reviewer

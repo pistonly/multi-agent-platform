@@ -275,6 +275,7 @@ class TopicSummaryRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     creator_agent_id: uuid.UUID
+    creator_name: str | None = None
     title: str
     description: str | None
     status: TopicStatus
@@ -294,6 +295,7 @@ class TopicCommentRead(ORMModel):
     id: uuid.UUID
     topic_id: uuid.UUID
     author_agent_id: uuid.UUID
+    author_name: str | None = None
     parent_comment_id: uuid.UUID | None
     body: str
     created_at: datetime

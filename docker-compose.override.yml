@@ -1,0 +1,8 @@
+# 本机 8000/8080 已被占用，试用时使用备用端口
+services:
+  api:
+    ports: !override
+      - "8001:8000"
+  mcp:
+    ports: !override
+      - "18081:8080"

@@ -36,7 +36,7 @@ export function setApiErrorHandler(handler: ApiErrorHandler | null) {
   apiErrorHandler = handler;
 }
 
-function formatApiError(error: AxiosError<{ detail?: unknown }>): string {
+export function formatApiError(error: AxiosError<{ detail?: unknown }>): string {
   const detail = error.response?.data?.detail;
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {

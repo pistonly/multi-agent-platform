@@ -50,7 +50,7 @@ def create_experiment(
         resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
         perm.ensure_project_access(agent, resolved_project_id)
         experiment = svc.create_experiment(db, resolved_project_id, agent.id, payload)
-    except (NotFoundError, ForbiddenError) as exc:
+    except (NotFoundError, ForbiddenError, ConflictError) as exc:
         raise http_error(exc) from exc
     emit(
         db,
