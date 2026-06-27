@@ -33,6 +33,7 @@ def emit(
     summary: str | None = None,
     event: str | None = None,
     event_payload: dict | None = None,
+    notify: bool = True,
 ) -> None:
     """记录审计日志并（可选）触发 webhook 投递；投递失败不影响主流程。"""
     audit_service.log(
@@ -46,16 +47,17 @@ def emit(
     )
     if event is not None:
         payload = event_payload or {}
-        notification_service.enqueue_from_event(
-            db,
-            project_id=project_id,
-            actor_id=agent.id,
-            event=event,
-            summary=summary or event,
-            target_type=target_type,
-            target_id=target_id,
-            payload=payload,
-        )
+        if notify:
+            notification_service.enqueue_from_event(
+                db,
+                project_id=project_id,
+                actor_id=agent.id,
+                event=event,
+                summary=summary or event,
+                target_type=target_type,
+                target_id=target_id,
+                payload=payload,
+            )
         delivery_ids = webhook_service.enqueue_event_deliveries(
             db, event, payload, project_id
         )

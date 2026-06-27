@@ -190,6 +190,30 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
     return results
 
 
+def create_experiment_warnings(
+    db: Session,
+    project_id: uuid.UUID,
+    topic_id: uuid.UUID | None,
+) -> list[str]:
+    if topic_id is not None:
+        return []
+    open_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(Topic)
+            .where(
+                Topic.project_id == project_id,
+                Topic.status == TopicStatus.open,
+                Topic.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
+    if open_count > 0:
+        return ["no_topic_id"]
+    return []
+
+
 def create_experiment(
     db: Session,
     project_id: uuid.UUID,

@@ -17,7 +17,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
-from server.services import topic_service
+from server.services import notification_service, topic_service
 from server.services import permissions as perm
 from server.services.errors import ForbiddenError, NotFoundError, StateTransitionError
 
@@ -170,6 +170,7 @@ def create_topic_comment(
         comment = topic_service.create_topic_comment(db, topic_id, agent, payload)
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
+    event_payload = {"topic_id": str(topic_id), "comment_id": str(comment.id)}
     emit(
         db,
         agent,
@@ -179,7 +180,16 @@ def create_topic_comment(
         project_id=topic.project_id,
         summary="话题新评论",
         event="topic.comment.created",
-        event_payload={"topic_id": str(topic_id), "comment_id": str(comment.id)},
+        event_payload=event_payload,
+        notify=False,
+    )
+    notification_service.notify_topic_comment_created(
+        db,
+        project_id=topic.project_id,
+        actor_id=agent.id,
+        creator_agent_id=topic.creator_agent_id,
+        target_id=comment.id,
+        payload=event_payload,
     )
     return topic_service.topic_comment_read(db, comment)
 

@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from map_client import project_config
 from map_client.testing import MAPTestClientTransport
 
 
@@ -19,7 +20,14 @@ def patched_cli(monkeypatch, client, auth_headers):
     token = auth_headers["Authorization"].removeprefix("Bearer ")
     monkeypatch.setenv("MAP_TOKEN", token)
     monkeypatch.setenv("MAP_API_URL", "http://test")
+    monkeypatch.delenv("MAP_PROJECT_KEY", raising=False)
     monkeypatch.setattr(cli_main, "_transport", MAPTestClientTransport(client))
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(project_config, "find_map_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "map_client.config.load_config",
+        lambda *args, **kwargs: {"api_url": "http://test", "token": token, "project_key": None},
+    )
 
 
 @pytest.fixture
@@ -27,7 +35,14 @@ def patched_admin_cli(monkeypatch, client, admin_headers):
     token = admin_headers["Authorization"].removeprefix("Bearer ")
     monkeypatch.setenv("MAP_TOKEN", token)
     monkeypatch.setenv("MAP_API_URL", "http://test")
+    monkeypatch.delenv("MAP_PROJECT_KEY", raising=False)
     monkeypatch.setattr(cli_main, "_transport", MAPTestClientTransport(client))
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(project_config, "find_map_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "map_client.config.load_config",
+        lambda *args, **kwargs: {"api_url": "http://test", "token": token, "project_key": None},
+    )
 
 
 def test_cli_admin_create_project(runner, patched_admin_cli):

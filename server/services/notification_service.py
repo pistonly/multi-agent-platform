@@ -30,9 +30,15 @@ def enqueue_from_event(
     target_type: str,
     target_id: uuid.UUID | None,
     payload: dict | None,
+    exclude_recipient_ids: set[uuid.UUID] | None = None,
 ) -> list[uuid.UUID]:
     """Write in-app notifications for project agents (and admins), excluding the actor."""
-    recipients = _recipients_for_project(db, project_id, actor_id)
+    skip = exclude_recipient_ids or set()
+    recipients = [
+        agent
+        for agent in _recipients_for_project(db, project_id, actor_id)
+        if agent.id not in skip
+    ]
     if not recipients:
         return []
 
@@ -51,6 +57,46 @@ def enqueue_from_event(
         db.flush()
         notification_ids.append(notification.id)
     db.commit()
+    return notification_ids
+
+
+def notify_topic_comment_created(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    creator_agent_id: uuid.UUID,
+    target_id: uuid.UUID,
+    payload: dict | None,
+) -> list[uuid.UUID]:
+    """Broadcast to project agents; host gets a separate directed notification (no duplicate)."""
+    event = "topic.comment.created"
+    base_payload = dict(payload or {})
+    notification_ids = enqueue_from_event(
+        db,
+        project_id=project_id,
+        actor_id=actor_id,
+        event=event,
+        summary="话题新评论",
+        target_type="topic_comment",
+        target_id=target_id,
+        payload=base_payload,
+        exclude_recipient_ids={creator_agent_id} if creator_agent_id != actor_id else None,
+    )
+    if creator_agent_id != actor_id:
+        notification_ids.extend(
+            enqueue_for_agents(
+                db,
+                recipient_agent_ids=[creator_agent_id],
+                project_id=project_id,
+                actor_id=actor_id,
+                event=event,
+                summary="【主持】话题新评论待回复",
+                target_type="topic_comment",
+                target_id=target_id,
+                payload={**base_payload, "host_directed": True},
+            )
+        )
     return notification_ids
 
 

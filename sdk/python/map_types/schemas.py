@@ -187,6 +187,7 @@ class ExperimentSummaryRead(ORMModel):
     phase: ExperimentPhase
     current_plan_version: int
     topic_id: uuid.UUID | None = None
+    warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

@@ -74,11 +74,26 @@ def _print_json(data: Any) -> None:
     typer.echo(yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
 
 
+def _print_warnings(warnings: list[str] | None) -> None:
+    for code in warnings or []:
+        if code == "no_topic_id":
+            typer.echo(
+                "Warning: no_topic_id — project has open topics; "
+                "consider --topic-id <uuid> to bind this experiment.",
+                err=True,
+            )
+        else:
+            typer.echo(f"Warning: {code}", err=True)
+
+
 def _run(action) -> None:
     try:
         with _client_ctx() as client:
             result = action(client)
         if result is not None:
+            warnings = getattr(result, "warnings", None)
+            if warnings:
+                _print_warnings(warnings)
             _print_json(result)
     except MAPHTTPError as exc:
         typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)

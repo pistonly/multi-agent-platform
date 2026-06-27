@@ -49,6 +49,7 @@ def create_experiment(
     try:
         resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
         perm.ensure_project_access(agent, resolved_project_id)
+        warnings = svc.create_experiment_warnings(db, resolved_project_id, payload.topic_id)
         experiment = svc.create_experiment(db, resolved_project_id, agent.id, payload)
     except (NotFoundError, ForbiddenError, ConflictError) as exc:
         raise http_error(exc) from exc
@@ -63,7 +64,7 @@ def create_experiment(
         event="experiment.created",
         event_payload={"id": str(experiment.id), "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return ExperimentSummaryRead.model_validate(experiment).model_copy(update={"warnings": warnings})
 
 
 @experiments_router.get("/projects/{project_id}/experiments", response_model=list[ExperimentSummaryRead])
