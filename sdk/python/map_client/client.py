@@ -38,6 +38,7 @@ from map_types import (
     ReviewItemStatus,
     ReviewItemUpdate,
     ReviewRead,
+    TopicAdvanceRound,
     TopicCommentCreate,
     TopicCommentRead,
     TopicCommentTreeNode,
@@ -440,6 +441,11 @@ class MAPClient:
 
     def get_topic(self, topic_id: uuid.UUID) -> TopicRead:
         return TopicRead.model_validate(self._json("GET", f"/topics/{topic_id}"))
+
+    def advance_topic_round(self, topic_id: uuid.UUID, payload: TopicAdvanceRound | None = None) -> TopicSummaryRead:
+        body = (payload or TopicAdvanceRound()).model_dump()
+        data = self._json("POST", f"/topics/{topic_id}/advance-round", json=body)
+        return TopicSummaryRead.model_validate(data)
 
     def update_topic(self, topic_id: uuid.UUID, payload: TopicUpdate) -> TopicSummaryRead:
         data = self._json("PATCH", f"/topics/{topic_id}", json=payload.model_dump(exclude_unset=True))

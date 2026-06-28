@@ -1,0 +1,4 @@
+api_url: http://localhost:8001
+project_key: multi-agents-platform
+project_id: 106216a7-a086-44b4-bb0b-7693b171154a
+default_persona: host

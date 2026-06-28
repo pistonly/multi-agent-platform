@@ -10,6 +10,7 @@ from map_types.enums import (
     ExperimentPhase,
     ReviewItemKind,
     ReviewItemStatus,
+    TopicDiscussionRound,
     TopicStatus,
 )
 
@@ -275,6 +276,10 @@ class TopicUpdate(BaseModel):
     archived: bool | None = None
 
 
+class TopicAdvanceRound(BaseModel):
+    increment_summary: bool = True
+
+
 class TopicSummaryRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -284,6 +289,8 @@ class TopicSummaryRead(BaseModel):
     description: str | None
     status: TopicStatus
     pinned: bool = False
+    discussion_round: TopicDiscussionRound = TopicDiscussionRound.round1
+    round_summary_count: int = 0
     comment_count: int = 0
     experiment_count: int = 0
     created_at: datetime

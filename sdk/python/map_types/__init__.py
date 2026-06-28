@@ -6,6 +6,7 @@ from map_types.enums import (
     ExperimentPhase,
     ReviewItemKind,
     ReviewItemStatus,
+    TopicDiscussionRound,
     TopicStatus,
 )
 from map_types.schemas import (
@@ -44,6 +45,7 @@ from map_types.schemas import (
     TopicCommentCreate,
     TopicCommentRead,
     TopicCommentTreeNode,
+    TopicAdvanceRound,
     TopicCreate,
     TopicRead,
     TopicSummaryRead,
@@ -61,6 +63,7 @@ __all__ = [
     "ExperimentPhase",
     "ReviewItemKind",
     "ReviewItemStatus",
+    "TopicDiscussionRound",
     "TopicStatus",
     "AgentCreateResponse",
     "AgentRead",
@@ -97,6 +100,7 @@ __all__ = [
     "TopicCommentCreate",
     "TopicCommentRead",
     "TopicCommentTreeNode",
+    "TopicAdvanceRound",
     "TopicCreate",
     "TopicRead",
     "TopicSummaryRead",

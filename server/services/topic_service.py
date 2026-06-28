@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from map_types.enums import ExperimentPhase
+from map_types.enums import ExperimentPhase, TopicDiscussionRound
 from server.domain.models import Agent, Experiment, Topic, TopicComment, TopicStatus
 from server.domain.schemas import (
     ExperimentSummaryRead,
@@ -16,7 +16,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
-from server.services.errors import NotFoundError, StateTransitionError
+from server.services.errors import ConflictError, NotFoundError, StateTransitionError
 from server.services.project_service import get_project
 
 
@@ -76,6 +76,8 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
             description=topic.description,
             status=topic.status,
             pinned=topic.pinned,
+            discussion_round=topic.discussion_round,
+            round_summary_count=topic.round_summary_count,
             comment_count=comment_counts.get(topic.id, 0),
             experiment_count=experiment_counts.get(topic.id, 0),
             created_at=topic.created_at,
@@ -192,6 +194,33 @@ def set_topic_status(db: Session, topic_id: uuid.UUID, target: TopicStatus) -> T
     if not valid:
         raise StateTransitionError(f"Topic cannot move from {topic.status.value} to {target.value}")
     topic.status = target
+    db.commit()
+    db.refresh(topic)
+    return topic
+
+
+def advance_topic_round(db: Session, topic_id: uuid.UUID, *, increment_summary: bool = True) -> Topic:
+    topic = _get_topic(db, topic_id)
+    if topic.status != TopicStatus.open:
+        raise ConflictError("Cannot advance a closed topic")
+    if topic.discussion_round == TopicDiscussionRound.ready:
+        raise ConflictError("Topic discussion round is already ready")
+
+    current_count = topic.round_summary_count or 0
+    next_count = current_count + 1 if increment_summary else current_count
+
+    if topic.discussion_round == TopicDiscussionRound.round1:
+        if next_count < 1:
+            raise ConflictError("Cannot advance round1 before at least one round summary")
+        topic.discussion_round = TopicDiscussionRound.round2
+    elif topic.discussion_round == TopicDiscussionRound.round2:
+        if next_count < 2:
+            raise ConflictError("Cannot advance round2 before two round summaries")
+        topic.discussion_round = TopicDiscussionRound.ready
+    else:
+        raise ConflictError(f"Unknown topic discussion round: {topic.discussion_round}")
+
+    topic.round_summary_count = next_count
     db.commit()
     db.refresh(topic)
     return topic

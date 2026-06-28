@@ -10,6 +10,17 @@ import { PhaseBadge } from "../components/PhaseStepper";
 import { useAuth } from "../context/AuthContext";
 
 const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running"]);
+const ROUND_LABELS = {
+  round1: "Round 1",
+  round2: "Round 2",
+  ready: "Ready",
+} as const;
+
+const ROUND_COLORS = {
+  round1: "bg-slate-700 text-slate-200",
+  round2: "bg-blue-900/50 text-blue-200",
+  ready: "bg-emerald-900/50 text-emerald-200",
+} as const;
 
 export function TopicPage() {
   const { topicId } = useParams<{ topicId: string }>();
@@ -81,6 +92,9 @@ export function TopicPage() {
             className={`badge ${topic.status === "open" ? "bg-emerald-900/40 text-emerald-200" : "bg-surface text-slate-400"}`}
           >
             {topic.status === "open" ? "进行中" : "已关闭"}
+          </span>
+          <span className={`badge ${ROUND_COLORS[topic.discussion_round]}`}>
+            {ROUND_LABELS[topic.discussion_round]} · {topic.round_summary_count}
           </span>
           {topic.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>

@@ -19,6 +19,7 @@ from server.domain.schemas import (
     PlanRevise,
     ProjectStatusRevise,
     ReviewCreate,
+    TopicAdvanceRound,
 )
 
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI")
@@ -89,6 +90,12 @@ def _print_warnings(warnings: list[str] | None) -> None:
             typer.echo(
                 "Warning: no_topic_id — project has open topics; "
                 "consider --topic-id <uuid> to bind this experiment.",
+                err=True,
+            )
+        elif code == "topic_not_ready_for_experiment":
+            typer.echo(
+                "Warning: topic_not_ready_for_experiment — linked topic is not marked ready; "
+                "continuing because this is a host override.",
                 err=True,
             )
         else:
@@ -570,6 +577,19 @@ def topic_list(
 @topic_app.command("show")
 def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.get_topic(topic_id))
+
+
+@topic_app.command("advance-round")
+def topic_advance_round(
+    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    increment_summary: bool = typer.Option(
+        True,
+        "--increment-summary/--no-increment-summary",
+        help="Increment round_summary_count before advancing.",
+    ),
+) -> None:
+    payload = TopicAdvanceRound(increment_summary=increment_summary)
+    _run(lambda c: c.advance_topic_round(topic_id, payload))
 
 
 @topic_app.command("comment")

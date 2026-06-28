@@ -173,6 +173,7 @@ export interface TopicCreatePayload {
 }
 
 export type TopicStatus = "open" | "closed";
+export type TopicDiscussionRound = "round1" | "round2" | "ready";
 
 export interface TopicSummary {
   id: string;
@@ -183,6 +184,8 @@ export interface TopicSummary {
   description: string | null;
   status: TopicStatus;
   pinned: boolean;
+  discussion_round: TopicDiscussionRound;
+  round_summary_count: number;
   comment_count: number;
   experiment_count: number;
   created_at: string;

@@ -33,6 +33,7 @@ mcp = [
 [project.scripts]
 map-server = "server.main:run"
 map = "cli.main:main"
+map-host-worker = "cli.host_worker:main"
 map-mcp = "map_mcp.main:cli"
 
 [build-system]

@@ -103,6 +103,13 @@ def test_cli_topic_flow(runner, patched_cli, project):
     assert result.exit_code == 0, result.output
     detail = yaml.safe_load(result.output)
     assert detail["comment_count"] == 1
+    assert detail["discussion_round"] == "round1"
+
+    result = runner.invoke(app, ["topic", "advance-round", "--id", topic_id])
+    assert result.exit_code == 0, result.output
+    advanced = yaml.safe_load(result.output)
+    assert advanced["discussion_round"] == "round2"
+    assert advanced["round_summary_count"] == 1
 
     result = runner.invoke(app, ["topic", "list", "--status", "open", "--q", "CLI话题", "--page-size", "1"])
     assert result.exit_code == 0, result.output

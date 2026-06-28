@@ -79,7 +79,7 @@ def test_create_experiment_no_topic_id_warning(client, auth_headers, project):
     assert exp["warnings"] == ["no_topic_id"]
 
 
-def test_create_experiment_with_topic_id_no_warning(client, auth_headers, project):
+def test_create_experiment_with_not_ready_topic_id_warning(client, auth_headers, project):
     topic = client.post(
         f"/api/v1/projects/{project['id']}/topics",
         headers=auth_headers,
@@ -95,4 +95,4 @@ def test_create_experiment_with_topic_id_no_warning(client, auth_headers, projec
             "topic_id": topic["id"],
         },
     ).json()
-    assert exp["warnings"] == []
+    assert exp["warnings"] == ["topic_not_ready_for_experiment"]

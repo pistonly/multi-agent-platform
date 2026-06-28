@@ -9,6 +9,8 @@ def _create_topic(client, headers, project, **overrides):
 def test_topic_crud(client, auth_headers, project):
     topic = _create_topic(client, auth_headers, project)
     assert topic["status"] == "open"
+    assert topic["discussion_round"] == "round1"
+    assert topic["round_summary_count"] == 0
     assert topic["comment_count"] == 0
     assert topic["experiment_count"] == 0
 
@@ -27,6 +29,41 @@ def test_topic_crud(client, auth_headers, project):
     deleted = client.delete(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
     assert deleted.status_code == 204
     assert client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers).status_code == 404
+
+
+def test_topic_advance_round_state_machine(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+
+    first = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert first.status_code == 200
+    assert first.json()["discussion_round"] == "round2"
+    assert first.json()["round_summary_count"] == 1
+
+    too_early = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"increment_summary": False},
+    )
+    assert too_early.status_code == 409
+
+    second = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert second.status_code == 200
+    assert second.json()["discussion_round"] == "ready"
+    assert second.json()["round_summary_count"] == 2
+
+    done = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert done.status_code == 409
+
+
+def test_only_topic_host_or_admin_can_advance_round(client, auth_headers, reviewer, admin_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+
+    denied = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=reviewer["headers"])
+    assert denied.status_code == 403
+
+    allowed = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=admin_headers)
+    assert allowed.status_code == 200
+    assert allowed.json()["discussion_round"] == "round2"
 
 
 def test_topic_status_filter_and_transitions(client, auth_headers, project):
@@ -225,6 +262,21 @@ def test_only_topic_host_can_create_experiment_from_topic(client, auth_headers, 
         json={"title": "主持开实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
     )
     assert allowed.status_code == 201
+    assert allowed.json()["warnings"] == ["topic_not_ready_for_experiment"]
+
+
+def test_ready_topic_create_experiment_has_no_not_ready_warning(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+
+    resp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "ready 后开实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["warnings"] == []
 
 
 def test_admin_can_create_experiment_from_others_topic(client, admin_headers, auth_headers, project):

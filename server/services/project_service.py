@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from map_types.enums import TopicStatus
+from map_types.enums import TopicDiscussionRound, TopicStatus
 from server.domain.models import Agent, AgentRole, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
 from server.domain.schemas import (
     ExperimentBundleRead,
@@ -202,6 +202,11 @@ def create_experiment_warnings(
     topic_id: uuid.UUID | None,
 ) -> list[str]:
     if topic_id is not None:
+        topic = db.get(Topic, topic_id)
+        if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
+            return []
+        if topic.discussion_round != TopicDiscussionRound.ready:
+            return ["topic_not_ready_for_experiment"]
         return []
     open_count = (
         db.scalar(

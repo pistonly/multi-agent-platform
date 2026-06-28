@@ -41,6 +41,12 @@ class TopicStatus(str, enum.Enum):
     closed = "closed"
 
 
+class TopicDiscussionRound(str, enum.Enum):
+    round1 = "round1"
+    round2 = "round2"
+    ready = "ready"
+
+
 class MentionSourceType(str, enum.Enum):
     experiment_comment = "experiment_comment"
     topic_comment = "topic_comment"

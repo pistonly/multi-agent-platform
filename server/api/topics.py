@@ -9,6 +9,7 @@ from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, TopicStatus
 from server.domain.schemas import (
+    TopicAdvanceRound,
     TopicCommentCreate,
     TopicCommentRead,
     TopicCommentTreeNode,
@@ -19,7 +20,7 @@ from server.domain.schemas import (
 )
 from server.services import notification_service, topic_service
 from server.services import permissions as perm
-from server.services.errors import ForbiddenError, NotFoundError, StateTransitionError
+from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 
 topics_router = APIRouter(tags=["topics"], dependencies=[Depends(bind_background_tasks)])
 
@@ -156,6 +157,42 @@ def reopen_topic(
     return topic_service.topic_summary(db, topic)
 
 
+@topics_router.post("/topics/{topic_id}/advance-round", response_model=TopicSummaryRead)
+def advance_topic_round(
+    topic_id: uuid.UUID,
+    payload: TopicAdvanceRound | None = None,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> TopicSummaryRead:
+    try:
+        topic = perm.ensure_topic_access(db, agent, topic_id)
+        if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
+            raise ForbiddenError("Only the topic host or admin can advance the discussion round")
+        topic = topic_service.advance_topic_round(
+            db,
+            topic_id,
+            increment_summary=True if payload is None else payload.increment_summary,
+        )
+    except (NotFoundError, ForbiddenError, ConflictError) as exc:
+        raise http_error(exc) from exc
+    emit(
+        db,
+        agent,
+        action="topic.advance_round",
+        target_type="topic",
+        target_id=topic.id,
+        project_id=topic.project_id,
+        summary=f"推进话题轮次至 {topic.discussion_round.value}",
+        event="topic.advance_round",
+        event_payload={
+            "topic_id": str(topic.id),
+            "discussion_round": topic.discussion_round.value,
+            "round_summary_count": topic.round_summary_count,
+        },
+    )
+    return topic_service.topic_summary(db, topic)
+
+
 @topics_router.post(
     "/topics/{topic_id}/comments",
     response_model=TopicCommentRead,
@@ -208,5 +245,4 @@ def list_topic_comments(
         return topic_service.list_topic_comments(db, topic_id, tree=tree)
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
-
 
