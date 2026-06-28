@@ -34,6 +34,7 @@ export function CreateExperimentForm({
       }),
     onSuccess: (exp) => {
       queryClient.invalidateQueries({ queryKey: ["project-status", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["project-experiments", projectId] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
       if (topicId) queryClient.invalidateQueries({ queryKey: ["topic", topicId] });
       onCreated?.(exp);

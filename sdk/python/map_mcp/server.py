@@ -160,25 +160,57 @@ def build_server(
     def list_experiments(
         project_id: str | None = None,
         phase: str | None = None,
+        creator_agent_id: str | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+        include_archived: bool = False,
         token: Token = None,
     ) -> list[dict[str, Any]]:
-        """List experiments in a project, optionally filtered by phase."""
+        """List experiments in a project, with optional phase/search/pagination/archive filters."""
         with resolver.use(token) as (c, ctx):
             pid = ctx.resolve_project_id(project_id)
             phase_enum = ExperimentPhase(phase) if phase else None
-            return dump(c.list_experiments(pid, phase=phase_enum))
+            creator_id = parse_uuid(creator_agent_id, "creator_agent_id") if creator_agent_id else None
+            return dump(
+                c.list_experiments(
+                    pid,
+                    phase=phase_enum,
+                    creator_agent_id=creator_id,
+                    q=q,
+                    page=page,
+                    page_size=page_size,
+                    include_archived=include_archived,
+                )
+            )
 
     @mcp.tool()
     def list_topics(
         project_id: str | None = None,
         status: str | None = None,
+        creator_agent_id: str | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+        include_archived: bool = False,
         token: Token = None,
     ) -> list[dict[str, Any]]:
-        """List discussion topics in a project, optionally filtered by status (open/closed)."""
+        """List discussion topics in a project, with optional status/search/pagination/archive filters."""
         with resolver.use(token) as (c, ctx):
             pid = ctx.resolve_project_id(project_id)
             st = TopicStatus(status) if status else None
-            return dump(c.list_topics(pid, status=st))
+            creator_id = parse_uuid(creator_agent_id, "creator_agent_id") if creator_agent_id else None
+            return dump(
+                c.list_topics(
+                    pid,
+                    status=st,
+                    creator_agent_id=creator_id,
+                    q=q,
+                    page=page,
+                    page_size=page_size,
+                    include_archived=include_archived,
+                )
+            )
 
     @mcp.tool()
     def get_topic(topic_id: str, token: Token = None) -> dict[str, Any]:

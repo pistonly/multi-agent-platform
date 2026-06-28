@@ -46,6 +46,14 @@ export function TopicPage() {
     onSuccess: invalidate,
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: (archived: boolean) => updateTopic(topicId!, { archived }),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["topics"] });
+    },
+  });
+
   if (query.isLoading) return <p className="text-slate-400">加载话题…</p>;
   if (query.error || !query.data) return <p className="text-red-400">话题不存在或无权访问</p>;
 
@@ -74,6 +82,7 @@ export function TopicPage() {
           >
             {topic.status === "open" ? "进行中" : "已关闭"}
           </span>
+          {topic.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>
         {topic.description && (
           <div className="mt-2 text-slate-300">
@@ -111,6 +120,16 @@ export function TopicPage() {
           >
             {topic.pinned ? "取消置顶" : "置顶话题"}
           </button>
+          {isTopicHost && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={archiveMutation.isPending}
+              onClick={() => archiveMutation.mutate(!topic.archived_at)}
+            >
+              {topic.archived_at ? "取消归档" : "归档话题"}
+            </button>
+          )}
         </div>
       </div>
 

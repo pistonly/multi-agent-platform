@@ -128,6 +128,16 @@ class MAPClient:
             return None
         return response.json()
 
+    @staticmethod
+    def _total_count(response: httpx.Response) -> int:
+        raw = response.headers.get("X-Total-Count")
+        if raw is None:
+            return 0
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+
     # --- agents ---
 
     def register_agent(
@@ -230,10 +240,48 @@ class MAPClient:
         project_id: uuid.UUID,
         *,
         phase: ExperimentPhase | None = None,
+        creator_agent_id: uuid.UUID | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+        include_archived: bool = False,
     ) -> list[ExperimentSummaryRead]:
-        params = {"phase": phase.value} if phase else None
-        data = self._json("GET", f"/projects/{project_id}/experiments", params=params)
-        return [ExperimentSummaryRead.model_validate(item) for item in data]
+        data, _total = self.list_experiments_page(
+            project_id,
+            phase=phase,
+            creator_agent_id=creator_agent_id,
+            q=q,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+        return data
+
+    def list_experiments_page(
+        self,
+        project_id: uuid.UUID,
+        *,
+        phase: ExperimentPhase | None = None,
+        creator_agent_id: uuid.UUID | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+        include_archived: bool = False,
+    ) -> tuple[list[ExperimentSummaryRead], int]:
+        params: dict[str, Any] = {
+            "page": page,
+            "page_size": page_size,
+            "include_archived": include_archived,
+        }
+        if phase is not None:
+            params["phase"] = phase.value
+        if creator_agent_id is not None:
+            params["creator_agent_id"] = str(creator_agent_id)
+        if q:
+            params["q"] = q
+        response = self._request("GET", f"/projects/{project_id}/experiments", params=params)
+        data = response.json()
+        return [ExperimentSummaryRead.model_validate(item) for item in data], self._total_count(response)
 
     def get_experiment(self, experiment_id: uuid.UUID) -> ExperimentDetailRead:
         return ExperimentDetailRead.model_validate(self._json("GET", f"/experiments/{experiment_id}"))
@@ -347,10 +395,48 @@ class MAPClient:
         project_id: uuid.UUID,
         *,
         status: TopicStatus | None = None,
+        creator_agent_id: uuid.UUID | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+        include_archived: bool = False,
     ) -> list[TopicSummaryRead]:
-        params = {"status": status.value} if status else None
-        data = self._json("GET", f"/projects/{project_id}/topics", params=params)
-        return [TopicSummaryRead.model_validate(item) for item in data]
+        data, _total = self.list_topics_page(
+            project_id,
+            status=status,
+            creator_agent_id=creator_agent_id,
+            q=q,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+        return data
+
+    def list_topics_page(
+        self,
+        project_id: uuid.UUID,
+        *,
+        status: TopicStatus | None = None,
+        creator_agent_id: uuid.UUID | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+        include_archived: bool = False,
+    ) -> tuple[list[TopicSummaryRead], int]:
+        params: dict[str, Any] = {
+            "page": page,
+            "page_size": page_size,
+            "include_archived": include_archived,
+        }
+        if status is not None:
+            params["status"] = status.value
+        if creator_agent_id is not None:
+            params["creator_agent_id"] = str(creator_agent_id)
+        if q:
+            params["q"] = q
+        response = self._request("GET", f"/projects/{project_id}/topics", params=params)
+        data = response.json()
+        return [TopicSummaryRead.model_validate(item) for item in data], self._total_count(response)
 
     def get_topic(self, topic_id: uuid.UUID) -> TopicRead:
         return TopicRead.model_validate(self._json("GET", f"/topics/{topic_id}"))

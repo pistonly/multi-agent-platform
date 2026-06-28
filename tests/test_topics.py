@@ -238,3 +238,57 @@ def test_admin_can_create_experiment_from_others_topic(client, admin_headers, au
     assert resp.status_code == 201
     assert resp.json()["topic_id"] == topic["id"]
     assert resp.json()["creator_agent_id"] != topic["creator_agent_id"]
+
+
+def test_topic_archive_hidden_by_default(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    archived = client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+
+    listing = client.get(f"/api/v1/projects/{project['id']}/topics", headers=auth_headers)
+    assert listing.status_code == 200
+    assert listing.json() == []
+
+    with_archived = client.get(
+        f"/api/v1/projects/{project['id']}/topics?include_archived=true",
+        headers=auth_headers,
+    )
+    assert len(with_archived.json()) == 1
+
+    restored = client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": False},
+    )
+    assert restored.json()["archived_at"] is None
+
+
+def test_experiment_archive_allows_new_active_on_topic(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project, title="归档后重开实验")
+    first = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "第一个", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert first.status_code == 201
+    exp_id = first.json()["id"]
+
+    archived = client.patch(
+        f"/api/v1/experiments/{exp_id}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+
+    second = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "第二个", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
+    )
+    assert second.status_code == 201, second.text

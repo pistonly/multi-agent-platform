@@ -176,6 +176,7 @@ class ExperimentCreate(BaseModel):
 class ExperimentUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=512)
     description: str | None = None
+    archived: bool | None = None
 
 
 class ExperimentSummaryRead(ORMModel):
@@ -190,6 +191,7 @@ class ExperimentSummaryRead(ORMModel):
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None = None
 
 
 class ExperimentDetailRead(ExperimentSummaryRead):
@@ -270,6 +272,7 @@ class TopicUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=512)
     description: str | None = None
     pinned: bool | None = None
+    archived: bool | None = None
 
 
 class TopicSummaryRead(BaseModel):
@@ -285,6 +288,7 @@ class TopicSummaryRead(BaseModel):
     experiment_count: int = 0
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None = None
 
 
 class TopicCommentCreate(BaseModel):

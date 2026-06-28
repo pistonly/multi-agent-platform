@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { fetchProjectStatus, fetchProjectStatusVersions, fetchTopics } from "../api/client";
-import type { TopicSummary } from "../api/types";
+import { fetchProjectStatus, fetchProjectStatusVersions } from "../api/client";
+import type { ExperimentSummary, TopicSummary } from "../api/types";
+import { ExperimentsListPanel } from "./ExperimentsListPanel";
 import { PhaseBadge } from "./PhaseStepper";
+import { TopicsListPanel } from "./TopicsListPanel";
 import { StatusEditor } from "./StatusEditor";
 import { StatusMarkdown } from "./StatusMarkdown";
 import { Modal } from "./Modal";
@@ -26,25 +28,12 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
     refetchInterval: 30_000,
   });
 
-  const topicsQuery = useQuery({
-    queryKey: ["topics", projectId],
-    queryFn: () => fetchTopics(projectId),
-  });
-
   if (isLoading) return <p className="text-slate-400">加载项目状态…</p>;
   if (error || !data) {
     return <p className="text-red-400">项目不存在或无权访问</p>;
   }
 
-  const {
-    project,
-    experiment_counts_by_phase,
-    active_experiments,
-    recent_experiments,
-    open_topics,
-    status_md,
-  } = data;
-  const topics = topicsQuery.data ?? [];
+  const { project, experiment_counts_by_phase, active_experiments, open_topics, status_md } = data;
 
   return (
     <div className="space-y-8">
@@ -85,7 +74,7 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
           <h2 className="text-lg font-semibold text-white">进行中话题</h2>
           <span className="text-xs text-slate-500">{open_topics.length} 个</span>
         </div>
-        <TopicList topics={open_topics} emptyLabel="暂无进行中的话题" />
+        <OpenTopicList topics={open_topics} emptyLabel="暂无进行中的话题" />
       </section>
 
       <section className="card">
@@ -111,25 +100,22 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
 
       {!isAdmin && <StatusVersionHistory projectId={projectId} />}
 
-      <section className="card">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">话题</h2>
-          <span className="text-xs text-slate-500">{topics.length} 个</span>
-        </div>
-        <TopicList topics={topics} emptyLabel="暂无话题，点击「发布话题」发起讨论" />
-      </section>
+      <TopicsListPanel
+        projectId={projectId}
+        viewAllHref={`/projects/${projectId}/topics`}
+      />
 
       {active_experiments.length > 0 && (
         <section className="card">
           <h2 className="mb-3 text-lg font-semibold text-white">活跃实验</h2>
-          <ExperimentTable experiments={active_experiments} />
+          <ActiveExperimentTable experiments={active_experiments} />
         </section>
       )}
 
-      <section className="card">
-        <h2 className="mb-3 text-lg font-semibold text-white">实验列表</h2>
-        <ExperimentTable experiments={recent_experiments} emptyLabel="暂无实验" />
-      </section>
+      <ExperimentsListPanel
+        projectId={projectId}
+        viewAllHref={`/projects/${projectId}/experiments`}
+      />
 
       {showCreateTopic && (
         <Modal title="发布话题" onClose={() => setShowCreateTopic(false)}>
@@ -153,7 +139,7 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
   );
 }
 
-function TopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?: string }) {
+function OpenTopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?: string }) {
   if (topics.length === 0) return <p className="py-2 text-sm text-slate-500">{emptyLabel ?? "暂无话题"}</p>;
   return (
     <ul className="space-y-1">
@@ -168,13 +154,7 @@ function TopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?
           </Link>
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>{t.creator_name ?? `${t.creator_agent_id.slice(0, 8)}…`}</span>
-            <span
-              className={`badge ${t.status === "open" ? "bg-emerald-900/40 text-emerald-200" : "bg-surface text-slate-400"}`}
-            >
-              {t.status === "open" ? "进行中" : "已关闭"}
-            </span>
             <span>{t.comment_count} 评论</span>
-            {t.experiment_count > 0 && <span>{t.experiment_count} 实验</span>}
           </div>
         </li>
       ))}
@@ -182,20 +162,13 @@ function TopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?
   );
 }
 
-function ExperimentTable({
-  experiments,
-  emptyLabel = "暂无数据",
-}: {
-  experiments: { id: string; title: string; phase: string; current_plan_version: number; updated_at: string }[];
-  emptyLabel?: string;
-}) {
+function ActiveExperimentTable({ experiments }: { experiments: ExperimentSummary[] }) {
   return (
     <table className="w-full text-left text-sm">
       <thead className="text-slate-500">
         <tr>
           <th className="pb-2 pr-4">标题</th>
           <th className="pb-2 pr-4">阶段</th>
-          <th className="pb-2 pr-4">计划</th>
           <th className="pb-2">更新</th>
         </tr>
       </thead>
@@ -208,19 +181,11 @@ function ExperimentTable({
               </Link>
             </td>
             <td className="py-2 pr-4">
-              <PhaseBadge phase={exp.phase as never} />
+              <PhaseBadge phase={exp.phase} />
             </td>
-            <td className="py-2 pr-4 text-slate-400">v{exp.current_plan_version}</td>
             <td className="py-2 text-slate-400">{new Date(exp.updated_at).toLocaleString()}</td>
           </tr>
         ))}
-        {experiments.length === 0 && (
-          <tr>
-            <td colSpan={4} className="py-4 text-slate-500">
-              {emptyLabel}
-            </td>
-          </tr>
-        )}
       </tbody>
     </table>
   );

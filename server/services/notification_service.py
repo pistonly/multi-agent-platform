@@ -5,7 +5,25 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole, Notification
+from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
+
+
+def _emit_created(
+    recipient_ids: list[uuid.UUID],
+    notification_ids: list[uuid.UUID],
+    *,
+    event: str,
+) -> None:
+    for recipient_id, notification_id in zip(recipient_ids, notification_ids, strict=True):
+        notification_stream.publish(
+            recipient_id,
+            {
+                "type": "notification.created",
+                "event": event,
+                "notification_id": str(notification_id),
+            },
+        )
 
 
 def _recipients_for_project(db: Session, project_id: uuid.UUID | None, exclude_agent_id: uuid.UUID) -> list[Agent]:
@@ -43,6 +61,7 @@ def enqueue_from_event(
         return []
 
     notification_ids: list[uuid.UUID] = []
+    recipient_ids: list[uuid.UUID] = []
     for recipient in recipients:
         notification = Notification(
             recipient_agent_id=recipient.id,
@@ -56,7 +75,10 @@ def enqueue_from_event(
         db.add(notification)
         db.flush()
         notification_ids.append(notification.id)
+        recipient_ids.append(recipient.id)
     db.commit()
+    if notification_ids:
+        _emit_created(recipient_ids, notification_ids, event=event)
     return notification_ids
 
 
@@ -114,6 +136,7 @@ def enqueue_for_agents(
 ) -> list[uuid.UUID]:
     """Write in-app notifications for specific agents (e.g. @mentions)."""
     notification_ids: list[uuid.UUID] = []
+    recipient_ids: list[uuid.UUID] = []
     for recipient_id in recipient_agent_ids:
         if recipient_id == actor_id:
             continue
@@ -129,8 +152,10 @@ def enqueue_for_agents(
         db.add(notification)
         db.flush()
         notification_ids.append(notification.id)
+        recipient_ids.append(recipient_id)
     if notification_ids:
         db.commit()
+        _emit_created(recipient_ids, notification_ids, event=event)
     return notification_ids
 
 

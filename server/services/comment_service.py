@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, Comment, CommentAnchorType, PlanVersion, Review, ReviewItem
-from server.domain.schemas import CommentCreate, CommentRead, CommentTreeNode
+from server.domain.schemas import CommentCreate, CommentTreeNode
 from server.services.errors import NotFoundError
 from server.services.project_service import get_experiment
 

@@ -6,6 +6,7 @@ import type {
   ExperimentCreatePayload,
   ExperimentDetail,
   ExperimentLog,
+  ExperimentPhase,
   ExperimentSummary,
   GlobalStatus,
   PlanVersion,
@@ -20,7 +21,23 @@ import type {
   TopicStatus,
   TopicSummary,
   NotificationList,
+  NotificationStreamEvent,
 } from "./types";
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+}
+
+export function parseTotalCount(headers: Record<string, unknown>): number {
+  const raw = headers["x-total-count"] ?? headers["X-Total-Count"];
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseTotalCountInternal(headers: Record<string, unknown>): number {
+  return parseTotalCount(headers);
+}
 
 const baseURL = import.meta.env.VITE_API_URL || "";
 
@@ -111,9 +128,32 @@ export async function reviseProjectStatus(
   return data;
 }
 
-export async function fetchProjectExperiments(projectId: string): Promise<ExperimentSummary[]> {
-  const { data } = await api.get<ExperimentSummary[]>(`/projects/${projectId}/experiments`);
-  return data;
+export interface FetchProjectExperimentsOptions {
+  phase?: ExperimentPhase;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  includeArchived?: boolean;
+}
+
+export async function fetchProjectExperiments(
+  projectId: string,
+  opts: FetchProjectExperimentsOptions = {}
+): Promise<PaginatedResult<ExperimentSummary>> {
+  const { phase, q, page = 1, pageSize = 20, includeArchived = false } = opts;
+  const response = await api.get<ExperimentSummary[]>(`/projects/${projectId}/experiments`, {
+    params: {
+      ...(phase ? { phase } : {}),
+      ...(q ? { q } : {}),
+      page,
+      page_size: pageSize,
+      include_archived: includeArchived,
+    },
+  });
+  return {
+    items: response.data,
+    total: parseTotalCountInternal(response.headers as Record<string, unknown>),
+  };
 }
 
 export async function fetchExperiment(id: string): Promise<ExperimentDetail> {
@@ -194,7 +234,7 @@ export async function createExperiment(
 
 export async function updateExperiment(
   experimentId: string,
-  body: { title?: string; description?: string | null }
+  body: { title?: string; description?: string | null; archived?: boolean }
 ): Promise<ExperimentSummary> {
   const { data } = await api.patch<ExperimentSummary>(`/experiments/${experimentId}`, body);
   return data;
@@ -240,11 +280,32 @@ export async function createLog(
 
 // --- topics ---
 
-export async function fetchTopics(projectId: string, status?: TopicStatus): Promise<TopicSummary[]> {
-  const { data } = await api.get<TopicSummary[]>(`/projects/${projectId}/topics`, {
-    params: status ? { status } : undefined,
+export interface FetchTopicsOptions {
+  status?: TopicStatus;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  includeArchived?: boolean;
+}
+
+export async function fetchTopics(
+  projectId: string,
+  opts: FetchTopicsOptions = {}
+): Promise<PaginatedResult<TopicSummary>> {
+  const { status, q, page = 1, pageSize = 20, includeArchived = false } = opts;
+  const response = await api.get<TopicSummary[]>(`/projects/${projectId}/topics`, {
+    params: {
+      ...(status ? { status } : {}),
+      ...(q ? { q } : {}),
+      page,
+      page_size: pageSize,
+      include_archived: includeArchived,
+    },
   });
-  return data;
+  return {
+    items: response.data,
+    total: parseTotalCountInternal(response.headers as Record<string, unknown>),
+  };
 }
 
 export async function fetchTopic(topicId: string): Promise<TopicRead> {
@@ -259,7 +320,7 @@ export async function createTopic(projectId: string, payload: TopicCreatePayload
 
 export async function updateTopic(
   topicId: string,
-  body: { title?: string; description?: string | null; pinned?: boolean }
+  body: { title?: string; description?: string | null; pinned?: boolean; archived?: boolean }
 ): Promise<TopicSummary> {
   const { data } = await api.patch<TopicSummary>(`/topics/${topicId}`, body);
   return data;
@@ -296,6 +357,54 @@ export async function fetchNotifications(params?: {
 }): Promise<NotificationList> {
   const { data } = await api.get<NotificationList>("/agents/me/notifications", { params });
   return data;
+}
+
+const SSE_RETRY_MS = 3000;
+
+export async function streamNotifications(
+  token: string,
+  opts: {
+    signal: AbortSignal;
+    onEvent: (event: NotificationStreamEvent) => void;
+    onError?: (error: unknown) => void;
+  }
+): Promise<void> {
+  const baseURL = api.defaults.baseURL ?? "";
+  const url = `${baseURL}/agents/me/notifications/stream`;
+
+  while (!opts.signal.aborted) {
+    try {
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: opts.signal,
+      });
+      if (!response.ok || !response.body) {
+        throw new Error(`SSE failed: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (!opts.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          for (const line of part.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            opts.onEvent(JSON.parse(line.slice(6)) as NotificationStreamEvent);
+          }
+        }
+      }
+    } catch (err) {
+      if (opts.signal.aborted) return;
+      opts.onError?.(err);
+      await new Promise((resolve) => setTimeout(resolve, SSE_RETRY_MS));
+    }
+  }
 }
 
 export async function markNotificationRead(notificationId: string): Promise<void> {

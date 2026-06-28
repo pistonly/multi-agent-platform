@@ -6,6 +6,8 @@ import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { ExperimentPage } from "./pages/ExperimentPage";
 import { ProjectPage } from "./pages/ProjectPage";
+import { ProjectExperimentsPage } from "./pages/ProjectExperimentsPage";
+import { ProjectTopicsPage } from "./pages/ProjectTopicsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StatusPage } from "./pages/StatusPage";
 import { TodosPage } from "./pages/TodosPage";
@@ -26,6 +28,8 @@ export default function App() {
                 <Route path="todos" element={<TodosPage />} />
                 <Route path="notifications" element={<NotificationsPage />} />
                 <Route path="projects/:projectId" element={<ProjectPage />} />
+                <Route path="projects/:projectId/topics" element={<ProjectTopicsPage />} />
+                <Route path="projects/:projectId/experiments" element={<ProjectExperimentsPage />} />
                 <Route path="experiments/:experimentId" element={<ExperimentPage />} />
                 <Route path="topics/:topicId" element={<TopicPage />} />
               </Route>

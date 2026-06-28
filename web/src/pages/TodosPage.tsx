@@ -8,7 +8,7 @@ export function TodosPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["todos"],
     queryFn: fetchTodos,
-    refetchInterval: 30_000,
+    refetchInterval: 120_000,
   });
 
   if (isLoading) return <p className="text-slate-400">加载待办…</p>;

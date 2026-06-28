@@ -1,7 +1,6 @@
 def test_topic_comment_notifies_host_and_broadcasts(
     client, auth_headers, reviewer, project, agent_token, admin_headers
 ):
-    host_id = agent_token[0]
     participant_headers = reviewer["headers"]
 
     third = client.post(

@@ -69,9 +69,18 @@ def _client_ctx() -> Iterator[MAPClient]:
 
 
 def _print_json(data: Any) -> None:
-    if hasattr(data, "model_dump"):
-        data = data.model_dump(mode="json")
-    typer.echo(yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
+    def to_jsonable(value: Any) -> Any:
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        if isinstance(value, list):
+            return [to_jsonable(item) for item in value]
+        if isinstance(value, tuple):
+            return [to_jsonable(item) for item in value]
+        if isinstance(value, dict):
+            return {key: to_jsonable(item) for key, item in value.items()}
+        return value
+
+    typer.echo(yaml.safe_dump(to_jsonable(data), allow_unicode=True, sort_keys=False))
 
 
 def _print_warnings(warnings: list[str] | None) -> None:
@@ -333,6 +342,35 @@ def experiment_create(
     _run(action)
 
 
+@experiment_app.command("list")
+def experiment_list(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    phase: str | None = typer.Option(None, "--phase"),
+    creator_agent_id: uuid.UUID | None = typer.Option(None, "--creator-agent-id"),
+    q: str | None = typer.Option(None, "--q"),
+    page: int = typer.Option(1, "--page", min=1),
+    page_size: int = typer.Option(100, "--page-size", min=1, max=100),
+    include_archived: bool = typer.Option(False, "--include-archived"),
+) -> None:
+    from server.domain.models import ExperimentPhase
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        phase_filter = ExperimentPhase(phase) if phase else None
+        return c.list_experiments(
+            pid,
+            phase=phase_filter,
+            creator_agent_id=creator_agent_id,
+            q=q,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+
+    _run(action)
+
+
 @experiment_app.command("submit-review")
 def experiment_submit_review(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.submit_for_review(experiment_id))
@@ -505,13 +543,26 @@ def topic_list(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     status: str | None = typer.Option(None, "--status"),
+    creator_agent_id: uuid.UUID | None = typer.Option(None, "--creator-agent-id"),
+    q: str | None = typer.Option(None, "--q"),
+    page: int = typer.Option(1, "--page", min=1),
+    page_size: int = typer.Option(100, "--page-size", min=1, max=100),
+    include_archived: bool = typer.Option(False, "--include-archived"),
 ) -> None:
     from server.domain.models import TopicStatus
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
         st = TopicStatus(status) if status else None
-        return c.list_topics(pid, status=st)
+        return c.list_topics(
+            pid,
+            status=st,
+            creator_agent_id=creator_agent_id,
+            q=q,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
 
     _run(action)
 

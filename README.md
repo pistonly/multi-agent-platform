@@ -43,13 +43,15 @@
 
 详见 [PRD v0.4](docs/PRD-v0.4.md)。
 
-**v0.5 进行中（M19–M21）**：
+**v0.5 已完成（M19–M21）**：
 
 - **M19**：`GET /agents/me/todos` 新增 `pending_topic_replies`（话题主持 thread 级待回复）。
 - **M20**：topic-host Skill（`.cursor/skills/topic-host/SKILL.md`）。
 - **M21**：Webhook 主持接线文档（[WEBHOOK-TOPIC-HOST.md](docs/WEBHOOK-TOPIC-HOST.md)）。
 
 详见 [PRD v0.5](docs/PRD-v0.5.md)。
+
+**Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
 
 ### 连接已有 MAP 服务（本仓库协作）
 
@@ -110,10 +112,11 @@ map notification read-all
 # Web UI（React + Vite）
 cd web && npm install && npm run dev   # http://localhost:5173
 # 开发模式通过 Vite 代理访问 API；先在设置页填入 API Token
+```
 
 ## 多项目协作（Skill + `.map/`，推荐）
 
-不依赖 Cursor MCP 换 token。每个代码仓库：
+不依赖 Cursor MCP。每个代码仓库：
 
 ```bash
 export MAP_ADMIN_TOKEN=<admin-token>   # 或 ~/.map/admin.yaml
@@ -121,21 +124,28 @@ map bootstrap --key my-app --name "My App" --api-url http://localhost:8001
 map --persona host status              # 查看 open_topics
 ```
 
-详见 [AGENTS.md](./AGENTS.md) 与 [.cursor/skills/map-project-collab/SKILL.md](./.cursor/skills/map-project-collab/SKILL.md)。
+**实验须由 host persona 创建**，否则生命周期操作可能 403。详见 [AGENTS.md](./AGENTS.md) 与 [.cursor/skills/map-project-collab/SKILL.md](./.cursor/skills/map-project-collab/SKILL.md)。
 
-# Docker（API + Web）
+## Docker（API + Web）
+
+默认 `docker-compose.yml` 暴露 API `:8000`、Web `:3000`、MCP `:8080`。本仓包含 `docker-compose.override.yml`，用于本机端口冲突场景，会把 API 改为 `:8001`、MCP 改为 `:18081`；因此本仓 `.map/` bootstrap 示例使用 `http://localhost:8001`。
+
+```bash
 docker compose up --build
+# 默认端口: API :8000  Web :3000  MCP :8080/mcp
+# 使用本仓 override 时: API :8001  Web :3000  MCP :18081/mcp
+```
 
-# Python SDK
+## Python SDK
+
+```bash
 python -c "from map_client import MAPClient; print(MAPClient.from_env().get_me())"
 # 详见 docs/SDK.md
+```
 
-# Docker（API + Web + MCP）
-# 1. 注册 Agent 获取 token，写入 .env: MAP_TOKEN=...
-docker compose up --build
-# API :8000  Web :3000  MCP :8080/mcp
+## MCP（IDE Agent）
 
-# MCP（IDE Agent）
+```bash
 pip install -e ".[mcp]"
 export MAP_TOKEN=<your-token>
 

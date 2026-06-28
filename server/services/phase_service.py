@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from server.domain.models import Agent, AgentRole, ExperimentPhase
 from server.domain.schemas import ExperimentComplete, ExperimentLogCreate
 from server.domain.state_machine import can_approve, validate_phase_transition
-from server.services.errors import ForbiddenError, NotFoundError, StateTransitionError
+from server.services.errors import ForbiddenError, StateTransitionError
 from server.services.log_service import append_log
 from server.services.project_service import get_experiment
 from server.services.review_service import get_unreasonable_items

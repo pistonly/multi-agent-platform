@@ -42,6 +42,7 @@ export interface ExperimentSummary {
   topic_id: string | null;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
 }
 
 export interface PlanVersion {
@@ -186,6 +187,7 @@ export interface TopicSummary {
   experiment_count: number;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
 }
 
 export interface TopicComment {
@@ -268,4 +270,10 @@ export interface NotificationList {
   items: Notification[];
   total: number;
   unread_count: number;
+}
+
+export interface NotificationStreamEvent {
+  type: "notification.created";
+  event: string;
+  notification_id: string;
 }

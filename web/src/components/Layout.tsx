@@ -3,17 +3,20 @@ import { Link, Outlet, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchNotifications } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useNotificationStream } from "../hooks/useNotificationStream";
 import { CreateProjectForm } from "./CreateProjectForm";
 
 export function Layout() {
   const { token, agentName, role, projectKey, isAdmin, isReady, clearToken } = useAuth();
   const [showCreateProject, setShowCreateProject] = useState(false);
 
+  useNotificationStream(token, isReady && !!token);
+
   const notificationsQuery = useQuery({
     queryKey: ["notifications", "badge"],
     queryFn: () => fetchNotifications({ unread_only: true, limit: 1 }),
     enabled: isReady && !!token,
-    refetchInterval: 30_000,
+    refetchInterval: 120_000,
   });
 
   const unreadCount = notificationsQuery.data?.unread_count ?? 0;

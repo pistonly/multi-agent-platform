@@ -21,7 +21,7 @@ description: >-
 
 ## 硬性规则
 
-1. 操作前确认身份：`map --persona host persona whoami`（或 MCP `get_me`）
+1. 操作前确认身份：`map --persona host persona whoami`（**禁止**使用 MCP `get_me`）
 2. 主持创建的 open 话题下，**每条他人评论所在 thread 必须有主持回复**
 3. **两轮顶层波次**后才做门禁决策；每轮结束发 **Round Summary**
 4. 开实验前自检 rubric（见下）；不满足则继续讨论或关话题
@@ -50,9 +50,9 @@ map --persona host persona whoami
 map --persona host todos
 ```
 
-关注 `pending_topic_replies`、`mentions`、`my_open_topics`。
-
-MCP 等价：`get_me` → `get_todos` → `get_topic(topic_id=...)`
+```bash
+map --persona host topic show --id <topic-uuid>
+```
 
 `pending_topic_replies` 每项含：`topic_id`、`topic_title`、`comment_id`、`thread_root_id`、`excerpt`、作者——**无需二次拉取即可决定回复谁**。
 

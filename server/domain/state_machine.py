@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from server.domain.models import AgentRole, ExperimentPhase, ReviewItem, ReviewItemStatus
+from server.domain.models import ExperimentPhase, ReviewItem, ReviewItemStatus
 
 
 class StateMachineError(Exception):

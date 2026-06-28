@@ -15,7 +15,7 @@ from server.domain.models import (
 )
 from server.domain.schemas import ReviewCreate, ReviewItemRead, ReviewItemUpdate, ReviewRead
 from server.domain.state_machine import ReviewItemTransitionContext, validate_review_item_transition
-from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
+from server.services.errors import ConflictError, NotFoundError, StateTransitionError
 from server.services.project_service import get_experiment
 
 

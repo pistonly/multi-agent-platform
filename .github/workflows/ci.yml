@@ -21,7 +21,13 @@ jobs:
         run: pip install -e ".[dev,mcp]"
 
       - name: Ruff
-        run: ruff check server/api sdk/python/map_types
+        run: ruff check server cli sdk tests
+
+      - name: Alembic migrations
+        run: |
+          tmpdb="$(mktemp /tmp/map-ci-XXXXXX.db)"
+          MAP_DATABASE_URL="sqlite:///$tmpdb" alembic upgrade head
+          rm -f "$tmpdb"
 
       - name: Pytest
         run: pytest -q

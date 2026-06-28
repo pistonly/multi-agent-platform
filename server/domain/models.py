@@ -72,7 +72,8 @@ class Agent(Base):
 
 _ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL = "('draft','review','approved','running')"
 _ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE = (
-    f"topic_id IS NOT NULL AND deleted_at IS NULL AND phase IN {_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL}"
+    f"topic_id IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL "
+    f"AND phase IN {_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL}"
 )
 
 
@@ -102,6 +103,7 @@ class Experiment(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True, index=True)
     project: Mapped["Project"] = relationship(back_populates="experiments")
@@ -130,6 +132,7 @@ class Topic(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="topics")
     creator: Mapped["Agent"] = relationship()

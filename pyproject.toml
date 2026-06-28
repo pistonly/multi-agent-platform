@@ -53,6 +53,7 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+extend-exclude = ["reference", "tmp"]
 
 [tool.ruff.lint]
 select = ["E", "F"]

@@ -193,3 +193,20 @@ def test_sdk_notifications(map_client: MAPClient, client: TestClient, project: d
     assert reviewer_client.list_notifications().unread_count == 0
 
     reviewer_client.close()
+
+
+def test_sdk_list_experiments_page(map_client: MAPClient, project: dict):
+    project_id = uuid.UUID(project["id"])
+    map_client.create_experiment(
+        project_id,
+        ExperimentCreate(title="SDK page alpha", plan=PlanInput(content_md="p")),
+    )
+    map_client.create_experiment(
+        project_id,
+        ExperimentCreate(title="SDK page beta", plan=PlanInput(content_md="p")),
+    )
+
+    items, total = map_client.list_experiments_page(project_id, q="SDK page", page=1, page_size=1)
+    assert total >= 2
+    assert len(items) == 1
+    assert items[0].title.startswith("SDK page")

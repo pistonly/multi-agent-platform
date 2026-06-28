@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from server.api.common import http_error
@@ -17,6 +18,7 @@ from server.domain.schemas import (
 from server.services import auth as auth_service
 from server.services import notification_service
 from server.services import todo_service
+from server.services.notification_stream import notification_sse_response
 from server.services import permissions as perm
 from server.services import project_service as svc
 from server.services.errors import ForbiddenError, NotFoundError, UnauthorizedError
@@ -118,6 +120,11 @@ def list_my_notifications(
         total=total,
         unread_count=unread_count,
     )
+
+
+@agents_router.get("/me/notifications/stream")
+def stream_my_notifications(agent: Agent = Depends(get_current_agent)) -> StreamingResponse:
+    return notification_sse_response(agent.id)
 
 
 @agents_router.post("/me/notifications/read-all")

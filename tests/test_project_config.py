@@ -1,12 +1,9 @@
-import pytest
-
 from map_client.project_config import (
     find_map_dir,
     load_project_map_config,
     resolve_client,
 )
 from map_client.testing import MAPTestClientTransport
-from map_client.client import MAPClient
 
 
 def test_find_map_dir(tmp_path):

@@ -120,6 +120,7 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
         .where(
             Experiment.project_id.in_(project_ids),
             Experiment.deleted_at.is_(None),
+            Experiment.archived_at.is_(None),
             Experiment.phase.in_(active_phases),
         )
         .order_by(Experiment.project_id, Experiment.updated_at.desc())
@@ -130,7 +131,11 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
     recent_map: dict[uuid.UUID, list[ExperimentSummaryRead]] = {pid: [] for pid in project_ids}
     recent_stmt = (
         select(Experiment)
-        .where(Experiment.project_id.in_(project_ids), Experiment.deleted_at.is_(None))
+        .where(
+            Experiment.project_id.in_(project_ids),
+            Experiment.deleted_at.is_(None),
+            Experiment.archived_at.is_(None),
+        )
         .order_by(Experiment.project_id, Experiment.updated_at.desc())
     )
     for experiment in db.scalars(recent_stmt):
@@ -144,6 +149,7 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
         .where(
             Topic.project_id.in_(project_ids),
             Topic.deleted_at.is_(None),
+            Topic.archived_at.is_(None),
             Topic.status == TopicStatus.open,
         )
         .order_by(Topic.pinned.desc(), Topic.updated_at.desc())
@@ -234,6 +240,7 @@ def create_experiment(
             select(Experiment).where(
                 Experiment.topic_id == payload.topic_id,
                 Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
                 Experiment.phase.in_(_ACTIVE_TOPIC_EXPERIMENT_PHASES),
             )
         )
@@ -282,11 +289,14 @@ def list_experiments(
     q: str | None = None,
     page: int = 1,
     page_size: int = 100,
+    include_archived: bool = False,
 ) -> tuple[list[Experiment], int]:
     get_project(db, project_id)
     stmt = select(Experiment).where(
         Experiment.project_id == project_id, Experiment.deleted_at.is_(None)
     )
+    if not include_archived:
+        stmt = stmt.where(Experiment.archived_at.is_(None))
     if phase is not None:
         stmt = stmt.where(Experiment.phase == phase)
     if creator_agent_id is not None:
@@ -382,8 +392,12 @@ def update_experiment(
     payload: ExperimentUpdate,
 ) -> Experiment:
     experiment = get_experiment(db, experiment_id)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    archived = data.pop("archived", None)
+    for key, value in data.items():
         setattr(experiment, key, value)
+    if archived is not None:
+        experiment.archived_at = datetime.now(UTC) if archived else None
     db.commit()
     db.refresh(experiment)
     return experiment

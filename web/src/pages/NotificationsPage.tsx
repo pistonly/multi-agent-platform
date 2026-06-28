@@ -38,7 +38,7 @@ export function NotificationsPage() {
   const query = useQuery({
     queryKey,
     queryFn: () => fetchNotifications({ limit: 100 }),
-    refetchInterval: 30_000,
+    refetchInterval: 120_000,
   });
 
   const markOne = useMutation({

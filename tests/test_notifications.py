@@ -63,4 +63,4 @@ def test_actor_does_not_receive_own_notification(client, auth_headers, project):
     assert res.status_code == 200
     # creator should not be notified for their own experiment.created
     for item in res.json()["items"]:
-        assert item["event"] != "experiment.created" or item["summary"] != f"创建实验「Self notify」"
+        assert item["event"] != "experiment.created" or item["summary"] != "创建实验「Self notify」"

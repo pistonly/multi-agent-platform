@@ -17,9 +17,11 @@ import { LogPanel } from "../components/LogPanel";
 import { PlanPanel } from "../components/PlanPanel";
 import { getUnreasonableItems, ReviewSummary } from "../components/ReviewSummary";
 import { PhaseBadge, PhaseStepper } from "../components/PhaseStepper";
+import { useAuth } from "../context/AuthContext";
 
 export function ExperimentPage() {
   const { experimentId } = useParams<{ experimentId: string }>();
+  const { agent } = useAuth();
   const queryClient = useQueryClient();
   const [planVersion, setPlanVersion] = useState<number | null>(null);
   const [completeSummary, setCompleteSummary] = useState("");
@@ -72,6 +74,14 @@ export function ExperimentPage() {
     },
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: (archived: boolean) => updateExperiment(experimentId!, { archived }),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["project-experiments"] });
+    },
+  });
+
   const commentMutation = useMutation({
     mutationFn: () => {
       const bundle = bundleQuery.data;
@@ -103,6 +113,7 @@ export function ExperimentPage() {
   const unreasonable = getUnreasonableItems(reviews);
   const canAppendLog = experiment.phase === "running" || experiment.phase === "done";
   const isTerminal = experiment.phase === "done" || experiment.phase === "cancelled";
+  const isCreator = !!agent && agent.id === experiment.creator_agent_id;
 
   return (
     <div className="space-y-6">
@@ -148,6 +159,7 @@ export function ExperimentPage() {
             </>
           )}
           <PhaseBadge phase={experiment.phase} />
+          {experiment.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>
         {experiment.description && <p className="mt-2 text-slate-300">{experiment.description}</p>}
         {experiment.topic_id && (
@@ -162,6 +174,18 @@ export function ExperimentPage() {
 
       <section className="card">
         <PhaseStepper phase={experiment.phase} />
+        {isCreator && (
+          <div className="mt-3">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={archiveMutation.isPending}
+              onClick={() => archiveMutation.mutate(!experiment.archived_at)}
+            >
+              {experiment.archived_at ? "取消归档" : "归档实验"}
+            </button>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap gap-2">
           {experiment.phase === "draft" && (
             <button type="button" className="btn-primary" onClick={() => phaseMutation.mutate("submit")}>

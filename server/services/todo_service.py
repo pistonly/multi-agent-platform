@@ -65,6 +65,7 @@ def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicRe
             .where(
                 Topic.creator_agent_id == agent.id,
                 Topic.deleted_at.is_(None),
+                Topic.archived_at.is_(None),
                 Topic.status == TopicStatus.open,
             )
             .order_by(Topic.updated_at.desc())
@@ -138,6 +139,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
             .where(
                 Topic.creator_agent_id == agent.id,
                 Topic.deleted_at.is_(None),
+                Topic.archived_at.is_(None),
                 Topic.status == TopicStatus.open,
             )
             .order_by(Topic.updated_at.desc())

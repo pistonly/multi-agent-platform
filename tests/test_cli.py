@@ -82,6 +82,12 @@ def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
     result = runner.invoke(app, ["experiment", "status", "--id", experiment["id"]])
     assert result.exit_code == 0, result.output
 
+    result = runner.invoke(app, ["experiment", "list", "--phase", "review", "--q", "CLI实验", "--page-size", "1"])
+    assert result.exit_code == 0, result.output
+    experiments = yaml.safe_load(result.output)
+    assert len(experiments) == 1
+    assert experiments[0]["id"] == experiment["id"]
+
 
 def test_cli_topic_flow(runner, patched_cli, project):
     result = runner.invoke(app, ["topic", "create", "--title", "CLI话题", "--description", "desc"])
@@ -97,6 +103,12 @@ def test_cli_topic_flow(runner, patched_cli, project):
     assert result.exit_code == 0, result.output
     detail = yaml.safe_load(result.output)
     assert detail["comment_count"] == 1
+
+    result = runner.invoke(app, ["topic", "list", "--status", "open", "--q", "CLI话题", "--page-size", "1"])
+    assert result.exit_code == 0, result.output
+    topics = yaml.safe_load(result.output)
+    assert len(topics) == 1
+    assert topics[0]["id"] == topic_id
 
     result = runner.invoke(app, ["topic", "close", "--id", topic_id])
     assert result.exit_code == 0, result.output

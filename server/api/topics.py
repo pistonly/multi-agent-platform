@@ -64,6 +64,7 @@ def list_topics(
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=100),
+    include_archived: bool = Query(default=False),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[TopicSummaryRead]:
@@ -78,6 +79,7 @@ def list_topics(
             q=q,
             page=page,
             page_size=page_size,
+            include_archived=include_archived,
         )
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc

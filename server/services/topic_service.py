@@ -80,6 +80,7 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
             experiment_count=experiment_counts.get(topic.id, 0),
             created_at=topic.created_at,
             updated_at=topic.updated_at,
+            archived_at=topic.archived_at,
         )
         for topic in topics
     ]
@@ -114,9 +115,12 @@ def list_topics(
     q: str | None = None,
     page: int = 1,
     page_size: int = 100,
+    include_archived: bool = False,
 ) -> tuple[list[TopicSummaryRead], int]:
     get_project(db, project_id)
     stmt = select(Topic).where(Topic.project_id == project_id, Topic.deleted_at.is_(None))
+    if not include_archived:
+        stmt = stmt.where(Topic.archived_at.is_(None))
     if status is not None:
         stmt = stmt.where(Topic.status == status)
     if creator_agent_id is not None:
@@ -160,8 +164,12 @@ def get_topic_detail(db: Session, topic_id: uuid.UUID) -> TopicRead:
 
 def update_topic(db: Session, topic_id: uuid.UUID, payload: TopicUpdate) -> Topic:
     topic = _get_topic(db, topic_id)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    archived = data.pop("archived", None)
+    for key, value in data.items():
         setattr(topic, key, value)
+    if archived is not None:
+        topic.archived_at = datetime.now(UTC) if archived else None
     db.commit()
     db.refresh(topic)
     return topic
