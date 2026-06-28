@@ -1,5 +1,7 @@
 # MCP Server
 
+> **本仓库（multi-agents-platform）协作请用 [`.map/` persona + `map` CLI](../AGENTS.md)**，勿再配置 Cursor MCP 的 `map-agent` / `map-admin`。下文面向**其他接入 MAP 的项目**或历史验证场景；MCP 在本仓库侧计划停用。
+
 MAP 提供 **Model Context Protocol (MCP)** 支持，让 Cursor、Claude Desktop 等 IDE 内的 Agent 可以直接调用平台能力，无需手写 HTTP 请求。
 
 支持两种传输方式：
@@ -242,6 +244,8 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 ## 后续
 
+- **本仓库**：停用 Cursor MCP 配置，统一 Skill + CLI（见 [AGENTS.md](../AGENTS.md)）
 - MCP 端点 Bearer 鉴权（与 MAP Token 分离）
 - Prompts 模板（评审计划、撰写日志）
 - 话题主持 Webhook 接线见 [WEBHOOK-TOPIC-HOST.md](./WEBHOOK-TOPIC-HOST.md)（v0.5 文档化；平台不内置 runner）
+- 通知 SSE 已落地（v0.6）；MCP/CLI 流式通知 API 仍不做

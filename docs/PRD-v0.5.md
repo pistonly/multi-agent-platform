@@ -172,7 +172,7 @@ v0.5 **无数据库 schema 变更**（待办由查询时计算）。
 1. P1：`@主持` 直接质询要求 **direct reply**（例外于 thread 级判定）  
 2. 话题评论通知优先投递 `creator_agent_id`（现状广播全项目 Agent）  
 3. `Topic.discussion_round` 字段与 `advance-round` API  
-4. WebSocket/SSE 实时推送  
+4. ~~WebSocket/SSE 实时推送~~ → **v0.6 已落地 SSE**（见 [PRD v0.6](./PRD-v0.6.md) M24）
 5. 通知保留策略 Admin 配置  
 
 ---

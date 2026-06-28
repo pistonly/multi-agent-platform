@@ -9,6 +9,7 @@
 - [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/PRD-v0.3.md)
 - [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/PRD-v0.4.md)
 - [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/PRD-v0.5.md)
+- [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/PRD-v0.6.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
@@ -50,6 +51,14 @@
 - **M21**：Webhook 主持接线文档（[WEBHOOK-TOPIC-HOST.md](docs/WEBHOOK-TOPIC-HOST.md)）。
 
 详见 [PRD v0.5](docs/PRD-v0.5.md)。
+
+**v0.6 已完成（M22–M24）**：
+
+- **M22**：话题/实验 `archived_at` 归档（默认列表排除、`include_archived`、活跃实验 per-topic 约束更新）。
+- **M23**：Web 独立列表页（`/projects/:id/topics`、`/experiments`）+ `client.ts` vitest。
+- **M24**：站内通知 **SSE**（`GET /agents/me/notifications/stream`）+ Web 实时 invalidate。
+
+详见 [PRD v0.6](docs/PRD-v0.6.md)。项目叙事参考 [docs/status-md-v6.md](docs/status-md-v6.md)。
 
 **Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
 
@@ -167,4 +176,4 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-M1–M14（v0.3）与 M15–M18（v0.4）已完成。近期优化包括：实验页 **Bundle API**（单次加载详情/计划/评审/评论/日志）、Webhook 异步投递、API 路由模块化、GitHub Actions CI 等。详见 [架构文档](docs/ARCHITECTURE.md)、[PRD v0.3](docs/PRD-v0.3.md) 与 [PRD v0.4](docs/PRD-v0.4.md)。
+v0.3–v0.6 里程碑均已落地。下一版本（v0.7）候选：`Topic.discussion_round` / `advance-round` API、CLI 归档子命令、通知保留策略；多实例部署时需 SSE Redis 扇出。详见 [PRD v0.6 §6](docs/PRD-v0.6.md) 与 [架构文档](docs/ARCHITECTURE.md)。
