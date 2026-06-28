@@ -455,16 +455,16 @@ def build_server(
 
     @mcp.tool()
     def revise_project_status(
-        project_id: str,
         content_md: str,
+        project_id: str | None = None,
         change_note: str | None = None,
         token: Token = None,
     ) -> dict[str, Any]:
-        """Revise the project Current Status markdown document (Admin only)."""
+        """Revise the project Current Status markdown (Admin or project-bound agent)."""
         with resolver.use(token) as (c, ctx):
-            ctx.require_admin()
+            pid = ctx.resolve_project_id(project_id)
             payload = ProjectStatusRevise(content_md=content_md, change_note=change_note)
-            return dump(c.revise_project_status(parse_uuid(project_id, "project_id"), payload))
+            return dump(c.revise_project_status(pid, payload))
 
     @mcp.tool()
     def create_project(

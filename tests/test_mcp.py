@@ -39,6 +39,7 @@ AGENT_TOOLS = {
     "create_topic_comment",
     "close_topic",
     "reopen_topic",
+    "revise_project_status",
 }
 
 ADMIN_TOOLS = {
@@ -46,7 +47,6 @@ ADMIN_TOOLS = {
     "list_projects",
     "get_project",
     "create_project",
-    "revise_project_status",
 }
 
 ALL_TOOLS = AGENT_TOOLS | ADMIN_TOOLS
@@ -172,6 +172,17 @@ async def test_mcp_admin_tool_rejects_agent_token(map_client, reviewer):
 
     with pytest.raises(ToolError, match="Admin role required"):
         await mcp.call_tool("list_projects", {"token": reviewer_token})
+
+
+@pytest.mark.asyncio
+async def test_mcp_agent_can_revise_project_status(map_client, project):
+    mcp = build_server(map_client)
+    _, payload = await mcp.call_tool(
+        "revise_project_status",
+        {"content_md": "# v2\n\nhost revised via MCP\n", "change_note": "mcp test"},
+    )
+    assert payload["version"] == 2
+    assert "host revised via MCP" in payload["content_md"]
 
 
 @pytest.mark.asyncio

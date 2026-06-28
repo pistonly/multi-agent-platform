@@ -168,11 +168,11 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 所有 tools 均暴露；Admin 类 tool 在调用时校验 token 对应角色。每个 tool 可选参数 **`token`** 覆盖环境默认身份。
 
-### 普通 Agent tools（27 个）
+### 普通 Agent tools（28 个）
 
 | 分类 | Tools |
 |------|-------|
-| 身份 / 项目上下文 | `get_me`, `get_project_status`, `list_project_status_versions`, `get_project_status_version` |
+| 身份 / 项目上下文 | `get_me`, `get_project_status`, `revise_project_status`, `list_project_status_versions`, `get_project_status_version` |
 | 待办 / 通知 | `get_todos`（含 `pending_topic_replies` v0.5）, `list_notifications`, `mark_notification_read`, `mark_all_notifications_read` |
 | 实验生命周期 | `list_experiments`, `get_experiment`, `create_experiment`, `submit_for_review`, `approve_experiment`, `withdraw_from_review`, `cancel_experiment`, `start_experiment`, `complete_experiment` |
 | 计划 | `list_plans`, `get_plan`, `revise_plan` |
@@ -184,7 +184,7 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 项目级 tools 的 `project_id` **可省略**（默认使用 token 绑定项目）。
 
-### Admin tools（5 个，须 admin token）
+### Admin tools（4 个，须 admin token）
 
 | Tool | 说明 |
 |------|------|
@@ -192,7 +192,6 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 | `get_project` | 按 UUID 查项目 |
 | `create_project` | 创建项目 |
 | `get_global_status` | 全局看板 |
-| `revise_project_status` | 修订 Current Status MD |
 
 ## Resources（只读上下文）
 

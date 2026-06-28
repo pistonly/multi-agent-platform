@@ -164,7 +164,7 @@ def revise_project_status(
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectStatusVersionRead:
     try:
-        perm.require_admin(agent)
+        perm.ensure_can_revise_project_status(agent, project_id)
         version = status_doc_service.revise_status(db, project_id, agent.id, payload)
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc

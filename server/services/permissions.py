@@ -36,6 +36,11 @@ def ensure_project_access(agent: Agent, project_id: uuid.UUID) -> None:
         raise ForbiddenError("Access denied to this project")
 
 
+def ensure_can_revise_project_status(agent: Agent, project_id: uuid.UUID) -> None:
+    """Admin or project-bound agent (e.g. host persona) may revise Current Status MD."""
+    ensure_project_access(agent, project_id)
+
+
 def ensure_experiment_access(db: Session, agent: Agent, experiment_id: uuid.UUID) -> Experiment:
     experiment = db.get(Experiment, experiment_id)
     if experiment is None or experiment.deleted_at is not None:

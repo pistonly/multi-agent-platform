@@ -99,6 +99,14 @@ map status
 
 **规则**：清单以快照字段为准，**勿从 `status_md` 解析话题或实验列表**。
 
+**host 修订叙事层**（项目绑定 Agent 均可；主持通常用 host persona）：
+
+```bash
+map --persona host project status revise \
+  --file docs/status-md-v6.md \
+  --note "v0.6 落地同步"
+```
+
 ```bash
 map topic list --status open
 map topic show --id <topic-uuid>

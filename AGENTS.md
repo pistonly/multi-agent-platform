@@ -52,6 +52,7 @@ Agent **必须**：
 map persona list
 map --persona host persona whoami
 map --persona host status                    # open_topics 快照 + status_md
+map --persona host project status revise --file ./docs/status-md-v6.md --note "同步叙事"
 map --persona host topic list --status open
 map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."
