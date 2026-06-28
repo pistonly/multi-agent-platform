@@ -155,6 +155,7 @@ class CommentRead(ORMModel):
     anchor_id: uuid.UUID
     parent_comment_id: uuid.UUID | None
     author_agent_id: uuid.UUID
+    author_name: str | None = None
     body: str
     created_at: datetime
 

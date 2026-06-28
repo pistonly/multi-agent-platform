@@ -131,6 +131,7 @@ def test_comments_tree(client, auth_headers, experiment_in_review):
     )
     assert root.status_code == 201
     root_id = root.json()["id"]
+    assert root.json()["author_name"] == "test-agent"
 
     reply = client.post(
         f"/api/v1/experiments/{exp_id}/comments",
@@ -143,11 +144,18 @@ def test_comments_tree(client, auth_headers, experiment_in_review):
         },
     )
     assert reply.status_code == 201
+    assert reply.json()["author_name"] == "test-agent"
 
     tree = client.get(f"/api/v1/experiments/{exp_id}/comments?tree=true", headers=auth_headers)
     assert tree.status_code == 200
     assert len(tree.json()) == 1
+    assert tree.json()[0]["author_name"] == "test-agent"
     assert len(tree.json()[0]["children"]) == 1
+    assert tree.json()[0]["children"][0]["author_name"] == "test-agent"
+
+    bundle = client.get(f"/api/v1/experiments/{exp_id}/bundle", headers=auth_headers)
+    assert bundle.status_code == 200
+    assert bundle.json()["comments"][0]["author_name"] == "test-agent"
 
 
 def test_duplicate_review_conflict(client, auth_headers, reviewer, experiment_in_review):

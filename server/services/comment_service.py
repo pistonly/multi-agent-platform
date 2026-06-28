@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, Comment, CommentAnchorType, PlanVersion, Review, ReviewItem
-from server.domain.schemas import CommentCreate, CommentTreeNode
+from server.domain.schemas import CommentCreate, CommentRead, CommentTreeNode
 from server.services.errors import NotFoundError
 from server.services.project_service import get_experiment
 
@@ -81,7 +81,50 @@ def list_comments(db: Session, experiment_id: uuid.UUID) -> list[Comment]:
     return list(db.scalars(stmt))
 
 
-def build_comment_tree(comments: list[Comment]) -> list[CommentTreeNode]:
+def _agent_names_by_ids(db: Session, agent_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not agent_ids:
+        return {}
+    return {
+        agent.id: agent.name
+        for agent in db.scalars(select(Agent).where(Agent.id.in_(agent_ids)))
+    }
+
+
+def comment_read(db: Session, comment: Comment) -> CommentRead:
+    author_names = _agent_names_by_ids(db, {comment.author_agent_id})
+    return CommentRead(
+        id=comment.id,
+        experiment_id=comment.experiment_id,
+        anchor_type=comment.anchor_type,
+        anchor_id=comment.anchor_id,
+        parent_comment_id=comment.parent_comment_id,
+        author_agent_id=comment.author_agent_id,
+        author_name=author_names.get(comment.author_agent_id),
+        body=comment.body,
+        created_at=comment.created_at,
+    )
+
+
+def comments_to_read(db: Session, comments: list[Comment]) -> list[CommentRead]:
+    author_names = _agent_names_by_ids(db, {comment.author_agent_id for comment in comments})
+    return [
+        CommentRead(
+            id=comment.id,
+            experiment_id=comment.experiment_id,
+            anchor_type=comment.anchor_type,
+            anchor_id=comment.anchor_id,
+            parent_comment_id=comment.parent_comment_id,
+            author_agent_id=comment.author_agent_id,
+            author_name=author_names.get(comment.author_agent_id),
+            body=comment.body,
+            created_at=comment.created_at,
+        )
+        for comment in comments
+    ]
+
+
+def build_comment_tree(db: Session, comments: list[Comment]) -> list[CommentTreeNode]:
+    author_names = _agent_names_by_ids(db, {comment.author_agent_id for comment in comments})
     nodes: dict[uuid.UUID, CommentTreeNode] = {}
     for comment in comments:
         nodes[comment.id] = CommentTreeNode(
@@ -91,6 +134,7 @@ def build_comment_tree(comments: list[Comment]) -> list[CommentTreeNode]:
             anchor_id=comment.anchor_id,
             parent_comment_id=comment.parent_comment_id,
             author_agent_id=comment.author_agent_id,
+            author_name=author_names.get(comment.author_agent_id),
             body=comment.body,
             created_at=comment.created_at,
             children=[],

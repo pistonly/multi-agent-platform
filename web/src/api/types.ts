@@ -98,6 +98,7 @@ export interface Comment {
   anchor_id: string;
   parent_comment_id: string | null;
   author_agent_id: string;
+  author_name: string | null;
   body: string;
   created_at: string;
 }

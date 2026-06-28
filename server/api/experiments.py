@@ -393,7 +393,7 @@ def create_comment(
         event="comment.created",
         event_payload={"experiment_id": str(experiment_id), "comment_id": str(comment.id)},
     )
-    return CommentRead.model_validate(comment)
+    return comment_service.comment_read(db, comment)
 
 
 @experiments_router.get("/experiments/{experiment_id}/comments")
@@ -409,8 +409,8 @@ def list_comments(
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
     if tree:
-        return comment_service.build_comment_tree(comments)
-    return [CommentRead.model_validate(c) for c in comments]
+        return comment_service.build_comment_tree(db, comments)
+    return comment_service.comments_to_read(db, comments)
 
 
 

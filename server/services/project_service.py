@@ -380,7 +380,7 @@ def get_experiment_bundle(db: Session, experiment_id: uuid.UUID) -> ExperimentBu
     experiment = get_experiment_detail(db, experiment_id)
     plans = [PlanVersionRead.model_validate(p) for p in plan_service.list_plans(db, experiment_id)]
     reviews = [review_service.review_to_read(r) for r in review_service.list_reviews(db, experiment_id)]
-    comments = comment_service.build_comment_tree(comment_service.list_comments(db, experiment_id))
+    comments = comment_service.build_comment_tree(db, comment_service.list_comments(db, experiment_id))
     logs = [ExperimentLogRead.model_validate(entry) for entry in log_service.list_logs(db, experiment_id)]
     return ExperimentBundleRead(
         experiment=experiment,
