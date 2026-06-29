@@ -18,6 +18,17 @@ description: >-
 - 用户说「主持话题」「跟进话题」「Round Summary」「是否开实验」
 - Agent 是话题 `creator_agent_id`（主持身份）
 - `get_todos` 的 `pending_topic_replies` 非空
+- **Host bridge** 在无 pending 时也会拉你发 Round Summary / 开实验（`action=round_summary|promote_experiment`）
+
+## Host bridge 生命周期（自动化）
+
+当 `cli/host_worker.py` 带 `--agent-runner` 且 `--manage-topic-lifecycle`（`start-host-bridge.sh` 默认开启）时，每轮 polling 顺序为：
+
+1. **reply_pending** — 回复 `pending_topic_replies`
+2. **round_summary** — 当前轮无 pending、已有 participant 评论、尚无 `## Round N Summary` 时，发 Summary 并 `advance-round`
+3. **promote_experiment** — `discussion_round=ready` 且 `round_summary_count>=2` 时创建实验
+
+关闭全生命周期： `MAP_HOST_NO_LIFECYCLE=1 ./scripts/start-host-bridge.sh`
 
 ## 硬性规则
 

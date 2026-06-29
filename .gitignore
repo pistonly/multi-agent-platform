@@ -52,6 +52,11 @@ htmlcov/
 
 # MAP project-local secrets (committed templates: .map/*.example)
 .map/agents.local.yaml
+.map/host-bridge-state.json
+.map/participant-bridge-state.json
+.map/reviewer-bridge-state.json
+.map/bridge-logs/
+.map/generated-reviews/
 
 # Local data
 data/
