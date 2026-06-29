@@ -14,6 +14,8 @@ from typing import Any, Protocol
 import typer
 import yaml
 
+from cli.host_experiment_lifecycle import manage_experiment_lifecycle
+
 DEFAULT_REPLY_TEMPLATE = """已收到这个 thread 的反馈。
 
 - 评论摘要：{excerpt}
@@ -68,6 +70,7 @@ class WorkerConfig:
     min_participant_comments: int = 1
     min_round_summaries: int = 2
     max_lifecycle_actions_per_cycle: int = 1
+    auto_experiment_lifecycle: bool = True
     plan_dir: Path | None = None
     agent_runner: str | None = None
     runner_timeout: float = 120.0
@@ -80,6 +83,10 @@ class WorkerStats:
     replies_created: int = 0
     summaries_created: int = 0
     experiments_created: int = 0
+    plans_revised: int = 0
+    experiments_approved: int = 0
+    experiments_started: int = 0
+    experiments_completed: int = 0
     dry_run_actions: int = 0
     runner_invocations: int = 0
     runner_skips: int = 0
@@ -162,6 +169,56 @@ class MapCommandClient:
             args.append("--submit-for-review")
         return self._run(args)
 
+    def experiment_status(self, experiment_id: str) -> dict[str, Any]:
+        return self._run(["experiment", "status", "--id", experiment_id])
+
+    def experiment_reviews_list(self, experiment_id: str) -> list[dict[str, Any]]:
+        data = self._run(["experiment", "review", "list", "--id", experiment_id])
+        return list(data or [])
+
+    def plan_revise(
+        self,
+        experiment_id: str,
+        plan_file: Path,
+        *,
+        note: str | None,
+        addressed_item_ids: list[str],
+    ) -> dict[str, Any] | None:
+        args = [
+            "experiment",
+            "plan",
+            "revise",
+            "--id",
+            experiment_id,
+            "--plan-file",
+            str(plan_file),
+        ]
+        if note:
+            args.extend(["--note", note])
+        for item_id in addressed_item_ids:
+            args.extend(["--addressed-item", item_id])
+        return self._run(args)
+
+    def experiment_approve(self, experiment_id: str) -> dict[str, Any] | None:
+        return self._run(["experiment", "approve", "--id", experiment_id])
+
+    def experiment_start(self, experiment_id: str) -> dict[str, Any] | None:
+        return self._run(["experiment", "start", "--id", experiment_id])
+
+    def experiment_complete(self, experiment_id: str, *, summary: str, log_file: Path) -> dict[str, Any] | None:
+        return self._run(
+            [
+                "experiment",
+                "complete",
+                "--id",
+                experiment_id,
+                "--summary",
+                summary,
+                "--file",
+                str(log_file),
+            ]
+        )
+
 
 class HostWorker:
     def __init__(self, client: MapClientProtocol, config: WorkerConfig | None = None) -> None:
@@ -179,6 +236,10 @@ class HostWorker:
             total.replies_created += stats.replies_created
             total.summaries_created += stats.summaries_created
             total.experiments_created += stats.experiments_created
+            total.plans_revised += stats.plans_revised
+            total.experiments_approved += stats.experiments_approved
+            total.experiments_started += stats.experiments_started
+            total.experiments_completed += stats.experiments_completed
             total.dry_run_actions += stats.dry_run_actions
             total.runner_invocations += stats.runner_invocations
             total.runner_skips += stats.runner_skips
@@ -215,6 +276,7 @@ class HostWorker:
 
         if self.config.manage_topic_lifecycle and self.config.agent_runner:
             self._manage_topic_lifecycle(todos, pending_topic_ids, stats)
+            manage_experiment_lifecycle(self, todos, stats)
         elif self.config.promote_ready_topics:
             promoted = self._promote_ready_topics(todos, pending, stats)
             if self.config.dry_run:
@@ -703,6 +765,42 @@ class HostWorker:
         }
         typer.echo(json.dumps(event, ensure_ascii=False, sort_keys=True), err=True)
 
+    def _experiment_state(self, experiment_id: str) -> dict[str, Any]:
+        experiments = self.state.setdefault("experiments", {})
+        if not isinstance(experiments, dict):
+            experiments = {}
+            self.state["experiments"] = experiments
+        exp_state = experiments.setdefault(experiment_id, {})
+        if not isinstance(exp_state, dict):
+            exp_state = {}
+            experiments[experiment_id] = exp_state
+        return exp_state
+
+    def _mark_experiment_state(self, experiment_id: str, **values: Any) -> None:
+        if self.config.dry_run:
+            return
+        clean_values = {key: value for key, value in values.items() if value not in (None, "")}
+        if not clean_values:
+            return
+        exp_state = self._experiment_state(experiment_id)
+        exp_state.update(clean_values)
+        exp_state["last_action_at"] = datetime.now(UTC).isoformat()
+        self._state_dirty = True
+
+    def _git_repo(self) -> Path | None:
+        if isinstance(self.client, MapCommandClient) and self.client.project_root is not None:
+            return self.client.project_root
+        return Path.cwd()
+
+    def _log_experiment_event(self, action: str, experiment_id: str, **fields: Any) -> None:
+        event = {
+            "action": action,
+            "experiment_id": experiment_id,
+            "dry_run": self.config.dry_run,
+            **{key: value for key, value in fields.items() if value not in (None, "")},
+        }
+        typer.echo(json.dumps(event, ensure_ascii=False, sort_keys=True), err=True)
+
 
 def _is_write_command(args: list[str]) -> bool:
     if not args:
@@ -725,12 +823,14 @@ def _is_write_command(args: list[str]) -> bool:
         return True
     if args[:3] == ["experiment", "review", "add"]:
         return True
+    if args[:3] == ["experiment", "review", "resolve-item"]:
+        return True
     return False
 
 
 def _load_state(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
-        return {"schema_version": 1, "topics": {}}
+        return {"schema_version": 1, "topics": {}, "experiments": {}}
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -741,6 +841,7 @@ def _load_state(path: Path | None) -> dict[str, Any]:
         raise WorkerError(f"Unsupported host bridge state schema: {state.get('schema_version')}")
     state.setdefault("schema_version", 1)
     state.setdefault("topics", {})
+    state.setdefault("experiments", {})
     return state
 
 
@@ -849,6 +950,11 @@ def run(
         min=1,
         help="Max round-summary/advance/promote actions per cycle when lifecycle is enabled.",
     ),
+    auto_experiment_lifecycle: bool = typer.Option(
+        True,
+        "--auto-experiment-lifecycle/--no-auto-experiment-lifecycle",
+        help="Auto revise/approve/start/execute/complete host experiments.",
+    ),
     submit_for_review: bool = typer.Option(
         False,
         "--submit-for-review",
@@ -881,6 +987,7 @@ def run(
         promote_ready_topics=promote_ready_topics,
         manage_topic_lifecycle=manage_topic_lifecycle,
         max_lifecycle_actions_per_cycle=max_lifecycle_actions,
+        auto_experiment_lifecycle=auto_experiment_lifecycle,
         submit_created_experiment_for_review=submit_for_review,
         min_participant_comments=min_participant_comments,
         min_round_summaries=min_round_summaries,

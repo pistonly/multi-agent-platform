@@ -27,6 +27,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TOPIC_HOST_SKILL_REL = ".cursor/skills/topic-host/SKILL.md"
+EXPERIMENT_HOST_SKILL_REL = ".cursor/skills/experiment-host/SKILL.md"
 HOME = Path.home()
 
 JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
@@ -75,8 +76,14 @@ def _build_prompt(req: dict) -> str:
     ctx = req.get("context") or {}
     pending = ctx.get("pending_item") or {}
     topic = ctx.get("topic") or {}
+    experiment = ctx.get("experiment") or {}
     round_n = ctx.get("round_n")
     participant_comments = ctx.get("participant_comments") or []
+    plan_md = ctx.get("plan_md") or ""
+    unreasonable_items = ctx.get("unreasonable_items") or []
+    git_before = ctx.get("git_checkpoint_before")
+
+    skill = EXPERIMENT_HOST_SKILL_REL if action in {"revise_plan", "execute_experiment"} else TOPIC_HOST_SKILL_REL
 
     task_block = {
         "reply_pending": """For `reply_pending`: draft a concise Markdown host reply to the pending thread.
@@ -86,46 +93,69 @@ Use the template from the skill (`## Round {round_n} Summary`, 已共识 / 未�
 Set parent_id to null. Set advance_round to true after posting.""",
         "promote_experiment": """For `promote_experiment`: draft an experiment plan in Markdown (use as body).
 Set create_experiment to true. parent_id should be null.""",
-    }.get(action, "Follow the topic-host skill for this action.")
+        "revise_plan": """For `revise_plan`: revise the experiment plan Markdown to address all open unreasonable items.
+Return full revised plan as `body` and a short `change_note`. Do not call map CLI.""",
+        "execute_experiment": """For `execute_experiment`: implement the plan in the repository (edit files as needed).
+**Do not run git commit** — the bridge already checkpointed before this run.
+Return `summary` (one line) and `execution_log_md` (detailed log with files changed and verification).""",
+    }.get(action, "Follow the host skill for this action.")
 
-    return f"""You are the MAP topic host for project `{PROJECT_ROOT.name}`.
-You are invoked by the host bridge runner. **Do not** run shell commands or call `map` CLI.
+    if action in {"revise_plan", "execute_experiment"}:
+        json_shape = """{
+  "summary": "one-line conclusion (execute_experiment only)",
+  "execution_log_md": "Markdown log (execute_experiment only)",
+  "body": "revised plan Markdown (revise_plan only)",
+  "change_note": "short note (revise_plan only)"
+}"""
+    else:
+        json_shape = """{
+  "body": "Markdown reply or summary text",
+  "parent_id": "<comment_id or null>",
+  "advance_round": false,
+  "create_experiment": false
+}"""
+
+    return f"""You are the MAP host for project `{PROJECT_ROOT.name}`.
+You are invoked by the host bridge runner. **Do not** call `map` CLI for MAP writes (bridge handles that).
 Return **only** a single JSON object (no markdown prose outside the JSON).
 
 ## Host behavior
-Read and follow `{TOPIC_HOST_SKILL_REL}` before drafting (two-round flow, Round Summary,
-pending thread replies, experiment promotion rubric). Project `.cursor/` settings are loaded via SDK.
+Read and follow `{skill}` before acting. Project `.cursor/` settings are loaded via SDK.
 
 ## Bridge request
 - action: {action}
 - topic_id: {req.get("topic_id")}
+- experiment_id: {req.get("experiment_id")}
 - dry_run: {req.get("dry_run", False)}
 
 ## Topic snapshot
 {json.dumps(topic, ensure_ascii=False, indent=2)}
 
+## Experiment snapshot
+{json.dumps(experiment, ensure_ascii=False, indent=2)}
+
+## Plan (markdown)
+{plan_md[:12000]}
+
+## Unreasonable review items (revise_plan)
+{json.dumps(unreasonable_items, ensure_ascii=False, indent=2)}
+
+## Git checkpoint before (execute_experiment)
+{git_before or "n/a"}
+
 ## Pending item
 {json.dumps(pending, ensure_ascii=False, indent=2)}
 
-## Participant comments (for round_summary)
+## Participant comments (round_summary)
 {json.dumps(participant_comments, ensure_ascii=False, indent=2)}
 
 ## Your task
 {task_block}
 
-## Required stdout JSON shape (exact keys)
-{{
-  "body": "Markdown reply or summary text",
-  "parent_id": "<comment_id or null>",
-  "advance_round": false,
-  "create_experiment": false
-}}
+## Required stdout JSON shape
+{json_shape}
 
-Rules:
-- reply_pending: set parent_id to the pending comment_id unless threading requires otherwise.
-- round_summary: parent_id null; advance_round true when summary is complete.
-- promote_experiment: create_experiment true when topic rubric is satisfied.
-- Output **one** JSON object only.
+Output **one** JSON object only.
 """
 
 
@@ -215,11 +245,12 @@ def main() -> None:
         sys.exit(1)
 
     pending = (req.get("context") or {}).get("pending_item") or {}
-    if payload.get("parent_id") is None and pending.get("comment_id"):
-        payload["parent_id"] = pending["comment_id"]
-
-    payload.setdefault("advance_round", False)
-    payload.setdefault("create_experiment", False)
+    action = req.get("action", "reply_pending")
+    if action in {"reply_pending", "round_summary", "promote_experiment"}:
+        if payload.get("parent_id") is None and pending.get("comment_id"):
+            payload["parent_id"] = pending["comment_id"]
+        payload.setdefault("advance_round", False)
+        payload.setdefault("create_experiment", False)
 
     print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 

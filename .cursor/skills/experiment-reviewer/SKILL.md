@@ -18,8 +18,9 @@ description: >-
 ## 硬性规则
 
 1. 身份为 **reviewer** persona（bridge 代写；runner 不直接调 `map`）
-2. **不** approve / start / complete 实验
+2. **不** approve / start / complete 实验（host bridge 全自动模式下由 host 执行）
 3. **不**修改实验计划正文（修订是 host 的 `plan revise`）
+4. Bridge 在 host `plan revise` 将项标为 `addressed` 后，应 **自动 resolve** 对应 `pending_replies`（`review resolve-item`）
 4. 每条 `reasonable_items` / `unreasonable_items` 应具体、可验证，避免空泛褒贬
 
 ## 评审维度（建议）

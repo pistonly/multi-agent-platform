@@ -1,0 +1,9 @@
+reasonable_items:
+  - "目标与范围清晰：纯 Web 前端 + client.ts 改造，不改后端；与源话题「分页/筛选」诉求对齐，归档等非目标明确留给 P1/P2。"
+  - "背景事实准确：server/api/topics.py 与 experiments.py 已支持 page/page_size/status/phase/q 及 X-Total-Count 响应头；当前 web client 未传分页参数，改造路径合理。"
+  - "快照区与完整列表职责分离设计得当：open_topics/active_experiments 继续走 get_project_status 快照，「话题」「实验列表」卡片改走分页 API，避免混用数据源。"
+  - "实施步骤可执行：PaginatedResult 类型、PaginationBar 组件、ProjectStatusPanel 分区改造、全局引用检查，步骤粒度适合单次 P0 迭代。"
+  - "验收标准可测：status/phase 筛选、关键词搜索、翻页与 X-Total-Count、快照区行为不变、npm run build 通过，均可手工或 CI 验证。"
+  - "风险段覆盖关键细节：axios 响应头大小写、筛选变更时重置 page=1、实验列表从快照切 API 后条数变多是预期行为。"
+
+unreasonable_items: []

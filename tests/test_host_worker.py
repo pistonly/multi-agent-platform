@@ -477,7 +477,12 @@ print(json.dumps({"body": "host reply", "parent_id": req["context"]["pending_ite
 
     stats = HostWorker(
         client,
-        WorkerConfig(once=True, agent_runner=reply_runner, manage_topic_lifecycle=True),
+        WorkerConfig(
+            once=True,
+            agent_runner=reply_runner,
+            manage_topic_lifecycle=True,
+            state_file=tmp_path / "host-bridge-state.json",
+        ),
     ).run_once()
 
     assert stats.replies_created == 1

@@ -25,10 +25,16 @@ description: >-
 当 `cli/host_worker.py` 带 `--agent-runner` 且 `--manage-topic-lifecycle`（`start-host-bridge.sh` 默认开启）时，每轮 polling 顺序为：
 
 1. **reply_pending** — 回复 `pending_topic_replies`
-2. **round_summary** — 当前轮无 pending、已有 participant 评论、尚无 `## Round N Summary` 时，发 Summary 并 `advance-round`
-3. **promote_experiment** — `discussion_round=ready` 且 `round_summary_count>=2` 时创建实验
+2. **round_summary** — 发 Summary 并 `advance-round`
+3. **promote_experiment** — 创建实验（可选 `MAP_HOST_SUBMIT_REVIEW=1`）
+4. **实验全自动**（`--auto-experiment-lifecycle`，默认开启）：
+   - `revise_plan` — 回应 reviewer 的 open unreasonable 项
+   - `approve` → `start` → `execute_experiment` → `complete`
+   - 改代码前/后由 bridge 执行 **git checkpoint**（见 [experiment-host](../experiment-host/SKILL.md)）
 
-关闭全生命周期： `MAP_HOST_NO_LIFECYCLE=1 ./scripts/start-host-bridge.sh`
+Reviewer bridge 默认 **auto-resolve** `addressed` 争议项，无需人工批准。
+
+关闭：`MAP_HOST_NO_LIFECYCLE=1` 或 `--no-auto-experiment-lifecycle`
 
 ## 硬性规则
 

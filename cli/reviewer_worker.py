@@ -26,6 +26,9 @@ class ReviewerMapClient(MapCommandClient):
     def review_add(self, experiment_id: str, review_file: Path) -> dict[str, Any] | None:
         return self._run(["experiment", "review", "add", "--id", experiment_id, "--review", str(review_file)])
 
+    def review_resolve_item(self, item_id: str) -> dict[str, Any] | None:
+        return self._run(["experiment", "review", "resolve-item", "--id", item_id])
+
 
 @dataclass
 class ReviewerWorkerConfig:
@@ -38,12 +41,15 @@ class ReviewerWorkerConfig:
     runner_timeout: float = 180.0
     state_file: Path | None = Path(".map/reviewer-bridge-state.json")
     review_dir: Path | None = Path(".map/generated-reviews")
+    auto_resolve_reviews: bool = True
+    max_resolves_per_cycle: int = 3
 
 
 @dataclass
 class ReviewerWorkerStats:
     cycles: int = 0
     reviews_created: int = 0
+    items_resolved: int = 0
     dry_run_actions: int = 0
     runner_invocations: int = 0
     runner_skips: int = 0
@@ -69,6 +75,7 @@ class ReviewerWorker:
             stats = self.run_once()
             total.cycles += stats.cycles
             total.reviews_created += stats.reviews_created
+            total.items_resolved += stats.items_resolved
             total.dry_run_actions += stats.dry_run_actions
             total.runner_invocations += stats.runner_invocations
             total.runner_skips += stats.runner_skips
@@ -109,8 +116,49 @@ class ReviewerWorker:
             else:
                 self._handle_with_template(experiment_id, trigger_id, detail, stats)
 
+        if self.config.auto_resolve_reviews:
+            self._resolve_pending_replies(todos, stats)
+
         self._save_state_if_needed()
         return stats
+
+    def _resolve_pending_replies(self, todos: dict[str, Any], stats: ReviewerWorkerStats) -> None:
+        limit = max(1, self.config.max_resolves_per_cycle)
+        resolved = 0
+        for item in todos.get("pending_replies") or []:
+            if resolved >= limit:
+                break
+            if str(item.get("status") or "") != "addressed":
+                continue
+            item_id = str(item.get("item_id") or "")
+            if not item_id:
+                continue
+            if self._item_resolve_seen(item_id):
+                stats.runner_skips += 1
+                continue
+            if self.config.dry_run:
+                typer.echo(f"[dry-run] would resolve review-item={item_id}")
+                stats.dry_run_actions += 1
+                resolved += 1
+                continue
+            self.client.review_resolve_item(item_id)
+            stats.items_resolved += 1
+            self._mark_item_resolved(item_id)
+            resolved += 1
+
+    def _item_resolve_seen(self, item_id: str) -> bool:
+        items = self.state.setdefault("resolved_items", {})
+        if not isinstance(items, dict):
+            return False
+        return items.get(item_id) is not None
+
+    def _mark_item_resolved(self, item_id: str) -> None:
+        items = self.state.setdefault("resolved_items", {})
+        if not isinstance(items, dict):
+            items = {}
+            self.state["resolved_items"] = items
+        items[item_id] = {"last_action_at": datetime.now(UTC).isoformat()}
+        self._state_dirty = True
 
     def _ensure_identity(self) -> None:
         if self.agent_id is not None:
@@ -303,6 +351,7 @@ def _load_state(path: Path | None) -> dict[str, Any]:
         raise WorkerError(f"Invalid reviewer bridge state file: {path}")
     state.setdefault("schema_version", 1)
     state.setdefault("experiments", {})
+    state.setdefault("resolved_items", {})
     return state
 
 

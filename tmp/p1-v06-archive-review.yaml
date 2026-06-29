@@ -1,0 +1,8 @@
+reasonable_items:
+  - "归档语义与项目 archived_at 一致：PATCH archived 布尔字段，列表默认排除，include_archived 可选查看。"
+  - "活跃实验 per-topic 唯一约束已扩展 archived_at IS NULL，归档后可再开实验，满足列表治理诉求。"
+  - "独立列表页复用 TopicsListPanel/ExperimentsListPanel，与 P0 分页能力组合完整。"
+  - "vitest 覆盖 parseTotalCount 与分页 query params，弥补 Web 前端零测试缺口。"
+  - "快照区与待办 open_topics 排除已归档，避免叙事层与列表行为不一致。"
+
+unreasonable_items: []

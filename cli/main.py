@@ -457,9 +457,32 @@ def plan_revise(
     experiment_id: uuid.UUID = typer.Option(..., "--id"),
     plan_file: Path = typer.Option(..., "--plan-file"),
     note: str | None = typer.Option(None, "--note"),
+    addressed_item: list[uuid.UUID] = typer.Option(
+        [],
+        "--addressed-item",
+        help="Unreasonable review item UUID to mark addressed (repeatable).",
+    ),
 ) -> None:
-    payload = PlanRevise(content_md=plan_file.read_text(encoding="utf-8"), change_note=note)
+    payload = PlanRevise(
+        content_md=plan_file.read_text(encoding="utf-8"),
+        change_note=note,
+        addressed_item_ids=list(addressed_item),
+    )
     _run(lambda c: c.revise_plan(experiment_id, payload))
+
+
+@review_app.command("list")
+def review_list(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.list_reviews(experiment_id))
+
+
+@review_app.command("resolve-item")
+def review_resolve_item(
+    item_id: uuid.UUID = typer.Option(..., "--id"),
+) -> None:
+    from map_types.enums import ReviewItemStatus
+
+    _run(lambda c: c.update_review_item(item_id, ReviewItemStatus.resolved))
 
 
 @experiment_app.command("comment")

@@ -162,16 +162,32 @@ registration and signature verification.
 
 ## Human-In-The-Loop Limits
 
-The bridge may:
+With `--auto-experiment-lifecycle` (default when using `start-host-bridge.sh`):
 
-- create host replies
-- advance topic rounds when a runner explicitly requests it
-- create experiments from ready topics when explicitly enabled
-- submit newly created experiments for review when explicitly configured
+The bridge may automatically:
+
+- create host replies and Round Summaries
+- advance topic rounds and promote experiments
+- revise plans, approve, start, and complete experiments after review
+- run git checkpoints before/after repository changes (`cli/git_checkpoint.py`)
+
+Reviewer bridge may auto-resolve `addressed` review items.
+
+Disable full automation:
+
+```bash
+MAP_HOST_NO_LIFECYCLE=1 ./scripts/start-host-bridge.sh
+# or
+map-host-bridge --no-auto-experiment-lifecycle --no-manage-topic-lifecycle ...
+```
+
+Git rollback: use commits tagged `map: checkpoint before experiment <id>` or state file
+`git_checkpoint_before` / `git_checkpoint_after` SHAs.
+
+Legacy guardrails (when lifecycle flags off):
 
 The bridge must not:
 
 - approve experiments without host action
 - start experiments without host action
 - complete experiments
-- bypass reviewer findings

@@ -1,0 +1,12 @@
+reasonable_items:
+  - "实验范围与话题主持决策一致：议题1（通知定向 creator）+ 议题3（topic_id 软校验）；议题2（@主持 direct reply）明确为非目标，避免 pending 语义被误改。"
+  - "Part B 软校验策略正确：topic_id 为空时不阻断创建（201），通过 warnings/metadata 提示；与「字段保持可选、legacy 无话题实验仍允许」的共识一致。"
+  - "Part B 现有 strict 门禁已在 project_service.create_experiment 落地（closed topic、非主持开实验、同话题 active 实验唯一）；plan B3 要求保持这些行为不变是合理且可测的。"
+  - "CLI 已具备 --topic-id（cli/main.py experiment create）；plan B2 文档化该参数方向正确，实施成本低。"
+  - "非目标与风险段清晰：承认 participant 可能漏看若收窄通知；该风险段与 Part A1 当前写法形成对照，便于评审发现偏差。"
+
+unreasonable_items:
+  - "【阻塞】Part A1 与话题共识冲突：plan 写「默认仅通知 creator、替代当前广播全项目 Agent」，但主持在话题 04c42709 已采纳 map-agent-2 的「广播 + 额外定向 creator」（Q2：广播保留不会漏收）。当前 A1 会让非主持 participant 收不到 topic.comment.created 广播，与共识及 plan 风险段自相矛盾。修订方向：保留 emit→enqueue_from_event 项目广播；在 topics.create_topic_comment 路径对 topics.creator_agent_id 额外 enqueue_for_agents（或给 creator 的广播通知加 priority 标记），并避免 creator 收到重复通知。"
+  - "Part A2 验收第一条与错误 A1 绑定：「非主持评论→仅主持收到通知」在替代广播语义下才成立；若改回广播+额外定向，应改为「主持额外收到定向通知，其他 participant 仍经广播收到；主持自评论无自通知；@mention 仍定向被 @ 者」。"
+  - "Part B1 warnings 载体未定义：ExperimentSummaryRead 尚无 warnings 字段，plan 写「响应含 warnings: [no_topic_id]」但未说明是扩展 response model、包装类型还是仅 CLI stderr。实施前须在 plan 中固定一种契约（建议 API 响应增加可选 warnings: list[str]，SDK/MCP 透传；CLI 同步打印）。"
+  - "Part B2 与话题共识用语不一致：话题采纳「CLI/MCP --topic 便捷参数」，plan 写 --topic-id（CLI 实为 --topic-id）。修订时统一命名并在 docs/SDK/MCP 各写一处，避免实施时分叉。"
