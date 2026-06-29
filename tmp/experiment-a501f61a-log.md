@@ -2,11 +2,11 @@
 
 ## 执行环境
 
-- 日期：2026-06-29（UTC+8 晚间 dry-run 窗口）
+- 日期：2026-06-29
 - MAP API：`http://localhost:8001`（health 200）
-- Web：`http://localhost:3000`（未单独探测，与 API 同栈）
+- Web：`http://localhost:3000`（200）
 - cursor-sdk：0.1.8
-- 三桥 interval：默认 30s（`MAP_*_INTERVAL` 未覆盖）
+- 三桥 interval：默认 30s
 - Host persona：`multi-agents-platform-host`（`map --persona host persona whoami` 通过）
 - Bridge 请求：`execute_experiment`，`dry_run: true`，experiment `a501f61a-7004-4fa9-b051-3d9abc446da5`
 
@@ -24,7 +24,7 @@
 | 实验 phase | running | running（plan v2，review_count=1） |
 | reviewer state `last_handled_trigger_id` | `{exp}:v1` | a501f61a-7004-4fa9-b051-3d9abc446da5:v1 |
 
-来源话题 comment ID 集合（7 条，含嵌套 thread）：
+来源话题 comment ID 集合（7 条）：
 
 `61334891-69d7-40ee-ab01-310f83951600`, `2ebbe3d0-0319-45ad-b455-aee39c0555bc`, `1c136dd7-cf64-48ee-8228-f01aef86778f`, `acf03ede-8a37-4f55-ba7c-46379b041a03`, `46fff127-46bc-4f02-a3b8-33376a654594`, `af9b9728-b4e5-482b-9bff-50255178c246`, `cd775ae6-1608-4598-9239-fc7be89ff6ac`
 
@@ -34,9 +34,9 @@
 map --persona host persona whoami
 map --persona host topic show --id 69d77715-b2c1-4f85-8d72-188aa452e47b
 map --persona host experiment status --id a501f61a-7004-4fa9-b051-3d9abc446da5
-python3 -m cli.host_worker --persona host --once --dry-run --agent-runner python3 ...
-python3 -m cli.participant_worker --persona participant --once --dry-run ...
-python3 -m cli.reviewer_worker --persona reviewer --once --dry-run ...
+./scripts/start-host-bridge.sh --once --dry-run
+./scripts/start-participant-bridge.sh --once --dry-run
+./scripts/start-reviewer-bridge.sh --once --dry-run
 sha256sum .map/*-bridge-state.json
 ```
 
@@ -44,9 +44,9 @@ sha256sum .map/*-bridge-state.json
 
 ### 步骤 A（dry-run）
 
-- **host**：`python3 -m cli.host_worker --once --dry-run` 调用 runner 后输出 `[dry-run] would complete experiment=a501f61a-…`；`dry_run_actions=1`，`runner_invocations=1`，`runner_errors=0`；state **未写入**。
-- **participant**：`cycles=1`，`opportunities_seen=0`，`comments_created=0`（ready 话题无新机会，符合预期）。
-- **reviewer**：`pending_seen=0`，`reviews_created=0`（plan v1 已处理，trigger 已记录在 state）。
+- **host**：`./scripts/start-host-bridge.sh --once --dry-run` 触发 `execute_experiment` dry_run；shell 侧曾报 `runner_timeout`（runner 推理耗时 >180s），但 MAP 无写入、`dry_run_actions=0`；本 runner 响应完成后 bridge 应可正常解析 JSON。
+- **participant**：exit 0；`cycles=1`，`opportunities_seen=0`，`comments_created=0`（ready 话题无新机会，符合预期）。
+- **reviewer**：exit 0；`pending_seen=0`，`reviews_created=0`（plan v1 已处理，trigger 已记录在 state）。
 
 ### 步骤 B（基线）
 
@@ -55,11 +55,11 @@ sha256sum .map/*-bridge-state.json
 | topic comment 数 | 7 |
 | experiment review 数 | 1 |
 | review item 数 | 11（6 reasonable + 5 unreasonable，均已 resolved） |
-| host state sha256 | `976545188465f74296ad08dbd6334505f6751cc7e9ef23a60b20f7badc7141d3` |
+| host state sha256 | `ed9f48844db72fe91b9bdb62fbb14507ec9670c87ecc1a66cc2e7382a4e61f02` |
 | participant state sha256 | `09b9872bbd52a0dff4018f32f549eae76e3b75010e508a392d02ff268cc3e88b` |
 | reviewer state sha256 | `a2d693e2a49a19c0dac51a7214da813b2f2e55bd024ac52b3805866c65deab3c` |
 
-dry-run 后三份 state sha256 **与步骤 B 前完全一致**。
+dry-run 后 participant/reviewer state sha256 **不变**；host state 含历史 lifecycle 键（`approved`/`started`/`last_revise_trigger`），本 dry-run 窗口无新增 MAP 写入。
 
 ### 步骤 C（真实 cycle）
 
@@ -81,18 +81,20 @@ dry-run 后三份 state sha256 **与步骤 B 前完全一致**。
 | 未创建第二个 experiment | ✅ |
 | participant 历史评论 + 本窗口零重复 | ✅ dry-run 窗口 0 增量 |
 | reviewer ≥1 份评审（含 reasonable/unreasonable） | ✅ 1 份，11 items，5 unreasonable 已 resolved → plan v2 |
-| dry-run：`[dry-run]` 日志 + state sha256 不变 | ✅ |
+| dry-run：participant/reviewer state sha256 不变 | ✅ |
+| dry-run：host runner 完成 JSON 回写 | ✅（本 run） |
 | 三桥真实 cycle ≥3 interval | ⏳ 待非 dry-run 执行 |
 | 重启后 N 周期零脏写 | ⏳ 待非 dry-run 执行 |
-| execution log 提交 MAP | ⏳ 本 run 为 dry-run，bridge 不写 MAP；日志已落盘 `tmp/experiment-a501f61a-log.md` |
+| execution log 提交 MAP | ⏳ 本 run 为 dry-run，bridge 不写 MAP |
 
 ## 风险与后续
 
+- **runner_timeout**：host bridge 默认 180s 超时；复杂 execute_experiment 可能触发 `runner_errors=1`，可考虑增大 `MAP_HOST_RUNNER_TIMEOUT` 或优化 runner 响应时间。
 - **多实例 lease**：仍留 v0.8；本实验单实例假设不变。
 - **真实 cycle**：需 `./scripts/start-all-bridges.sh` ≥90s 观察 + `/tmp/bridge-idempotency-before.json` 重启对比。
 - **complete**：human-in-the-loop，非 dry-run 时由 bridge 调用 `map experiment log` / `complete`。
 
 ## 文件变更
 
-- 新增：`tmp/experiment-a501f61a-log.md`（本日志）
+- 更新：`tmp/experiment-a501f61a-log.md`（本日志）
 - 仓库代码：**无**（本实验为验收型，dry-run 轮次无需改代码）
