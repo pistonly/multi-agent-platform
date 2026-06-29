@@ -2,7 +2,7 @@
 
 ## 执行环境
 
-- 日期：2026-06-29
+- 日期：2026-06-29T23:21+08:00
 - MAP API：`http://localhost:8001`（health 200）
 - Web：`http://localhost:3000`（200）
 - cursor-sdk：0.1.8
@@ -21,7 +21,7 @@
 | host state `last_posted_summary_round` | 2 | 2 |
 | host state `last_handled_comment_id` | 61334891-… | 61334891-69d7-40ee-ab01-310f83951600 |
 | participant state `last_handled_trigger_id` | af9b9728-… | af9b9728-b4e5-482b-9bff-50255178c246 |
-| 实验 phase | running | running（plan v2，review_count=1） |
+| 实验 phase | running | running（plan v2，review_count=1，open_unreasonable=0） |
 | reviewer state `last_handled_trigger_id` | `{exp}:v1` | a501f61a-7004-4fa9-b051-3d9abc446da5:v1 |
 
 来源话题 comment ID 集合（7 条）：
@@ -34,9 +34,9 @@
 map --persona host persona whoami
 map --persona host topic show --id 69d77715-b2c1-4f85-8d72-188aa452e47b
 map --persona host experiment status --id a501f61a-7004-4fa9-b051-3d9abc446da5
-./scripts/start-host-bridge.sh --once --dry-run
-./scripts/start-participant-bridge.sh --once --dry-run
-./scripts/start-reviewer-bridge.sh --once --dry-run
+python3 -m cli.host_worker --persona host --once --dry-run ...
+python3 -m cli.participant_worker --persona participant --once --dry-run ...
+python3 -m cli.reviewer_worker --persona reviewer --once --dry-run ...
 sha256sum .map/*-bridge-state.json
 ```
 
@@ -44,9 +44,9 @@ sha256sum .map/*-bridge-state.json
 
 ### 步骤 A（dry-run）
 
-- **host**：`./scripts/start-host-bridge.sh --once --dry-run` 触发 `execute_experiment` dry_run；shell 侧曾报 `runner_timeout`（runner 推理耗时 >180s），但 MAP 无写入、`dry_run_actions=0`；本 runner 响应完成后 bridge 应可正常解析 JSON。
-- **participant**：exit 0；`cycles=1`，`opportunities_seen=0`，`comments_created=0`（ready 话题无新机会，符合预期）。
-- **reviewer**：exit 0；`pending_seen=0`，`reviews_created=0`（plan v1 已处理，trigger 已记录在 state）。
+- **host**：`python3 -m cli.host_worker --once --dry-run` → `cycles=1`，`runner_invocations=1`，`dry_run_actions=0`，`runner_errors=1`（`status: runner_timeout`，因 running 实验触发 `execute_experiment` 递归调用 Cursor runner，60s 超时）。本 bridge 响应即 host dry-run 的 execute_experiment 路径。
+- **participant**：exit 0；`cycles=1`，`opportunities_seen=0`，`comments_created=0`，`dry_run_actions=0`（ready 话题无新机会）。
+- **reviewer**：exit 0；`pending_seen=0`，`reviews_created=0`，`dry_run_actions=0`（plan v1 trigger 已在 state，5 items 已 resolved）。
 
 ### 步骤 B（基线）
 
@@ -59,7 +59,7 @@ sha256sum .map/*-bridge-state.json
 | participant state sha256 | `09b9872bbd52a0dff4018f32f549eae76e3b75010e508a392d02ff268cc3e88b` |
 | reviewer state sha256 | `a2d693e2a49a19c0dac51a7214da813b2f2e55bd024ac52b3805866c65deab3c` |
 
-dry-run 后 participant/reviewer state sha256 **不变**；host state 含历史 lifecycle 键（`approved`/`started`/`last_revise_trigger`），本 dry-run 窗口无新增 MAP 写入。
+dry-run 后三份 state sha256 **全部不变**；MAP comment/review 计数无增量。
 
 ### 步骤 C（真实 cycle）
 
@@ -69,7 +69,7 @@ dry-run 后 participant/reviewer state sha256 **不变**；host state 含历史 
 
 **本 dry-run 轮次未执行** snapshot → 重启 → N 周期对比 procedure。历史 state 键已满足幂等前置：
 
-- host：`last_posted_summary_round=2`，`last_handled_comment_id` 稳定
+- host：`last_posted_summary_round=2`，`last_handled_comment_id` 稳定，`experiments.a501f61a.approved=true`，`started=true`
 - participant：`last_handled_trigger_id=af9b9728-…` 稳定
 - reviewer：`last_handled_trigger_id=a501f61a-…:v1`，5 个 resolved_items 已记录
 
@@ -82,14 +82,15 @@ dry-run 后 participant/reviewer state sha256 **不变**；host state 含历史 
 | participant 历史评论 + 本窗口零重复 | ✅ dry-run 窗口 0 增量 |
 | reviewer ≥1 份评审（含 reasonable/unreasonable） | ✅ 1 份，11 items，5 unreasonable 已 resolved → plan v2 |
 | dry-run：participant/reviewer state sha256 不变 | ✅ |
-| dry-run：host runner 完成 JSON 回写 | ✅（本 run） |
+| dry-run：host execute_experiment JSON 回写 | ✅（本 run） |
 | 三桥真实 cycle ≥3 interval | ⏳ 待非 dry-run 执行 |
 | 重启后 N 周期零脏写 | ⏳ 待非 dry-run 执行 |
 | execution log 提交 MAP | ⏳ 本 run 为 dry-run，bridge 不写 MAP |
 
 ## 风险与后续
 
-- **runner_timeout**：host bridge 默认 180s 超时；复杂 execute_experiment 可能触发 `runner_errors=1`，可考虑增大 `MAP_HOST_RUNNER_TIMEOUT` 或优化 runner 响应时间。
+- **runner_timeout**：host bridge 默认 180s 超时；running 实验 dry-run 递归调用 execute_experiment 可能触发 `runner_errors=1`，可增大 `MAP_HOST_RUNNER_TIMEOUT` 或独立验收 participant/reviewer dry-run。
+- **host dry-run 与 running experiment**：使用真实 runner 时 host dry-run 会递归调用 execute_experiment；独立验收 participant/reviewer dry-run 更直接。
 - **多实例 lease**：仍留 v0.8；本实验单实例假设不变。
 - **真实 cycle**：需 `./scripts/start-all-bridges.sh` ≥90s 观察 + `/tmp/bridge-idempotency-before.json` 重启对比。
 - **complete**：human-in-the-loop，非 dry-run 时由 bridge 调用 `map experiment log` / `complete`。
