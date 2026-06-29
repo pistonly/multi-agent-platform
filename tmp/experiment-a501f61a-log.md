@@ -2,7 +2,7 @@
 
 ## 执行环境
 
-- 日期：2026-06-29T23:21+08:00
+- 日期：2026-06-29（UTC+8）
 - MAP API：`http://localhost:8001`（health 200）
 - Web：`http://localhost:3000`（200）
 - cursor-sdk：0.1.8
@@ -34,9 +34,9 @@
 map --persona host persona whoami
 map --persona host topic show --id 69d77715-b2c1-4f85-8d72-188aa452e47b
 map --persona host experiment status --id a501f61a-7004-4fa9-b051-3d9abc446da5
-python3 -m cli.host_worker --persona host --once --dry-run ...
-python3 -m cli.participant_worker --persona participant --once --dry-run ...
-python3 -m cli.reviewer_worker --persona reviewer --once --dry-run ...
+./scripts/start-host-bridge.sh --once --dry-run
+./scripts/start-participant-bridge.sh --once --dry-run
+./scripts/start-reviewer-bridge.sh --once --dry-run
 sha256sum .map/*-bridge-state.json
 ```
 
@@ -44,9 +44,9 @@ sha256sum .map/*-bridge-state.json
 
 ### 步骤 A（dry-run）
 
-- **host**：`python3 -m cli.host_worker --once --dry-run` → `cycles=1`，`runner_invocations=1`，`dry_run_actions=0`，`runner_errors=1`（`status: runner_timeout`，因 running 实验触发 `execute_experiment` 递归调用 Cursor runner，60s 超时）。本 bridge 响应即 host dry-run 的 execute_experiment 路径。
+- **host**：`./scripts/start-host-bridge.sh --once --dry-run` → bridge exit 0；`cycles=1`，`runner_invocations=1`，`dry_run_actions=0`，`runner_errors=1`（`status: runner_timeout`——running 实验触发 `execute_experiment` 递归调用 Cursor runner，约 187s 超时）。本 bridge 响应即 host dry-run 的 execute_experiment 路径，返回 JSON 执行日志。
 - **participant**：exit 0；`cycles=1`，`opportunities_seen=0`，`comments_created=0`，`dry_run_actions=0`（ready 话题无新机会）。
-- **reviewer**：exit 0；`pending_seen=0`，`reviews_created=0`，`dry_run_actions=0`（plan v1 trigger 已在 state，5 items 已 resolved）。
+- **reviewer**：exit 0；`pending_seen=0`，`reviews_created=0`，`dry_run_actions=0`（plan v1 trigger 已在 state，5 unreasonable items 已 resolved）。
 
 ### 步骤 B（基线）
 
@@ -67,7 +67,7 @@ dry-run 后三份 state sha256 **全部不变**；MAP comment/review 计数无�
 
 ## 重启幂等
 
-**本 dry-run 轮次未执行** snapshot → 重启 → N 周期对比 procedure。历史 state 键已满足幂等前置：
+已写入 `/tmp/bridge-idempotency-before.json`（三份 state + comment/review 计数）。**本 dry-run 轮次未执行**重启 → N 周期对比 procedure。历史 state 键已满足幂等前置：
 
 - host：`last_posted_summary_round=2`，`last_handled_comment_id` 稳定，`experiments.a501f61a.approved=true`，`started=true`
 - participant：`last_handled_trigger_id=af9b9728-…` 稳定
@@ -89,7 +89,7 @@ dry-run 后三份 state sha256 **全部不变**；MAP comment/review 计数无�
 
 ## 风险与后续
 
-- **runner_timeout**：host bridge 默认 180s 超时；running 实验 dry-run 递归调用 execute_experiment 可能触发 `runner_errors=1`，可增大 `MAP_HOST_RUNNER_TIMEOUT` 或独立验收 participant/reviewer dry-run。
+- **runner_timeout**：host bridge 默认超时；running 实验 dry-run 递归调用 execute_experiment 可能触发 `runner_errors=1`，可增大 `MAP_HOST_RUNNER_TIMEOUT` 或独立验收 participant/reviewer dry-run。
 - **host dry-run 与 running experiment**：使用真实 runner 时 host dry-run 会递归调用 execute_experiment；独立验收 participant/reviewer dry-run 更直接。
 - **多实例 lease**：仍留 v0.8；本实验单实例假设不变。
 - **真实 cycle**：需 `./scripts/start-all-bridges.sh` ≥90s 观察 + `/tmp/bridge-idempotency-before.json` 重启对比。
@@ -98,4 +98,5 @@ dry-run 后三份 state sha256 **全部不变**；MAP comment/review 计数无�
 ## 文件变更
 
 - 更新：`tmp/experiment-a501f61a-log.md`（本日志）
+- 写入：`/tmp/bridge-idempotency-before.json`（幂等基线快照）
 - 仓库代码：**无**（本实验为验收型，dry-run 轮次无需改代码）
