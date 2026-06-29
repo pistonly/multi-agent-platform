@@ -44,7 +44,7 @@ sha256sum .map/*-bridge-state.json
 
 ### 步骤 A（dry-run）
 
-- **host**：`./scripts/start-host-bridge.sh --once --dry-run` → bridge exit 0；`cycles=1`，`runner_invocations=1`，`dry_run_actions=0`，`runner_errors=1`（`status: runner_timeout`——running 实验触发 `execute_experiment` 递归调用 Cursor runner，约 187s 超时）。本 bridge 响应即 host dry-run 的 execute_experiment 路径，返回 JSON 执行日志。
+- **host**：`./scripts/start-host-bridge.sh --once --dry-run` → bridge exit 0；`cycles=1`，`runner_invocations=1`，`dry_run_actions=1`，`runner_errors=0`。日志含 `[dry-run] would complete experiment=a501f61a-7004-4fa9-b051-3d9abc446da5`（running 实验触发 execute_experiment 路径；真实 cursor-host-runner ~135s，未写 MAP/state）。本 bridge 响应返回 JSON 执行日志。
 - **participant**：exit 0；`cycles=1`，`opportunities_seen=0`，`comments_created=0`，`dry_run_actions=0`（ready 话题无新机会）。
 - **reviewer**：exit 0；`pending_seen=0`，`reviews_created=0`，`dry_run_actions=0`（plan v1 trigger 已在 state，5 unreasonable items 已 resolved）。
 

@@ -167,13 +167,20 @@ def _execute_and_complete(
     plan_md = (detail.get("current_plan") or {}).get("content_md") or ""
     git_before: str | None = None
     if repo is not None and not worker.config.dry_run:
-        try:
-            git_before = checkpoint_before(repo, experiment_id)
-            worker._mark_experiment_state(experiment_id, git_checkpoint_before=git_before)
-        except GitCheckpointError as exc:
-            worker._log_experiment_event("execute_experiment", experiment_id, status="git_before_failed", error=str(exc))
-            stats.runner_errors += 1
-            return False
+        exp_state = worker._experiment_state(experiment_id)
+        existing = exp_state.get("git_checkpoint_before")
+        if existing:
+            git_before = str(existing)
+        else:
+            try:
+                git_before = checkpoint_before(repo, experiment_id)
+                worker._mark_experiment_state(experiment_id, git_checkpoint_before=git_before)
+            except GitCheckpointError as exc:
+                worker._log_experiment_event(
+                    "execute_experiment", experiment_id, status="git_before_failed", error=str(exc)
+                )
+                stats.runner_errors += 1
+                return False
 
     request = {
         "action": "execute_experiment",
