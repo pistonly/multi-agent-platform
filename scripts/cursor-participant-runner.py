@@ -94,7 +94,7 @@ Do **not** post Round N Summary. Do **not** propose creating experiments.
 ## Required JSON
 {{
   "body": "Markdown comment",
-  "parent_id": "<comment uuid or null for top-level>"
+  "parent_id": null
 }}
 """
 
