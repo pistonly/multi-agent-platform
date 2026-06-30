@@ -24,6 +24,7 @@ from map_types import (
     ExperimentLogRead,
     ExperimentPhase,
     ExperimentSummaryRead,
+    ExperimentUpdate,
     GlobalStatusRead,
     PlanRevise,
     PlanVersionRead,
@@ -525,6 +526,16 @@ class MAPClient:
     def update_topic(self, topic_id: uuid.UUID, payload: TopicUpdate) -> TopicSummaryRead:
         data = self._json("PATCH", f"/topics/{topic_id}", json=payload.model_dump(exclude_unset=True))
         return TopicSummaryRead.model_validate(data)
+
+    def update_experiment(
+        self, experiment_id: uuid.UUID, payload: ExperimentUpdate
+    ) -> ExperimentSummaryRead:
+        data = self._json(
+            "PATCH",
+            f"/experiments/{experiment_id}",
+            json=payload.model_dump(exclude_unset=True),
+        )
+        return ExperimentSummaryRead.model_validate(data)
 
     def delete_topic(self, topic_id: uuid.UUID) -> None:
         self._request("DELETE", f"/topics/{topic_id}")

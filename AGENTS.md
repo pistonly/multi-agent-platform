@@ -58,6 +58,13 @@ map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."
 map --persona host experiment create --title "..." --plan-file ./plan.md --topic-id <uuid>
 map --persona host todos
+
+# v0.7 P3：归档 / 反归档（薄包装 PATCH /topics/{id} archived）
+# 归档话题 = 列表默认隐藏，show 仍可见，反归档恢复（archive ≠ delete）
+map --persona host topic archive --id <uuid>          # 归档
+map --persona host topic archive --id <uuid> --undo   # 反归档（--unarchive 同义）
+map --persona host experiment archive --id <uuid>     # 归档实验
+map --persona host experiment archive --id <uuid> --undo
 ```
 
 ## 服务地址（Docker override）

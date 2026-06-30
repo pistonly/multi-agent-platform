@@ -458,6 +458,57 @@ def experiment_status(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> N
     _run(lambda c: c.get_experiment(experiment_id))
 
 
+@experiment_app.command("archive")
+def experiment_archive(
+    experiment_id: uuid.UUID = typer.Option(..., "--id", help="Experiment UUID."),
+    undo: bool = typer.Option(
+        False,
+        "--undo",
+        help="Unarchive instead of archive. Equivalent to --unarchive.",
+    ),
+    unarchive: bool = typer.Option(
+        False,
+        "--unarchive",
+        help="Alias of --undo: unarchive instead of archive.",
+    ),
+) -> None:
+    """Archive (or unarchive) an experiment.
+
+    Thin wrapper around ``PATCH /experiments/{id}`` with ``archived=true``
+    (or ``false`` when ``--undo``/``--unarchive`` is set). Archive hides the
+    experiment from ``experiment list`` by default but ``experiment show``
+    still returns it including ``archived_at``. Archive is reversible —
+    re-run with ``--undo`` to restore.
+
+    Examples:
+
+        # Archive
+        map --persona host experiment archive --id <uuid>
+
+        # Unarchive (two equivalent spellings)
+        map --persona host experiment archive --id <uuid> --undo
+        map --persona host experiment archive --id <uuid> --unarchive
+    """
+    from server.domain.schemas import ExperimentUpdate
+
+    payload = ExperimentUpdate(archived=not (undo or unarchive))
+    object_kind = "experiment"
+
+    def action(c: MAPClient):
+        try:
+            return c.update_experiment(experiment_id, payload)
+        except MAPHTTPError as exc:
+            if exc.status_code == 404:
+                typer.echo(
+                    f"Error: {object_kind} {experiment_id} not found",
+                    err=True,
+                )
+                raise typer.Exit(1) from exc
+            raise
+
+    _run(action)
+
+
 # --- execution lock (CP-3) ------------------------------------------------
 
 
@@ -705,6 +756,57 @@ def topic_close(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 @topic_app.command("reopen")
 def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.reopen_topic(topic_id))
+
+
+@topic_app.command("archive")
+def topic_archive(
+    topic_id: uuid.UUID = typer.Option(..., "--id", help="Topic UUID."),
+    undo: bool = typer.Option(
+        False,
+        "--undo",
+        help="Unarchive instead of archive. Equivalent to --unarchive.",
+    ),
+    unarchive: bool = typer.Option(
+        False,
+        "--unarchive",
+        help="Alias of --undo: unarchive instead of archive.",
+    ),
+) -> None:
+    """Archive (or unarchive) a topic.
+
+    Thin wrapper around ``PATCH /topics/{id}`` with ``archived=true`` (or
+    ``false`` when ``--undo``/``--unarchive`` is set). Archive hides the topic
+    from ``topic list`` by default but ``topic show`` still returns it
+    including ``archived_at``. Archive is reversible — re-run with ``--undo``
+    to restore.
+
+    Examples:
+
+        # Archive
+        map --persona host topic archive --id <uuid>
+
+        # Unarchive (two equivalent spellings)
+        map --persona host topic archive --id <uuid> --undo
+        map --persona host topic archive --id <uuid> --unarchive
+    """
+    from server.domain.schemas import TopicUpdate
+
+    payload = TopicUpdate(archived=not (undo or unarchive))
+    object_kind = "topic"
+
+    def action(c: MAPClient):
+        try:
+            return c.update_topic(topic_id, payload)
+        except MAPHTTPError as exc:
+            if exc.status_code == 404:
+                typer.echo(
+                    f"Error: {object_kind} {topic_id} not found",
+                    err=True,
+                )
+                raise typer.Exit(1) from exc
+            raise
+
+    _run(action)
 
 
 action_app = typer.Typer(help="Topic action item commands")

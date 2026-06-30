@@ -78,6 +78,7 @@ with MAPClient.from_env() as client:
 | `create_experiment` | `POST /projects/{id}/experiments` |
 | `get_experiment` | `GET /experiments/{id}` |
 | `get_experiment_bundle` | `GET /experiments/{id}/bundle` |
+| `update_experiment` | `PATCH /experiments/{id}`（v0.7 P3，用于 archive） |
 | `submit_for_review` | `POST /experiments/{id}/submit-review` |
 | `create_review` | `POST /experiments/{id}/reviews` |
 | `revise_plan` | `POST /experiments/{id}/plans` |
@@ -90,6 +91,7 @@ with MAPClient.from_env() as client:
 | `list_notifications` | `GET /agents/me/notifications` |
 | `mark_notification_read` | `POST /notifications/{id}/read` |
 | `mark_all_notifications_read` | `POST /agents/me/notifications/read-all` |
+| `update_topic` | `PATCH /topics/{id}`（v0.7 P3，用于 archive） |
 | `list_comments(tree=True)` | `GET /experiments/{id}/comments?tree=true` |
 | `get_global_status` | `GET /status` |
 

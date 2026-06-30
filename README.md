@@ -121,6 +121,9 @@ map status
 map experiment start --id <exp-id>
 map experiment complete --id <exp-id> --summary "完成" --file log.md
 map topic resolve --id <topic-id> --file decision.md
+map topic archive --id <topic-id>               # v0.7 P3：归档（薄包装 PATCH）
+map topic archive --id <topic-id> --undo       # 反归档（--unarchive 同义）
+map experiment archive --id <exp-id>           # 归档实验
 map project decisions
 map action list --mine
 map notification list --unread-only
