@@ -121,6 +121,13 @@ class Experiment(Base):
     comments: Mapped[list["Comment"]] = relationship(back_populates="experiment", order_by="Comment.created_at")
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="experiment", order_by="ExperimentLog.created_at")
 
+    # --- execution lock (per-project; CP-3) ---------------------------------
+    lock_holder_experiment_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    lock_acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lock_ttl_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lock_skip_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
 
 class Topic(Base):
     __tablename__ = "topics"

@@ -401,6 +401,11 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         review_count=review_count,
         log_count=log_count,
         latest_log_summary=latest.summary if latest else None,
+        lock_holder_experiment_id=experiment.lock_holder_experiment_id,
+        lock_acquired_at=experiment.lock_acquired_at,
+        lock_ttl_seconds=experiment.lock_ttl_seconds,
+        next_attempt_at=experiment.next_attempt_at,
+        lock_skip_count=int(experiment.lock_skip_count or 0),
     )
 
 

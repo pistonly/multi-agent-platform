@@ -145,6 +145,55 @@ class MapCommandClient:
             ]
         )
 
+    # --- experiment execution lock (CP-3) -------------------------------------
+
+    def experiment_acquire_lock(self, experiment_id: str, *, ttl_seconds: int) -> dict[str, Any] | None:
+        return self._run(
+            [
+                "experiment",
+                "lock",
+                "acquire",
+                "--id",
+                experiment_id,
+                "--ttl",
+                str(ttl_seconds),
+            ]
+        )
+
+    def experiment_release_lock(self, experiment_id: str) -> dict[str, Any] | None:
+        return self._run(["experiment", "lock", "release", "--id", experiment_id])
+
+    def experiment_force_release_lock(
+        self, experiment_id: str, *, reason: str, actor: str | None = None
+    ) -> dict[str, Any] | None:
+        args = [
+            "experiment",
+            "lock",
+            "force-release",
+            "--id",
+            experiment_id,
+            "--reason",
+            reason,
+        ]
+        if actor:
+            args.extend(["--actor", actor])
+        return self._run(args)
+
+    def experiment_record_skip(
+        self, experiment_id: str, *, next_attempt_at: str
+    ) -> dict[str, Any] | None:
+        return self._run(
+            [
+                "experiment",
+                "lock",
+                "skip",
+                "--id",
+                experiment_id,
+                "--next-attempt-at",
+                next_attempt_at,
+            ]
+        )
+
 
 def _is_write_command(args: list[str]) -> bool:
     if not args:
@@ -169,5 +218,13 @@ def _is_write_command(args: list[str]) -> bool:
     if args[:3] == ["experiment", "review", "add"]:
         return True
     if args[:3] == ["experiment", "review", "resolve-item"]:
+        return True
+    if args[:3] == ["experiment", "lock", "acquire"]:
+        return True
+    if args[:3] == ["experiment", "lock", "release"]:
+        return True
+    if args[:3] == ["experiment", "lock", "force-release"]:
+        return True
+    if args[:3] == ["experiment", "lock", "skip"]:
         return True
     return False

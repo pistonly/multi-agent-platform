@@ -72,6 +72,22 @@ class MapClientProtocol(Protocol):
     def experiment_complete(self, experiment_id: str, *, summary: str, log_file: Path) -> dict[str, Any] | None:
         ...
 
+    def experiment_acquire_lock(self, experiment_id: str, *, ttl_seconds: int) -> dict[str, Any] | None:
+        ...
+
+    def experiment_release_lock(self, experiment_id: str) -> dict[str, Any] | None:
+        ...
+
+    def experiment_force_release_lock(
+        self, experiment_id: str, *, reason: str, actor: str | None = None
+    ) -> dict[str, Any] | None:
+        ...
+
+    def experiment_record_skip(
+        self, experiment_id: str, *, next_attempt_at: str
+    ) -> dict[str, Any] | None:
+        ...
+
 
 @dataclass
 class WorkerConfig:
@@ -110,6 +126,9 @@ class WorkerStats:
     runner_skips: int = 0
     runner_errors: int = 0
     round_advances: int = 0
+    lock_acquired: int = 0
+    lock_skipped: int = 0
+    lock_force_released: int = 0
 
     def add(self, other: "WorkerStats") -> None:
         self.cycles += other.cycles
@@ -127,3 +146,6 @@ class WorkerStats:
         self.runner_skips += other.runner_skips
         self.runner_errors += other.runner_errors
         self.round_advances += other.round_advances
+        self.lock_acquired += other.lock_acquired
+        self.lock_skipped += other.lock_skipped
+        self.lock_force_released += other.lock_force_released

@@ -197,6 +197,12 @@ class ExperimentSummaryRead(ORMModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None
+    # --- execution lock (per-project; CP-3) ---
+    lock_holder_experiment_id: uuid.UUID | None = None
+    lock_acquired_at: datetime | None = None
+    lock_ttl_seconds: int | None = None
+    next_attempt_at: datetime | None = None
+    lock_skip_count: int = 0
 
 
 class ExperimentDetailRead(ExperimentSummaryRead):
@@ -206,6 +212,12 @@ class ExperimentDetailRead(ExperimentSummaryRead):
     review_count: int = 0
     log_count: int = 0
     latest_log_summary: str | None = None
+    # --- execution lock (per-project; CP-3) ---
+    lock_holder_experiment_id: uuid.UUID | None = None
+    lock_acquired_at: datetime | None = None
+    lock_ttl_seconds: int | None = None
+    next_attempt_at: datetime | None = None
+    lock_skip_count: int = 0
 
 
 # --- Log ---

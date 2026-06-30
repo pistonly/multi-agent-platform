@@ -32,6 +32,9 @@ HOST_CYCLE_SUMMARY_FIELDS = [
     "runner_skips",
     "runner_errors",
     "round_advances",
+    "lock_acquired",
+    "lock_skipped",
+    "lock_force_released",
 ]
 
 

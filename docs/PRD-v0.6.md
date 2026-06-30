@@ -120,6 +120,15 @@ Alembic revision **`013_topic_experiment_archived`**：新增 `archived_at` 列�
 alembic upgrade head
 ```
 
+> **v0.6.1 增量（实验执行锁）**：Alembic revision **`017_exp_lock_fields`**
+> 为 `experiments` 表新增执行锁字段（详见 §7）。升级时同时会扫描超过
+> 1 小时未更新的 `running` 实验并自动 `cancelled`，避免历史 stale row
+> 干扰新锁逻辑。
+
+```bash
+alembic upgrade head
+```
+
 ---
 
 ## 5. Agent 协作提示
@@ -145,4 +154,64 @@ map --persona host experiment list --project-key multi-agents-platform --q "分�
 
 ---
 
-_本 PRD 由实验 `8d912053`（P1 归档与列表页）、`7c6a4dd7`（P2 SSE）及 v0.5 PRD §6 开放项演化定稿。_
+## 7. 实验执行锁（v0.6.1 增量，实验 `03581b55`）
+
+为防止多个 host bridge 并发对同一项目仓库写入造成 git checkpoint 错乱，
+v0.6.1 在 host bridge 中引入**每项目实验执行锁**（per-project execution
+lock）。
+
+### 7.1 字段
+
+| 字段 | 含义 |
+|------|------|
+| `experiments.lock_holder_experiment_id` | 当前持有锁的实验 ID |
+| `experiments.lock_acquired_at` | 锁获取时间（UTC） |
+| `experiments.lock_ttl_seconds` | 服务端 stale-lock TTL（默认 1800s） |
+| `experiments.next_attempt_at` | 跳过闭环的下次尝试时间 |
+| `experiments.lock_skip_count` | 连续跳过次数（≥10 触发 `lock_stuck`） |
+
+### 7.2 锁参数耦合表
+
+| 参数 | 默认值 | 关系 |
+|------|--------|------|
+| `lock_timeout_seconds` | 600 | 外部等待者最长等待时间 |
+| `lock_ttl_seconds` | 1800 | 服务端 stale-lock 自愈时间 |
+| 单实验 SLA | 600 | execute_experiment 单次最长耗时 |
+| 耦合公式 | — | `lock_ttl_seconds ≥ max(lock_timeout_seconds, SLA) × 3` |
+
+`LockConfig` 在构造时做一致性自检，不满足上述关系会直接 fail-fast 并写
+`lock_ttl_misconfig` 错误日志。
+
+### 7.3 跳过闭环
+
+锁获取失败时 **不抛异常**，而是：
+
+1. `lock_skip_count += 1`
+2. `next_attempt_at = now() + min(60 × 2^skip_count, 1800)` （指数退避，封顶 30 分钟）
+3. `lock_skip_count ≥ 10` 时日志关键字 `lock_stuck`
+
+### 7.4 FIFO 饥饿缓解
+
+保持 FIFO 主队列；每 60s 提升一次 `priority_weight`，worker 按
+`priority_weight DESC, enqueue_at ASC` 选取下一个实验。备选 mitigation
+（抢占式 / read-only 降级）列入 v3 backlog。
+
+### 7.5 Dry-run / 手动 override
+
+```bash
+# 完全旁路锁（回滚用）
+export MAP_HOST_NO_LOCK=1 && systemctl restart map-host-bridge.service
+
+# Dry-run 模式（验证锁路径，不实际获取）
+export MAP_HOST_LOCK_DRY_RUN=1
+
+# 强制释放单个实验的锁
+map --persona host experiment force-release-lock --id <exp_id> \
+    --reason "stale worker crashed"
+```
+
+详见 [`docs/runbooks/exp-lock-rollback.md`](./runbooks/exp-lock-rollback.md)。
+
+---
+
+_本 PRD 由实验 `8d912053`（P1 归档与列表页）、`7c6a4dd7`（P2 SSE）、`03581b55`（v0.6.1 实验执行锁）及 v0.5 PRD §6 开放项演化定稿。_

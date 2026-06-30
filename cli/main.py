@@ -458,6 +458,43 @@ def experiment_status(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> N
     _run(lambda c: c.get_experiment(experiment_id))
 
 
+# --- execution lock (CP-3) ------------------------------------------------
+
+
+lock_app = typer.Typer(help="Experiment execution lock commands (per-project).")
+experiment_app.add_typer(lock_app, name="lock")
+
+
+@lock_app.command("acquire")
+def experiment_lock_acquire(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    ttl: int = typer.Option(1800, "--ttl", min=1, help="Lock TTL in seconds."),
+) -> None:
+    _run(lambda c: c.acquire_experiment_lock(experiment_id, ttl_seconds=ttl))
+
+
+@lock_app.command("release")
+def experiment_lock_release(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.release_experiment_lock(experiment_id))
+
+
+@lock_app.command("force-release")
+def experiment_lock_force_release(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    reason: str = typer.Option(..., "--reason"),
+    actor: str | None = typer.Option(None, "--actor"),
+) -> None:
+    _run(lambda c: c.force_release_experiment_lock(experiment_id, reason=reason, actor=actor))
+
+
+@lock_app.command("skip")
+def experiment_lock_skip(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    next_attempt_at: str = typer.Option(..., "--next-attempt-at"),
+) -> None:
+    _run(lambda c: c.record_experiment_lock_skip(experiment_id, next_attempt_at=next_attempt_at))
+
+
 review_app = typer.Typer(help="Review commands")
 experiment_app.add_typer(review_app, name="review")
 

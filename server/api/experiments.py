@@ -1,6 +1,8 @@
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
@@ -27,7 +29,7 @@ from server.domain.schemas import (
     ReviewItemUpdate,
     ReviewRead,
 )
-from server.services import comment_service, log_service, phase_service, plan_service, review_service
+from server.services import comment_service, log_service, lock_service, phase_service, plan_service, review_service
 from server.services import permissions as perm
 from server.services import project_service as svc
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
@@ -501,5 +503,124 @@ def list_logs(
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
     return [ExperimentLogRead.model_validate(log) for log in logs]
+
+
+# --- Experiment execution lock (CP-3) -------------------------------------
+
+
+class ExperimentLockAcquirePayload(BaseModel):
+    ttl_seconds: int = Field(default=lock_service.DEFAULT_LOCK_TTL_SECONDS, ge=1)
+
+
+class ExperimentLockForceReleasePayload(BaseModel):
+    reason: str = Field(min_length=1, max_length=512)
+
+
+class ExperimentLockSkipPayload(BaseModel):
+    next_attempt_at: datetime
+
+
+class ExperimentLockRead(BaseModel):
+    experiment_id: uuid.UUID
+    project_id: uuid.UUID
+    holder: uuid.UUID | None
+    acquired_at: datetime | None
+    ttl_seconds: int | None
+    next_attempt_at: datetime | None
+    skip_count: int
+
+    @classmethod
+    def from_result(cls, result) -> "ExperimentLockRead":
+        return cls(
+            experiment_id=result.experiment_id,
+            project_id=result.project_id,
+            holder=result.holder,
+            acquired_at=result.acquired_at,
+            ttl_seconds=result.ttl_seconds,
+            next_attempt_at=result.next_attempt_at,
+            skip_count=result.skip_count,
+        )
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/acquire",
+    response_model=ExperimentLockRead,
+)
+def acquire_experiment_lock_endpoint(
+    experiment_id: uuid.UUID,
+    payload: ExperimentLockAcquirePayload,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    try:
+        result = lock_service.acquire_experiment_lock(
+            db,
+            experiment_id,
+            agent,
+            ttl_seconds=payload.ttl_seconds,
+        )
+    except (NotFoundError, ForbiddenError, ConflictError) as exc:
+        raise http_error(exc) from exc
+    return ExperimentLockRead.from_result(result)
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/release",
+    response_model=ExperimentLockRead,
+)
+def release_experiment_lock_endpoint(
+    experiment_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    try:
+        result = lock_service.release_experiment_lock(db, experiment_id, agent)
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+    return ExperimentLockRead.from_result(result)
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/force-release",
+    response_model=ExperimentLockRead,
+)
+def force_release_experiment_lock_endpoint(
+    experiment_id: uuid.UUID,
+    payload: ExperimentLockForceReleasePayload,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    try:
+        result = lock_service.force_release_experiment_lock(
+            db,
+            experiment_id,
+            agent,
+            reason=payload.reason,
+        )
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+    return ExperimentLockRead.from_result(result)
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/skip",
+    response_model=ExperimentLockRead,
+)
+def record_experiment_lock_skip_endpoint(
+    experiment_id: uuid.UUID,
+    payload: ExperimentLockSkipPayload,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    try:
+        result = lock_service.record_experiment_lock_skip(
+            db,
+            experiment_id,
+            agent,
+            next_attempt_at=payload.next_attempt_at,
+        )
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+    return ExperimentLockRead.from_result(result)
 
 

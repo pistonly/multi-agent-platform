@@ -352,6 +352,48 @@ class MAPClient:
         )
         return ExperimentSummaryRead.model_validate(data)
 
+    # --- execution lock (CP-3) ---
+
+    def acquire_experiment_lock(
+        self, experiment_id: uuid.UUID, *, ttl_seconds: int
+    ) -> dict[str, Any]:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/lock/acquire",
+            json={"ttl_seconds": ttl_seconds},
+        )
+        return data or {}
+
+    def release_experiment_lock(self, experiment_id: uuid.UUID) -> dict[str, Any]:
+        data = self._json("POST", f"/experiments/{experiment_id}/lock/release")
+        return data or {}
+
+    def force_release_experiment_lock(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        reason: str,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"reason": reason}
+        if actor:
+            payload["actor"] = actor
+        data = self._json("POST", f"/experiments/{experiment_id}/lock/force-release", json=payload)
+        return data or {}
+
+    def record_experiment_lock_skip(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        next_attempt_at: str,
+    ) -> dict[str, Any]:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/lock/skip",
+            json={"next_attempt_at": next_attempt_at},
+        )
+        return data or {}
+
     # --- plans ---
 
     def list_plans(self, experiment_id: uuid.UUID) -> list[PlanVersionRead]:
