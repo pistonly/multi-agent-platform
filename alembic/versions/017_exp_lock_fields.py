@@ -75,18 +75,33 @@ def upgrade() -> None:
 
     # 3. Stale-lock sweep: any 'running' experiment untouched for >1 hour is auto-cancelled.
     #    We are deliberately conservative — the host worker cannot trust stale rows.
-    op.execute(
-        sa.text(
-            """
-            UPDATE experiments
-               SET phase = 'cancelled',
-                   description = COALESCE(description, '') ||
-                                 '\n[exp-lock migration 017] auto-cancelled: stale running > 1h'
-             WHERE phase = 'running'
-               AND updated_at < now() - interval '1 hour'
-            """
+    dialect = bind.dialect.name
+    if dialect == "sqlite":
+        op.execute(
+            sa.text(
+                """
+                UPDATE experiments
+                   SET phase = 'cancelled',
+                       description = COALESCE(description, '') || char(10) ||
+                                     '[exp-lock migration 017] auto-cancelled: stale running > 1h'
+                 WHERE phase = 'running'
+                   AND updated_at < datetime('now', '-1 hour')
+                """
+            )
         )
-    )
+    else:
+        op.execute(
+            sa.text(
+                """
+                UPDATE experiments
+                   SET phase = 'cancelled',
+                       description = COALESCE(description, '') ||
+                                     E'\\n[exp-lock migration 017] auto-cancelled: stale running > 1h'
+                 WHERE phase = 'running'
+                   AND updated_at < now() - interval '1 hour'
+                """
+            )
+        )
 
 
 def downgrade() -> None:

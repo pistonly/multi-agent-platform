@@ -103,7 +103,7 @@ export function AgentsPage() {
         </div>
 
         {isLoading && <p className="text-sm text-slate-400">加载中…</p>}
-        {error && <p className="text-sm text-red-400">加载失败</p>}
+        {error != null ? <p className="text-sm text-red-400">加载失败</p> : null}
 
         {!isLoading && !error && (
           <div className="overflow-x-auto">
