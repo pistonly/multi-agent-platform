@@ -6,15 +6,20 @@ import {
   markNotificationRead,
 } from "../api/client";
 import type { Notification } from "../api/types";
+import { withCommentAnchor } from "../utils/commentAnchor";
 
 function notificationHref(n: Notification): string | null {
   const p = n.payload_json;
   if (!p) return null;
   if (n.event === "agent.mentioned") {
     const expId = p.experiment_id as string | undefined;
-    if (expId) return `/experiments/${expId}`;
     const topicId = p.topic_id as string | undefined;
-    return topicId ? `/topics/${topicId}` : null;
+    // The mention payload carries the comment id that contains the @, so we
+    // can jump straight to the referenced comment.
+    const commentId = p.comment_id as string | undefined;
+    if (expId) return withCommentAnchor(`/experiments/${expId}`, commentId);
+    if (topicId) return withCommentAnchor(`/topics/${topicId}`, commentId);
+    return null;
   }
   if (n.event.startsWith("experiment.") || n.event === "plan.revised" || n.event === "review.submitted") {
     const id = (p.id ?? p.experiment_id) as string | undefined;

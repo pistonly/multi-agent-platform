@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { fetchTodos } from "../api/client";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
+import { withCommentAnchor } from "../utils/commentAnchor";
 
 export function TodosPage() {
   const { data, isLoading } = useQuery({
@@ -32,11 +33,15 @@ export function TodosPage() {
       {data.mentions.length > 0 && (
         <Section title={`@提及我（${data.mentions.length}）`}>
           {data.mentions.map((m) => {
-            const to = m.experiment_id
+            const baseHref = m.experiment_id
               ? `/experiments/${m.experiment_id}`
               : m.topic_id
                 ? `/topics/${m.topic_id}`
                 : "/todos";
+            // source_id == comment id that triggered the mention (see server
+            // mention_service). Attach as anchor so the destination page
+            // scrolls/highlights the relevant comment.
+            const to = withCommentAnchor(baseHref, m.source_id);
             return (
               <Row key={m.id} to={to}>
                 <div>
@@ -62,7 +67,7 @@ export function TodosPage() {
       {(data.pending_topic_replies?.length ?? 0) > 0 && (
         <Section title={`话题待回复（${data.pending_topic_replies.length}）`}>
           {data.pending_topic_replies.map((r) => (
-            <Row key={r.comment_id} to={`/topics/${r.topic_id}`}>
+            <Row key={r.comment_id} to={withCommentAnchor(`/topics/${r.topic_id}`, r.comment_id)}>
               <div>
                 <div className="text-accent hover:underline">{r.topic_title}</div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">

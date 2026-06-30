@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
   approveExperiment,
   cancelExperiment,
@@ -18,9 +18,12 @@ import { PlanPanel } from "../components/PlanPanel";
 import { getUnreasonableItems, ReviewSummary } from "../components/ReviewSummary";
 import { PhaseBadge, PhaseStepper } from "../components/PhaseStepper";
 import { useAuth } from "../context/AuthContext";
+import { useCommentAnchor } from "../hooks/useCommentAnchor";
+import { parseCommentAnchor } from "../utils/commentAnchor";
 
 export function ExperimentPage() {
   const { experimentId } = useParams<{ experimentId: string }>();
+  const location = useLocation();
   const { agent } = useAuth();
   const queryClient = useQueryClient();
   const [planVersion, setPlanVersion] = useState<number | null>(null);
@@ -101,6 +104,19 @@ export function ExperimentPage() {
       invalidate();
     },
   });
+
+  const anchorCommentId = useMemo(
+    () => parseCommentAnchor(location.search, location.hash),
+    [location.search, location.hash],
+  );
+  // Hooks must run unconditionally on every render, so we always invoke the
+  // anchor hook and only consume `highlightedId` once the bundle is ready.
+  // The bundle fetch is asynchronous, so we re-trigger via `comments.length`
+  // once the comment tree first mounts.
+  const { highlightedId } = useCommentAnchor(
+    anchorCommentId,
+    bundleQuery.data?.comments.length,
+  );
 
   if (bundleQuery.isLoading) return <p className="text-slate-400">加载实验…</p>;
   if (bundleQuery.error || !bundleQuery.data) {
@@ -262,11 +278,19 @@ export function ExperimentPage() {
           experimentId={experimentId!}
           items={unreasonable}
           comments={comments}
+          anchorCommentId={anchorCommentId}
+          highlightedId={highlightedId}
           onUpdated={invalidate}
         />
         <div className="mt-6 border-t border-surface-border pt-4">
           <h3 className="mb-2 text-sm font-medium text-slate-400">其他讨论</h3>
-          <CommentTree nodes={comments} experimentId={experimentId!} onUpdated={invalidate} />
+          <CommentTree
+            nodes={comments}
+            experimentId={experimentId!}
+            anchorCommentId={anchorCommentId}
+            highlightedId={highlightedId}
+            onUpdated={invalidate}
+          />
           {selectedPlan ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input

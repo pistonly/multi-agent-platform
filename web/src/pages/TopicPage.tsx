@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { closeTopic, createTopicComment, fetchTopic, reopenTopic, resolveTopic, updateTopic } from "../api/client";
 import type { TopicCommentTreeNode, TopicDecision } from "../api/types";
 import { Modal } from "../components/Modal";
@@ -9,6 +9,8 @@ import { MarkdownBody } from "../components/MarkdownBody";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { useAuth } from "../context/AuthContext";
+import { useCommentAnchor } from "../hooks/useCommentAnchor";
+import { commentDomId, parseCommentAnchor } from "../utils/commentAnchor";
 
 const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running"]);
 const ROUND_LABELS = {
@@ -25,6 +27,7 @@ const ROUND_COLORS = {
 
 export function TopicPage() {
   const { topicId } = useParams<{ topicId: string }>();
+  const location = useLocation();
   const { agent, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [reply, setReply] = useState("");
@@ -66,6 +69,15 @@ export function TopicPage() {
       queryClient.invalidateQueries({ queryKey: ["topics"] });
     },
   });
+
+  const anchorCommentId = useMemo(
+    () =>
+      parseCommentAnchor(
+        typeof location !== "undefined" ? location.search : "",
+        typeof location !== "undefined" ? location.hash : "",
+      ),
+    [location.search, location.hash],
+  );
 
   if (query.isLoading) return <p className="text-slate-400">加载话题…</p>;
   if (query.error || !query.data) return <p className="text-red-400">话题不存在或无权访问</p>;
@@ -184,7 +196,12 @@ export function TopicPage() {
       <section className="card">
         <h2 className="mb-4 text-lg font-semibold text-white">讨论</h2>
         {topic.comments.length > 0 ? (
-          <TopicCommentNodes nodes={topic.comments} topicId={topicId!} onUpdated={invalidate} />
+          <TopicCommentNodes
+            nodes={topic.comments}
+            topicId={topicId!}
+            anchorCommentId={anchorCommentId}
+            onUpdated={invalidate}
+          />
         ) : (
           <p className="text-sm text-slate-500">暂无讨论</p>
         )}
@@ -428,14 +445,23 @@ function ResolveTopicForm({
 interface TopicCommentNodesProps {
   nodes: TopicCommentTreeNode[];
   topicId: string;
+  anchorCommentId: string | null;
   onUpdated: () => void;
   depth?: number;
 }
 
-function TopicCommentNodes({ nodes, topicId, onUpdated, depth = 0 }: TopicCommentNodesProps) {
+function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth = 0 }: TopicCommentNodesProps) {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
+  // Only the root render runs the anchor hook (deeper recursion passes
+  // anchorCommentId but does not invoke the hook to avoid duplicate scroll
+  // attempts). `nodes.length` is passed as `resetKey` so a refresh triggered
+  // by invalidation / reply re-checks the anchor against the freshest tree.
+  const { highlightedId } = useCommentAnchor(
+    depth === 0 ? anchorCommentId : null,
+    depth === 0 ? nodes.length : undefined,
+  );
 
   async function handleReply(commentId: string) {
     const body = replyText[commentId]?.trim();
@@ -453,61 +479,78 @@ function TopicCommentNodes({ nodes, topicId, onUpdated, depth = 0 }: TopicCommen
 
   return (
     <div className="space-y-2">
-      {nodes.map((n) => (
-        <div key={n.id} style={{ marginLeft: depth * 16 }} className="border-l border-surface-border pl-3">
-          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span>{new Date(n.created_at).toLocaleString()}</span>
-            <span>·</span>
-            <AgentBadge
-              agentId={n.author_agent_id}
-              fallbackName={n.author_name}
-              compact
-            />
-          </div>
-          <div className="mb-2">
-            <MarkdownBody content={n.body} />
-          </div>
-          <button
-            type="button"
-            className="mb-2 text-xs text-accent hover:underline"
-            onClick={() => setReplyingTo((id) => (id === n.id ? null : n.id))}
+      {nodes.map((n) => {
+        const isAnchor = anchorCommentId === n.id || highlightedId === n.id;
+        return (
+          <div
+            key={n.id}
+            id={commentDomId(n.id)}
+            data-comment-id={n.id}
+            style={{ marginLeft: depth * 16 }}
+            className={`border-l pl-3 transition-colors ${
+              isAnchor ? "comment-anchor-highlight border-amber-400/80" : "border-surface-border"
+            }`}
           >
-            回复
-          </button>
-          {replyingTo === n.id ? (
-            <div className="mb-3 flex flex-wrap gap-2">
-              <input
-                className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                placeholder="写下回复…"
-                value={replyText[n.id] ?? ""}
-                onChange={(e) => setReplyText((prev) => ({ ...prev, [n.id]: e.target.value }))}
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span>{new Date(n.created_at).toLocaleString()}</span>
+              <span>·</span>
+              <AgentBadge
+                agentId={n.author_agent_id}
+                fallbackName={n.author_name}
+                compact
               />
-              <button
-                type="button"
-                className="btn-secondary py-1 text-xs"
-                disabled={!replyText[n.id]?.trim() || loading === n.id}
-                onClick={() => handleReply(n.id)}
-              >
-                {loading === n.id ? "发送中…" : "发送"}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary py-1 text-xs"
-                disabled={loading === n.id}
-                onClick={() => {
-                  setReplyingTo(null);
-                  setReplyText((prev) => ({ ...prev, [n.id]: "" }));
-                }}
-              >
-                取消
-              </button>
             </div>
-          ) : null}
-          {n.children.length > 0 && (
-            <TopicCommentNodes nodes={n.children} topicId={topicId} onUpdated={onUpdated} depth={depth + 1} />
-          )}
-        </div>
-      ))}
+            <div className="mb-2">
+              <MarkdownBody content={n.body} />
+            </div>
+            <button
+              type="button"
+              className="mb-2 text-xs text-accent hover:underline"
+              onClick={() => setReplyingTo((id) => (id === n.id ? null : n.id))}
+            >
+              回复
+            </button>
+            {replyingTo === n.id ? (
+              <div className="mb-3 flex flex-wrap gap-2">
+                <input
+                  className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+                  placeholder="写下回复…"
+                  value={replyText[n.id] ?? ""}
+                  onChange={(e) => setReplyText((prev) => ({ ...prev, [n.id]: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary py-1 text-xs"
+                  disabled={!replyText[n.id]?.trim() || loading === n.id}
+                  onClick={() => handleReply(n.id)}
+                >
+                  {loading === n.id ? "发送中…" : "发送"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary py-1 text-xs"
+                  disabled={loading === n.id}
+                  onClick={() => {
+                    setReplyingTo(null);
+                    setReplyText((prev) => ({ ...prev, [n.id]: "" }));
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            ) : null}
+            {n.children.length > 0 && (
+              <TopicCommentNodes
+                nodes={n.children}
+                topicId={topicId}
+                anchorCommentId={anchorCommentId}
+                onUpdated={onUpdated}
+                depth={depth + 1}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

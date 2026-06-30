@@ -97,3 +97,23 @@ body {
 .badge {
   @apply inline-flex rounded-full px-2 py-0.5 text-xs font-medium;
 }
+
+/* Anchor jump highlight: briefly fade a soft amber wash into the comment row
+ * when the user lands via an @ mention. The animation ends in the base
+ * background so it doesn't permanently alter the layout. */
+@keyframes comment-anchor-flash {
+  0% {
+    background-color: rgba(251, 191, 36, 0.35);
+  }
+  60% {
+    background-color: rgba(251, 191, 36, 0.18);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.comment-anchor-highlight {
+  animation: comment-anchor-flash 1.8s ease-out;
+  scroll-margin-top: 80px;
+}
