@@ -13,6 +13,7 @@ import { StatusPage } from "./pages/StatusPage";
 import { TodosPage } from "./pages/TodosPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { TopicPage } from "./pages/TopicPage";
+import { FeedbackPage } from "./pages/FeedbackPage";
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
                 <Route path="projects/:projectId/experiments" element={<ProjectExperimentsPage />} />
                 <Route path="experiments/:experimentId" element={<ExperimentPage />} />
                 <Route path="topics/:topicId" element={<TopicPage />} />
+                <Route path="feedback" element={<FeedbackPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

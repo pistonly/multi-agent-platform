@@ -281,3 +281,32 @@ export interface NotificationStreamEvent {
   event: string;
   notification_id: string;
 }
+
+export type FeedbackCategory = "bug" | "suggestion" | "question" | "other";
+export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
+
+export interface PlatformFeedback {
+  id: string;
+  author_agent_id: string;
+  author_name: string | null;
+  project_id: string | null;
+  body: string;
+  category: FeedbackCategory | null;
+  status: FeedbackStatus;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface FeedbackCreatePayload {
+  body: string;
+  project_id?: string | null;
+  category?: FeedbackCategory | null;
+}
+
+export interface FeedbackUpdatePayload {
+  status?: FeedbackStatus;
+  category?: FeedbackCategory | null;
+  archived?: boolean;
+}

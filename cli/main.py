@@ -614,6 +614,79 @@ def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.reopen_topic(topic_id))
 
 
+feedback_app = typer.Typer(help="Platform feedback inbox commands")
+app.add_typer(feedback_app, name="feedback")
+
+
+@feedback_app.command("submit")
+def feedback_submit(
+    body: str = typer.Option(..., "--body", help="Feedback text (free-form)"),
+    category: str | None = typer.Option(
+        None, "--category", help="bug|suggestion|question|other (optional, admin triage hint)"
+    ),
+    project: uuid.UUID | None = typer.Option(
+        None, "--project", help="Source project context (optional)"
+    ),
+) -> None:
+    from map_types.enums import FeedbackCategory
+    from server.domain.schemas import PlatformFeedbackCreate
+
+    payload = PlatformFeedbackCreate(
+        body=body,
+        project_id=project,
+        category=FeedbackCategory(category) if category else None,
+    )
+    _run(lambda c: c.submit_feedback(payload))
+
+
+@feedback_app.command("list")
+def feedback_list(
+    status: str | None = typer.Option(None, "--status"),
+    category: str | None = typer.Option(None, "--category"),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    page: int = typer.Option(1, "--page", min=1),
+    page_size: int = typer.Option(50, "--page-size", min=1, max=200),
+    include_archived: bool = typer.Option(False, "--include-archived"),
+) -> None:
+    from map_types.enums import FeedbackCategory, FeedbackStatus
+
+    def action(c: MAPClient):
+        items, total = c.list_feedback_page(
+            status=FeedbackStatus(status) if status else None,
+            category=FeedbackCategory(category) if category else None,
+            project_id=project,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+        return {"items": items, "total": total}
+
+    _run(action)
+
+
+@feedback_app.command("get")
+def feedback_get(feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID")) -> None:
+    _run(lambda c: c.get_feedback(feedback_id))
+
+
+@feedback_app.command("update")
+def feedback_update(
+    feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID"),
+    status: str | None = typer.Option(None, "--status"),
+    category: str | None = typer.Option(None, "--category"),
+    archived: bool | None = typer.Option(None, "--archived/--no-archived"),
+) -> None:
+    from map_types.enums import FeedbackCategory, FeedbackStatus
+    from server.domain.schemas import PlatformFeedbackUpdate
+
+    payload = PlatformFeedbackUpdate(
+        status=FeedbackStatus(status) if status else None,
+        category=FeedbackCategory(category) if category else None,
+        archived=archived,
+    )
+    _run(lambda c: c.update_feedback(feedback_id, payload))
+
+
 def main() -> None:
     app()
 
