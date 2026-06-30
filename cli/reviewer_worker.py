@@ -13,7 +13,8 @@ from typing import Any
 import typer
 import yaml
 
-from cli.host_worker import MapCommandClient, WorkerError
+from cli.host_worker_types import WorkerError
+from cli.map_command_client import MapCommandClient
 
 DEFAULT_REASONABLE = ["实验计划结构完整，目标与步骤可辨识。"]
 DEFAULT_UNREASONABLE = ["建议补充更具体的验收标准与可观测结果。"]

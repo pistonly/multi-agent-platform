@@ -13,7 +13,9 @@ from typing import Any, Literal
 import typer
 import yaml
 
-from cli.host_worker import MapCommandClient, WorkerError, _flatten_comments
+from cli.host_worker_topic import _flatten_comments
+from cli.host_worker_types import WorkerError
+from cli.map_command_client import MapCommandClient
 
 ACTIVE_EXPERIMENT_PHASES = {"draft", "review", "approved", "running"}
 ROUND_SUMMARY_RE = re.compile(r"^##\s+Round\s+(\d+)\s+Summary\b", re.IGNORECASE | re.MULTILINE)
