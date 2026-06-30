@@ -5,7 +5,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from server.api.common import http_error
 from server.api.deps import get_current_agent, get_optional_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, AgentRole, Project
@@ -25,7 +24,6 @@ from server.services import todo_service
 from server.services.notification_stream import notification_sse_response
 from server.services import permissions as perm
 from server.services import project_service as svc
-from server.services.errors import ForbiddenError, NotFoundError, UnauthorizedError
 
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -81,10 +79,7 @@ def register_agent(
     db: Session = Depends(get_db),
     actor: Agent | None = Depends(get_optional_current_agent),
 ) -> AgentCreateResponse:
-    try:
-        perm.ensure_can_register_agent(db, actor, role)
-    except (UnauthorizedError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_can_register_agent(db, actor, role)
 
     existing = db.query(Agent).filter(Agent.name == name).first()
     if existing:
@@ -93,15 +88,9 @@ def register_agent(
     resolved_project_id: uuid.UUID | None = None
     if role == AgentRole.agent:
         if project_id is not None:
-            try:
-                resolved_project_id = svc.get_project(db, project_id).id
-            except NotFoundError as exc:
-                raise http_error(exc) from exc
+            resolved_project_id = svc.get_project(db, project_id).id
         elif project_key is not None:
-            try:
-                resolved_project_id = svc.get_project_by_key(db, project_key).id
-            except NotFoundError as exc:
-                raise http_error(exc) from exc
+            resolved_project_id = svc.get_project_by_key(db, project_key).id
         else:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,

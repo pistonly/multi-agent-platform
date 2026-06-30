@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from map_types.enums import FeedbackCategory, FeedbackStatus
-from server.api.common import http_error
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent
@@ -15,7 +14,6 @@ from server.domain.schemas import (
 )
 from server.services import permissions as perm
 from server.services import platform_feedback_service as svc
-from server.services.errors import ForbiddenError, NotFoundError
 
 feedback_router = APIRouter(prefix="/feedback", tags=["feedback"])
 
@@ -42,19 +40,16 @@ def list_feedback(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[PlatformFeedbackRead]:
-    try:
-        perm.require_admin(agent)
-        items, total = svc.list_feedback(
-            db,
-            status=feedback_status,
-            category=category,
-            project_id=project_id,
-            page=page,
-            page_size=page_size,
-            include_archived=include_archived,
-        )
-    except ForbiddenError as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    items, total = svc.list_feedback(
+        db,
+        status=feedback_status,
+        category=category,
+        project_id=project_id,
+        page=page,
+        page_size=page_size,
+        include_archived=include_archived,
+    )
     response.headers["X-Total-Count"] = str(total)
     return items
 
@@ -65,11 +60,8 @@ def get_feedback(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> PlatformFeedbackRead:
-    try:
-        perm.require_admin(agent)
-        return svc.get_feedback_read(db, feedback_id)
-    except (ForbiddenError, NotFoundError) as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    return svc.get_feedback_read(db, feedback_id)
 
 
 @feedback_router.patch("/{feedback_id}", response_model=PlatformFeedbackRead)
@@ -79,8 +71,5 @@ def update_feedback(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> PlatformFeedbackRead:
-    try:
-        perm.require_admin(agent)
-        return svc.update_feedback(db, feedback_id, payload)
-    except (ForbiddenError, NotFoundError) as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    return svc.update_feedback(db, feedback_id, payload)

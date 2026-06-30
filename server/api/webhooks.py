@@ -3,7 +3,6 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from server.api.common import http_error
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent
@@ -16,7 +15,6 @@ from server.domain.schemas import (
 )
 from server.services import webhook_service
 from server.services import permissions as perm
-from server.services.errors import ForbiddenError, NotFoundError
 
 webhooks_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -27,11 +25,8 @@ def create_webhook(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> WebhookCreateResponse:
-    try:
-        perm.require_admin(agent)
-        webhook, secret = webhook_service.create_webhook(db, payload)
-    except ForbiddenError as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    webhook, secret = webhook_service.create_webhook(db, payload)
     return WebhookCreateResponse(**WebhookRead.model_validate(webhook).model_dump(), secret=secret)
 
 
@@ -41,11 +36,8 @@ def list_webhooks(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[WebhookRead]:
-    try:
-        perm.require_admin(agent)
-        webhooks = webhook_service.list_webhooks(db, project_id=project_id)
-    except ForbiddenError as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    webhooks = webhook_service.list_webhooks(db, project_id=project_id)
     return [WebhookRead.model_validate(w) for w in webhooks]
 
 
@@ -56,11 +48,8 @@ def update_webhook(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> WebhookRead:
-    try:
-        perm.require_admin(agent)
-        webhook = webhook_service.update_webhook(db, webhook_id, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    webhook = webhook_service.update_webhook(db, webhook_id, payload)
     return WebhookRead.model_validate(webhook)
 
 
@@ -70,11 +59,8 @@ def delete_webhook(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> None:
-    try:
-        perm.require_admin(agent)
-        webhook_service.delete_webhook(db, webhook_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    webhook_service.delete_webhook(db, webhook_id)
 
 
 @webhooks_router.get("/{webhook_id}/deliveries", response_model=list[WebhookDeliveryRead])
@@ -83,11 +69,6 @@ def list_webhook_deliveries(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[WebhookDeliveryRead]:
-    try:
-        perm.require_admin(agent)
-        deliveries = webhook_service.list_deliveries(db, webhook_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    deliveries = webhook_service.list_deliveries(db, webhook_id)
     return [WebhookDeliveryRead.model_validate(d) for d in deliveries]
-
-

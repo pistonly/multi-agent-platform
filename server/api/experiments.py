@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
-from server.api.common import emit, http_error
+from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, ExperimentPhase
@@ -32,7 +32,6 @@ from server.domain.schemas import (
 from server.services import comment_service, log_service, lock_service, phase_service, plan_service, review_service
 from server.services import permissions as perm
 from server.services import project_service as svc
-from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 
 experiments_router = APIRouter(tags=["experiments"], dependencies=[Depends(bind_background_tasks)])
 
@@ -48,13 +47,10 @@ def create_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
-        perm.ensure_project_access(agent, resolved_project_id)
-        warnings = svc.create_experiment_warnings(db, resolved_project_id, payload.topic_id)
-        experiment = svc.create_experiment(db, resolved_project_id, agent.id, payload)
-    except (NotFoundError, ForbiddenError, ConflictError) as exc:
-        raise http_error(exc) from exc
+    resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
+    perm.ensure_project_access(agent, resolved_project_id)
+    warnings = svc.create_experiment_warnings(db, resolved_project_id, payload.topic_id)
+    experiment = svc.create_experiment(db, resolved_project_id, agent.id, payload)
     emit(
         db,
         agent,
@@ -82,21 +78,18 @@ def list_experiments(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentSummaryRead]:
-    try:
-        resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
-        perm.ensure_project_access(agent, resolved_project_id)
-        experiments, total = svc.list_experiments(
-            db,
-            resolved_project_id,
-            phase=phase,
-            creator_agent_id=creator_agent_id,
-            q=q,
-            page=page,
-            page_size=page_size,
-            include_archived=include_archived,
-        )
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
+    perm.ensure_project_access(agent, resolved_project_id)
+    experiments, total = svc.list_experiments(
+        db,
+        resolved_project_id,
+        phase=phase,
+        creator_agent_id=creator_agent_id,
+        q=q,
+        page=page,
+        page_size=page_size,
+        include_archived=include_archived,
+    )
     response.headers["X-Total-Count"] = str(total)
     return [ExperimentSummaryRead.model_validate(e) for e in experiments]
 
@@ -107,11 +100,8 @@ def get_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentDetailRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        return svc.get_experiment_detail(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    return svc.get_experiment_detail(db, experiment_id)
 
 
 @experiments_router.get("/experiments/{experiment_id}/bundle", response_model=ExperimentBundleRead)
@@ -120,11 +110,8 @@ def get_experiment_bundle(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentBundleRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        return svc.get_experiment_bundle(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    return svc.get_experiment_bundle(db, experiment_id)
 
 
 @experiments_router.patch("/experiments/{experiment_id}", response_model=ExperimentSummaryRead)
@@ -134,11 +121,8 @@ def update_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        experiment = svc.update_experiment(db, experiment_id, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    experiment = svc.update_experiment(db, experiment_id, payload)
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -148,12 +132,8 @@ def delete_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> None:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        svc.soft_delete_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
-
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    svc.soft_delete_experiment(db, experiment_id)
 
 
 # --- M2: phase transitions ---
@@ -165,12 +145,9 @@ def submit_for_review(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.submit_for_review(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.submit_for_review(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -191,12 +168,9 @@ def approve_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.approve_experiment(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.approve_experiment(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -217,12 +191,9 @@ def withdraw_from_review(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.withdraw_from_review(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.withdraw_from_review(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -232,12 +203,9 @@ def cancel_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.cancel_experiment(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.cancel_experiment(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -250,11 +218,8 @@ def list_plans(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[PlanVersionRead]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        plans = plan_service.list_plans(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    plans = plan_service.list_plans(db, experiment_id)
     return [PlanVersionRead.model_validate(p) for p in plans]
 
 
@@ -265,11 +230,8 @@ def get_plan_version(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> PlanVersionRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        plan = plan_service.get_plan_version(db, experiment_id, version)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    plan = plan_service.get_plan_version(db, experiment_id, version)
     return PlanVersionRead.model_validate(plan)
 
 
@@ -284,11 +246,8 @@ def revise_plan(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> PlanVersionRead:
-    try:
-        experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-        plan = plan_service.revise_plan(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    plan = plan_service.revise_plan(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -317,11 +276,8 @@ def create_review(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ReviewRead:
-    try:
-        experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-        review = review_service.create_review(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError, ConflictError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    review = review_service.create_review(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -342,11 +298,8 @@ def list_reviews(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ReviewRead]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        reviews = review_service.list_reviews(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    reviews = review_service.list_reviews(db, experiment_id)
     return [review_service.review_to_read(r) for r in reviews]
 
 
@@ -357,11 +310,8 @@ def update_review_item(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ReviewItemRead:
-    try:
-        perm.ensure_review_item_access(db, agent, item_id)
-        item = review_service.update_review_item(db, item_id, agent, payload)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_review_item_access(db, agent, item_id)
+    item = review_service.update_review_item(db, item_id, agent, payload)
     return ReviewItemRead.model_validate(item)
 
 
@@ -379,11 +329,8 @@ def create_comment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> CommentRead:
-    try:
-        experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-        comment = comment_service.create_comment(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    comment = comment_service.create_comment(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -405,15 +352,11 @@ def list_comments(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[CommentRead] | list[CommentTreeNode]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        comments = comment_service.list_comments(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    comments = comment_service.list_comments(db, experiment_id)
     if tree:
         return comment_service.build_comment_tree(db, comments)
     return comment_service.comments_to_read(db, comments)
-
 
 
 # --- M3: execution ---
@@ -425,12 +368,9 @@ def start_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.start_experiment(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.start_experiment(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -452,12 +392,9 @@ def complete_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.complete_experiment(db, experiment_id, agent, payload)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.complete_experiment(db, experiment_id, agent, payload)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -483,11 +420,8 @@ def create_log(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLogRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        log = log_service.create_log(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    log = log_service.create_log(db, experiment_id, agent, payload)
     return ExperimentLogRead.model_validate(log)
 
 
@@ -497,11 +431,8 @@ def list_logs(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentLogRead]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        logs = log_service.list_logs(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    logs = log_service.list_logs(db, experiment_id)
     return [ExperimentLogRead.model_validate(log) for log in logs]
 
 
@@ -552,15 +483,12 @@ def acquire_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
-    try:
-        result = lock_service.acquire_experiment_lock(
-            db,
-            experiment_id,
-            agent,
-            ttl_seconds=payload.ttl_seconds,
-        )
-    except (NotFoundError, ForbiddenError, ConflictError) as exc:
-        raise http_error(exc) from exc
+    result = lock_service.acquire_experiment_lock(
+        db,
+        experiment_id,
+        agent,
+        ttl_seconds=payload.ttl_seconds,
+    )
     return ExperimentLockRead.from_result(result)
 
 
@@ -573,10 +501,7 @@ def release_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
-    try:
-        result = lock_service.release_experiment_lock(db, experiment_id, agent)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    result = lock_service.release_experiment_lock(db, experiment_id, agent)
     return ExperimentLockRead.from_result(result)
 
 
@@ -590,15 +515,12 @@ def force_release_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
-    try:
-        result = lock_service.force_release_experiment_lock(
-            db,
-            experiment_id,
-            agent,
-            reason=payload.reason,
-        )
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    result = lock_service.force_release_experiment_lock(
+        db,
+        experiment_id,
+        agent,
+        reason=payload.reason,
+    )
     return ExperimentLockRead.from_result(result)
 
 
@@ -612,15 +534,10 @@ def record_experiment_lock_skip_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
-    try:
-        result = lock_service.record_experiment_lock_skip(
-            db,
-            experiment_id,
-            agent,
-            next_attempt_at=payload.next_attempt_at,
-        )
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    result = lock_service.record_experiment_lock_skip(
+        db,
+        experiment_id,
+        agent,
+        next_attempt_at=payload.next_attempt_at,
+    )
     return ExperimentLockRead.from_result(result)
-
-
