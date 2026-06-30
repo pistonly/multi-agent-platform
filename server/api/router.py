@@ -3,6 +3,7 @@
 from server.api.agents import agents_router
 from server.api.audit import audit_router
 from server.api.experiments import experiments_router
+from server.api.feedback import feedback_router
 from server.api.notifications import notifications_router
 from server.api.projects import router
 from server.api.status import status_router
@@ -15,6 +16,7 @@ __all__ = [
     "agents_router",
     "audit_router",
     "experiments_router",
+    "feedback_router",
     "status_router",
     "topics_router",
     "webhooks_router",

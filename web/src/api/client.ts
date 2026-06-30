@@ -26,6 +26,11 @@ import type {
   TopicSummary,
   NotificationList,
   NotificationStreamEvent,
+  PlatformFeedback,
+  FeedbackCreatePayload,
+  FeedbackUpdatePayload,
+  FeedbackCategory,
+  FeedbackStatus,
 } from "./types";
 
 export interface PaginatedResult<T> {
@@ -446,5 +451,47 @@ export async function markNotificationRead(notificationId: string): Promise<void
 
 export async function markAllNotificationsRead(): Promise<{ marked: number }> {
   const { data } = await api.post<{ marked: number }>("/agents/me/notifications/read-all");
+  return data;
+}
+
+export interface FetchFeedbacksOptions {
+  status?: FeedbackStatus;
+  category?: FeedbackCategory;
+  projectId?: string;
+  page?: number;
+  pageSize?: number;
+  includeArchived?: boolean;
+}
+
+export async function fetchFeedbacks(
+  opts: FetchFeedbacksOptions = {}
+): Promise<PaginatedResult<PlatformFeedback>> {
+  const { status, category, projectId, page = 1, pageSize = 50, includeArchived = false } = opts;
+  const response = await api.get<PlatformFeedback[]>("/feedback", {
+    params: {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+      ...(projectId ? { project_id: projectId } : {}),
+      page,
+      page_size: pageSize,
+      include_archived: includeArchived,
+    },
+  });
+  return {
+    items: response.data,
+    total: parseTotalCount(response.headers as Record<string, unknown>),
+  };
+}
+
+export async function submitFeedback(payload: FeedbackCreatePayload): Promise<PlatformFeedback> {
+  const { data } = await api.post<PlatformFeedback>("/feedback", payload);
+  return data;
+}
+
+export async function updateFeedback(
+  feedbackId: string,
+  payload: FeedbackUpdatePayload
+): Promise<PlatformFeedback> {
+  const { data } = await api.patch<PlatformFeedback>(`/feedback/${feedbackId}`, payload);
   return data;
 }

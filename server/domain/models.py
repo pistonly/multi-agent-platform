@@ -8,6 +8,8 @@ from map_types.enums import (
     AgentRole,
     CommentAnchorType,
     ExperimentPhase,
+    FeedbackCategory,
+    FeedbackStatus,
     MentionSourceType,
     ReviewItemKind,
     ReviewItemStatus,
@@ -387,3 +389,32 @@ class Mention(Base):
 
     mentioned_agent: Mapped["Agent"] = relationship(foreign_keys=[mentioned_agent_id])
     author: Mapped["Agent"] = relationship(foreign_keys=[author_agent_id])
+
+
+class PlatformFeedback(Base):
+    """Platform-wide feedback inbox.
+
+    A global object (project_id is nullable) so any authenticated agent can
+    submit feedback about the MAP platform itself, regardless of which project
+    they are bound to. Only admins read/triage the inbox.
+    """
+
+    __tablename__ = "platform_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[FeedbackCategory | None] = mapped_column(Enum(FeedbackCategory), nullable=True)
+    status: Mapped[FeedbackStatus] = mapped_column(
+        Enum(FeedbackStatus), default=FeedbackStatus.new, nullable=False, index=True
+    )
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    author: Mapped["Agent"] = relationship()
+    project: Mapped["Project | None"] = relationship()

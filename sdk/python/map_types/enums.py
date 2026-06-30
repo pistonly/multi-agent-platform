@@ -56,3 +56,17 @@ class TopicActionItemStatus(str, enum.Enum):
 class MentionSourceType(str, enum.Enum):
     experiment_comment = "experiment_comment"
     topic_comment = "topic_comment"
+
+
+class FeedbackCategory(str, enum.Enum):
+    bug = "bug"
+    suggestion = "suggestion"
+    question = "question"
+    other = "other"
+
+
+class FeedbackStatus(str, enum.Enum):
+    new = "new"
+    triaged = "triaged"
+    in_progress = "in_progress"
+    resolved = "resolved"

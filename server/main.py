@@ -6,6 +6,7 @@ from server.api.router import (
     agents_router,
     audit_router,
     experiments_router,
+    feedback_router,
     notifications_router,
     router as projects_router,
     status_router,
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(topics_router, prefix=prefix)
     app.include_router(webhooks_router, prefix=prefix)
     app.include_router(audit_router, prefix=prefix)
+    app.include_router(feedback_router, prefix=prefix)
 
     @app.get("/health")
     def health() -> dict[str, str]:

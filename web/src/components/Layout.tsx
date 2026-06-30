@@ -54,6 +54,9 @@ export function Layout() {
                   </span>
                 )}
               </Link>
+              <Link to="/feedback" className="hover:text-white">
+                反馈
+              </Link>
               {!isAdmin && projectKey && (
                 <span className="font-mono text-slate-500">{projectKey}</span>
               )}
