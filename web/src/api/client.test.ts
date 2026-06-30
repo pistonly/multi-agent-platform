@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   api,
+  fetchAgents,
   fetchFeedbacks,
   fetchProjectActionItems,
   fetchProjectDecisions,
@@ -166,5 +167,42 @@ describe("feedback fetchers", () => {
 
     expect(post).toHaveBeenCalledWith("/feedback", { body: "hi", category: "suggestion" });
     expect(result).toEqual({ id: "f2", body: "hi" });
+  });
+});
+
+describe("agent fetcher", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("fetchAgents sends role and project_id filters", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue({
+      data: [{ id: "a1", name: "host", role: "agent" }],
+      headers: {},
+      status: 200,
+      statusText: "OK",
+      config: {} as never,
+    });
+
+    const result = await fetchAgents({ role: "agent", projectId: "p1" });
+
+    expect(get).toHaveBeenCalledWith("/agents", {
+      params: { role: "agent", project_id: "p1" },
+    });
+    expect(result).toEqual([{ id: "a1", name: "host", role: "agent" }]);
+  });
+
+  it("fetchAgents with no options sends no params", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue({
+      data: [],
+      headers: {},
+      status: 200,
+      statusText: "OK",
+      config: {} as never,
+    });
+
+    await fetchAgents();
+
+    expect(get).toHaveBeenCalledWith("/agents", { params: {} });
   });
 });

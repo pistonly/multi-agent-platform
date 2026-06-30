@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CommentTreeNode, ReviewItem } from "../api/types";
 import { createComment, updateReviewItem } from "../api/client";
 import { MarkdownBody } from "./MarkdownBody";
+import { AgentBadge } from "./AgentBadge";
 
 interface CommentNodeProps {
   node: CommentTreeNode;
@@ -36,8 +37,14 @@ function CommentNode({ node, depth = 0, experimentId, onUpdated }: CommentNodePr
 
   return (
     <div style={{ marginLeft: depth * 16 }} className="border-l border-surface-border pl-3">
-      <div className="mb-1 text-xs text-slate-500">
-        {new Date(node.created_at).toLocaleString()} · {node.author_name ?? `${node.author_agent_id.slice(0, 8)}…`}
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span>{new Date(node.created_at).toLocaleString()}</span>
+        <span>·</span>
+        <AgentBadge
+          agentId={node.author_agent_id}
+          fallbackName={node.author_name}
+          compact
+        />
       </div>
       <div className="mb-2">
         <MarkdownBody content={node.body} />

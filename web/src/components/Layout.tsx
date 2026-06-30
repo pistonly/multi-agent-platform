@@ -57,6 +57,9 @@ export function Layout() {
               <Link to="/feedback" className="hover:text-white">
                 反馈
               </Link>
+              <Link to="/agents" className="hover:text-white" data-testid="nav-agents">
+                Agents
+              </Link>
               {!isAdmin && projectKey && (
                 <span className="font-mono text-slate-500">{projectKey}</span>
               )}
@@ -70,7 +73,13 @@ export function Layout() {
                 {role}
               </span>
             )}
-            <span>{agentName ?? "Agent"}</span>
+            <Link
+              to="/agents"
+              className="font-mono text-xs text-slate-300 hover:text-white"
+              title="查看已注册 Agent 列表"
+            >
+              {agentName ?? "Agent"}
+            </Link>
             {isAdmin && (
               <button
                 type="button"

@@ -1,6 +1,7 @@
 import axios, { type AxiosError } from "axios";
 import type {
   Agent,
+  AgentRole,
   CommentTreeNode,
   ExperimentBundle,
   ExperimentCreatePayload,
@@ -94,6 +95,22 @@ export function setAuthToken(token: string | null) {
 
 export async function getMe(): Promise<Agent> {
   const { data } = await api.get<Agent>("/agents/me");
+  return data;
+}
+
+export interface FetchAgentsOptions {
+  role?: AgentRole;
+  projectId?: string;
+}
+
+export async function fetchAgents(opts: FetchAgentsOptions = {}): Promise<Agent[]> {
+  const { role, projectId } = opts;
+  const { data } = await api.get<Agent[]>("/agents", {
+    params: {
+      ...(role ? { role } : {}),
+      ...(projectId ? { project_id: projectId } : {}),
+    },
+  });
   return data;
 }
 

@@ -2,12 +2,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.api.common import http_error
 from server.api.deps import get_current_agent, get_optional_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent, AgentRole
+from server.domain.models import Agent, AgentRole, Project
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
@@ -24,6 +25,48 @@ from server.services import project_service as svc
 from server.services.errors import ForbiddenError, NotFoundError, UnauthorizedError
 
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@agents_router.get("", response_model=list[AgentRead])
+def list_agents(
+    role: AgentRole | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> list[AgentRead]:
+    """List agents visible to the caller.
+
+    - Admins see every agent (with optional filters).
+    - Project-bound agents see admins and agents within their own project.
+    """
+    stmt = select(Agent).order_by(Agent.created_at.asc())
+    if not perm.is_admin(agent):
+        stmt = stmt.where(
+            (Agent.role == AgentRole.admin) | (Agent.project_id == agent.project_id)
+        )
+    if role is not None:
+        stmt = stmt.where(Agent.role == role)
+    if project_id is not None:
+        stmt = stmt.where(Agent.project_id == project_id)
+
+    agents = list(db.scalars(stmt))
+    project_keys: dict[uuid.UUID, str] = {}
+    project_ids = {a.project_id for a in agents if a.project_id is not None}
+    if project_ids:
+        rows = db.scalars(select(Project).where(Project.id.in_(project_ids))).all()
+        project_keys = {row.id: row.project_key for row in rows}
+
+    return [
+        AgentRead(
+            id=a.id,
+            name=a.name,
+            role=a.role,
+            project_id=a.project_id,
+            project_key=project_keys.get(a.project_id) if a.project_id else None,
+            created_at=a.created_at,
+        )
+        for a in agents
+    ]
 
 
 @agents_router.post("", response_model=AgentCreateResponse, status_code=status.HTTP_201_CREATED)

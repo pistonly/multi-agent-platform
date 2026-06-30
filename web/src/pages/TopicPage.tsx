@@ -7,6 +7,7 @@ import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { PhaseBadge } from "../components/PhaseStepper";
+import { AgentBadge } from "../components/AgentBadge";
 import { useAuth } from "../context/AuthContext";
 
 const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running"]);
@@ -104,9 +105,14 @@ export function TopicPage() {
             <MarkdownBody content={topic.description} />
           </div>
         )}
-        <p className="mt-2 text-sm text-slate-500">
-          由 {topic.creator_name ?? `${topic.creator_agent_id.slice(0, 8)}…`} 发布于{" "}
-          {new Date(topic.created_at).toLocaleString()}
+        <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <span>由</span>
+          <AgentBadge
+            agentId={topic.creator_agent_id}
+            fallbackName={topic.creator_name}
+            compact
+          />
+          <span>发布于 {new Date(topic.created_at).toLocaleString()}</span>
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {topic.status === "open" ? (
@@ -245,9 +251,13 @@ function TopicDecisionPanel({ decision }: { decision: TopicDecision | null }) {
     <section className="card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-white">结论</h2>
-        <span className="text-xs text-slate-500">
-          {decision.author_name ?? `${decision.author_agent_id.slice(0, 8)}…`} ·{" "}
-          {new Date(decision.updated_at).toLocaleString()}
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          <AgentBadge
+            agentId={decision.author_agent_id}
+            fallbackName={decision.author_name}
+            compact
+          />
+          <span>· {new Date(decision.updated_at).toLocaleString()}</span>
         </span>
       </div>
       {decision.decision ? <MarkdownBody content={decision.decision} /> : null}
@@ -275,8 +285,16 @@ function TopicDecisionPanel({ decision }: { decision: TopicDecision | null }) {
                   <span className="font-medium text-white">{item.title}</span>
                   <span className="badge bg-slate-700 text-slate-200">{item.status}</span>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
-                  <span>{item.owner_name ?? (item.owner_agent_id ? `${item.owner_agent_id.slice(0, 8)}…` : "未分配")}</span>
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  {item.owner_agent_id ? (
+                    <AgentBadge
+                      agentId={item.owner_agent_id}
+                      fallbackName={item.owner_name}
+                      compact
+                    />
+                  ) : (
+                    <span>未分配</span>
+                  )}
                   {item.due_at && <span>截止 {new Date(item.due_at).toLocaleString()}</span>}
                   {item.linked_experiment_id && (
                     <Link to={`/experiments/${item.linked_experiment_id}`} className="text-accent hover:underline">
@@ -437,8 +455,14 @@ function TopicCommentNodes({ nodes, topicId, onUpdated, depth = 0 }: TopicCommen
     <div className="space-y-2">
       {nodes.map((n) => (
         <div key={n.id} style={{ marginLeft: depth * 16 }} className="border-l border-surface-border pl-3">
-          <div className="mb-1 text-xs text-slate-500">
-            {new Date(n.created_at).toLocaleString()} · {n.author_name ?? `${n.author_agent_id.slice(0, 8)}…`}
+          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{new Date(n.created_at).toLocaleString()}</span>
+            <span>·</span>
+            <AgentBadge
+              agentId={n.author_agent_id}
+              fallbackName={n.author_name}
+              compact
+            />
           </div>
           <div className="mb-2">
             <MarkdownBody content={n.body} />

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { fetchTodos } from "../api/client";
 import { PhaseBadge } from "../components/PhaseStepper";
+import { AgentBadge } from "../components/AgentBadge";
 
 export function TodosPage() {
   const { data, isLoading } = useQuery({
@@ -39,8 +40,13 @@ export function TodosPage() {
             return (
               <Row key={m.id} to={to}>
                 <div>
-                  <div className="text-accent hover:underline">
-                    {m.author_name ?? m.author_agent_id.slice(0, 8)} 提及了你
+                  <div className="flex flex-wrap items-center gap-2 text-accent hover:underline">
+                    <AgentBadge
+                      agentId={m.author_agent_id}
+                      fallbackName={m.author_name}
+                      compact
+                    />
+                    <span>提及了你</span>
                   </div>
                   <div className="text-xs text-slate-400">{m.excerpt}</div>
                 </div>
@@ -59,8 +65,13 @@ export function TodosPage() {
             <Row key={r.comment_id} to={`/topics/${r.topic_id}`}>
               <div>
                 <div className="text-accent hover:underline">{r.topic_title}</div>
-                <div className="text-xs text-slate-400">
-                  {r.author_name ?? r.author_agent_id.slice(0, 8)}：{r.excerpt}
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  <AgentBadge
+                    agentId={r.author_agent_id}
+                    fallbackName={r.author_name}
+                    compact
+                  />
+                  <span>：{r.excerpt}</span>
                 </div>
               </div>
               <span className="text-xs text-slate-500">

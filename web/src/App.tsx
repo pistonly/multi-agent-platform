@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { ExperimentPage } from "./pages/ExperimentPage";
+import { AgentsPage } from "./pages/AgentsPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectExperimentsPage } from "./pages/ProjectExperimentsPage";
 import { ProjectTopicsPage } from "./pages/ProjectTopicsPage";
@@ -34,6 +35,7 @@ export default function App() {
                 <Route path="experiments/:experimentId" element={<ExperimentPage />} />
                 <Route path="topics/:topicId" element={<TopicPage />} />
                 <Route path="feedback" element={<FeedbackPage />} />
+                <Route path="agents" element={<AgentsPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
