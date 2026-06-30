@@ -232,7 +232,7 @@ function useMentionController({
 }
 
 export interface AgentMentionTextareaProps
-  extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "onKeyDown"> {
+  extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange"> {
   value: string;
   onValueChange: (next: string) => void;
   /** Cap on the number of candidates shown (default 50). */
@@ -323,7 +323,7 @@ export function AgentMentionTextarea({
 }
 
 export interface AgentMentionInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "onKeyDown"> {
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> {
   value: string;
   onValueChange: (next: string) => void;
   maxCandidates?: number;

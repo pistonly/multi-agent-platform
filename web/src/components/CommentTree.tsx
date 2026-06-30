@@ -4,7 +4,7 @@ import { createComment, updateReviewItem } from "../api/client";
 import { commentDomId } from "../utils/commentAnchor";
 import { MarkdownBody } from "./MarkdownBody";
 import { AgentBadge } from "./AgentBadge";
-import { AgentMentionInput, AgentMentionTextarea } from "./AgentMentionInput";
+import { AgentMentionInput } from "./AgentMentionInput";
 
 interface CommentNodeProps {
   node: CommentTreeNode;
