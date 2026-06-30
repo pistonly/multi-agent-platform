@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from map_types.enums import (
     AgentRole,
@@ -10,6 +10,7 @@ from map_types.enums import (
     ExperimentPhase,
     ReviewItemKind,
     ReviewItemStatus,
+    TopicActionItemStatus,
     TopicDiscussionRound,
     TopicStatus,
 )
@@ -281,6 +282,72 @@ class TopicAdvanceRound(BaseModel):
     increment_summary: bool = True
 
 
+class TopicActionItemCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+    description: str | None = None
+    owner_agent_id: uuid.UUID | None = None
+    due_at: datetime | None = None
+    linked_experiment_id: uuid.UUID | None = None
+
+
+class TopicResolve(BaseModel):
+    decision: str | None = Field(default=None, min_length=1)
+    rationale: str | None = None
+    rejected_options: str | None = None
+    open_questions: str | None = None
+    no_decision_reason: str | None = Field(default=None, min_length=1)
+    action_items: list[TopicActionItemCreate] = Field(default_factory=list)
+
+    @field_validator("decision", "rationale", "rejected_options", "open_questions", "no_decision_reason", mode="before")
+    @classmethod
+    def normalize_blank_text(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        return text or None
+
+    @model_validator(mode="after")
+    def validate_resolution_content(self) -> "TopicResolve":
+        if not self.decision and not self.no_decision_reason:
+            raise ValueError("decision or no_decision_reason is required")
+        return self
+
+
+class TopicActionItemRead(BaseModel):
+    id: uuid.UUID
+    decision_id: uuid.UUID
+    project_id: uuid.UUID
+    topic_id: uuid.UUID
+    title: str
+    description: str | None = None
+    owner_agent_id: uuid.UUID | None = None
+    owner_name: str | None = None
+    status: TopicActionItemStatus
+    due_at: datetime | None = None
+    linked_experiment_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TopicDecisionRead(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    topic_id: uuid.UUID
+    topic_title: str | None = None
+    author_agent_id: uuid.UUID
+    author_name: str | None = None
+    decision: str | None = None
+    rationale: str | None = None
+    rejected_options: str | None = None
+    open_questions: str | None = None
+    no_decision_reason: str | None = None
+    action_items: list[TopicActionItemRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
 class TopicSummaryRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -321,6 +388,7 @@ class TopicCommentTreeNode(TopicCommentRead):
 class TopicRead(TopicSummaryRead):
     experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     comments: list[TopicCommentTreeNode] = Field(default_factory=list)
+    decision: TopicDecisionRead | None = None
 
 
 class PendingReplyRead(BaseModel):
@@ -358,6 +426,21 @@ class MentionTodoRead(BaseModel):
     created_at: datetime
 
 
+class TopicActionItemTodoRead(BaseModel):
+    id: uuid.UUID
+    decision_id: uuid.UUID
+    project_id: uuid.UUID
+    topic_id: uuid.UUID
+    topic_title: str
+    title: str
+    description: str | None = None
+    status: TopicActionItemStatus
+    due_at: datetime | None = None
+    linked_experiment_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class TodoRead(BaseModel):
     my_open_experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
@@ -365,6 +448,7 @@ class TodoRead(BaseModel):
     pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)
     my_open_topics: list[TopicSummaryRead] = Field(default_factory=list)
     mentions: list[MentionTodoRead] = Field(default_factory=list)
+    action_items: list[TopicActionItemTodoRead] = Field(default_factory=list)
 
 
 # --- Notification ---

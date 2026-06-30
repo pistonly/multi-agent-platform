@@ -14,7 +14,9 @@ from server.domain.schemas import (
     TopicCommentRead,
     TopicCommentTreeNode,
     TopicCreate,
+    TopicDecisionRead,
     TopicRead,
+    TopicResolve,
     TopicSummaryRead,
     TopicUpdate,
 )
@@ -193,6 +195,34 @@ def advance_topic_round(
     return topic_service.topic_summary(db, topic)
 
 
+@topics_router.post("/topics/{topic_id}/resolve", response_model=TopicDecisionRead)
+def resolve_topic(
+    topic_id: uuid.UUID,
+    payload: TopicResolve,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> TopicDecisionRead:
+    try:
+        topic = perm.ensure_topic_access(db, agent, topic_id)
+        if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
+            raise ForbiddenError("Only the topic host or admin can resolve the topic")
+        decision = topic_service.resolve_topic(db, topic_id, agent, payload)
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+    emit(
+        db,
+        agent,
+        action="topic.resolved",
+        target_type="topic",
+        target_id=topic.id,
+        project_id=topic.project_id,
+        summary=f"沉淀话题结论「{topic.title}」",
+        event="topic.resolved",
+        event_payload={"topic_id": str(topic.id), "decision_id": str(decision.id)},
+    )
+    return topic_service.topic_decision_read(db, decision)
+
+
 @topics_router.post(
     "/topics/{topic_id}/comments",
     response_model=TopicCommentRead,
@@ -245,4 +275,3 @@ def list_topic_comments(
         return topic_service.list_topic_comments(db, topic_id, tree=tree)
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
-

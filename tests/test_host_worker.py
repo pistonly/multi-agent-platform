@@ -11,6 +11,7 @@ class FakeMapClient:
         self._todos = todos
         self._topics = topics
         self.comments: list[dict[str, Any]] = []
+        self.decisions: list[dict[str, Any]] = []
         self.experiments: list[dict[str, Any]] = []
         self.advances: list[str] = []
 
@@ -31,6 +32,11 @@ class FakeMapClient:
     def topic_advance_round(self, topic_id: str) -> dict[str, Any]:
         self.advances.append(topic_id)
         return {"id": topic_id}
+
+    def topic_resolve(self, topic_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        decision = {"topic_id": topic_id, **payload}
+        self.decisions.append(decision)
+        return decision
 
     def experiment_create(
         self,
@@ -372,9 +378,196 @@ print(json.dumps({"body": "# Runner plan", "create_experiment": True}))
     ).run_once()
 
     assert stats.runner_invocations == 1
+    assert stats.decisions_recorded == 1
     assert stats.experiments_created == 1
+    assert client.decisions[0]["topic_id"] == "topic-ready"
+    assert client.decisions[0]["decision"] == "将话题“bridge promote”转入关联实验，由实验计划继续验证和落地。"
+    assert client.decisions[0]["action_items"] == []
     assert client.experiments[0]["plan"] == "# Runner plan"
     state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["topics"]["topic-ready"]["last_resolved_round_summary_count"] == 2
+    assert state["topics"]["topic-ready"]["last_round_summary_count"] == 2
+
+
+def test_worker_agent_runner_promote_records_decision_and_action_items(tmp_path):
+    owner_id = "00000000-0000-0000-0000-000000000001"
+    runner = _runner_script(
+        tmp_path,
+        f"""
+import json
+
+print(json.dumps({{
+    "body": "# Runner plan\\n\\n## Goal\\nShip it",
+    "create_experiment": True,
+    "decision": "采用 host bridge 自动沉淀结论",
+    "rationale": "两轮讨论已经收敛，剩余风险适合实验验证",
+    "rejected_options": "继续只靠人工整理",
+    "open_questions": "实验执行后是否需要自动更新 status_md",
+    "action_items": [
+        {{
+            "title": "验证沉淀结论链路",
+            "description": "运行 host worker promote 场景测试",
+            "owner_agent_id": "{owner_id}",
+            "due_at": "2026-07-01T00:00:00Z",
+            "linked_experiment_id": "not-a-uuid"
+        }},
+        {{"description": "missing title is ignored"}}
+    ],
+}}))
+""",
+    )
+    state_file = tmp_path / "host-bridge-state.json"
+    topic = {
+        "id": "topic-ready",
+        "title": "沉淀结论",
+        "discussion_round": "ready",
+        "round_summary_count": 2,
+        "experiments": [],
+        "comments": [
+            {"id": "c1", "author_agent_id": "participant-agent", "body": "同意", "children": []},
+            {"id": "c2", "author_agent_id": "host-agent", "body": "Round 1 Summary", "children": []},
+            {"id": "c3", "author_agent_id": "host-agent", "body": "Round 2 Summary", "children": []},
+        ],
+    }
+    client = FakeMapClient(
+        todos={"pending_topic_replies": [], "my_open_topics": [{"id": "topic-ready"}]},
+        topics={"topic-ready": topic},
+    )
+
+    stats = HostWorker(
+        client,
+        WorkerConfig(once=True, agent_runner=runner, promote_ready_topics=True, state_file=state_file),
+    ).run_once()
+
+    assert stats.decisions_recorded == 1
+    assert stats.experiments_created == 1
+    assert client.decisions == [
+        {
+            "topic_id": "topic-ready",
+            "decision": "采用 host bridge 自动沉淀结论",
+            "rationale": "两轮讨论已经收敛，剩余风险适合实验验证",
+            "rejected_options": "继续只靠人工整理",
+            "open_questions": "实验执行后是否需要自动更新 status_md",
+            "action_items": [
+                {
+                    "title": "验证沉淀结论链路",
+                    "description": "运行 host worker promote 场景测试",
+                    "owner_agent_id": owner_id,
+                    "due_at": "2026-07-01T00:00:00Z",
+                }
+            ],
+        }
+    ]
+    assert client.experiments[0]["plan"].startswith("# Runner plan")
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["topics"]["topic-ready"]["last_resolved_round_summary_count"] == 2
+    assert state["topics"]["topic-ready"]["last_round_summary_count"] == 2
+
+
+def test_worker_agent_runner_promote_dry_run_does_not_record_decision_or_state(tmp_path):
+    runner = _runner_script(
+        tmp_path,
+        """
+import json
+
+print(json.dumps({
+    "body": "# Runner plan",
+    "create_experiment": True,
+    "decision": "dry-run decision",
+    "action_items": [{"title": "dry-run action"}],
+}))
+""",
+    )
+    state_file = tmp_path / "host-bridge-state.json"
+    topic = {
+        "id": "topic-ready",
+        "title": "dry run",
+        "discussion_round": "ready",
+        "round_summary_count": 2,
+        "experiments": [],
+        "comments": [
+            {"id": "c1", "author_agent_id": "participant-agent", "body": "同意", "children": []},
+            {"id": "c2", "author_agent_id": "host-agent", "body": "Round 1 Summary", "children": []},
+            {"id": "c3", "author_agent_id": "host-agent", "body": "Round 2 Summary", "children": []},
+        ],
+    }
+    client = FakeMapClient(
+        todos={"pending_topic_replies": [], "my_open_topics": [{"id": "topic-ready"}]},
+        topics={"topic-ready": topic},
+    )
+
+    stats = HostWorker(
+        client,
+        WorkerConfig(
+            once=True,
+            dry_run=True,
+            agent_runner=runner,
+            promote_ready_topics=True,
+            state_file=state_file,
+        ),
+    ).run_once()
+
+    assert stats.runner_invocations == 1
+    assert stats.decisions_recorded == 0
+    assert stats.experiments_created == 0
+    assert stats.dry_run_actions == 2
+    assert client.decisions == []
+    assert client.experiments == []
+    assert not state_file.exists()
+
+
+def test_worker_agent_runner_promote_does_not_duplicate_recorded_decision(tmp_path):
+    runner = _runner_script(
+        tmp_path,
+        """
+import json
+
+print(json.dumps({
+    "body": "# Runner plan",
+    "create_experiment": True,
+    "decision": "already recorded",
+}))
+""",
+    )
+    state_file = tmp_path / "host-bridge-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "topics": {"topic-ready": {"last_resolved_round_summary_count": 2}},
+                "experiments": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    topic = {
+        "id": "topic-ready",
+        "title": "retry after resolve",
+        "discussion_round": "ready",
+        "round_summary_count": 2,
+        "experiments": [],
+        "comments": [
+            {"id": "c1", "author_agent_id": "participant-agent", "body": "同意", "children": []},
+            {"id": "c2", "author_agent_id": "host-agent", "body": "Round 1 Summary", "children": []},
+            {"id": "c3", "author_agent_id": "host-agent", "body": "Round 2 Summary", "children": []},
+        ],
+    }
+    client = FakeMapClient(
+        todos={"pending_topic_replies": [], "my_open_topics": [{"id": "topic-ready"}]},
+        topics={"topic-ready": topic},
+    )
+
+    stats = HostWorker(
+        client,
+        WorkerConfig(once=True, agent_runner=runner, promote_ready_topics=True, state_file=state_file),
+    ).run_once()
+
+    assert stats.decisions_recorded == 0
+    assert stats.experiments_created == 1
+    assert client.decisions == []
+    assert client.experiments[0]["plan"] == "# Runner plan"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["topics"]["topic-ready"]["last_resolved_round_summary_count"] == 2
     assert state["topics"]["topic-ready"]["last_round_summary_count"] == 2
 
 

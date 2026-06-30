@@ -11,6 +11,8 @@ from server.domain.models import (
     ReviewItem,
     ReviewItemStatus,
     Topic,
+    TopicActionItem,
+    TopicActionItemStatus,
     TopicComment,
     TopicStatus,
 )
@@ -19,6 +21,7 @@ from server.domain.schemas import (
     MentionTodoRead,
     PendingReplyRead,
     PendingTopicReplyTodoRead,
+    TopicActionItemTodoRead,
     TodoRead,
 )
 from server.services import mention_service
@@ -223,6 +226,32 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
 
     pending_topic_replies = list_pending_topic_replies(db, agent)
 
+    action_items = [
+        TopicActionItemTodoRead(
+            id=item.id,
+            decision_id=item.decision_id,
+            project_id=item.project_id,
+            topic_id=item.topic_id,
+            topic_title=item.topic.title if item.topic else "",
+            title=item.title,
+            description=item.description,
+            status=item.status,
+            due_at=item.due_at,
+            linked_experiment_id=item.linked_experiment_id,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        for item in db.scalars(
+            select(TopicActionItem)
+            .options(joinedload(TopicActionItem.topic))
+            .where(
+                TopicActionItem.owner_agent_id == agent.id,
+                TopicActionItem.status == TopicActionItemStatus.open,
+            )
+            .order_by(TopicActionItem.updated_at.desc())
+        )
+    ]
+
     return TodoRead(
         my_open_experiments=my_open_experiments,
         pending_reviews=pending_reviews,
@@ -230,4 +259,5 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         pending_topic_replies=pending_topic_replies,
         my_open_topics=my_open_topics,
         mentions=mentions,
+        action_items=action_items,
     )

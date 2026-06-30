@@ -38,12 +38,16 @@ from map_types import (
     ReviewItemStatus,
     ReviewItemUpdate,
     ReviewRead,
+    TopicActionItemRead,
+    TopicActionItemStatus,
     TopicAdvanceRound,
     TopicCommentCreate,
     TopicCommentRead,
     TopicCommentTreeNode,
     TopicCreate,
+    TopicDecisionRead,
     TopicRead,
+    TopicResolve,
     TopicStatus,
     TopicSummaryRead,
     TopicUpdate,
@@ -209,6 +213,26 @@ class MAPClient:
 
     def get_project_status(self, project_id: uuid.UUID) -> ProjectStatusRead:
         return ProjectStatusRead.model_validate(self._json("GET", f"/projects/{project_id}/status"))
+
+    def list_project_decisions(self, project_id: uuid.UUID, *, limit: int = 20) -> list[TopicDecisionRead]:
+        data = self._json("GET", f"/projects/{project_id}/decisions", params={"limit": limit})
+        return [TopicDecisionRead.model_validate(item) for item in data]
+
+    def list_project_action_items(
+        self,
+        project_id: uuid.UUID,
+        *,
+        owner_agent_id: uuid.UUID | None = None,
+        status: TopicActionItemStatus | None = None,
+        limit: int = 100,
+    ) -> list[TopicActionItemRead]:
+        params: dict[str, Any] = {"limit": limit}
+        if owner_agent_id is not None:
+            params["owner_agent_id"] = str(owner_agent_id)
+        if status is not None:
+            params["status"] = status.value
+        data = self._json("GET", f"/projects/{project_id}/action-items", params=params)
+        return [TopicActionItemRead.model_validate(item) for item in data]
 
     def revise_project_status(
         self,
@@ -441,6 +465,10 @@ class MAPClient:
 
     def get_topic(self, topic_id: uuid.UUID) -> TopicRead:
         return TopicRead.model_validate(self._json("GET", f"/topics/{topic_id}"))
+
+    def resolve_topic(self, topic_id: uuid.UUID, payload: TopicResolve) -> TopicDecisionRead:
+        data = self._json("POST", f"/topics/{topic_id}/resolve", json=payload.model_dump(mode="json"))
+        return TopicDecisionRead.model_validate(data)
 
     def advance_topic_round(self, topic_id: uuid.UUID, payload: TopicAdvanceRound | None = None) -> TopicSummaryRead:
         body = (payload or TopicAdvanceRound()).model_dump()

@@ -19,6 +19,7 @@ export function TodosPage() {
     data.pending_reviews.length === 0 &&
     data.pending_replies.length === 0 &&
     (data.pending_topic_replies?.length ?? 0) === 0 &&
+    (data.action_items?.length ?? 0) === 0 &&
     data.my_open_topics.length === 0 &&
     data.mentions.length === 0;
 
@@ -65,6 +66,22 @@ export function TodosPage() {
               <span className="text-xs text-slate-500">
                 {new Date(r.created_at).toLocaleDateString()}
               </span>
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {(data.action_items?.length ?? 0) > 0 && (
+        <Section title={`行动项（${data.action_items.length}）`}>
+          {data.action_items.map((item) => (
+            <Row key={item.id} to={`/topics/${item.topic_id}`}>
+              <div>
+                <div className="text-accent hover:underline">{item.title}</div>
+                <div className="text-xs text-slate-400">{item.topic_title}</div>
+              </div>
+              <div className="text-right text-xs text-slate-500">
+                {item.due_at ? `截止 ${new Date(item.due_at).toLocaleDateString()}` : item.status}
+              </div>
             </Row>
           ))}
         </Section>

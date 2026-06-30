@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, fetchProjectExperiments, fetchTopics, parseTotalCount } from "./client";
+import {
+  api,
+  fetchProjectActionItems,
+  fetchProjectDecisions,
+  fetchProjectExperiments,
+  fetchTopics,
+  parseTotalCount,
+} from "./client";
 
 describe("parseTotalCount", () => {
   it("reads lowercase x-total-count header", () => {
@@ -70,5 +77,48 @@ describe("paginated list fetchers", () => {
       },
     });
     expect(result).toEqual({ items: [], total: 3 });
+  });
+
+  it("fetchProjectDecisions sends limit", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue({
+      data: [{ id: "d1" }],
+      headers: {},
+      status: 200,
+      statusText: "OK",
+      config: {} as never,
+    });
+
+    const result = await fetchProjectDecisions("proj-3", 5);
+
+    expect(get).toHaveBeenCalledWith("/projects/proj-3/decisions", {
+      params: { limit: 5 },
+    });
+    expect(result).toEqual([{ id: "d1" }]);
+  });
+
+  it("fetchProjectActionItems sends owner and status filters", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue({
+      data: [],
+      headers: {},
+      status: 200,
+      statusText: "OK",
+      config: {} as never,
+    });
+
+    const result = await fetchProjectActionItems({
+      projectId: "proj-4",
+      ownerAgentId: "agent-1",
+      status: "open",
+      limit: 10,
+    });
+
+    expect(get).toHaveBeenCalledWith("/projects/proj-4/action-items", {
+      params: {
+        owner_agent_id: "agent-1",
+        status: "open",
+        limit: 10,
+      },
+    });
+    expect(result).toEqual([]);
   });
 });

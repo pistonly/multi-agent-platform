@@ -91,8 +91,9 @@ Respect discussion_round / round_summary_count. Do not post a full Round Summary
         "round_summary": f"""For `round_summary`: draft a **top-level** Markdown post for **Round {round_n} Summary**.
 Use the template from the skill (`## Round {round_n} Summary`, 已共识 / 未决 / 下轮议程 / 主持状态).
 Set parent_id to null. Set advance_round to true after posting.""",
-        "promote_experiment": """For `promote_experiment`: draft an experiment plan in Markdown (use as body).
-Set create_experiment to true. parent_id should be null.""",
+        "promote_experiment": """For `promote_experiment`: first distill the topic into structured conclusion fields:
+decision, rationale, rejected_options, open_questions, and action_items.
+Then draft an experiment plan in Markdown (use as body). Set create_experiment to true. parent_id should be null.""",
         "revise_plan": """For `revise_plan`: revise the experiment plan Markdown to address all open unreasonable items.
 Return full revised plan as `body` and a short `change_note`. Do not call map CLI.""",
         "execute_experiment": """For `execute_experiment`: implement the plan in the repository (edit files as needed).
@@ -108,7 +109,29 @@ Return `summary` (one line) and `execution_log_md` (detailed log with files chan
   "change_note": "short note (revise_plan only)"
 }"""
     else:
-        json_shape = """{
+        if action == "promote_experiment":
+            json_shape = """{
+  "body": "experiment plan Markdown",
+  "parent_id": null,
+  "advance_round": false,
+  "create_experiment": true,
+  "decision": "final topic conclusion before creating the experiment",
+  "rationale": "why this conclusion follows from the discussion",
+  "rejected_options": "alternatives not chosen, or null",
+  "open_questions": "questions carried into the experiment, or null",
+  "no_decision_reason": null,
+  "action_items": [
+    {
+      "title": "short actionable follow-up",
+      "description": "optional detail",
+      "owner_agent_id": null,
+      "due_at": null,
+      "linked_experiment_id": null
+    }
+  ]
+}"""
+        else:
+            json_shape = """{
   "body": "Markdown reply or summary text",
   "parent_id": "<comment_id or null>",
   "advance_round": false,

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { fetchProjectStatus, fetchProjectStatusVersions } from "../api/client";
-import type { ExperimentSummary, TopicSummary } from "../api/types";
+import { fetchProjectDecisions, fetchProjectStatus, fetchProjectStatusVersions } from "../api/client";
+import type { ExperimentSummary, TopicDecision, TopicSummary } from "../api/types";
 import { ExperimentsListPanel } from "./ExperimentsListPanel";
 import { PhaseBadge } from "./PhaseStepper";
 import { TopicsListPanel } from "./TopicsListPanel";
@@ -26,6 +26,12 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
     queryKey: ["project-status", projectId],
     queryFn: () => fetchProjectStatus(projectId),
     refetchInterval: 30_000,
+  });
+  const { data: decisions } = useQuery({
+    queryKey: ["project-decisions", projectId],
+    queryFn: () => fetchProjectDecisions(projectId, 5),
+    enabled: !!data,
+    refetchInterval: 120_000,
   });
 
   if (isLoading) return <p className="text-slate-400">加载项目状态…</p>;
@@ -75,6 +81,14 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
           <span className="text-xs text-slate-500">{open_topics.length} 个</span>
         </div>
         <OpenTopicList topics={open_topics} emptyLabel="暂无进行中的话题" />
+      </section>
+
+      <section className="card">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">最近结论</h2>
+          <span className="text-xs text-slate-500">{decisions?.length ?? 0} 条</span>
+        </div>
+        <DecisionList decisions={decisions ?? []} />
       </section>
 
       <section className="card">
@@ -136,6 +150,30 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
         </Modal>
       )}
     </div>
+  );
+}
+
+function DecisionList({ decisions }: { decisions: TopicDecision[] }) {
+  if (decisions.length === 0) return <p className="py-2 text-sm text-slate-500">暂无结构化结论</p>;
+  return (
+    <ul className="space-y-2">
+      {decisions.map((decision) => (
+        <li key={decision.id} className="border-b border-surface-border py-2 last:border-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Link to={`/topics/${decision.topic_id}`} className="text-accent hover:underline">
+              {decision.topic_title ?? `${decision.topic_id.slice(0, 8)}…`}
+            </Link>
+            <span className="text-xs text-slate-500">{new Date(decision.updated_at).toLocaleString()}</span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-sm text-slate-300">
+            {decision.decision ?? decision.no_decision_reason ?? "暂无结论正文"}
+          </p>
+          {decision.action_items.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">{decision.action_items.length} 个行动项</p>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

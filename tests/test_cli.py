@@ -122,6 +122,47 @@ def test_cli_topic_flow(runner, patched_cli, project):
     assert yaml.safe_load(result.output)["status"] == "closed"
 
 
+def test_cli_topic_resolve_and_action_list(runner, patched_cli, project, reviewer, tmp_path: Path):
+    result = runner.invoke(app, ["topic", "create", "--title", "CLI决策话题"])
+    assert result.exit_code == 0, result.output
+    topic = yaml.safe_load(result.output)
+
+    decision_file = tmp_path / "decision.yaml"
+    decision_file.write_text(
+        yaml.safe_dump(
+            {
+                "decision": "采用行动项 MVP",
+                "rationale": "先让讨论能沉淀",
+                "action_items": [
+                    {
+                        "title": "补测试",
+                        "owner_agent_id": reviewer["id"],
+                    }
+                ],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["topic", "resolve", "--id", topic["id"], "--file", str(decision_file)])
+    assert result.exit_code == 0, result.output
+    resolved = yaml.safe_load(result.output)
+    assert resolved["decision"] == "采用行动项 MVP"
+    assert resolved["action_items"][0]["title"] == "补测试"
+
+    result = runner.invoke(app, ["project", "decisions"])
+    assert result.exit_code == 0, result.output
+    decisions = yaml.safe_load(result.output)
+    assert decisions[0]["topic_id"] == topic["id"]
+
+    result = runner.invoke(app, ["action", "list", "--owner-agent-id", reviewer["id"]])
+    assert result.exit_code == 0, result.output
+    actions = yaml.safe_load(result.output)
+    assert actions[0]["title"] == "补测试"
+
+
 def test_cli_persona_list_missing_map_dir(runner, monkeypatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MAP_TOKEN", raising=False)

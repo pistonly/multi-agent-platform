@@ -175,6 +175,7 @@ export interface TopicCreatePayload {
 
 export type TopicStatus = "open" | "closed";
 export type TopicDiscussionRound = "round1" | "round2" | "ready";
+export type TopicActionItemStatus = "open" | "done" | "cancelled";
 
 export interface TopicSummary {
   id: string;
@@ -208,9 +209,58 @@ export interface TopicCommentTreeNode extends TopicComment {
   children: TopicCommentTreeNode[];
 }
 
+export interface TopicActionItem {
+  id: string;
+  decision_id: string;
+  project_id: string;
+  topic_id: string;
+  title: string;
+  description: string | null;
+  owner_agent_id: string | null;
+  owner_name: string | null;
+  status: TopicActionItemStatus;
+  due_at: string | null;
+  linked_experiment_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TopicDecision {
+  id: string;
+  project_id: string;
+  topic_id: string;
+  topic_title: string | null;
+  author_agent_id: string;
+  author_name: string | null;
+  decision: string | null;
+  rationale: string | null;
+  rejected_options: string | null;
+  open_questions: string | null;
+  no_decision_reason: string | null;
+  action_items: TopicActionItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TopicResolvePayload {
+  decision?: string | null;
+  rationale?: string | null;
+  rejected_options?: string | null;
+  open_questions?: string | null;
+  no_decision_reason?: string | null;
+  action_items?: {
+    title: string;
+    description?: string | null;
+    owner_agent_id?: string | null;
+    due_at?: string | null;
+    linked_experiment_id?: string | null;
+  }[];
+}
+
 export interface TopicRead extends TopicSummary {
   experiments: ExperimentSummary[];
   comments: TopicCommentTreeNode[];
+  decision: TopicDecision | null;
 }
 
 export interface PendingReply {
@@ -248,6 +298,21 @@ export interface PendingTopicReplyTodo {
   created_at: string;
 }
 
+export interface TopicActionItemTodo {
+  id: string;
+  decision_id: string;
+  project_id: string;
+  topic_id: string;
+  topic_title: string;
+  title: string;
+  description: string | null;
+  status: TopicActionItemStatus;
+  due_at: string | null;
+  linked_experiment_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TodoRead {
   my_open_experiments: ExperimentSummary[];
   pending_reviews: ExperimentSummary[];
@@ -255,6 +320,7 @@ export interface TodoRead {
   pending_topic_replies: PendingTopicReplyTodo[];
   my_open_topics: TopicSummary[];
   mentions: MentionTodo[];
+  action_items: TopicActionItemTodo[];
 }
 
 export interface Notification {

@@ -47,6 +47,12 @@ class TopicDiscussionRound(str, enum.Enum):
     ready = "ready"
 
 
+class TopicActionItemStatus(str, enum.Enum):
+    open = "open"
+    done = "done"
+    cancelled = "cancelled"
+
+
 class MentionSourceType(str, enum.Enum):
     experiment_comment = "experiment_comment"
     topic_comment = "topic_comment"

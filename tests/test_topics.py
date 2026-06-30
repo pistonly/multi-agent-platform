@@ -115,6 +115,107 @@ def test_topic_comments_tree(client, auth_headers, project):
     assert detail.json()["comment_count"] == 2
 
 
+def test_topic_resolve_records_decision_and_action_items(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project, title="决策话题")
+    action_owner_id = reviewer["id"]
+
+    resolved = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "采用结构化结论层",
+            "rationale": "讨论需要沉淀为可执行状态",
+            "rejected_options": "继续只依赖评论 thread",
+            "open_questions": "后续是否需要版本化结论",
+            "action_items": [
+                {
+                    "title": "补 Web 展示",
+                    "description": "在话题页展示当前结论",
+                    "owner_agent_id": action_owner_id,
+                }
+            ],
+        },
+    )
+    assert resolved.status_code == 200, resolved.text
+    body = resolved.json()
+    assert body["topic_id"] == topic["id"]
+    assert body["decision"] == "采用结构化结论层"
+    assert body["author_name"] == "test-agent"
+    assert len(body["action_items"]) == 1
+    assert body["action_items"][0]["owner_agent_id"] == action_owner_id
+    assert body["action_items"][0]["owner_name"] == "reviewer-agent"
+    assert body["action_items"][0]["status"] == "open"
+
+    detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+    assert detail.status_code == 200
+    assert detail.json()["decision"]["decision"] == "采用结构化结论层"
+
+    decisions = client.get(f"/api/v1/projects/{project['id']}/decisions", headers=auth_headers)
+    assert decisions.status_code == 200
+    assert decisions.json()[0]["topic_title"] == "决策话题"
+
+    actions = client.get(
+        f"/api/v1/projects/{project['id']}/action-items",
+        headers=auth_headers,
+        params={"owner_agent_id": action_owner_id, "status": "open"},
+    )
+    assert actions.status_code == 200
+    assert len(actions.json()) == 1
+    assert actions.json()[0]["title"] == "补 Web 展示"
+
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"])
+    assert reviewer_todos.status_code == 200
+    assert reviewer_todos.json()["action_items"][0]["topic_title"] == "决策话题"
+
+
+def test_resolve_topic_requires_host_or_admin(client, auth_headers, reviewer, admin_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+
+    denied = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=reviewer["headers"],
+        json={"decision": "非主持尝试写结论"},
+    )
+    assert denied.status_code == 403
+
+    allowed = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=admin_headers,
+        json={"no_decision_reason": "管理员记录暂无结论"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["no_decision_reason"] == "管理员记录暂无结论"
+
+
+def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    first = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "第一版结论",
+            "action_items": [{"title": "旧行动项", "owner_agent_id": reviewer["id"]}],
+        },
+    )
+    assert first.status_code == 200
+    decision_id = first.json()["id"]
+    old_action_id = first.json()["action_items"][0]["id"]
+
+    second = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "第二版结论",
+            "action_items": [{"title": "新行动项", "owner_agent_id": reviewer["id"]}],
+        },
+    )
+    assert second.status_code == 200
+    assert second.json()["id"] == decision_id
+    assert second.json()["decision"] == "第二版结论"
+    assert second.json()["action_items"][0]["id"] != old_action_id
+    assert second.json()["action_items"][0]["title"] == "新行动项"
+
+
 def test_experiment_linked_to_topic(client, auth_headers, project):
     topic = _create_topic(client, auth_headers, project)
 

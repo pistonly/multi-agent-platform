@@ -15,9 +15,13 @@ import type {
   ProjectStatus,
   ProjectStatusVersion,
   Review,
+  TopicActionItem,
+  TopicActionItemStatus,
   TopicCreatePayload,
+  TopicDecision,
   TodoRead,
   TopicRead,
+  TopicResolvePayload,
   TopicStatus,
   TopicSummary,
   NotificationList,
@@ -112,6 +116,30 @@ export async function createProject(payload: ProjectCreatePayload): Promise<Proj
 
 export async function fetchProjectStatus(projectId: string): Promise<ProjectStatus> {
   const { data } = await api.get<ProjectStatus>(`/projects/${projectId}/status`);
+  return data;
+}
+
+export async function fetchProjectDecisions(projectId: string, limit = 20): Promise<TopicDecision[]> {
+  const { data } = await api.get<TopicDecision[]>(`/projects/${projectId}/decisions`, {
+    params: { limit },
+  });
+  return data;
+}
+
+export async function fetchProjectActionItems(params: {
+  projectId: string;
+  ownerAgentId?: string;
+  status?: TopicActionItemStatus;
+  limit?: number;
+}): Promise<TopicActionItem[]> {
+  const { projectId, ownerAgentId, status = "open", limit = 100 } = params;
+  const { data } = await api.get<TopicActionItem[]>(`/projects/${projectId}/action-items`, {
+    params: {
+      ...(ownerAgentId ? { owner_agent_id: ownerAgentId } : {}),
+      ...(status ? { status } : {}),
+      limit,
+    },
+  });
   return data;
 }
 
@@ -310,6 +338,11 @@ export async function fetchTopics(
 
 export async function fetchTopic(topicId: string): Promise<TopicRead> {
   const { data } = await api.get<TopicRead>(`/topics/${topicId}`);
+  return data;
+}
+
+export async function resolveTopic(topicId: string, payload: TopicResolvePayload): Promise<TopicDecision> {
+  const { data } = await api.post<TopicDecision>(`/topics/${topicId}/resolve`, payload);
   return data;
 }
 

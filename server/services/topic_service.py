@@ -1,18 +1,22 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload
 
-from map_types.enums import ExperimentPhase, TopicDiscussionRound
-from server.domain.models import Agent, Experiment, Topic, TopicComment, TopicStatus
+from map_types.enums import AgentRole, ExperimentPhase, TopicActionItemStatus, TopicDiscussionRound
+from server.domain.models import Agent, Experiment, Topic, TopicActionItem, TopicComment, TopicDecision, TopicStatus
 from server.domain.schemas import (
     ExperimentSummaryRead,
+    TopicActionItemRead,
     TopicCommentCreate,
     TopicCommentRead,
     TopicCommentTreeNode,
     TopicCreate,
+    TopicDecisionRead,
     TopicRead,
+    TopicResolve,
     TopicSummaryRead,
     TopicUpdate,
 )
@@ -88,6 +92,76 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
     ]
 
 
+def _action_item_read(db: Session, item: TopicActionItem) -> TopicActionItemRead:
+    owner_name = None
+    if item.owner_agent_id is not None:
+        owner = getattr(item, "owner", None)
+        if owner is None:
+            owner = db.get(Agent, item.owner_agent_id)
+        owner_name = owner.name if owner else None
+    return TopicActionItemRead(
+        id=item.id,
+        decision_id=item.decision_id,
+        project_id=item.project_id,
+        topic_id=item.topic_id,
+        title=item.title,
+        description=item.description,
+        owner_agent_id=item.owner_agent_id,
+        owner_name=owner_name,
+        status=item.status,
+        due_at=item.due_at,
+        linked_experiment_id=item.linked_experiment_id,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+def topic_decision_read(db: Session, decision: TopicDecision) -> TopicDecisionRead:
+    author_name = None
+    author = getattr(decision, "author", None)
+    if author is None:
+        author = db.get(Agent, decision.author_agent_id)
+    if author is not None:
+        author_name = author.name
+
+    topic_title = None
+    topic = getattr(decision, "topic", None)
+    if topic is None:
+        topic = db.get(Topic, decision.topic_id)
+    if topic is not None:
+        topic_title = topic.title
+
+    return TopicDecisionRead(
+        id=decision.id,
+        project_id=decision.project_id,
+        topic_id=decision.topic_id,
+        topic_title=topic_title,
+        author_agent_id=decision.author_agent_id,
+        author_name=author_name,
+        decision=decision.decision,
+        rationale=decision.rationale,
+        rejected_options=decision.rejected_options,
+        open_questions=decision.open_questions,
+        no_decision_reason=decision.no_decision_reason,
+        action_items=[_action_item_read(db, item) for item in decision.action_items],
+        created_at=decision.created_at,
+        updated_at=decision.updated_at,
+    )
+
+
+def _load_decision(db: Session, topic_id: uuid.UUID) -> TopicDecision | None:
+    stmt = (
+        select(TopicDecision)
+        .where(TopicDecision.topic_id == topic_id)
+        .options(
+            joinedload(TopicDecision.author),
+            joinedload(TopicDecision.topic),
+            joinedload(TopicDecision.action_items).joinedload(TopicActionItem.owner),
+        )
+    )
+    return db.execute(stmt).unique().scalar_one_or_none()
+
+
 def create_topic(
     db: Session,
     project_id: uuid.UUID,
@@ -161,7 +235,116 @@ def get_topic_detail(db: Session, topic_id: uuid.UUID) -> TopicRead:
         db, {comment.author_agent_id for comment in comments}
     ))
 
-    return TopicRead(**summary.model_dump(), experiments=experiments, comments=comments_tree)
+    decision = _load_decision(db, topic.id)
+    return TopicRead(
+        **summary.model_dump(),
+        experiments=experiments,
+        comments=comments_tree,
+        decision=topic_decision_read(db, decision) if decision is not None else None,
+    )
+
+
+def resolve_topic(
+    db: Session,
+    topic_id: uuid.UUID,
+    author: Agent,
+    payload: TopicResolve,
+) -> TopicDecision:
+    topic = _get_topic(db, topic_id)
+    decision = db.scalar(select(TopicDecision).where(TopicDecision.topic_id == topic_id))
+    if decision is None:
+        decision = TopicDecision(
+            project_id=topic.project_id,
+            topic_id=topic.id,
+            author_agent_id=author.id,
+        )
+        db.add(decision)
+        db.flush()
+    else:
+        decision.author_agent_id = author.id
+
+    decision.decision = payload.decision
+    decision.rationale = payload.rationale
+    decision.rejected_options = payload.rejected_options
+    decision.open_questions = payload.open_questions
+    decision.no_decision_reason = payload.no_decision_reason
+
+    db.execute(delete(TopicActionItem).where(TopicActionItem.decision_id == decision.id))
+    for item_payload in payload.action_items:
+        if item_payload.owner_agent_id is not None:
+            owner = db.get(Agent, item_payload.owner_agent_id)
+            if owner is None or (owner.project_id != topic.project_id and owner.role != AgentRole.admin):
+                raise NotFoundError("Action item owner agent not found")
+        if item_payload.linked_experiment_id is not None:
+            experiment = db.get(Experiment, item_payload.linked_experiment_id)
+            if experiment is None or experiment.deleted_at is not None or experiment.project_id != topic.project_id:
+                raise NotFoundError("Linked experiment not found")
+        db.add(
+            TopicActionItem(
+                decision_id=decision.id,
+                project_id=topic.project_id,
+                topic_id=topic.id,
+                title=item_payload.title,
+                description=item_payload.description,
+                owner_agent_id=item_payload.owner_agent_id,
+                status=TopicActionItemStatus.open,
+                due_at=item_payload.due_at,
+                linked_experiment_id=item_payload.linked_experiment_id,
+            )
+        )
+
+    db.commit()
+    loaded = _load_decision(db, topic.id)
+    if loaded is None:
+        raise NotFoundError("Topic decision not found")
+    return loaded
+
+
+def list_project_decisions(
+    db: Session,
+    project_id: uuid.UUID,
+    *,
+    limit: int = 20,
+) -> list[TopicDecisionRead]:
+    get_project(db, project_id)
+    rows = list(
+        db.scalars(
+            select(TopicDecision)
+            .where(TopicDecision.project_id == project_id)
+            .options(
+                joinedload(TopicDecision.author),
+                joinedload(TopicDecision.topic),
+                joinedload(TopicDecision.action_items).joinedload(TopicActionItem.owner),
+            )
+            .order_by(TopicDecision.updated_at.desc())
+            .limit(max(1, min(limit, 100)))
+        )
+        .unique()
+    )
+    return [topic_decision_read(db, row) for row in rows]
+
+
+def list_action_items(
+    db: Session,
+    project_id: uuid.UUID,
+    *,
+    owner_agent_id: uuid.UUID | None = None,
+    status: TopicActionItemStatus | None = None,
+    limit: int = 100,
+) -> list[TopicActionItemRead]:
+    get_project(db, project_id)
+    stmt = (
+        select(TopicActionItem)
+        .where(TopicActionItem.project_id == project_id)
+        .options(joinedload(TopicActionItem.owner))
+        .order_by(TopicActionItem.updated_at.desc())
+        .limit(max(1, min(limit, 200)))
+    )
+    if owner_agent_id is not None:
+        stmt = stmt.where(TopicActionItem.owner_agent_id == owner_agent_id)
+    if status is not None:
+        stmt = stmt.where(TopicActionItem.status == status)
+    return [_action_item_read(db, item) for item in db.scalars(stmt)]
 
 
 def update_topic(db: Session, topic_id: uuid.UUID, payload: TopicUpdate) -> Topic:

@@ -25,6 +25,7 @@ The host bridge owns:
 - building runner context
 - local idempotency
 - structured logs
+- recording topic decisions and action items before experiment promotion
 - MAP writes through `map --persona host`
 
 Do not embed OpenAI, Anthropic, Cursor, Claude Code, or Codex SDK calls inside
@@ -62,6 +63,12 @@ experiments after these gates pass:
 - no pending topic replies for that topic
 - no active experiment already exists for the topic
 
+Before creating the experiment, the host bridge records a structured topic
+decision through `map --persona host topic resolve`. The runner can return
+`decision`, `rationale`, `rejected_options`, `open_questions`, and
+`action_items`; if it only returns an experiment plan, the bridge records a
+minimal decision that the topic is being moved into an experiment.
+
 `--promote-ready-topics` is off by default.
 
 ## Runner Contract v0
@@ -73,7 +80,7 @@ stdout.
 
 ```json
 {
-  "action": "reply_pending|promote_experiment",
+  "action": "reply_pending|round_summary|promote_experiment",
   "topic_id": "uuid",
   "dry_run": false,
   "context": {
@@ -99,9 +106,30 @@ stdout.
   "body": "Markdown reply or experiment plan",
   "parent_id": "uuid-or-null",
   "advance_round": false,
-  "create_experiment": false
+  "create_experiment": false,
+  "decision": "promote_experiment only: final topic conclusion",
+  "rationale": "promote_experiment only: why this conclusion follows",
+  "rejected_options": "promote_experiment only: alternatives not chosen",
+  "open_questions": "promote_experiment only: questions carried forward",
+  "no_decision_reason": null,
+  "action_items": [
+    {
+      "title": "short actionable follow-up",
+      "description": "optional detail",
+      "owner_agent_id": null,
+      "due_at": null,
+      "linked_experiment_id": null
+    }
+  ]
 }
 ```
+
+For `reply_pending` and `round_summary`, decision fields are ignored. For
+`promote_experiment`, the bridge writes the decision before experiment creation
+and stores `last_resolved_round_summary_count` in local state to avoid duplicate
+decision writes after restarts. If a decision write already succeeded but
+experiment creation failed, the next cycle can skip the duplicate decision and
+still create the experiment.
 
 Exit codes:
 
@@ -130,6 +158,8 @@ Schema:
   "topics": {
     "<topic_id>": {
       "last_handled_comment_id": "...",
+      "last_posted_summary_round": 2,
+      "last_resolved_round_summary_count": 2,
       "last_round_summary_count": 2,
       "last_action_at": "ISO8601"
     }

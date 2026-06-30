@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from map_types.enums import TopicActionItemStatus
 from server.api.background_tasks import bind_background_tasks
 from server.api.common import emit, http_error
 from server.api.deps import get_current_agent
@@ -17,6 +18,8 @@ from server.domain.schemas import (
     ProjectStatusRevise,
     ProjectStatusVersionRead,
     ProjectUpdate,
+    TopicActionItemRead,
+    TopicDecisionRead,
 )
 from server.services import permissions as perm
 from server.services import project_service as svc
@@ -152,6 +155,42 @@ def get_project_status(
         raise http_error(exc) from exc
 
 
+@router.get("/{project_id}/decisions", response_model=list[TopicDecisionRead])
+def list_project_decisions(
+    project_id: uuid.UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> list[TopicDecisionRead]:
+    try:
+        perm.ensure_project_access(agent, project_id)
+        return svc.list_project_decisions(db, project_id, limit=limit)
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+
+
+@router.get("/{project_id}/action-items", response_model=list[TopicActionItemRead])
+def list_project_action_items(
+    project_id: uuid.UUID,
+    owner_agent_id: uuid.UUID | None = Query(default=None),
+    item_status: TopicActionItemStatus | None = Query(default=None, alias="status"),
+    limit: int = Query(default=100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> list[TopicActionItemRead]:
+    try:
+        perm.ensure_project_access(agent, project_id)
+        return svc.list_project_action_items(
+            db,
+            project_id,
+            owner_agent_id=owner_agent_id,
+            status=item_status,
+            limit=limit,
+        )
+    except (NotFoundError, ForbiddenError) as exc:
+        raise http_error(exc) from exc
+
+
 @router.post(
     "/{project_id}/status/revisions",
     response_model=ProjectStatusVersionRead,
@@ -205,5 +244,4 @@ def get_project_status_version(
         return status_doc_service.get_status_version(db, project_id, version)
     except (NotFoundError, ForbiddenError) as exc:
         raise http_error(exc) from exc
-
 

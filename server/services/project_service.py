@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from map_types.enums import TopicDiscussionRound, TopicStatus
+from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from server.domain.models import Agent, AgentRole, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
 from server.domain.schemas import (
     ExperimentBundleRead,
@@ -19,6 +19,8 @@ from server.domain.schemas import (
     ProjectRead,
     ProjectStatusRead,
     ProjectUpdate,
+    TopicActionItemRead,
+    TopicDecisionRead,
 )
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 from server.services import project_status_service as status_doc_service
@@ -89,6 +91,34 @@ def update_project(db: Session, project_id: uuid.UUID, payload: ProjectUpdate) -
 def get_project_status(db: Session, project_id: uuid.UUID) -> ProjectStatusRead:
     project = get_project(db, project_id)
     return build_projects_status(db, [project])[0]
+
+
+def list_project_decisions(
+    db: Session,
+    project_id: uuid.UUID,
+    *,
+    limit: int = 20,
+) -> list[TopicDecisionRead]:
+    get_project(db, project_id)
+    return topic_service.list_project_decisions(db, project_id, limit=limit)
+
+
+def list_project_action_items(
+    db: Session,
+    project_id: uuid.UUID,
+    *,
+    owner_agent_id: uuid.UUID | None = None,
+    status: TopicActionItemStatus | None = None,
+    limit: int = 100,
+) -> list[TopicActionItemRead]:
+    get_project(db, project_id)
+    return topic_service.list_action_items(
+        db,
+        project_id,
+        owner_agent_id=owner_agent_id,
+        status=status,
+        limit=limit,
+    )
 
 
 def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectStatusRead]:

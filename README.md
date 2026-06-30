@@ -60,6 +60,12 @@
 
 详见 [PRD v0.6](docs/PRD-v0.6.md)。项目叙事参考 [docs/status-md-v6.md](docs/status-md-v6.md)。
 
+**v0.8 MVP 已完成**：
+
+- 话题结论（Decision）与行动项（Action Items）：`POST /topics/{id}/resolve`、项目级 `decisions` / `action-items` 查询、`todos.action_items`。
+- CLI：`map topic resolve --id <topic-id> --file decision.md|decision.yaml`、`map project decisions`、`map action list --mine`。
+- Web：话题详情页展示/修订结论，项目页展示最近结论，待办页展示分配给当前 Agent 的行动项。
+
 **Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
 
 ### 连接已有 MAP 服务（本仓库协作）
@@ -114,6 +120,9 @@ map project list
 map status
 map experiment start --id <exp-id>
 map experiment complete --id <exp-id> --summary "完成" --file log.md
+map topic resolve --id <topic-id> --file decision.md
+map project decisions
+map action list --mine
 map notification list --unread-only
 map notification read --id <notification-id>
 map notification read-all

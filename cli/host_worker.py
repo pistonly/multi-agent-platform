@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,6 +47,9 @@ class MapClientProtocol(Protocol):
     def topic_advance_round(self, topic_id: str) -> dict[str, Any] | None:
         ...
 
+    def topic_resolve(self, topic_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        ...
+
     def experiment_create(
         self,
         title: str,
@@ -82,6 +86,7 @@ class WorkerStats:
     cycles: int = 0
     replies_created: int = 0
     summaries_created: int = 0
+    decisions_recorded: int = 0
     experiments_created: int = 0
     plans_revised: int = 0
     experiments_approved: int = 0
@@ -146,6 +151,12 @@ class MapCommandClient:
 
     def topic_advance_round(self, topic_id: str) -> dict[str, Any] | None:
         return self._run(["topic", "advance-round", "--id", topic_id])
+
+    def topic_resolve(self, topic_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".yaml", delete=True) as fh:
+            yaml.safe_dump(payload, fh, allow_unicode=True, sort_keys=False)
+            fh.flush()
+            return self._run(["topic", "resolve", "--id", topic_id, "--file", fh.name])
 
     def experiment_create(
         self,
@@ -235,6 +246,7 @@ class HostWorker:
             total.cycles += stats.cycles
             total.replies_created += stats.replies_created
             total.summaries_created += stats.summaries_created
+            total.decisions_recorded += stats.decisions_recorded
             total.experiments_created += stats.experiments_created
             total.plans_revised += stats.plans_revised
             total.experiments_approved += stats.experiments_approved
@@ -393,7 +405,10 @@ class HostWorker:
             if self._should_promote_topic(topic, pending_topic_ids):
                 promoted = self._promote_with_runner(topic, stats)
                 if promoted:
-                    stats.experiments_created += promoted
+                    if self.config.dry_run:
+                        stats.dry_run_actions += promoted
+                    else:
+                        stats.experiments_created += promoted
                     actions += promoted
 
     def _should_promote_topic(self, topic: dict[str, Any], pending_topic_ids: set[str]) -> bool:
@@ -610,12 +625,45 @@ class HostWorker:
             self._mark_topic_state(topic_id, last_round_summary_count=round_count)
             return 0
         if not result.get("create_experiment"):
+            if result.get("decision") or result.get("no_decision_reason"):
+                self._resolve_topic_from_runner_result(topic, result, stats, round_count=round_count)
             self._log_event("promote_experiment", topic_id, status="skip_runner_declined")
             return 0
 
+        self._resolve_topic_from_runner_result(topic, result, stats, round_count=round_count)
         self._create_experiment_from_topic(topic, plan_content=result.get("body") or None)
         self._mark_topic_state(topic_id, last_round_summary_count=round_count)
         return 1
+
+    def _resolve_topic_from_runner_result(
+        self,
+        topic: dict[str, Any],
+        result: dict[str, Any],
+        stats: WorkerStats,
+        *,
+        round_count: int,
+    ) -> bool:
+        topic_id = str(topic["id"])
+        if self._topic_state(topic_id).get("last_resolved_round_summary_count") == round_count:
+            self._log_event("topic_resolve", topic_id, status="skip_seen", round_summary_count=round_count)
+            return False
+
+        payload = _topic_resolution_payload(topic, result)
+        if payload is None:
+            return False
+
+        if self.config.dry_run:
+            typer.echo(
+                f"[dry-run] would resolve topic={topic_id}\n"
+                f"{yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)}"
+            )
+            stats.dry_run_actions += 1
+            return True
+
+        self.client.topic_resolve(topic_id, payload)
+        stats.decisions_recorded += 1
+        self._mark_topic_state(topic_id, last_resolved_round_summary_count=round_count)
+        return True
 
     def _topic_ready_for_experiment(self, topic: dict[str, Any]) -> bool:
         if _has_active_experiment(topic):
@@ -811,6 +859,7 @@ def _is_write_command(args: list[str]) -> bool:
         ["topic", "close"],
         ["topic", "reopen"],
         ["topic", "advance-round"],
+        ["topic", "resolve"],
         ["experiment", "create"],
         ["experiment", "submit-review"],
         ["experiment", "approve"],
@@ -884,6 +933,75 @@ def _has_active_experiment(topic: dict[str, Any]) -> bool:
         if experiment.get("phase") in ACTIVE_EXPERIMENT_PHASES:
             return True
     return False
+
+
+def _topic_resolution_payload(topic: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
+    decision = _clean_text(result.get("decision"))
+    no_decision_reason = _clean_text(result.get("no_decision_reason"))
+    if not decision and not no_decision_reason:
+        if not result.get("create_experiment"):
+            return None
+        title = topic.get("title") or topic.get("id")
+        decision = f"将话题“{title}”转入关联实验，由实验计划继续验证和落地。"
+
+    payload: dict[str, Any] = {}
+    if decision:
+        payload["decision"] = decision
+    if rationale := _clean_text(result.get("rationale")):
+        payload["rationale"] = rationale
+    elif decision and result.get("create_experiment"):
+        round_count = int(topic.get("round_summary_count") or 0)
+        payload["rationale"] = f"话题已完成 {round_count} 次 Round Summary，并满足 host bridge 开实验门禁。"
+    if rejected_options := _clean_text(result.get("rejected_options")):
+        payload["rejected_options"] = rejected_options
+    if open_questions := _clean_text(result.get("open_questions")):
+        payload["open_questions"] = open_questions
+    if no_decision_reason:
+        payload["no_decision_reason"] = no_decision_reason
+
+    payload["action_items"] = _normalize_action_items(result.get("action_items"))
+    return payload
+
+
+def _normalize_action_items(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+
+    items: list[dict[str, Any]] = []
+    optional_fields = ("description", "due_at")
+    uuid_fields = ("owner_agent_id", "linked_experiment_id")
+    for value in raw:
+        if not isinstance(value, dict):
+            continue
+        title = _clean_text(value.get("title"))
+        if not title:
+            continue
+        item: dict[str, Any] = {"title": title}
+        for field in optional_fields:
+            if text := _clean_text(value.get(field)):
+                item[field] = text
+        for field in uuid_fields:
+            if text := _clean_uuid_text(value.get(field)):
+                item[field] = text
+        items.append(item)
+    return items
+
+
+def _clean_uuid_text(value: Any) -> str | None:
+    text = _clean_text(value)
+    if text is None:
+        return None
+    try:
+        return str(uuid.UUID(text))
+    except ValueError:
+        return None
+
+
+def _clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _default_plan(topic: dict[str, Any]) -> str:

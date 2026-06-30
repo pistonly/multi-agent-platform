@@ -11,6 +11,7 @@ from map_types.enums import (
     MentionSourceType,
     ReviewItemKind,
     ReviewItemStatus,
+    TopicActionItemStatus,
     TopicDiscussionRound,
     TopicStatus,
 )
@@ -34,6 +35,7 @@ class Project(Base):
         back_populates="project", order_by="ProjectStatusVersion.version"
     )
     topics: Mapped[list["Topic"]] = relationship(back_populates="project")
+    topic_decisions: Mapped[list["TopicDecision"]] = relationship(back_populates="project")
 
 
 class ProjectStatusVersion(Base):
@@ -148,6 +150,7 @@ class Topic(Base):
         back_populates="topic", order_by="TopicComment.created_at"
     )
     experiments: Mapped[list["Experiment"]] = relationship(back_populates="topic")
+    decision: Mapped["TopicDecision | None"] = relationship(back_populates="topic", uselist=False)
 
 
 class TopicComment(Base):
@@ -163,6 +166,63 @@ class TopicComment(Base):
     topic: Mapped["Topic"] = relationship(back_populates="comments")
     author: Mapped["Agent"] = relationship()
     parent: Mapped["TopicComment | None"] = relationship(remote_side="TopicComment.id")
+
+
+class TopicDecision(Base):
+    __tablename__ = "topic_decisions"
+    __table_args__ = (UniqueConstraint("topic_id", name="uq_topic_decision_topic_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id"), nullable=False, index=True)
+    author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    decision: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rejected_options: Mapped[str | None] = mapped_column(Text, nullable=True)
+    open_questions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    no_decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    project: Mapped["Project"] = relationship(back_populates="topic_decisions")
+    topic: Mapped["Topic"] = relationship(back_populates="decision")
+    author: Mapped["Agent"] = relationship()
+    action_items: Mapped[list["TopicActionItem"]] = relationship(
+        back_populates="decision_record",
+        order_by="TopicActionItem.created_at",
+        cascade="all, delete-orphan",
+    )
+
+
+class TopicActionItem(Base):
+    __tablename__ = "topic_action_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topic_decisions.id"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_agent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agents.id"), nullable=True, index=True)
+    status: Mapped[TopicActionItemStatus] = mapped_column(
+        Enum(TopicActionItemStatus), default=TopicActionItemStatus.open, nullable=False, index=True
+    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    linked_experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("experiments.id"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    decision_record: Mapped["TopicDecision"] = relationship(back_populates="action_items")
+    project: Mapped["Project"] = relationship()
+    topic: Mapped["Topic"] = relationship()
+    owner: Mapped["Agent | None"] = relationship(foreign_keys=[owner_agent_id])
+    linked_experiment: Mapped["Experiment | None"] = relationship(foreign_keys=[linked_experiment_id])
 
 
 class PlanVersion(Base):

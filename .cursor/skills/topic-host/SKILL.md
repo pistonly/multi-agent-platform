@@ -26,7 +26,7 @@ description: >-
 
 1. **reply_pending** — 回复 `pending_topic_replies`
 2. **round_summary** — 发 Summary 并 `advance-round`
-3. **promote_experiment** — 创建实验（可选 `MAP_HOST_SUBMIT_REVIEW=1`）
+3. **promote_experiment** — 先沉淀 `topic resolve` 结论 / action_items，再创建实验（可选 `MAP_HOST_SUBMIT_REVIEW=1`）
 4. **实验全自动**（`--auto-experiment-lifecycle`，默认开启）：
    - `revise_plan` — 回应 reviewer 的 open unreasonable 项
    - `approve` → `start` → `execute_experiment` → `complete`
@@ -110,6 +110,15 @@ map --persona host experiment create \
   --plan-file ./plan.md \
   --topic-id <topic-uuid>
 ```
+
+Host bridge 自动开实验时，runner 应在 `promote_experiment` JSON 中同时返回：
+
+- `body`：实验计划 Markdown
+- `create_experiment: true`
+- `decision` / `rationale` / `rejected_options` / `open_questions`
+- `action_items`：需要后续跟进的结构化行动项
+
+bridge 会先执行 `map --persona host topic resolve --id <topic> --file <payload>`，再创建实验。
 
 ## Round 定义
 

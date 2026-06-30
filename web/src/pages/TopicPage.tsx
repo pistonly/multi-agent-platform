@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { closeTopic, createTopicComment, fetchTopic, reopenTopic, updateTopic } from "../api/client";
-import type { TopicCommentTreeNode } from "../api/types";
+import { closeTopic, createTopicComment, fetchTopic, reopenTopic, resolveTopic, updateTopic } from "../api/client";
+import type { TopicCommentTreeNode, TopicDecision } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
 import { MarkdownBody } from "../components/MarkdownBody";
@@ -28,6 +28,7 @@ export function TopicPage() {
   const queryClient = useQueryClient();
   const [reply, setReply] = useState("");
   const [showCreateExp, setShowCreateExp] = useState(false);
+  const [showResolve, setShowResolve] = useState(false);
 
   const query = useQuery({
     queryKey: ["topic", topicId],
@@ -126,6 +127,11 @@ export function TopicPage() {
           >
             从此话题发起实验
           </button>
+          {isTopicHost && (
+            <button type="button" className="btn-secondary" onClick={() => setShowResolve(true)}>
+              {topic.decision ? "修订结论" : "沉淀结论"}
+            </button>
+          )}
           <button
             type="button"
             className="btn-secondary"
@@ -146,6 +152,8 @@ export function TopicPage() {
           )}
         </div>
       </div>
+
+      <TopicDecisionPanel decision={topic.decision} />
 
       {topic.experiments.length > 0 && (
         <section className="card">
@@ -204,6 +212,197 @@ export function TopicPage() {
           />
         </Modal>
       )}
+      {showResolve && (
+        <Modal title={topic.decision ? "修订话题结论" : "沉淀话题结论"} onClose={() => setShowResolve(false)}>
+          <ResolveTopicForm
+            topicId={topic.id}
+            decision={topic.decision}
+            onCancel={() => setShowResolve(false)}
+            onSaved={() => {
+              setShowResolve(false);
+              invalidate();
+              queryClient.invalidateQueries({ queryKey: ["project-decisions", topic.project_id] });
+              queryClient.invalidateQueries({ queryKey: ["todos"] });
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function TopicDecisionPanel({ decision }: { decision: TopicDecision | null }) {
+  if (!decision) {
+    return (
+      <section className="card">
+        <h2 className="mb-2 text-lg font-semibold text-white">结论</h2>
+        <p className="text-sm text-slate-500">暂无结构化结论</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-white">结论</h2>
+        <span className="text-xs text-slate-500">
+          {decision.author_name ?? `${decision.author_agent_id.slice(0, 8)}…`} ·{" "}
+          {new Date(decision.updated_at).toLocaleString()}
+        </span>
+      </div>
+      {decision.decision ? <MarkdownBody content={decision.decision} /> : null}
+      {decision.no_decision_reason ? (
+        <div className="rounded border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-100">
+          <MarkdownBody content={decision.no_decision_reason} />
+        </div>
+      ) : null}
+      {decision.rationale ? (
+        <DecisionSubsection title="依据" content={decision.rationale} />
+      ) : null}
+      {decision.rejected_options ? (
+        <DecisionSubsection title="未采纳选项" content={decision.rejected_options} />
+      ) : null}
+      {decision.open_questions ? (
+        <DecisionSubsection title="开放问题" content={decision.open_questions} />
+      ) : null}
+      {decision.action_items.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-2 text-sm font-semibold text-slate-300">行动项</h3>
+          <ul className="space-y-2 text-sm">
+            {decision.action_items.map((item) => (
+              <li key={item.id} className="rounded border border-surface-border bg-surface/60 px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-white">{item.title}</span>
+                  <span className="badge bg-slate-700 text-slate-200">{item.status}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
+                  <span>{item.owner_name ?? (item.owner_agent_id ? `${item.owner_agent_id.slice(0, 8)}…` : "未分配")}</span>
+                  {item.due_at && <span>截止 {new Date(item.due_at).toLocaleString()}</span>}
+                  {item.linked_experiment_id && (
+                    <Link to={`/experiments/${item.linked_experiment_id}`} className="text-accent hover:underline">
+                      关联实验
+                    </Link>
+                  )}
+                </div>
+                {item.description && <p className="mt-1 text-xs text-slate-400">{item.description}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DecisionSubsection({ title, content }: { title: string; content: string }) {
+  return (
+    <div className="mt-4 border-t border-surface-border pt-3">
+      <h3 className="mb-1 text-sm font-semibold text-slate-300">{title}</h3>
+      <MarkdownBody content={content} />
+    </div>
+  );
+}
+
+function ResolveTopicForm({
+  topicId,
+  decision,
+  onCancel,
+  onSaved,
+}: {
+  topicId: string;
+  decision: TopicDecision | null;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [decisionText, setDecisionText] = useState(decision?.decision ?? "");
+  const [rationale, setRationale] = useState(decision?.rationale ?? "");
+  const [rejectedOptions, setRejectedOptions] = useState(decision?.rejected_options ?? "");
+  const [openQuestions, setOpenQuestions] = useState(decision?.open_questions ?? "");
+  const [noDecisionReason, setNoDecisionReason] = useState(decision?.no_decision_reason ?? "");
+  const [actionLines, setActionLines] = useState(decision?.action_items.map((item) => item.title).join("\n") ?? "");
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      resolveTopic(topicId, {
+        decision: decisionText.trim() || null,
+        rationale: rationale.trim() || null,
+        rejected_options: rejectedOptions.trim() || null,
+        open_questions: openQuestions.trim() || null,
+        no_decision_reason: noDecisionReason.trim() || null,
+        action_items: actionLines
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((title) => ({ title })),
+      }),
+    onSuccess: onSaved,
+  });
+
+  const hasResolution = !!decisionText.trim() || !!noDecisionReason.trim();
+
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm text-slate-300">
+        结论
+        <textarea
+          className="mt-1 min-h-[96px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
+          value={decisionText}
+          onChange={(e) => setDecisionText(e.target.value)}
+        />
+      </label>
+      <label className="block text-sm text-slate-300">
+        无结论原因
+        <textarea
+          className="mt-1 min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
+          value={noDecisionReason}
+          onChange={(e) => setNoDecisionReason(e.target.value)}
+        />
+      </label>
+      <label className="block text-sm text-slate-300">
+        依据
+        <textarea
+          className="mt-1 min-h-[72px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
+          value={rationale}
+          onChange={(e) => setRationale(e.target.value)}
+        />
+      </label>
+      <label className="block text-sm text-slate-300">
+        未采纳选项
+        <textarea
+          className="mt-1 min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
+          value={rejectedOptions}
+          onChange={(e) => setRejectedOptions(e.target.value)}
+        />
+      </label>
+      <label className="block text-sm text-slate-300">
+        开放问题
+        <textarea
+          className="mt-1 min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
+          value={openQuestions}
+          onChange={(e) => setOpenQuestions(e.target.value)}
+        />
+      </label>
+      <label className="block text-sm text-slate-300">
+        行动项
+        <textarea
+          className="mt-1 min-h-[72px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
+          value={actionLines}
+          onChange={(e) => setActionLines(e.target.value)}
+        />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={mutation.isPending}>
+          取消
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={!hasResolution || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          {mutation.isPending ? "保存中…" : "保存结论"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Start MAP host bridge: reply pending comments, post Round Summaries, advance rounds, promote experiments.
+# Start MAP host bridge: reply pending comments, post Round Summaries, advance rounds,
+# record topic decisions/action items, and promote experiments.
 #
 # Usage:
 #   ./scripts/start-host-bridge.sh

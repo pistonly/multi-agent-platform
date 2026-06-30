@@ -20,6 +20,7 @@ from server.domain.schemas import (
     ProjectStatusRevise,
     ReviewCreate,
     TopicAdvanceRound,
+    TopicResolve,
 )
 
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI")
@@ -149,6 +150,16 @@ def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: 
         pass
     key = project_key or cfg_key
     return client.resolve_project_id(project, project_key=key)
+
+
+def _load_topic_resolve_payload(path: Path) -> TopicResolve:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        raw = yaml.safe_load(text) or {}
+        if not isinstance(raw, dict):
+            raise ValueError("resolve YAML must be a mapping")
+        return TopicResolve.model_validate(raw)
+    return TopicResolve(decision=text)
 
 
 @app.command("bootstrap")
@@ -282,6 +293,19 @@ def project_create(
 @project_app.command("list")
 def project_list(include_archived: bool = typer.Option(False, "--include-archived")) -> None:
     _run(lambda c: c.list_projects(include_archived=include_archived))
+
+
+@project_app.command("decisions")
+def project_decisions(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    limit: int = typer.Option(20, "--limit", min=1, max=100),
+) -> None:
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        return c.list_project_decisions(pid, limit=limit)
+
+    _run(action)
 
 
 status_app = typer.Typer(help="Project Current Status commands")
@@ -602,6 +626,15 @@ def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.get_topic(topic_id))
 
 
+@topic_app.command("resolve")
+def topic_resolve(
+    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    resolve_file: Path = typer.Option(..., "--file"),
+) -> None:
+    payload = _load_topic_resolve_payload(resolve_file)
+    _run(lambda c: c.resolve_topic(topic_id, payload))
+
+
 @topic_app.command("advance-round")
 def topic_advance_round(
     topic_id: uuid.UUID = typer.Option(..., "--id"),
@@ -635,6 +668,37 @@ def topic_close(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 @topic_app.command("reopen")
 def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.reopen_topic(topic_id))
+
+
+action_app = typer.Typer(help="Topic action item commands")
+app.add_typer(action_app, name="action")
+
+
+@action_app.command("list")
+def action_list(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    owner_agent_id: uuid.UUID | None = typer.Option(None, "--owner-agent-id"),
+    mine: bool = typer.Option(False, "--mine", help="Only action items assigned to the current agent."),
+    status: str | None = typer.Option("open", "--status"),
+    limit: int = typer.Option(100, "--limit", min=1, max=200),
+) -> None:
+    from map_types.enums import TopicActionItemStatus
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        owner = owner_agent_id
+        if mine:
+            owner = c.get_me().id
+        status_filter = TopicActionItemStatus(status) if status else None
+        return c.list_project_action_items(
+            pid,
+            owner_agent_id=owner,
+            status=status_filter,
+            limit=limit,
+        )
+
+    _run(action)
 
 
 def main() -> None:
