@@ -106,3 +106,19 @@ class WorkerStats:
     runner_skips: int = 0
     runner_errors: int = 0
     round_advances: int = 0
+
+    def add(self, other: "WorkerStats") -> None:
+        self.cycles += other.cycles
+        self.replies_created += other.replies_created
+        self.summaries_created += other.summaries_created
+        self.decisions_recorded += other.decisions_recorded
+        self.experiments_created += other.experiments_created
+        self.plans_revised += other.plans_revised
+        self.experiments_approved += other.experiments_approved
+        self.experiments_started += other.experiments_started
+        self.experiments_completed += other.experiments_completed
+        self.dry_run_actions += other.dry_run_actions
+        self.runner_invocations += other.runner_invocations
+        self.runner_skips += other.runner_skips
+        self.runner_errors += other.runner_errors
+        self.round_advances += other.round_advances
