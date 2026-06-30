@@ -4,6 +4,7 @@ import { createComment, updateReviewItem } from "../api/client";
 import { commentDomId } from "../utils/commentAnchor";
 import { MarkdownBody } from "./MarkdownBody";
 import { AgentBadge } from "./AgentBadge";
+import { AgentMentionInput, AgentMentionTextarea } from "./AgentMentionInput";
 
 interface CommentNodeProps {
   node: CommentTreeNode;
@@ -76,11 +77,11 @@ function CommentNode({
       </button>
       {showReply ? (
         <div className="mb-3 flex flex-wrap gap-2">
-          <input
+          <AgentMentionInput
             className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-            placeholder="写下回复…"
+            placeholder="写下回复… 输入 @ 触发 agent 候选"
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
+            onValueChange={setReplyText}
           />
           <button
             type="button"
@@ -190,11 +191,13 @@ export function DisputeSection({
             ))}
           </div>
           <div className="flex flex-wrap gap-2">
-            <input
+            <AgentMentionInput
               className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm"
-              placeholder="添加评论…"
+              placeholder="添加评论… 输入 @ 触发 agent 候选"
               value={replyText[item.id] ?? ""}
-              onChange={(e) => setReplyText((prev) => ({ ...prev, [item.id]: e.target.value }))}
+              onValueChange={(next) =>
+                setReplyText((prev) => ({ ...prev, [item.id]: next }))
+              }
             />
             <button
               type="button"

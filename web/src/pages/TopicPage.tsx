@@ -8,6 +8,7 @@ import { CreateExperimentForm } from "../components/CreateExperimentForm";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
+import { AgentMentionInput, AgentMentionTextarea } from "../components/AgentMentionInput";
 import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
 import { commentDomId, parseCommentAnchor } from "../utils/commentAnchor";
@@ -206,11 +207,11 @@ export function TopicPage() {
           <p className="text-sm text-slate-500">暂无讨论</p>
         )}
         <div className="mt-4 border-t border-surface-border pt-4">
-          <textarea
+          <AgentMentionTextarea
             className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-            placeholder="参与讨论…"
+            placeholder="参与讨论… 输入 @ 触发 agent 候选"
             value={reply}
-            onChange={(e) => setReply(e.target.value)}
+            onValueChange={setReply}
           />
           <div className="mt-2 flex justify-end">
             <button
@@ -512,11 +513,13 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth =
             </button>
             {replyingTo === n.id ? (
               <div className="mb-3 flex flex-wrap gap-2">
-                <input
+                <AgentMentionInput
                   className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                  placeholder="写下回复…"
+                  placeholder="写下回复… 输入 @ 触发 agent 候选"
                   value={replyText[n.id] ?? ""}
-                  onChange={(e) => setReplyText((prev) => ({ ...prev, [n.id]: e.target.value }))}
+                  onValueChange={(next) =>
+                    setReplyText((prev) => ({ ...prev, [n.id]: next }))
+                  }
                 />
                 <button
                   type="button"

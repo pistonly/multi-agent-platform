@@ -16,6 +16,7 @@ import { CommentTree, DisputeSection } from "../components/CommentTree";
 import { LogPanel } from "../components/LogPanel";
 import { PlanPanel } from "../components/PlanPanel";
 import { getUnreasonableItems, ReviewSummary } from "../components/ReviewSummary";
+import { AgentMentionInput } from "../components/AgentMentionInput";
 import { PhaseBadge, PhaseStepper } from "../components/PhaseStepper";
 import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
@@ -293,11 +294,11 @@ export function ExperimentPage() {
           />
           {selectedPlan ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <input
+              <AgentMentionInput
                 className="flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                placeholder="添加讨论…"
+                placeholder="添加讨论… 输入 @ 触发 agent 候选"
                 value={generalComment}
-                onChange={(e) => setGeneralComment(e.target.value)}
+                onValueChange={setGeneralComment}
               />
               <button
                 type="button"
