@@ -13,6 +13,7 @@ from typing import Any, Literal
 import typer
 import yaml
 
+from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_topic import _flatten_comments
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient
@@ -477,28 +478,11 @@ def _has_active_experiment(topic: dict[str, Any]) -> bool:
 
 
 def _load_state(path: Path | None) -> dict[str, Any]:
-    if path is None or not path.exists():
-        return {"schema_version": 1, "topics": {}}
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise WorkerError(f"Invalid participant bridge state file: {path}") from exc
-    if not isinstance(state, dict):
-        raise WorkerError(f"Invalid participant bridge state file: {path}")
-    if state.get("schema_version", 1) != 1:
-        raise WorkerError(f"Unsupported participant bridge state schema: {state.get('schema_version')}")
-    state.setdefault("schema_version", 1)
-    state.setdefault("topics", {})
-    return state
+    return load_bridge_state(path, bridge_name="participant", default_collections=("topics",))
 
 
 def _save_state(path: Path | None, state: dict[str, Any]) -> None:
-    if path is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
+    save_bridge_state(path, state)
 
 
 def run(
