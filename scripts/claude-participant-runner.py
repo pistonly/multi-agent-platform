@@ -113,10 +113,13 @@ Do **not** post Round N Summary. Do **not** propose creating experiments.
 
 
 def _extract_json(text: str) -> dict:
-    """Extract the last non-empty top-level JSON object from agent output.
+    """Extract the top-level JSON object from agent output.
 
     Robust against leading/trailing thinking traces that bundled Claude
-    Code CLI 2.1.191+ emits into TextBlock.text alongside the response.
+    Code CLI 2.1.191+ emits into TextBlock.text alongside the response,
+    and against nested dict/array values inside the outer payload
+    (e.g. `action_items: [{...}]`) — the outer object is selected, not
+    a nested one.
     """
     stripped = text.strip()
     if not stripped:
@@ -131,21 +134,33 @@ def _extract_json(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    for i in range(len(stripped) - 1, -1, -1):
-        if stripped[i] != "{":
+    fence_re = re.compile(r"```(?:json)?\s*([\s\S]+?)\s*```", re.IGNORECASE)
+    fence_blocks = [m.group(1).strip() for m in fence_re.finditer(stripped)]
+    for block in reversed(fence_blocks):
+        if not block.startswith("{"):
             continue
         try:
-            obj, _end = decoder.raw_decode(stripped, i)
+            obj, _end = decoder.raw_decode(block)
         except json.JSONDecodeError:
             continue
         if isinstance(obj, dict) and obj:
             return obj
 
-    match = JSON_BLOCK_RE.search(stripped)
-    if match:
-        parsed = json.loads(match.group(1))
-        if isinstance(parsed, dict) and parsed:
-            return parsed
+    best = None
+    for i in range(len(stripped) - 1, -1, -1):
+        if stripped[i] != "{":
+            continue
+        try:
+            obj, end = decoder.raw_decode(stripped, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj:
+            if end == len(stripped):
+                return obj
+            if best is None:
+                best = obj
+    if best is not None:
+        return best
 
     raise ValueError("Could not parse JSON from agent output")
 
