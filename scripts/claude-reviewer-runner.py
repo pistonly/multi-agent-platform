@@ -103,24 +103,40 @@ Produce a structured review. Each item must be specific and actionable.
 
 
 def _extract_json(text: str) -> dict:
+    """Extract the last non-empty top-level JSON object from agent output.
+
+    Robust against leading/trailing thinking traces that bundled Claude
+    Code CLI 2.1.191+ emits into TextBlock.text alongside the response.
+    """
     stripped = text.strip()
+    if not stripped:
+        raise ValueError("Empty agent output")
+
+    decoder = json.JSONDecoder()
+
     try:
         parsed = json.loads(stripped)
-        if isinstance(parsed, dict):
+        if isinstance(parsed, dict) and parsed:
             return parsed
     except json.JSONDecodeError:
         pass
+
+    for i in range(len(stripped) - 1, -1, -1):
+        if stripped[i] != "{":
+            continue
+        try:
+            obj, _end = decoder.raw_decode(stripped, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj:
+            return obj
+
     match = JSON_BLOCK_RE.search(stripped)
     if match:
         parsed = json.loads(match.group(1))
-        if isinstance(parsed, dict):
+        if isinstance(parsed, dict) and parsed:
             return parsed
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start >= 0 and end > start:
-        parsed = json.loads(stripped[start : end + 1])
-        if isinstance(parsed, dict):
-            return parsed
+
     raise ValueError("Could not parse JSON from agent output")
 
 
