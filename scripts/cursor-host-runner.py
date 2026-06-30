@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -249,8 +250,7 @@ def main() -> None:
     model = _resolve_env("CURSOR_MODEL", default="composer-2.5") or "composer-2.5"
 
     try:
-        result = Agent.prompt(
-            prompt,
+        agent = Agent.create(
             AgentOptions(
                 api_key=api_key,
                 model=model,
@@ -263,6 +263,29 @@ def main() -> None:
     except CursorAgentError as exc:
         print(f"Cursor startup failed: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    try:
+        run = agent.send(prompt)
+        for ev in run.events():
+            ev_type = type(ev).__name__
+            ev_data = getattr(ev, "__dict__", None) or str(ev)
+            print(
+                json.dumps(
+                    {
+                        "ts": datetime.now(UTC).isoformat(),
+                        "kind": "sdk_stream_event",
+                        "event_type": ev_type,
+                        "data": ev_data,
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+        result = run.wait()
+    finally:
+        agent.close()
 
     if result.status == "error":
         print(f"Cursor run failed: {getattr(result, 'id', 'unknown')}", file=sys.stderr)

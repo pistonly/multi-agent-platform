@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -255,6 +256,7 @@ async def _run_query(prompt: str, env: dict[str, str], model: str | None) -> str
             AssistantMessage,
             ClaudeAgentOptions,
             ClaudeSDKError,
+            StreamEvent,
             TextBlock,
             query,
         )
@@ -266,6 +268,7 @@ async def _run_query(prompt: str, env: dict[str, str], model: str | None) -> str
         cwd=str(PROJECT_ROOT),
         setting_sources=["project"],
         permission_mode="acceptEdits",
+        include_partial_messages=True,
         env=env,
     )
     if model:
@@ -276,6 +279,22 @@ async def _run_query(prompt: str, env: dict[str, str], model: str | None) -> str
     pieces: list[str] = []
     try:
         async for message in query(prompt=prompt, options=options):
+            if isinstance(message, StreamEvent):
+                ev = message.event
+                print(
+                    json.dumps(
+                        {
+                            "ts": datetime.now(UTC).isoformat(),
+                            "kind": "sdk_stream_event",
+                            "event_type": ev.get("type"),
+                            "data": ev,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+                continue
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
