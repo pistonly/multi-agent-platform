@@ -17,6 +17,17 @@ from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_topic import _flatten_comments
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient
+from cli.worker_cycle_log import log_cycle_summary
+
+PARTICIPANT_CYCLE_SUMMARY_FIELDS = [
+    "cycles",
+    "comments_created",
+    "dry_run_actions",
+    "runner_invocations",
+    "runner_skips",
+    "runner_errors",
+    "opportunities_seen",
+]
 
 ACTIVE_EXPERIMENT_PHASES = {"draft", "review", "approved", "running"}
 ROUND_SUMMARY_RE = re.compile(r"^##\s+Round\s+(\d+)\s+Summary\b", re.IGNORECASE | re.MULTILINE)
@@ -99,6 +110,7 @@ class ParticipantWorker:
             total.runner_skips += stats.runner_skips
             total.runner_errors += stats.runner_errors
             total.opportunities_seen += stats.opportunities_seen
+            log_cycle_summary("participant", total, fields=PARTICIPANT_CYCLE_SUMMARY_FIELDS)
 
             if self.config.once:
                 break

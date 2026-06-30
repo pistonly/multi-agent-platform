@@ -95,6 +95,9 @@ class MapCommandClient:
     def experiment_status(self, experiment_id: str) -> dict[str, Any]:
         return self._run(["experiment", "status", "--id", experiment_id])
 
+    def experiment_submit_review(self, experiment_id: str) -> dict[str, Any] | None:
+        return self._run(["experiment", "submit-review", "--id", experiment_id])
+
     def experiment_reviews_list(self, experiment_id: str) -> list[dict[str, Any]]:
         data = self._run(["experiment", "review", "list", "--id", experiment_id])
         return list(data or [])

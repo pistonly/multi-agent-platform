@@ -14,6 +14,25 @@ from cli.host_worker_runner import invoke_agent_runner
 from cli.host_worker_state import load_host_state, save_host_state
 from cli.host_worker_types import MapClientProtocol, WorkerConfig, WorkerError, WorkerStats
 from cli.map_command_client import MapCommandClient
+from cli.worker_cycle_log import log_cycle_summary
+
+HOST_CYCLE_SUMMARY_FIELDS = [
+    "cycles",
+    "replies_created",
+    "summaries_created",
+    "decisions_recorded",
+    "experiments_created",
+    "plans_revised",
+    "experiments_submitted",
+    "experiments_approved",
+    "experiments_started",
+    "experiments_completed",
+    "dry_run_actions",
+    "runner_invocations",
+    "runner_skips",
+    "runner_errors",
+    "round_advances",
+]
 
 
 class HostWorker(HostTopicLifecycleMixin):
@@ -29,6 +48,7 @@ class HostWorker(HostTopicLifecycleMixin):
         while True:
             stats = self.run_once()
             total.add(stats)
+            log_cycle_summary("host", total, fields=HOST_CYCLE_SUMMARY_FIELDS)
 
             if self.config.once:
                 break

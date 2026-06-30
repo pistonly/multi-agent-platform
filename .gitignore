@@ -57,6 +57,7 @@ htmlcov/
 .map/reviewer-bridge-state.json
 .map/bridge-logs/
 .map/generated-reviews/
+.map/.claude-env
 
 # Local data
 data/

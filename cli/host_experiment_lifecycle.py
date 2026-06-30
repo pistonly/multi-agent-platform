@@ -39,6 +39,8 @@ def _handle_experiment_phase(
     detail: dict[str, Any],
     stats: WorkerStats,
 ) -> bool:
+    if phase == "draft":
+        return _submit_experiment_for_review(worker, experiment_id, stats)
     if phase == "review":
         open_count = int(detail.get("open_unreasonable_count") or 0)
         if open_count > 0:
@@ -49,6 +51,25 @@ def _handle_experiment_phase(
     if phase == "running":
         return _execute_and_complete(worker, experiment_id, detail, stats)
     return False
+
+
+def _submit_experiment_for_review(
+    worker: HostWorker,
+    experiment_id: str,
+    stats: WorkerStats,
+) -> bool:
+    if worker._experiment_state(experiment_id).get("submitted_for_review"):
+        stats.runner_skips += 1
+        return False
+    if worker.config.dry_run:
+        typer.echo(f"[dry-run] would submit experiment={experiment_id} for review")
+        stats.dry_run_actions += 1
+        return True
+    worker.client.experiment_submit_review(experiment_id)
+    stats.experiments_submitted += 1
+    worker._mark_experiment_state(experiment_id, submitted_for_review=True)
+    worker._log_experiment_event("submit_experiment", experiment_id)
+    return True
 
 
 def _revise_plan_for_review(

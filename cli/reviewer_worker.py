@@ -16,6 +16,18 @@ import yaml
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient
+from cli.worker_cycle_log import log_cycle_summary
+
+REVIEWER_CYCLE_SUMMARY_FIELDS = [
+    "cycles",
+    "reviews_created",
+    "items_resolved",
+    "dry_run_actions",
+    "runner_invocations",
+    "runner_skips",
+    "runner_errors",
+    "pending_seen",
+]
 
 DEFAULT_REASONABLE = ["实验计划结构完整，目标与步骤可辨识。"]
 DEFAULT_UNREASONABLE = ["建议补充更具体的验收标准与可观测结果。"]
@@ -83,6 +95,7 @@ class ReviewerWorker:
             total.runner_skips += stats.runner_skips
             total.runner_errors += stats.runner_errors
             total.pending_seen += stats.pending_seen
+            log_cycle_summary("reviewer", total, fields=REVIEWER_CYCLE_SUMMARY_FIELDS)
 
             if self.config.once:
                 break

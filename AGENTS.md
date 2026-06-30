@@ -64,3 +64,6 @@ map --persona host todos
 
 - API: http://localhost:8001
 - Web: http://localhost:3000
+
+# 回答语言
+总是使用中文来回答

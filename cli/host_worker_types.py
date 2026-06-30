@@ -47,6 +47,9 @@ class MapClientProtocol(Protocol):
     def experiment_status(self, experiment_id: str) -> dict[str, Any]:
         ...
 
+    def experiment_submit_review(self, experiment_id: str) -> dict[str, Any] | None:
+        ...
+
     def experiment_reviews_list(self, experiment_id: str) -> list[dict[str, Any]]:
         ...
 
@@ -98,6 +101,7 @@ class WorkerStats:
     decisions_recorded: int = 0
     experiments_created: int = 0
     plans_revised: int = 0
+    experiments_submitted: int = 0
     experiments_approved: int = 0
     experiments_started: int = 0
     experiments_completed: int = 0
@@ -114,6 +118,7 @@ class WorkerStats:
         self.decisions_recorded += other.decisions_recorded
         self.experiments_created += other.experiments_created
         self.plans_revised += other.plans_revised
+        self.experiments_submitted += other.experiments_submitted
         self.experiments_approved += other.experiments_approved
         self.experiments_started += other.experiments_started
         self.experiments_completed += other.experiments_completed

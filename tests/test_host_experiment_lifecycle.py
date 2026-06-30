@@ -13,6 +13,7 @@ class ExperimentFakeClient:
         self.approvals: list[str] = []
         self.starts: list[str] = []
         self.completions: list[dict[str, Any]] = []
+        self.submits: list[str] = []
 
     def whoami(self) -> dict[str, Any]:
         return {"id": "host-agent", "name": "host"}
@@ -34,6 +35,11 @@ class ExperimentFakeClient:
 
     def experiment_status(self, experiment_id: str) -> dict[str, Any]:
         return self._experiments[experiment_id]
+
+    def experiment_submit_review(self, experiment_id: str) -> dict[str, Any]:
+        self.submits.append(experiment_id)
+        self._experiments[experiment_id]["phase"] = "review"
+        return {"id": experiment_id}
 
     def experiment_reviews_list(self, experiment_id: str) -> list[dict[str, Any]]:
         return self._experiments[experiment_id].get("reviews") or []
@@ -166,3 +172,48 @@ print(json.dumps({"body": "## revised plan", "change_note": "fix review"}))
     assert stats.plans_revised == 1
     assert client.revisions[0]["addressed_item_ids"] == ["item-1"]
     assert "## revised plan" in client.revisions[0]["plan"]
+
+
+def test_host_submits_draft_experiment_for_review(tmp_path: Path) -> None:
+    """A draft experiment (created without --submit-for-review) must be
+    submitted for review on the next cycle so the reviewer bridge can pick
+    it up. Regression test for the case where the host CLI forgot
+    MAP_HOST_SUBMIT_REVIEW=1 — bridges used to sit idle on draft forever.
+    """
+    runner = _runner_script(
+        tmp_path,
+        """
+raise SystemExit(2)
+""",
+    )
+    client = ExperimentFakeClient(
+        todos={"my_open_experiments": [{"id": "exp-1"}]},
+        experiments={
+            "exp-1": {
+                "id": "exp-1",
+                "title": "draft experiment",
+                "phase": "draft",
+                "current_plan_version": 1,
+                "current_plan": {"content_md": "## plan"},
+                "reviews": [],
+            }
+        },
+    )
+    state_file = tmp_path / "host-state.json"
+    worker = HostWorker(
+        client,
+        WorkerConfig(
+            once=True,
+            auto_experiment_lifecycle=True,
+            agent_runner=runner,
+            state_file=state_file,
+        ),
+    )
+    stats = worker.run_once()
+
+    assert stats.experiments_submitted == 1
+    assert client.submits == ["exp-1"]
+    # Subsequent cycles must not re-submit — idempotent via worker state.
+    second = worker.run_once()
+    assert second.experiments_submitted == 0
+    assert client.submits == ["exp-1"]
