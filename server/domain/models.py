@@ -393,6 +393,7 @@ class Mention(Base):
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     excerpt: Mapped[str] = mapped_column(String(512), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     mentioned_agent: Mapped["Agent"] = relationship(foreign_keys=[mentioned_agent_id])
     author: Mapped["Agent"] = relationship(foreign_keys=[author_agent_id])

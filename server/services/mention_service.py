@@ -1,7 +1,8 @@
 import re
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, Comment, Mention, MentionSourceType, Topic, TopicComment
@@ -138,12 +139,141 @@ def process_topic_comment_mentions(
     )
 
 
-def list_mentions_for_agent(db: Session, agent_id: uuid.UUID, *, limit: int = 50) -> list[Mention]:
-    return list(
-        db.scalars(
-            select(Mention)
-            .where(Mention.mentioned_agent_id == agent_id)
-            .order_by(Mention.created_at.desc())
-            .limit(min(limit, 200))
+def list_mentions_for_agent(
+    db: Session,
+    agent_id: uuid.UUID,
+    *,
+    limit: int = 50,
+    include_dismissed: bool = False,
+) -> list[Mention]:
+    stmt = select(Mention).where(Mention.mentioned_agent_id == agent_id)
+    if not include_dismissed:
+        stmt = stmt.where(Mention.dismissed_at.is_(None))
+    stmt = stmt.order_by(Mention.created_at.desc()).limit(min(limit, 200))
+    return list(db.scalars(stmt))
+
+
+def dismiss_mention(db: Session, *, agent: Agent, mention_id: uuid.UUID) -> Mention | None:
+    """Mark a mention as dismissed for the mentioned agent. Idempotent."""
+    mention = db.get(Mention, mention_id)
+    if mention is None or mention.mentioned_agent_id != agent.id:
+        return None
+    if mention.dismissed_at is None:
+        mention.dismissed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(mention)
+    return mention
+
+
+def dismiss_all_for_agent(db: Session, agent: Agent) -> int:
+    """Dismiss every open mention addressed to this agent. Returns rows touched."""
+    now = datetime.now(timezone.utc)
+    result = db.execute(
+        update(Mention)
+        .where(
+            Mention.mentioned_agent_id == agent.id,
+            Mention.dismissed_at.is_(None),
         )
+        .values(dismissed_at=now)
     )
+    db.commit()
+    return result.rowcount or 0
+
+
+def _experiment_thread_comment_ids(
+    db: Session, *, comment_id: uuid.UUID, experiment_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """All comment ids in the same thread (same root via parent_comment_id) within one experiment."""
+    rows = db.execute(
+        select(Comment.id, Comment.parent_comment_id).where(
+            Comment.experiment_id == experiment_id
+        )
+    ).all()
+    if not rows:
+        return []
+    by_id: dict[uuid.UUID, uuid.UUID | None] = {row[0]: row[1] for row in rows}
+    if comment_id not in by_id:
+        return []
+    cur = comment_id
+    while by_id[cur] is not None:
+        cur = by_id[cur]
+        if cur not in by_id:
+            return []
+    root_id = cur
+    return [cid for cid in by_id if _walk_root(cid, by_id) == root_id]
+
+
+def _topic_thread_comment_ids(
+    db: Session, *, comment_id: uuid.UUID, topic_id: uuid.UUID
+) -> list[uuid.UUID]:
+    rows = db.execute(
+        select(TopicComment.id, TopicComment.parent_comment_id).where(
+            TopicComment.topic_id == topic_id
+        )
+    ).all()
+    if not rows:
+        return []
+    by_id: dict[uuid.UUID, uuid.UUID | None] = {row[0]: row[1] for row in rows}
+    if comment_id not in by_id:
+        return []
+    cur = comment_id
+    while by_id[cur] is not None:
+        cur = by_id[cur]
+        if cur not in by_id:
+            return []
+    root_id = cur
+    return [cid for cid in by_id if _walk_root(cid, by_id) == root_id]
+
+
+def _walk_root(
+    cid: uuid.UUID, by_id: dict[uuid.UUID, uuid.UUID | None]
+) -> uuid.UUID:
+    cur = cid
+    seen: set[uuid.UUID] = set()
+    while by_id.get(cur) is not None:
+        if cur in seen:
+            break
+        seen.add(cur)
+        cur = by_id[cur]  # type: ignore[assignment]
+    return cur
+
+
+def auto_dismiss_mentions_for_author_in_thread(
+    db: Session,
+    *,
+    new_comment_author: Agent,
+    experiment_id: uuid.UUID | None,
+    topic_id: uuid.UUID | None,
+    new_comment_id: uuid.UUID,
+) -> int:
+    """When an agent posts a reply in a thread, any @mention rows pointing at him
+    inside that thread (i.e. whose source_id is one of the thread comment ids)
+    are dismissed — he has obviously seen them.
+    """
+    if experiment_id is not None:
+        thread_ids = _experiment_thread_comment_ids(
+            db, comment_id=new_comment_id, experiment_id=experiment_id
+        )
+        source_type = MentionSourceType.experiment_comment
+    elif topic_id is not None:
+        thread_ids = _topic_thread_comment_ids(
+            db, comment_id=new_comment_id, topic_id=topic_id
+        )
+        source_type = MentionSourceType.topic_comment
+    else:
+        return 0
+    if not thread_ids:
+        return 0
+    now = datetime.now(timezone.utc)
+    result = db.execute(
+        update(Mention)
+        .where(
+            Mention.mentioned_agent_id == new_comment_author.id,
+            Mention.source_type == source_type,
+            Mention.source_id.in_(thread_ids),
+            Mention.dismissed_at.is_(None),
+        )
+        .values(dismissed_at=now)
+    )
+    db.commit()
+    return result.rowcount or 0

@@ -12,11 +12,14 @@ from server.domain.models import Agent, AgentRole, Project
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
+    DismissAllMentionsResultRead,
+    DismissMentionResultRead,
     NotificationListRead,
     NotificationRead,
     TodoRead,
 )
 from server.services import auth as auth_service
+from server.services import mention_service
 from server.services import notification_service
 from server.services import todo_service
 from server.services.notification_stream import notification_sse_response
@@ -144,6 +147,34 @@ def get_my_todos(
     db: Session = Depends(get_db),
 ) -> TodoRead:
     return todo_service.get_todos(db, agent)
+
+
+@agents_router.post(
+    "/me/mentions/{mention_id}/dismiss",
+    response_model=DismissMentionResultRead,
+)
+def dismiss_my_mention(
+    mention_id: uuid.UUID,
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> DismissMentionResultRead:
+    mention = mention_service.dismiss_mention(db, agent=agent, mention_id=mention_id)
+    if mention is None:
+        raise HTTPException(status_code=404, detail="Mention not found")
+    assert mention.dismissed_at is not None  # for type checker
+    return DismissMentionResultRead(id=mention.id, dismissed_at=mention.dismissed_at)
+
+
+@agents_router.post(
+    "/me/mentions/dismiss-all",
+    response_model=DismissAllMentionsResultRead,
+)
+def dismiss_all_my_mentions(
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> DismissAllMentionsResultRead:
+    count = mention_service.dismiss_all_for_agent(db, agent)
+    return DismissAllMentionsResultRead(dismissed=count)
 
 
 @agents_router.get("/me/notifications", response_model=NotificationListRead)

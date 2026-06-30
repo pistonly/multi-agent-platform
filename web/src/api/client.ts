@@ -405,6 +405,17 @@ export async function fetchTodos(): Promise<TodoRead> {
   return data;
 }
 
+export async function dismissMention(mentionId: string): Promise<void> {
+  await api.post(`/agents/me/mentions/${mentionId}/dismiss`);
+}
+
+export async function dismissAllMentions(): Promise<{ dismissed: number }> {
+  const { data } = await api.post<{ dismissed: number }>(
+    "/agents/me/mentions/dismiss-all",
+  );
+  return data;
+}
+
 export async function fetchNotifications(params?: {
   unread_only?: boolean;
   limit?: number;

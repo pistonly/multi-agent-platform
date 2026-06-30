@@ -220,6 +220,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
             topic_id=m.topic_id,
             excerpt=m.excerpt,
             created_at=m.created_at,
+            dismissed_at=m.dismissed_at,
         )
         for m in mention_rows
     ]

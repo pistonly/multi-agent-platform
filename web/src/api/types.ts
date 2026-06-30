@@ -284,6 +284,7 @@ export interface MentionTodo {
   topic_id: string | null;
   excerpt: string;
   created_at: string;
+  dismissed_at: string | null;
 }
 
 export interface PendingTopicReplyTodo {

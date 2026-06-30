@@ -438,6 +438,16 @@ class MentionTodoRead(BaseModel):
     topic_id: uuid.UUID | None
     excerpt: str
     created_at: datetime
+    dismissed_at: datetime | None = None
+
+
+class DismissMentionResultRead(BaseModel):
+    id: uuid.UUID
+    dismissed_at: datetime
+
+
+class DismissAllMentionsResultRead(BaseModel):
+    dismissed: int
 
 
 class TopicActionItemTodoRead(BaseModel):

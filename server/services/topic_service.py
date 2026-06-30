@@ -463,6 +463,13 @@ def create_topic_comment(
     from server.services import mention_service
 
     mention_service.process_topic_comment_mentions(db, comment=comment, author=author, topic=topic)
+    mention_service.auto_dismiss_mentions_for_author_in_thread(
+        db,
+        new_comment_author=author,
+        experiment_id=None,
+        topic_id=topic_id,
+        new_comment_id=comment.id,
+    )
     return comment
 
 

@@ -1,16 +1,27 @@
 import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { fetchTodos } from "../api/client";
+import { dismissAllMentions, dismissMention, fetchTodos } from "../api/client";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { withCommentAnchor } from "../utils/commentAnchor";
 
 export function TodosPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["todos"],
     queryFn: fetchTodos,
     refetchInterval: 120_000,
+  });
+
+  const dismissOne = useMutation({
+    mutationFn: (mentionId: string) => dismissMention(mentionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
+  });
+
+  const dismissMany = useMutation({
+    mutationFn: () => dismissAllMentions(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
   });
 
   if (isLoading) return <p className="text-slate-400">加载待办…</p>;
@@ -31,7 +42,20 @@ export function TodosPage() {
       {empty && <p className="text-slate-500">暂无待办，一切就绪 🎉</p>}
 
       {data.mentions.length > 0 && (
-        <Section title={`@提及我（${data.mentions.length}）`}>
+        <Section
+          title={`@提及我（${data.mentions.length}）`}
+          action={
+            <button
+              type="button"
+              className="text-xs text-slate-400 hover:text-accent disabled:opacity-50"
+              onClick={() => dismissMany.mutate()}
+              disabled={dismissMany.isPending}
+              title="将所有未处理的 @ 提及标记为已读"
+            >
+              {dismissMany.isPending ? "清除中…" : "全部清除"}
+            </button>
+          }
+        >
           {data.mentions.map((m) => {
             const baseHref = m.experiment_id
               ? `/experiments/${m.experiment_id}`
@@ -55,9 +79,25 @@ export function TodosPage() {
                   </div>
                   <div className="text-xs text-slate-400">{m.excerpt}</div>
                 </div>
-                <span className="text-xs text-slate-500">
-                  {new Date(m.created_at).toLocaleDateString()}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500">
+                    {new Date(m.created_at).toLocaleDateString()}
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-surface-border hover:text-white disabled:opacity-50"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dismissOne.mutate(m.id);
+                    }}
+                    disabled={dismissOne.isPending}
+                    title="标记为已读,从待办中移除"
+                    aria-label="标记为已读"
+                  >
+                    ✕
+                  </button>
+                </div>
               </Row>
             );
           })}
@@ -153,10 +193,21 @@ export function TodosPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="card">
-      <h2 className="mb-3 text-lg font-semibold text-white">{title}</h2>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        {action}
+      </div>
       <div className="space-y-2">{children}</div>
     </section>
   );
