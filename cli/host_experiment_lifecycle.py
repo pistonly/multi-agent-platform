@@ -87,6 +87,18 @@ def _handle_experiment_phase(
     if phase == "draft":
         return _submit_experiment_for_review(worker, experiment_id, stats)
     if phase == "review":
+        reviews = worker.client.experiment_reviews_list(experiment_id) or []
+        if not reviews:
+            # No reviewer has touched this experiment yet. Wait — approving
+            # now would race the reviewer bridge (which needs ~30-60s to
+            # generate a review) and bypass the review gate entirely.
+            stats.runner_skips += 1
+            worker._log_experiment_event(
+                "await_reviewer", experiment_id,
+                status="no_reviews_yet",
+                open_unreasonable_count=int(detail.get("open_unreasonable_count") or 0),
+            )
+            return False
         open_count = int(detail.get("open_unreasonable_count") or 0)
         if open_count > 0:
             return _revise_plan_for_review(worker, experiment_id, detail, stats)

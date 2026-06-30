@@ -87,7 +87,13 @@ def _runner_script(tmp_path: Path, body: str) -> str:
     return f"{sys.executable} {path}"
 
 
-def test_host_auto_approves_when_review_clear(tmp_path: Path) -> None:
+def test_host_waits_for_reviewer_when_no_reviews_yet(tmp_path: Path, capsys) -> None:
+    """When an experiment is in review phase but the reviewer bridge hasn't
+    submitted any review yet, host must NOT auto-approve — that would race
+    the reviewer (which needs ~30-60s to generate a review) and bypass the
+    review gate. Regression test for the race that let experiment 2e63e1a9
+    jump from review to running without a single reviewer round.
+    """
     runner = _runner_script(
         tmp_path,
         """
@@ -99,12 +105,82 @@ raise SystemExit(2)
         experiments={
             "exp-1": {
                 "id": "exp-1",
-                "title": "auto",
+                "title": "await reviewer",
                 "phase": "review",
                 "open_unreasonable_count": 0,
                 "current_plan_version": 1,
                 "current_plan": {"content_md": "## plan"},
                 "reviews": [],
+            }
+        },
+    )
+    state_file = tmp_path / "host-state.json"
+    stats = HostWorker(
+        client,
+        WorkerConfig(
+            once=True,
+            auto_experiment_lifecycle=True,
+            agent_runner=runner,
+            state_file=state_file,
+        ),
+    ).run_once()
+
+    assert stats.experiments_approved == 0, "host must not approve without a review"
+    assert client.approvals == []
+    assert stats.runner_skips == 1
+
+    # The await_reviewer event is logged so operators can see what happened.
+    captured = capsys.readouterr()
+    assert '"action": "await_reviewer"' in captured.err
+    assert '"status": "no_reviews_yet"' in captured.err
+    assert '"experiment_id": "exp-1"' in captured.err
+
+    # Next cycle with a review still empty: still waits (idempotent skip).
+    second = HostWorker(
+        client,
+        WorkerConfig(
+            once=True,
+            auto_experiment_lifecycle=True,
+            agent_runner=runner,
+            state_file=state_file,
+        ),
+    ).run_once()
+    assert second.experiments_approved == 0
+    assert client.approvals == []
+
+
+def test_host_auto_approves_when_reviewer_submitted_clear_review(tmp_path: Path) -> None:
+    """Once the reviewer bridge has submitted at least one review and there
+    are no open unreasonable items, host may auto-approve."""
+    runner = _runner_script(
+        tmp_path,
+        """
+raise SystemExit(2)
+""",
+    )
+    client = ExperimentFakeClient(
+        todos={"my_open_experiments": [{"id": "exp-1"}], "pending_topic_replies": []},
+        experiments={
+            "exp-1": {
+                "id": "exp-1",
+                "title": "approved by reviewer",
+                "phase": "review",
+                "open_unreasonable_count": 0,
+                "current_plan_version": 1,
+                "current_plan": {"content_md": "## plan"},
+                "reviews": [
+                    {
+                        "id": "rev-1",
+                        "items": [
+                            {
+                                "id": "item-reasonable",
+                                "kind": "reasonable",
+                                "status": "open",
+                                "content": "looks fine",
+                            }
+                        ],
+                    }
+                ],
             }
         },
     )
