@@ -1,27 +1,22 @@
 #!/usr/bin/env bash
 # Start host, participant, and reviewer bridges together, all backed by the
-# Claude Agent SDK runners.
+# in-process Claude SDK client with session resume.
+#
+# As of v0.7 P4 there is no per-action subprocess runner; each bridge holds
+# one ClaudeSDKClient for its lifetime. ``claude_session_id`` is persisted
+# in the bridge state file so the next restart resumes the same session.
 #
 # Usage:
 #   ./scripts/start-all-bridges-claude.sh
-#   MAP_HOST_SUBMIT_REVIEW=1 ./scripts/start-all-bridges-claude.sh
 #   ./scripts/start-all-bridges-claude.sh --once --dry-run
 #
 # Logs: .map/bridge-logs/{host,participant,reviewer}.log
 # Stop all with Ctrl+C.
-#
-# Each MAP_*_RUNNER env var still wins if set, so this script is equivalent
-# to exporting MAP_HOST_RUNNER=python3 scripts/claude-host-runner.py and the
-# participant/reviewer equivalents before invoking the per-bridge scripts.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-
-export MAP_HOST_RUNNER="${MAP_HOST_RUNNER:-python3 scripts/claude-host-runner.py}"
-export MAP_PARTICIPANT_RUNNER="${MAP_PARTICIPANT_RUNNER:-python3 scripts/claude-participant-runner.py}"
-export MAP_REVIEWER_RUNNER="${MAP_REVIEWER_RUNNER:-python3 scripts/claude-reviewer-runner.py}"
 
 LOG_DIR="${MAP_BRIDGE_LOG_DIR:-.map/bridge-logs}"
 mkdir -p "$LOG_DIR"
@@ -42,12 +37,10 @@ trap cleanup EXIT INT TERM
 
 start_bridge() {
   local name="$1"
-  local runner_var="MAP_${name^^}_RUNNER"
-  local runner="${!runner_var:-default}"
   shift
   "$@" >>"$LOG_DIR/${name}.log" 2>&1 &
   pids+=("$!")
-  echo "started $name pid=$! log=$LOG_DIR/${name}.log runner=$runner" >&2
+  echo "started $name pid=$! log=$LOG_DIR/${name}.log" >&2
 }
 
 start_bridge host ./scripts/start-host-bridge-claude.sh
