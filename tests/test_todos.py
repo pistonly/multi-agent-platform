@@ -52,6 +52,83 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     assert any(t["id"] == topic["id"] for t in agent_todos3["my_open_topics"])
 
 
+def test_dismiss_topic_hides_from_my_open_topics(client, auth_headers, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Dismiss 一下"},
+    ).json()
+
+    # Sanity: it's there before dismiss.
+    todos_before = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert any(t["id"] == topic["id"] for t in todos_before["my_open_topics"])
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/dismiss", headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["dismissed_at"] is not None
+
+    todos_after = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert not any(t["id"] == topic["id"] for t in todos_after["my_open_topics"])
+
+    # Idempotent
+    resp2 = client.post(
+        f"/api/v1/topics/{topic['id']}/dismiss", headers=auth_headers
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["dismissed_at"] == body["dismissed_at"]
+
+
+def test_new_topic_comment_resurrects_dismissed_topic(
+    client, auth_headers, reviewer, project
+):
+    """A new comment on a dismissed topic bumps updated_at past dismissed_at,
+    so the topic re-surfaces in the host's todos."""
+    host_headers = auth_headers
+    participant_headers = reviewer["headers"]
+
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=host_headers,
+        json={"title": "Resurrect 测试"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/dismiss", headers=host_headers
+    )
+
+    hidden = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert not any(t["id"] == topic["id"] for t in hidden["my_open_topics"])
+
+    # New activity (any participant's comment) bumps topic.updated_at.
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=participant_headers,
+        json={"body": "有新动静了"},
+    )
+
+    resurface = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    matching = [t for t in resurface["my_open_topics"] if t["id"] == topic["id"]]
+    assert len(matching) == 1
+    assert matching[0]["dismissed_at"] is not None  # still flagged, but visible
+
+
+def test_dismiss_topic_forbidden_for_non_creator(
+    client, auth_headers, reviewer, project
+):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "非 host 不能 dismiss"},
+    ).json()
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/dismiss",
+        headers=reviewer["headers"],
+    )
+    assert resp.status_code == 404
+
+
 def test_pending_topic_replies(client, auth_headers, reviewer, project):
     host_headers = auth_headers
     participant_headers = reviewer["headers"]

@@ -375,6 +375,7 @@ class TopicSummaryRead(BaseModel):
     round_summary_count: int = 0
     comment_count: int = 0
     experiment_count: int = 0
+    dismissed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None

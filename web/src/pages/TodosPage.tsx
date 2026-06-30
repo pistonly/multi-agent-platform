@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { dismissAllMentions, dismissMention, fetchTodos } from "../api/client";
+import {
+  dismissAllMentions,
+  dismissMention,
+  dismissTopic,
+  fetchTodos,
+} from "../api/client";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { withCommentAnchor } from "../utils/commentAnchor";
@@ -21,6 +26,11 @@ export function TodosPage() {
 
   const dismissMany = useMutation({
     mutationFn: () => dismissAllMentions(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
+  });
+
+  const dismissOneTopic = useMutation({
+    mutationFn: (topicId: string) => dismissTopic(topicId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
   });
 
@@ -184,7 +194,23 @@ export function TodosPage() {
           {data.my_open_topics.map((t) => (
             <Row key={t.id} to={`/topics/${t.id}`}>
               <span className="text-accent hover:underline">{t.title}</span>
-              <span className="text-xs text-slate-500">{t.comment_count} 评论</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-500">{t.comment_count} 评论</span>
+                <button
+                  type="button"
+                  className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-surface-border hover:text-white disabled:opacity-50"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dismissOneTopic.mutate(t.id);
+                  }}
+                  disabled={dismissOneTopic.isPending}
+                  title="从待办中隐藏;有新动态时自动重新出现"
+                  aria-label="标记为已处理"
+                >
+                  ✕
+                </button>
+              </div>
             </Row>
           ))}
         </Section>

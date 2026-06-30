@@ -193,6 +193,7 @@ export interface TopicSummary {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  dismissed_at: string | null;
 }
 
 export interface TopicComment {

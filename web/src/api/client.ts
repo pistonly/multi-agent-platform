@@ -391,6 +391,11 @@ export async function reopenTopic(topicId: string): Promise<TopicSummary> {
   return data;
 }
 
+export async function dismissTopic(topicId: string): Promise<TopicSummary> {
+  const { data } = await api.post<TopicSummary>(`/topics/${topicId}/dismiss`);
+  return data;
+}
+
 export async function createTopicComment(
   topicId: string,
   payload: { body: string; parent_id?: string }

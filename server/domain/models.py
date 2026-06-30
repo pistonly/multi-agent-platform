@@ -154,12 +154,16 @@ class Topic(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="topics")
-    creator: Mapped["Agent"] = relationship()
+    creator: Mapped["Agent"] = relationship(foreign_keys=[creator_agent_id])
     comments: Mapped[list["TopicComment"]] = relationship(
         back_populates="topic", order_by="TopicComment.created_at"
     )
     experiments: Mapped[list["Experiment"]] = relationship(back_populates="topic")
     decision: Mapped["TopicDecision | None"] = relationship(back_populates="topic", uselist=False)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id"), nullable=True
+    )
 
 
 class TopicComment(Base):

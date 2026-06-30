@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -42,6 +42,24 @@ def _agent_names_by_ids(db: Session, agent_ids: set[uuid.UUID]) -> dict[uuid.UUI
 
 def topic_summary(db: Session, topic: Topic) -> TopicSummaryRead:
     return topic_summaries_for_topics(db, [topic])[0]
+
+
+def dismiss_topic(db: Session, *, agent: Agent, topic_id: uuid.UUID) -> Topic | None:
+    """Host-only: hide an open topic from the creator's /todos.
+
+    Re-surfaces automatically when the topic receives new activity
+    (`updated_at` is bumped on new comments), so the dismiss is a soft
+    "I've seen the current state" rather than a permanent archive.
+    """
+    topic = db.get(Topic, topic_id)
+    if topic is None or topic.creator_agent_id != agent.id:
+        return None
+    if topic.dismissed_at is None:
+        topic.dismissed_at = datetime.now(timezone.utc)
+        topic.dismissed_by_agent_id = agent.id
+        db.commit()
+        db.refresh(topic)
+    return topic
 
 
 def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSummaryRead]:
@@ -87,6 +105,7 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
             created_at=topic.created_at,
             updated_at=topic.updated_at,
             archived_at=topic.archived_at,
+            dismissed_at=topic.dismissed_at,
         )
         for topic in topics
     ]
@@ -457,6 +476,9 @@ def create_topic_comment(
         body=payload.body,
     )
     db.add(comment)
+    # Bump topic.updated_at so any prior host-side dismiss on this topic
+    # is automatically un-dismissed — there's new activity worth seeing.
+    topic.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(comment)
 

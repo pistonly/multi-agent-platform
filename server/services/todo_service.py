@@ -144,6 +144,12 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
                 Topic.deleted_at.is_(None),
                 Topic.archived_at.is_(None),
                 Topic.status == TopicStatus.open,
+                # Hide topics the host has dismissed, unless new activity
+                # (updated_at bumped past dismissed_at) has appeared since.
+                or_(
+                    Topic.dismissed_at.is_(None),
+                    Topic.updated_at > Topic.dismissed_at,
+                ),
             )
             .order_by(Topic.updated_at.desc())
         )
