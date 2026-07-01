@@ -13,6 +13,7 @@ RuntimeWaker = runtime_waker.RuntimeWaker
 RuntimeWakerConfig = runtime_waker.RuntimeWakerConfig
 WakeResult = runtime_waker.WakeResult
 CodexSdkWakeBackend = runtime_waker.CodexSdkWakeBackend
+CursorSdkWakeBackend = runtime_waker.CursorSdkWakeBackend
 build_wake_prompt = runtime_waker.build_wake_prompt
 create_backend = runtime_waker.create_backend
 discover_wake_events = runtime_waker.discover_wake_events
@@ -626,6 +627,13 @@ def test_create_backend_supports_codex(tmp_path):
     assert backend.codex_bin == "/bin/codex"
 
 
+def test_create_backend_supports_cursor(tmp_path):
+    backend = create_backend(RuntimeWakerConfig(backend="cursor", project_root=tmp_path, model="composer-2.5"))
+
+    assert isinstance(backend, CursorSdkWakeBackend)
+    assert backend.model == "composer-2.5"
+
+
 def test_default_claude_backend_uses_persona_agent_wake_backend(tmp_path):
     client = FakeMapClient(persona="host", todos={})
     worker = RuntimeWaker(
@@ -722,3 +730,98 @@ def test_codex_backend_starts_and_resumes_threads(monkeypatch, tmp_path):
     assert isinstance(run_call["input_items"][0], FakeSkillInput)
     assert run_call["input_items"][0].name == "map-runtime-waker"
     assert isinstance(run_call["input_items"][1], FakeTextInput)
+
+
+def test_cursor_backend_creates_and_resumes_agents(monkeypatch, tmp_path):
+    calls: list[tuple[str, Any]] = []
+
+    class FakeRunResult:
+        status = "finished"
+        result = "handled"
+        id = "run-1"
+
+    class FakeRun:
+        def wait(self) -> FakeRunResult:
+            calls.append(("wait", {}))
+            return FakeRunResult()
+
+    class FakeAgent:
+        def __init__(self, agent_id: str) -> None:
+            self.agent_id = agent_id
+
+        def send(self, prompt: str) -> FakeRun:
+            calls.append(("send", {"prompt": prompt}))
+            return FakeRun()
+
+        def close(self) -> None:
+            calls.append(("close", {}))
+
+    class FakeAgentContext:
+        def __init__(self, agent_id: str) -> None:
+            self._agent = FakeAgent(agent_id)
+
+        def __enter__(self) -> FakeAgent:
+            return self._agent
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+    class FakeLocalAgentOptions:
+        def __init__(self, **kwargs: Any) -> None:
+            calls.append(("local", kwargs))
+
+    class FakeAgentOptions:
+        def __init__(self, **kwargs: Any) -> None:
+            calls.append(("options", kwargs))
+
+    class FakeAgentClass:
+        @staticmethod
+        def create(options: FakeAgentOptions) -> FakeAgentContext:
+            calls.append(("create", options))
+            return FakeAgentContext("agent-new")
+
+        @staticmethod
+        def resume(agent_id: str, options: FakeAgentOptions) -> FakeAgentContext:
+            calls.append(("resume", {"agent_id": agent_id, "options": options}))
+            return FakeAgentContext(agent_id)
+
+    fake_module = type(sys)("cursor_sdk")
+    fake_module.Agent = FakeAgentClass
+    fake_module.AgentOptions = FakeAgentOptions
+    fake_module.CursorAgentError = type("CursorAgentError", (Exception,), {})
+    fake_module.LocalAgentOptions = FakeLocalAgentOptions
+    monkeypatch.setitem(sys.modules, "cursor_sdk", fake_module)
+    monkeypatch.setenv("CURSOR_API_KEY", "cursor_test_key")
+
+    backend = CursorSdkWakeBackend(project_root=tmp_path, model="composer-2.5")
+
+    first = backend.wake(persona="host", prompt="wake now", session_id=None)
+    second = backend.wake(persona="host", prompt="wake again", session_id=first.session_id)
+
+    assert first.session_id == "agent-new"
+    assert first.response_text == "handled"
+    assert second.session_id == "agent-new"
+    resume_calls = [payload for name, payload in calls if name == "resume"]
+    assert len(resume_calls) == 1
+    assert resume_calls[0]["agent_id"] == "agent-new"
+    options_call = next(payload for name, payload in calls if name == "options")
+    assert options_call["api_key"] == "cursor_test_key"
+    assert options_call["model"] == "composer-2.5"
+    local_call = next(payload for name, payload in calls if name == "local")
+    assert local_call["cwd"] == str(tmp_path)
+    assert local_call["setting_sources"] == ["project"]
+    send_calls = [payload for name, payload in calls if name == "send"]
+    assert send_calls[0]["prompt"] == "wake now"
+    assert send_calls[1]["prompt"] == "wake again"
+
+
+def test_cursor_backend_requires_api_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(CursorSdkWakeBackend, "_resolve_api_key", lambda self: None)
+    backend = CursorSdkWakeBackend(project_root=tmp_path)
+
+    try:
+        backend.wake(persona="host", prompt="wake", session_id=None)
+    except Exception as exc:
+        assert "CURSOR_API_KEY" in str(exc)
+    else:
+        raise AssertionError("expected WorkerError for missing CURSOR_API_KEY")
