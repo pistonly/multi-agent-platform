@@ -55,6 +55,10 @@ class MapCommandClient:
     def topic_show(self, topic_id: str) -> dict[str, Any]:
         return self._run(["topic", "show", "--id", topic_id])
 
+    def topic_list_open(self) -> list[dict[str, Any]]:
+        rows = self._run(["topic", "list", "--status", "open"])
+        return list(rows or []) if isinstance(rows, list) else []
+
     def topic_comment(self, topic_id: str, body: str, parent_id: str | None = None) -> dict[str, Any] | None:
         args = ["topic", "comment", "--id", topic_id, "--body", body]
         if parent_id is not None:

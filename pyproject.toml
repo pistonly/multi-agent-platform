@@ -29,6 +29,9 @@ dev = [
 mcp = [
     "mcp>=1.26.0",
 ]
+codex-runtime = [
+    "openai-codex",
+]
 
 [project.scripts]
 map-server = "server.main:run"
@@ -37,6 +40,7 @@ map-host-worker = "cli.host_worker:main"
 map-host-bridge = "cli.host_worker:main"
 map-participant-bridge = "cli.participant_worker:main"
 map-reviewer-bridge = "cli.reviewer_worker:main"
+map-runtime-waker = "cli.runtime_waker:main"
 map-mcp = "map_mcp.main:cli"
 
 [build-system]
