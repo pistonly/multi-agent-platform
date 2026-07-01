@@ -485,24 +485,80 @@ def discover_wake_events(
 
 
 def build_wake_prompt(event: WakeEvent, *, project_root: Path) -> str:
+    del project_root  # wake prompts are project-agnostic; persona is on the event.
     command = f"map --persona {event.persona}"
-    event_json = json.dumps(asdict(event), ensure_ascii=False, indent=2)
-    return f"""你是 MAP 项目 `{project_root.name}` 的 `{event.persona}` persona。
+    payload = event.payload or {}
+    title = event.title or payload.get("topic_title") or payload.get("title") or ""
+    header = f"MAP wake · {event.kind} · {event.object_id}"
+    if title:
+        header = f"{header} · {title}"
 
-这是一条 runtime wake-up。请恢复已有上下文后，自己读取项目 Skills 并用 MAP CLI 处理相关工作。
+    lines = [header]
+    latest_by = _wake_latest_by(event, payload)
+    if latest_by:
+        lines.append(f"latest_by={latest_by}")
+    excerpt = _wake_excerpt(event, payload)
+    if excerpt:
+        lines.append(f"excerpt={excerpt}")
 
-硬性规则：
-- 先执行 `{command} persona whoami` 确认身份。
-- 只使用 `{command} ...` 做 MAP 操作；不要使用 MCP、curl 或手写 httpx 调 MAP API。
-- 先执行 `{command} todos` 读取最新待办；必要时再 show 对象详情。
-- 只处理这一条事件直接相关的一项工作；如果已无事可做，简短说明后结束。
-- approve / start / complete / execute 这类高风险动作必须遵守项目 skill 的门禁。
+    for hint in _wake_command_hints(event, payload, command=command):
+        lines.append(hint)
+    return "\n".join(lines) + "\n"
 
-事件：
-```json
-{event_json}
-```
-"""
+
+def _wake_latest_by(event: WakeEvent, payload: dict[str, Any]) -> str | None:
+    if event.kind == "open_topic_opportunity":
+        return (
+            payload.get("last_comment_author_name")
+            or payload.get("last_comment_author_agent_id")
+            or None
+        )
+    if event.kind in {"mention", "pending_topic_reply"}:
+        return payload.get("author_name") or payload.get("author_agent_id")
+    if event.kind == "pending_review":
+        return payload.get("creator_name")
+    return None
+
+
+def _wake_excerpt(event: WakeEvent, payload: dict[str, Any]) -> str | None:
+    raw = payload.get("excerpt") or payload.get("last_comment_excerpt")
+    if not raw:
+        return None
+    text = str(raw).strip().replace("\n", " ")
+    limit = 200
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _wake_command_hints(
+    event: WakeEvent, payload: dict[str, Any], *, command: str
+) -> list[str]:
+    topic_id = str(payload.get("topic_id") or event.object_id)
+    if event.kind == "mention":
+        source_id = payload.get("source_id")
+        hints = [f"→ `{command} topic show --id {topic_id}`"]
+        if source_id:
+            hints.append(f"reply_to={source_id}")
+        return hints
+    if event.kind == "pending_topic_reply":
+        comment_id = payload.get("comment_id")
+        hints = [f"→ `{command} topic show --id {topic_id}`"]
+        if comment_id:
+            hints.append(f"reply_to={comment_id}")
+        return hints
+    if event.kind == "open_topic_opportunity":
+        return [f"→ `{command} topic show --id {topic_id}`"]
+    if event.kind == "topic_lifecycle":
+        return [f"→ `{command} topic show --id {topic_id}`"]
+    if event.kind == "experiment_lifecycle":
+        return [f"→ `{command} experiment status --id {event.object_id}`"]
+    if event.kind == "pending_review":
+        return [f"→ `{command} experiment status --id {event.object_id}`"]
+    if event.kind == "addressed_review_item":
+        experiment_id = payload.get("experiment_id") or event.object_id
+        return [f"→ `{command} experiment status --id {experiment_id}`"]
+    return [f"→ `{command} todos`"]
 
 
 def sync_runtime_skills(*, project_root: Path, runtime_home: Path) -> None:
@@ -543,7 +599,17 @@ def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
                 fingerprint=f"host:pending_topic_reply:{topic_id}:{comment_id}",
                 title=item.get("topic_title"),
                 reason="reply to a pending topic thread",
-                payload=_compact_payload(item, keys=("topic_id", "topic_title", "comment_id", "thread_root_id")),
+                payload=_compact_payload(
+                    item,
+                    keys=(
+                        "topic_id",
+                        "topic_title",
+                        "comment_id",
+                        "thread_root_id",
+                        "author_name",
+                        "excerpt",
+                    ),
+                ),
             )
         )
     for item in todos.get("my_open_topics") or []:
@@ -597,11 +663,27 @@ def _participant_should_join_open_topic(
     *,
     participant_agent_id: str | None,
 ) -> bool:
-    """Wake participant when the topic's latest comment is not from this agent."""
-    if participant_agent_id is None:
+    """Wake participant for open topics per topic-participant skill gates."""
+    comment_count = int(item.get("comment_count") or 0)
+    if comment_count == 0:
         return True
+
+    last_comment_id = item.get("last_comment_id")
     last_author = item.get("last_comment_author_agent_id")
-    if last_author in (None, ""):
+    if not last_comment_id or last_author in (None, ""):
+        return False
+
+    discussion_round = str(item.get("discussion_round") or "round1")
+    round_summary_count = int(item.get("round_summary_count") or 0)
+    my_comment_count = int(item.get("my_comment_count") or 0)
+    if (
+        discussion_round == "round1"
+        and round_summary_count == 0
+        and my_comment_count >= 2
+    ):
+        return False
+
+    if participant_agent_id is None:
         return True
     return str(last_author) != participant_agent_id
 
@@ -656,18 +738,13 @@ def _participant_events(
                 item, participant_agent_id=participant_agent_id
             ):
                 continue
-            last_author = str(item.get("last_comment_author_agent_id") or "none")
+            last_comment_id = str(item.get("last_comment_id") or "none")
             events.append(
                 WakeEvent(
                     persona="participant",
                     kind="open_topic_opportunity",
                     object_id=topic_id,
-                    fingerprint=(
-                        f"participant:open_topic:{topic_id}:"
-                        f"{item.get('comment_count') or ''}:"
-                        f"{item.get('updated_at') or ''}:"
-                        f"last={last_author}"
-                    ),
+                    fingerprint=f"participant:open_topic:{topic_id}:{last_comment_id}",
                     title=item.get("title"),
                     reason="participate when the latest topic reply is not from you",
                     payload=_compact_payload(
@@ -678,8 +755,11 @@ def _participant_events(
                             "discussion_round",
                             "round_summary_count",
                             "comment_count",
-                            "updated_at",
+                            "my_comment_count",
+                            "last_comment_id",
                             "last_comment_author_agent_id",
+                            "last_comment_author_name",
+                            "last_comment_excerpt",
                         ),
                     ),
                 )

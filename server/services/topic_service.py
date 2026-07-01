@@ -40,8 +40,8 @@ def _agent_names_by_ids(db: Session, agent_ids: set[uuid.UUID]) -> dict[uuid.UUI
     }
 
 
-def topic_summary(db: Session, topic: Topic) -> TopicSummaryRead:
-    return topic_summaries_for_topics(db, [topic])[0]
+def topic_summary(db: Session, topic: Topic, *, viewer_agent_id: uuid.UUID | None = None) -> TopicSummaryRead:
+    return topic_summaries_for_topics(db, [topic], viewer_agent_id=viewer_agent_id)[0]
 
 
 def dismiss_topic(db: Session, *, agent: Agent, topic_id: uuid.UUID) -> Topic | None:
@@ -62,7 +62,12 @@ def dismiss_topic(db: Session, *, agent: Agent, topic_id: uuid.UUID) -> Topic | 
     return topic
 
 
-def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSummaryRead]:
+def topic_summaries_for_topics(
+    db: Session,
+    topics: list[Topic],
+    *,
+    viewer_agent_id: uuid.UUID | None = None,
+) -> list[TopicSummaryRead]:
     if not topics:
         return []
 
@@ -88,7 +93,13 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
         )
     }
     creator_names = _agent_names_by_ids(db, {topic.creator_agent_id for topic in topics})
-    latest_comment_authors = _latest_comment_authors_by_topic(db, topic_ids)
+    latest_comments = _latest_topic_comments_by_topic(db, topic_ids)
+    latest_author_names = _agent_names_by_ids(
+        db, {comment.author_agent_id for comment in latest_comments.values()}
+    )
+    my_comment_counts: dict[uuid.UUID, int] = {}
+    if viewer_agent_id is not None:
+        my_comment_counts = _my_comment_counts_by_topic(db, topic_ids, viewer_agent_id)
     return [
         TopicSummaryRead(
             id=topic.id,
@@ -103,7 +114,21 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
             round_summary_count=topic.round_summary_count,
             comment_count=comment_counts.get(topic.id, 0),
             experiment_count=experiment_counts.get(topic.id, 0),
-            last_comment_author_agent_id=latest_comment_authors.get(topic.id),
+            last_comment_id=latest_comments[topic.id].id if topic.id in latest_comments else None,
+            last_comment_author_agent_id=(
+                latest_comments[topic.id].author_agent_id if topic.id in latest_comments else None
+            ),
+            last_comment_author_name=(
+                latest_author_names.get(latest_comments[topic.id].author_agent_id)
+                if topic.id in latest_comments
+                else None
+            ),
+            last_comment_excerpt=(
+                _topic_comment_excerpt(latest_comments[topic.id].body)
+                if topic.id in latest_comments
+                else None
+            ),
+            my_comment_count=my_comment_counts.get(topic.id, 0) if viewer_agent_id is not None else None,
             created_at=topic.created_at,
             updated_at=topic.updated_at,
             archived_at=topic.archived_at,
@@ -113,25 +138,57 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
     ]
 
 
+def _topic_comment_excerpt(body: str) -> str:
+    text = body.strip().replace("\n", " ")
+    limit = 200
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _latest_topic_comments_by_topic(
+    db: Session, topic_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, TopicComment]:
+    if not topic_ids:
+        return {}
+    latest: dict[uuid.UUID, TopicComment] = {}
+    for topic_id in topic_ids:
+        comment = db.scalars(
+            select(TopicComment)
+            .where(TopicComment.topic_id == topic_id)
+            .order_by(TopicComment.created_at.desc(), TopicComment.id.desc())
+            .limit(1)
+        ).first()
+        if comment is not None:
+            latest[topic_id] = comment
+    return latest
+
+
+def _my_comment_counts_by_topic(
+    db: Session, topic_ids: list[uuid.UUID], agent_id: uuid.UUID
+) -> dict[uuid.UUID, int]:
+    if not topic_ids:
+        return {}
+    return {
+        topic_id: count
+        for topic_id, count in db.execute(
+            select(TopicComment.topic_id, func.count())
+            .where(
+                TopicComment.topic_id.in_(topic_ids),
+                TopicComment.author_agent_id == agent_id,
+            )
+            .group_by(TopicComment.topic_id)
+        )
+    }
+
+
 def _latest_comment_authors_by_topic(
     db: Session, topic_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, uuid.UUID]:
-    """Map each topic to the author of its most recent comment (by created_at, then id)."""
-    if not topic_ids:
-        return {}
-    comments = db.scalars(
-        select(TopicComment)
-        .where(TopicComment.topic_id.in_(topic_ids))
-        .order_by(
-            TopicComment.topic_id,
-            TopicComment.created_at.desc(),
-            TopicComment.id.desc(),
-        )
-    ).all()
-    authors: dict[uuid.UUID, uuid.UUID] = {}
-    for comment in comments:
-        authors.setdefault(comment.topic_id, comment.author_agent_id)
-    return authors
+    return {
+        topic_id: comment.author_agent_id
+        for topic_id, comment in _latest_topic_comments_by_topic(db, topic_ids).items()
+    }
 
 
 def _action_item_read(db: Session, item: TopicActionItem) -> TopicActionItemRead:
@@ -234,6 +291,7 @@ def list_topics(
     page: int = 1,
     page_size: int = 100,
     include_archived: bool = False,
+    viewer_agent_id: uuid.UUID | None = None,
 ) -> tuple[list[TopicSummaryRead], int]:
     get_project(db, project_id)
     stmt = select(Topic).where(Topic.project_id == project_id, Topic.deleted_at.is_(None))
@@ -251,7 +309,7 @@ def list_topics(
     page_size = max(1, min(page_size, 100))
     stmt = stmt.order_by(Topic.pinned.desc(), Topic.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)
     topics = list(db.scalars(stmt))
-    return topic_summaries_for_topics(db, topics), total
+    return topic_summaries_for_topics(db, topics, viewer_agent_id=viewer_agent_id), total
 
 
 def get_topic_detail(db: Session, topic_id: uuid.UUID) -> TopicRead:

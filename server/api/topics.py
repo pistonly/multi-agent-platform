@@ -79,6 +79,7 @@ def list_topics(
         page=page,
         page_size=page_size,
         include_archived=include_archived,
+        viewer_agent_id=agent.id,
     )
     response.headers["X-Total-Count"] = str(total)
     return topics

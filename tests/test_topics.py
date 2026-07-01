@@ -86,6 +86,10 @@ def test_topic_list_includes_last_comment_author(client, auth_headers, reviewer,
     row = next(item for item in listing.json() if item["id"] == topic["id"])
     assert row["last_comment_author_agent_id"] == reviewer["id"]
     assert row["comment_count"] == 2
+    assert row["last_comment_id"] is not None
+    assert row["last_comment_author_name"] == "reviewer-agent"
+    assert row["last_comment_excerpt"] == "reviewer 插话"
+    assert row["my_comment_count"] == 1
 
 
 def test_topic_status_filter_and_transitions(client, auth_headers, project):

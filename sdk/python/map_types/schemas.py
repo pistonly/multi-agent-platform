@@ -376,7 +376,11 @@ class TopicSummaryRead(BaseModel):
     round_summary_count: int = 0
     comment_count: int = 0
     experiment_count: int = 0
+    last_comment_id: uuid.UUID | None = None
     last_comment_author_agent_id: uuid.UUID | None = None
+    last_comment_author_name: str | None = None
+    last_comment_excerpt: str | None = None
+    my_comment_count: int | None = None
     dismissed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

@@ -226,7 +226,7 @@ def test_participant_waker_scans_open_topics_by_default(tmp_path):
 
     assert stats.events_seen == 1
     assert stats.wakes_sent == 1
-    assert "participant:open_topic:topic-open" in backend.calls[0]["prompt"]
+    assert "MAP wake · open_topic_opportunity · topic-open" in backend.calls[0]["prompt"]
 
 
 def test_participant_skips_open_topic_when_latest_comment_is_self():
@@ -239,8 +239,49 @@ def test_participant_skips_open_topic_when_latest_comment_is_self():
                     "id": "topic-1",
                     "title": "T",
                     "comment_count": 2,
-                    "updated_at": "2026-06-30T01:00:00Z",
+                    "last_comment_id": "comment-2",
                     "last_comment_author_agent_id": participant_id,
+                }
+            ]
+        },
+        participant_agent_id=participant_id,
+    )
+    assert events == []
+
+
+def test_participant_skips_open_topic_without_last_comment_id():
+    events = discover_wake_events(
+        "participant",
+        {
+            "open_topics": [
+                {
+                    "id": "topic-1",
+                    "title": "T",
+                    "comment_count": 2,
+                    "last_comment_author_agent_id": "host-agent",
+                }
+            ]
+        },
+        participant_agent_id="participant-agent",
+    )
+    assert events == []
+
+
+def test_participant_skips_round1_when_already_spoke_twice_without_summary():
+    participant_id = "participant-agent"
+    events = discover_wake_events(
+        "participant",
+        {
+            "open_topics": [
+                {
+                    "id": "topic-1",
+                    "title": "T",
+                    "discussion_round": "round1",
+                    "round_summary_count": 0,
+                    "my_comment_count": 2,
+                    "comment_count": 4,
+                    "last_comment_id": "comment-4",
+                    "last_comment_author_agent_id": "host-agent",
                 }
             ]
         },
@@ -259,8 +300,10 @@ def test_participant_wakes_for_open_topic_when_latest_comment_is_other():
                     "id": "topic-1",
                     "title": "T",
                     "comment_count": 1,
-                    "updated_at": "2026-06-30T01:00:00Z",
+                    "last_comment_id": "comment-1",
                     "last_comment_author_agent_id": "host-agent",
+                    "last_comment_author_name": "multi-agents-platform-host",
+                    "last_comment_excerpt": "host 开场",
                 }
             ]
         },
@@ -268,6 +311,7 @@ def test_participant_wakes_for_open_topic_when_latest_comment_is_other():
     )
     assert len(events) == 1
     assert events[0].kind == "open_topic_opportunity"
+    assert events[0].fingerprint == "participant:open_topic:topic-1:comment-1"
 
 
 def test_participant_waker_can_scan_open_topics_when_enabled(tmp_path):
@@ -292,22 +336,35 @@ def test_participant_waker_can_scan_open_topics_when_enabled(tmp_path):
 
     assert stats.events_seen == 1
     assert stats.wakes_sent == 1
-    assert "participant:open_topic:topic-open" in backend.calls[0]["prompt"]
+    assert "MAP wake · open_topic_opportunity · topic-open" in backend.calls[0]["prompt"]
 
 
 def test_build_wake_prompt_is_short_and_cli_oriented():
     event = discover_wake_events(
         "host",
-        {"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        {
+            "pending_topic_replies": [
+                {
+                    "topic_id": "topic-1",
+                    "comment_id": "comment-1",
+                    "topic_title": "T",
+                    "author_name": "multi-agents-platform-participant",
+                    "excerpt": "需要 host 回复",
+                }
+            ]
+        },
     )[0]
 
     prompt = build_wake_prompt(event, project_root=Path("/tmp/multi_agents_platform"))
 
-    assert "map --persona host persona whoami" in prompt
-    assert "map --persona host todos" in prompt
-    assert "不要使用 MCP" in prompt
-    assert "comment-1" in prompt
-    assert len(prompt) < 1600
+    assert prompt.startswith("MAP wake · pending_topic_reply · topic-1")
+    assert "latest_by=multi-agents-platform-participant" in prompt
+    assert "excerpt=需要 host 回复" in prompt
+    assert "reply_to=comment-1" in prompt
+    assert "map --persona host topic show --id topic-1" in prompt
+    assert "不要使用 MCP" not in prompt
+    assert "```json" not in prompt
+    assert len(prompt) < 400
 
 
 def test_sync_runtime_skills_copies_skill_dirs(tmp_path):

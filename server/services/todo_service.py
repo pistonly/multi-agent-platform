@@ -154,7 +154,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
             .order_by(Topic.updated_at.desc())
         )
     )
-    my_open_topics = topic_summaries_for_topics(db, open_topics)
+    my_open_topics = topic_summaries_for_topics(db, open_topics, viewer_agent_id=agent.id)
 
     project_clause = None if perm.is_admin(agent) else Experiment.project_id == agent.project_id
 
