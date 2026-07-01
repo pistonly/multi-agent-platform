@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 
-def _create_agent(client, admin_headers, project, name: str) -> str:
+def _create_agent(client, admin_headers, project, name: str) -> tuple[str, str]:
     response = client.post(
         "/api/v1/agents",
         headers=admin_headers,
         params={"name": name, "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201, response.text
-    return response.json()["id"]
+    data = response.json()
+    return data["id"], data["api_token"]
 
 
 def test_list_agents_requires_auth(client):
@@ -19,9 +20,9 @@ def test_list_agents_requires_auth(client):
 
 
 def test_admin_lists_all_agents(client, admin_headers, project):
-    host_id = _create_agent(client, admin_headers, project, "multi-agents-platform-host")
-    participant_id = _create_agent(client, admin_headers, project, "multi-agents-platform-participant")
-    reviewer_id = _create_agent(client, admin_headers, project, "multi-agents-platform-reviewer")
+    host_id, _ = _create_agent(client, admin_headers, project, "multi-agents-platform-host")
+    participant_id, _ = _create_agent(client, admin_headers, project, "multi-agents-platform-participant")
+    reviewer_id, _ = _create_agent(client, admin_headers, project, "multi-agents-platform-reviewer")
 
     response = client.get("/api/v1/agents", headers=admin_headers)
     assert response.status_code == 200
@@ -45,7 +46,7 @@ def test_admin_can_filter_by_role(client, admin_headers, project):
 
 
 def test_project_agent_sees_project_peers_and_admins(client, admin_headers, project):
-    host_id = _create_agent(client, admin_headers, project, "host-persona")
+    host_id, token = _create_agent(client, admin_headers, project, "host-persona")
     other = client.post(
         "/api/v1/projects",
         headers=admin_headers,
@@ -59,14 +60,6 @@ def test_project_agent_sees_project_peers_and_admins(client, admin_headers, proj
     other_project = other.json()
     _create_agent(client, admin_headers, other_project, "outsider-agent")
 
-    # Use host-persona to authenticate as a project-bound agent.
-    host_token_resp = client.post(
-        "/api/v1/agents",
-        headers=admin_headers,
-        params={"name": "host-persona", "role": "agent", "project_key": project["project_key"]},
-    )
-    assert host_token_resp.status_code == 201, host_token_resp.text
-    token = host_token_resp.json()["api_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     response = client.get("/api/v1/agents", headers=headers)
@@ -82,15 +75,8 @@ def test_project_agent_sees_project_peers_and_admins(client, admin_headers, proj
 
 
 def test_project_agent_can_filter_by_project(client, admin_headers, project):
-    host_id = _create_agent(client, admin_headers, project, "filtered-host")
+    host_id, token = _create_agent(client, admin_headers, project, "filtered-host")
 
-    host_resp = client.post(
-        "/api/v1/agents",
-        headers=admin_headers,
-        params={"name": "filtered-host", "role": "agent", "project_key": project["project_key"]},
-    )
-    assert host_resp.status_code == 201, host_resp.text
-    token = host_resp.json()["api_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     response = client.get(

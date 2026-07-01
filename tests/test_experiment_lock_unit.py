@@ -205,7 +205,7 @@ def test_from_env_disables_lock(monkeypatch):
     # acquire is a no-op when disabled.
     assert state.lock_holder_experiment_id == "e1"
     # Real backend should NOT have been touched.
-    assert manager.backend.states["p1"].lock_holder_experiment_id is None
+    assert "p1" not in manager.backend.states
 
 
 def test_from_env_dry_run(monkeypatch):
@@ -232,8 +232,6 @@ def test_concurrent_acquire_only_one_winner(tmp_path: Path):
             results.append((exp_id, True, None))
         except LockBusy as exc:
             results.append((exp_id, False, str(exc.holder)))
-        finally:
-            manager.release(project_id="p1", experiment_id=exp_id)
 
     threads = [threading.Thread(target=worker, args=(f"e{i}",)) for i in range(4)]
     for t in threads:
@@ -300,7 +298,7 @@ def test_dry_run_does_not_mutate_backend():
     backend = InMemoryLockBackend()
     manager = ExperimentLockManager(backend=backend, dry_run=True)
     manager.acquire(project_id="p1", experiment_id="e1")
-    assert backend.states["p1"].lock_holder_experiment_id is None
+    assert "p1" not in backend.states
 
 
 # ---------------------------------------------------------------------------
