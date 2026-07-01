@@ -161,6 +161,7 @@ class CommentRead(ORMModel):
     author_name: str | None = None
     body: str
     created_at: datetime
+    unresolved_mentions: list[str] = Field(default_factory=list)
 
 
 class CommentTreeNode(CommentRead):
@@ -375,6 +376,7 @@ class TopicSummaryRead(BaseModel):
     round_summary_count: int = 0
     comment_count: int = 0
     experiment_count: int = 0
+    last_comment_author_agent_id: uuid.UUID | None = None
     dismissed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -394,6 +396,7 @@ class TopicCommentRead(ORMModel):
     parent_comment_id: uuid.UUID | None
     body: str
     created_at: datetime
+    unresolved_mentions: list[str] = Field(default_factory=list)
 
 
 class TopicCommentTreeNode(TopicCommentRead):

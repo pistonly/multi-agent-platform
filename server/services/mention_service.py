@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from server.domain.models import Agent, Comment, Mention, MentionSourceType, Topic, TopicComment
+from server.domain.models import Agent, Comment, Mention, MentionSourceType, Notification, Topic, TopicComment
 from server.services import notification_service
 
 MENTION_PATTERN = re.compile(r"@([a-zA-Z][a-zA-Z0-9_-]*)")
@@ -29,6 +29,64 @@ def resolve_mentioned_agents(db: Session, names: list[str]) -> list[Agent]:
     return list(db.scalars(select(Agent).where(Agent.name.in_(names))))
 
 
+def partition_mention_names(
+    db: Session, names: list[str]
+) -> tuple[list[Agent], list[str]]:
+    """Split @tokens into resolved MAP agents and names with no matching Agent."""
+    if not names:
+        return [], []
+    agents = resolve_mentioned_agents(db, names)
+    resolved_names = {agent.name for agent in agents}
+    unresolved = [name for name in names if name not in resolved_names]
+    return agents, unresolved
+
+
+def unresolved_mention_names(db: Session, body: str) -> list[str]:
+    _, unresolved = partition_mention_names(db, extract_mention_names(body))
+    return unresolved
+
+
+def notify_unresolved_mentions(
+    db: Session,
+    *,
+    author: Agent,
+    project_id: uuid.UUID,
+    unresolved: list[str],
+    target_type: str,
+    target_id: uuid.UUID,
+    context_label: str,
+    payload: dict[str, str],
+) -> None:
+    """Soft-fail feedback: comment is kept, author is told which @names did not match."""
+    if not unresolved:
+        return
+    labels = ", ".join(f"@{name}" for name in unresolved)
+    notification = Notification(
+        recipient_agent_id=author.id,
+        project_id=project_id,
+        event="mention.unresolved",
+        summary=(
+            f"评论中的 {labels} 未匹配到 MAP Agent（{context_label}）。"
+            "请运行 `map persona list` 查看 agent_name，@ 时使用全名而非 persona 短名。"
+        ),
+        target_type=target_type,
+        target_id=target_id,
+        payload_json={
+            **payload,
+            "unresolved_mentions": unresolved,
+            "hint": "Run `map persona list` and @ the exact agent_name field.",
+        },
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+    notification_service._emit_created(
+        [author.id],
+        [notification.id],
+        event="mention.unresolved",
+    )
+
+
 def _excerpt(body: str) -> str:
     text = body.strip().replace("\n", " ")
     if len(text) <= _EXCERPT_LEN:
@@ -43,49 +101,62 @@ def process_experiment_comment_mentions(
     author: Agent,
     project_id: uuid.UUID,
     experiment_title: str,
-) -> None:
-    agents = resolve_mentioned_agents(db, extract_mention_names(comment.body))
-    if not agents:
-        return
+) -> list[str]:
+    names = extract_mention_names(comment.body)
+    agents, unresolved = partition_mention_names(db, names)
+    if agents:
+        excerpt = _excerpt(comment.body)
+        recipient_ids: list[uuid.UUID] = []
+        for agent in agents:
+            if agent.id == author.id:
+                continue
+            mention = Mention(
+                mentioned_agent_id=agent.id,
+                author_agent_id=author.id,
+                source_type=MentionSourceType.experiment_comment,
+                source_id=comment.id,
+                project_id=project_id,
+                experiment_id=comment.experiment_id,
+                topic_id=None,
+                excerpt=excerpt,
+            )
+            db.add(mention)
+            recipient_ids.append(agent.id)
 
-    excerpt = _excerpt(comment.body)
-    recipient_ids: list[uuid.UUID] = []
-    for agent in agents:
-        if agent.id == author.id:
-            continue
-        mention = Mention(
-            mentioned_agent_id=agent.id,
-            author_agent_id=author.id,
-            source_type=MentionSourceType.experiment_comment,
-            source_id=comment.id,
+        if recipient_ids:
+            db.commit()
+            notification_service.enqueue_for_agents(
+                db,
+                recipient_agent_ids=recipient_ids,
+                project_id=project_id,
+                actor_id=author.id,
+                event="agent.mentioned",
+                summary=f"{author.name} 在实验「{experiment_title}」中提及了你",
+                target_type="comment",
+                target_id=comment.id,
+                payload={
+                    "experiment_id": str(comment.experiment_id),
+                    "comment_id": str(comment.id),
+                    "author_name": author.name,
+                    "excerpt": excerpt,
+                },
+            )
+
+    if unresolved:
+        notify_unresolved_mentions(
+            db,
+            author=author,
             project_id=project_id,
-            experiment_id=comment.experiment_id,
-            topic_id=None,
-            excerpt=excerpt,
+            unresolved=unresolved,
+            target_type="comment",
+            target_id=comment.id,
+            context_label=f"实验「{experiment_title}」",
+            payload={
+                "experiment_id": str(comment.experiment_id),
+                "comment_id": str(comment.id),
+            },
         )
-        db.add(mention)
-        recipient_ids.append(agent.id)
-
-    if not recipient_ids:
-        return
-
-    db.commit()
-    notification_service.enqueue_for_agents(
-        db,
-        recipient_agent_ids=recipient_ids,
-        project_id=project_id,
-        actor_id=author.id,
-        event="agent.mentioned",
-        summary=f"{author.name} 在实验「{experiment_title}」中提及了你",
-        target_type="comment",
-        target_id=comment.id,
-        payload={
-            "experiment_id": str(comment.experiment_id),
-            "comment_id": str(comment.id),
-            "author_name": author.name,
-            "excerpt": excerpt,
-        },
-    )
+    return unresolved
 
 
 def process_topic_comment_mentions(
@@ -94,49 +165,62 @@ def process_topic_comment_mentions(
     comment: TopicComment,
     author: Agent,
     topic: Topic,
-) -> None:
-    agents = resolve_mentioned_agents(db, extract_mention_names(comment.body))
-    if not agents:
-        return
+) -> list[str]:
+    names = extract_mention_names(comment.body)
+    agents, unresolved = partition_mention_names(db, names)
+    if agents:
+        excerpt = _excerpt(comment.body)
+        recipient_ids: list[uuid.UUID] = []
+        for agent in agents:
+            if agent.id == author.id:
+                continue
+            mention = Mention(
+                mentioned_agent_id=agent.id,
+                author_agent_id=author.id,
+                source_type=MentionSourceType.topic_comment,
+                source_id=comment.id,
+                project_id=topic.project_id,
+                experiment_id=None,
+                topic_id=topic.id,
+                excerpt=excerpt,
+            )
+            db.add(mention)
+            recipient_ids.append(agent.id)
 
-    excerpt = _excerpt(comment.body)
-    recipient_ids: list[uuid.UUID] = []
-    for agent in agents:
-        if agent.id == author.id:
-            continue
-        mention = Mention(
-            mentioned_agent_id=agent.id,
-            author_agent_id=author.id,
-            source_type=MentionSourceType.topic_comment,
-            source_id=comment.id,
+        if recipient_ids:
+            db.commit()
+            notification_service.enqueue_for_agents(
+                db,
+                recipient_agent_ids=recipient_ids,
+                project_id=topic.project_id,
+                actor_id=author.id,
+                event="agent.mentioned",
+                summary=f"{author.name} 在话题「{topic.title}」中提及了你",
+                target_type="topic_comment",
+                target_id=comment.id,
+                payload={
+                    "topic_id": str(topic.id),
+                    "comment_id": str(comment.id),
+                    "author_name": author.name,
+                    "excerpt": excerpt,
+                },
+            )
+
+    if unresolved:
+        notify_unresolved_mentions(
+            db,
+            author=author,
             project_id=topic.project_id,
-            experiment_id=None,
-            topic_id=topic.id,
-            excerpt=excerpt,
+            unresolved=unresolved,
+            target_type="topic_comment",
+            target_id=comment.id,
+            context_label=f"话题「{topic.title}」",
+            payload={
+                "topic_id": str(topic.id),
+                "comment_id": str(comment.id),
+            },
         )
-        db.add(mention)
-        recipient_ids.append(agent.id)
-
-    if not recipient_ids:
-        return
-
-    db.commit()
-    notification_service.enqueue_for_agents(
-        db,
-        recipient_agent_ids=recipient_ids,
-        project_id=topic.project_id,
-        actor_id=author.id,
-        event="agent.mentioned",
-        summary=f"{author.name} 在话题「{topic.title}」中提及了你",
-        target_type="topic_comment",
-        target_id=comment.id,
-        payload={
-            "topic_id": str(topic.id),
-            "comment_id": str(comment.id),
-            "author_name": author.name,
-            "excerpt": excerpt,
-        },
-    )
+    return unresolved
 
 
 def list_mentions_for_agent(

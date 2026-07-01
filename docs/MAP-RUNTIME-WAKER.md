@@ -85,6 +85,19 @@ The state file stores one resumed session id per persona:
 
 This state is local runtime data and is ignored by Git.
 
+## Session wake logs
+
+Each Claude SDK `session_id` gets an append-only JSONL file under
+`.map/runtime-waker-sessions/<session_id>.jsonl`. Every `PersonaAgentClient`
+wake records:
+
+- full user `prompt`
+- first 200 characters of assistant text (`response_preview`)
+- `status`, `persona`, `integration`, timestamp
+
+Disable with `MAP_SESSION_WAKE_LOG=0`. Override directory with
+`MAP_SESSION_WAKE_LOG_DIR`.
+
 ## Boundary
 
 Keep `map-runtime-waker` as a thin runtime wake-up layer. If persona behavior

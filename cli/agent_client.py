@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
+from cli.session_wake_log import DEFAULT_SESSION_LOG_DIR, append_session_wake_log
+
 logger = logging.getLogger("map.agent_client")
 
 DEFAULT_ALLOWED_TOOLS: list[str] = [
@@ -73,6 +75,7 @@ class PersonaAgentClient:
         model: str | None = None,
         allowed_tools: list[str] | None = None,
         integration: IntegrationMode = "bridge",
+        session_log_dir: Path | None = None,
         _client_factory: Callable[[Any], PersonaAgentLike] | None = None,
     ) -> None:
         self.persona = persona
@@ -83,6 +86,7 @@ class PersonaAgentClient:
         self.model = model or self._resolve_model()
         self.allowed_tools = list(allowed_tools or DEFAULT_ALLOWED_TOOLS)
         self.integration = integration
+        self.session_log_dir = session_log_dir
         self._client_factory = _client_factory
         self._client: PersonaAgentLike | None = None
         self._connected = False
@@ -115,12 +119,15 @@ class PersonaAgentClient:
 
         from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
+        resume_session_id = self.state.get("claude_session_id")
         await self._client.query(prompt)
         result: ResultMessage | None = None
+        response_parts: list[str] = []
         async for msg in self._client.receive_response():
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):
+                        response_parts.append(block.text)
                         if on_event is not None:
                             on_event({"type": "text", "content": block.text})
             elif isinstance(msg, ResultMessage):
@@ -149,6 +156,15 @@ class PersonaAgentClient:
         self.state["last_wakeup_at"] = datetime.now(UTC).isoformat()
         self.state["last_wakeup_status"] = status
         self._save_state_fn()
+
+        response_text = "".join(response_parts)
+        log_session_id = self._wake_log_session_id(result, resume_session_id)
+        self._append_wake_session_log(
+            session_id=log_session_id,
+            prompt=prompt,
+            response_text=response_text,
+            status=status,
+        )
         return status
 
     async def disconnect(self) -> None:
@@ -188,6 +204,53 @@ class PersonaAgentClient:
         if self.model:
             kwargs["model"] = self.model
         return ClaudeAgentOptions(**kwargs)
+
+    def _resolve_session_log_dir(self) -> Path:
+        if self.session_log_dir is not None:
+            return self.session_log_dir
+        override = os.environ.get("MAP_SESSION_WAKE_LOG_DIR", "").strip()
+        if override:
+            return Path(override)
+        return self.project_root / DEFAULT_SESSION_LOG_DIR
+
+    @staticmethod
+    def _wake_log_session_id(
+        result: Any,
+        resume_session_id: str | None,
+    ) -> str:
+        if result is not None and getattr(result, "session_id", None):
+            return str(result.session_id)
+        if resume_session_id:
+            return str(resume_session_id)
+        return f"unknown-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
+
+    def _append_wake_session_log(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        response_text: str,
+        status: str,
+    ) -> None:
+        if os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return
+        try:
+            append_session_wake_log(
+                log_dir=self._resolve_session_log_dir(),
+                session_id=session_id,
+                persona=self.persona,
+                integration=self.integration,
+                prompt=prompt,
+                response_text=response_text,
+                status=status,
+            )
+        except OSError as exc:
+            logger.warning("[%s] session wake log write failed: %s", self.persona, exc)
 
     def _system_append_prompt(self) -> str:
         if self.integration == "waker":

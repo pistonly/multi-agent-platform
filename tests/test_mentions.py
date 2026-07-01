@@ -70,7 +70,7 @@ def test_self_mention_ignored(client, auth_headers, project):
     assert not any(m["author_agent_id"] == me["id"] for m in todos["mentions"])
 
 
-def test_unknown_mention_name_ignored(client, auth_headers, reviewer, project):
+def test_unknown_mention_name_soft_warns_author(client, auth_headers, reviewer, project):
     reviewer_headers = reviewer["headers"]
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
@@ -79,7 +79,7 @@ def test_unknown_mention_name_ignored(client, auth_headers, reviewer, project):
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
 
-    client.post(
+    resp = client.post(
         f"/api/v1/experiments/{exp['id']}/comments",
         headers=auth_headers,
         json={
@@ -88,9 +88,52 @@ def test_unknown_mention_name_ignored(client, auth_headers, reviewer, project):
             "body": "@no-such-agent hello",
         },
     )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["unresolved_mentions"] == ["no-such-agent"]
 
     todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert todos["mentions"] == []
+
+    notifs = client.get("/api/v1/agents/me/notifications", headers=auth_headers).json()
+    assert any(n["event"] == "mention.unresolved" for n in notifs["items"])
+
+
+def test_unknown_topic_mention_soft_warns_author(client, auth_headers, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Bad mention", "description": "d"},
+    ).json()
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer please join"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["unresolved_mentions"] == ["reviewer"]
+
+    notifs = client.get("/api/v1/agents/me/notifications", headers=auth_headers).json()
+    unresolved = [n for n in notifs["items"] if n["event"] == "mention.unresolved"]
+    assert unresolved
+    assert unresolved[0]["payload_json"]["unresolved_mentions"] == ["reviewer"]
+
+
+def test_valid_mention_has_empty_unresolved(client, auth_headers, reviewer, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Good mention", "description": "d"},
+    ).json()
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent please join"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["unresolved_mentions"] == []
 
 
 def test_dismiss_single_mention(client, auth_headers, reviewer, project):

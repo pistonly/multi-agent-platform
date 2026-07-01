@@ -224,7 +224,7 @@ def create_topic_comment(
     agent: Agent = Depends(get_current_agent),
 ) -> TopicCommentRead:
     topic = perm.ensure_topic_access(db, agent, topic_id)
-    comment = topic_service.create_topic_comment(db, topic_id, agent, payload)
+    comment, unresolved = topic_service.create_topic_comment(db, topic_id, agent, payload)
     event_payload = {"topic_id": str(topic_id), "comment_id": str(comment.id)}
     emit(
         db,
@@ -246,7 +246,7 @@ def create_topic_comment(
         target_id=comment.id,
         payload=event_payload,
     )
-    return topic_service.topic_comment_read(db, comment)
+    return topic_service.topic_comment_read(db, comment, unresolved_mentions=unresolved)
 
 
 @topics_router.get("/topics/{topic_id}/comments")

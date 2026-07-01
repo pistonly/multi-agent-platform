@@ -2,6 +2,14 @@
 
 本仓库通过 [Multi-Agent Platform (MAP)](./README.md) 管理话题、实验与多 Agent 协作。
 
+## 项目目的（必读）
+
+MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skill 后，Agent 就能按 persona 通过 `map` CLI 使用 MAP，完成话题讨论、实验评审、项目状态同步、结论沉淀与行动项跟进。
+
+产品主功能是 **Skill 指导 Agent 使用 MAP 协作**：Skill 负责行为流程与判断规则，MAP 平台负责状态、权限、审计、话题、实验、结论和行动项等持久化协作对象。开发优先级应围绕 SDK/CLI、`.map/` persona、Skill onboarding、文档和端到端协作闭环展开。
+
+多 persona 自动推进是附带功能：`runtime-waker` / bridge 只负责发现待办、唤醒或恢复外部 Agent Runtime，并保持短提示与幂等；具体业务判断仍应由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
+
 ## Agent 身份（必读）
 
 **本仓库统一使用 `.map/` 目录中的 persona + `map` CLI。** Cursor MCP（`map-agent` / `map-admin`）曾用于验证，**不如 Skill 方便**；后续将**停用 MCP 访问 MAP**，请勿再依赖。

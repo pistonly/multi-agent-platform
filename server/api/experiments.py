@@ -330,7 +330,7 @@ def create_comment(
     agent: Agent = Depends(get_current_agent),
 ) -> CommentRead:
     experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-    comment = comment_service.create_comment(db, experiment_id, agent, payload)
+    comment, unresolved = comment_service.create_comment(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -342,7 +342,7 @@ def create_comment(
         event="comment.created",
         event_payload={"experiment_id": str(experiment_id), "comment_id": str(comment.id)},
     )
-    return comment_service.comment_read(db, comment)
+    return comment_service.comment_read(db, comment, unresolved_mentions=unresolved)
 
 
 @experiments_router.get("/experiments/{experiment_id}/comments")

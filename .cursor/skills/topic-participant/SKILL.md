@@ -44,6 +44,10 @@ description: >-
 
 回复 thread 时 `parent_id` 指向要回应的评论。
 
+## @提及
+
+`@` 必须使用 `map persona list` 中的 **`agent_name` 全名**（如 `@multi-agents-platform-host`），不要写 `@host` / `@reviewer` 等 persona 短名。评论响应里的 `unresolved_mentions` 或 `mention.unresolved` 通知表示 @ 未生效。
+
 ## 非目标
 
 - 代替 reviewer 评审实验计划

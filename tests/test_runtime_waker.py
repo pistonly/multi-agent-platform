@@ -79,6 +79,7 @@ def test_discover_reviewer_and_participant_events():
         {
             "pending_reviews": [{"id": "exp-1", "current_plan_version": 3}],
             "pending_replies": [{"item_id": "item-1", "status": "addressed"}],
+            "mentions": [{"topic_id": "topic-2", "source_id": "comment-9"}],
         },
     )
     participant_events = discover_wake_events(
@@ -86,8 +87,13 @@ def test_discover_reviewer_and_participant_events():
         {"mentions": [{"topic_id": "topic-1", "source_id": "comment-1"}]},
     )
 
-    assert [event.kind for event in reviewer_events] == ["pending_review", "addressed_review_item"]
-    assert reviewer_events[0].fingerprint == "reviewer:pending_review:exp-1:v3"
+    assert [event.kind for event in reviewer_events] == [
+        "mention",
+        "pending_review",
+        "addressed_review_item",
+    ]
+    assert reviewer_events[0].fingerprint == "reviewer:mention:topic-2:comment-9"
+    assert reviewer_events[1].fingerprint == "reviewer:pending_review:exp-1:v3"
     assert participant_events[0].fingerprint == "participant:mention:topic-1:comment-1"
 
 
@@ -190,6 +196,78 @@ def test_runtime_waker_uses_persisted_session_when_forced(tmp_path):
 
     assert stats.wakes_sent == 1
     assert backend.calls[0]["session_id"] == "existing-session"
+
+
+def test_participant_waker_scans_open_topics_by_default(tmp_path):
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="participant",
+        todos={},
+        open_topics=[
+            {
+                "id": "topic-open",
+                "title": "Open",
+                "updated_at": "2026-06-30T00:00:00Z",
+                "comment_count": 0,
+            }
+        ],
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="participant",
+            state_file=tmp_path / "state.json",
+            project_root=Path.cwd(),
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.events_seen == 1
+    assert stats.wakes_sent == 1
+    assert "participant:open_topic:topic-open" in backend.calls[0]["prompt"]
+
+
+def test_participant_skips_open_topic_when_latest_comment_is_self():
+    participant_id = "participant-agent"
+    events = discover_wake_events(
+        "participant",
+        {
+            "open_topics": [
+                {
+                    "id": "topic-1",
+                    "title": "T",
+                    "comment_count": 2,
+                    "updated_at": "2026-06-30T01:00:00Z",
+                    "last_comment_author_agent_id": participant_id,
+                }
+            ]
+        },
+        participant_agent_id=participant_id,
+    )
+    assert events == []
+
+
+def test_participant_wakes_for_open_topic_when_latest_comment_is_other():
+    participant_id = "participant-agent"
+    events = discover_wake_events(
+        "participant",
+        {
+            "open_topics": [
+                {
+                    "id": "topic-1",
+                    "title": "T",
+                    "comment_count": 1,
+                    "updated_at": "2026-06-30T01:00:00Z",
+                    "last_comment_author_agent_id": "host-agent",
+                }
+            ]
+        },
+        participant_agent_id=participant_id,
+    )
+    assert len(events) == 1
+    assert events[0].kind == "open_topic_opportunity"
 
 
 def test_participant_waker_can_scan_open_topics_when_enabled(tmp_path):

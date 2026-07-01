@@ -88,6 +88,7 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
         )
     }
     creator_names = _agent_names_by_ids(db, {topic.creator_agent_id for topic in topics})
+    latest_comment_authors = _latest_comment_authors_by_topic(db, topic_ids)
     return [
         TopicSummaryRead(
             id=topic.id,
@@ -102,6 +103,7 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
             round_summary_count=topic.round_summary_count,
             comment_count=comment_counts.get(topic.id, 0),
             experiment_count=experiment_counts.get(topic.id, 0),
+            last_comment_author_agent_id=latest_comment_authors.get(topic.id),
             created_at=topic.created_at,
             updated_at=topic.updated_at,
             archived_at=topic.archived_at,
@@ -109,6 +111,27 @@ def topic_summaries_for_topics(db: Session, topics: list[Topic]) -> list[TopicSu
         )
         for topic in topics
     ]
+
+
+def _latest_comment_authors_by_topic(
+    db: Session, topic_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, uuid.UUID]:
+    """Map each topic to the author of its most recent comment (by created_at, then id)."""
+    if not topic_ids:
+        return {}
+    comments = db.scalars(
+        select(TopicComment)
+        .where(TopicComment.topic_id.in_(topic_ids))
+        .order_by(
+            TopicComment.topic_id,
+            TopicComment.created_at.desc(),
+            TopicComment.id.desc(),
+        )
+    ).all()
+    authors: dict[uuid.UUID, uuid.UUID] = {}
+    for comment in comments:
+        authors.setdefault(comment.topic_id, comment.author_agent_id)
+    return authors
 
 
 def _action_item_read(db: Session, item: TopicActionItem) -> TopicActionItemRead:
@@ -459,7 +482,7 @@ def create_topic_comment(
     topic_id: uuid.UUID,
     author: Agent,
     payload: TopicCommentCreate,
-) -> TopicComment:
+) -> tuple[TopicComment, list[str]]:
     topic = _get_topic(db, topic_id)
     if payload.parent_id is not None:
         parent = db.scalar(
@@ -484,7 +507,9 @@ def create_topic_comment(
 
     from server.services import mention_service
 
-    mention_service.process_topic_comment_mentions(db, comment=comment, author=author, topic=topic)
+    unresolved = mention_service.process_topic_comment_mentions(
+        db, comment=comment, author=author, topic=topic
+    )
     mention_service.auto_dismiss_mentions_after_comment(
         db,
         new_comment_author=author,
@@ -492,10 +517,12 @@ def create_topic_comment(
         topic_id=topic_id,
         new_comment_id=comment.id,
     )
-    return comment
+    return comment, unresolved
 
 
-def topic_comment_read(db: Session, comment: TopicComment) -> TopicCommentRead:
+def topic_comment_read(
+    db: Session, comment: TopicComment, *, unresolved_mentions: list[str] | None = None
+) -> TopicCommentRead:
     author_names = _agent_names_by_ids(db, {comment.author_agent_id})
     return TopicCommentRead(
         id=comment.id,
@@ -505,6 +532,7 @@ def topic_comment_read(db: Session, comment: TopicComment) -> TopicCommentRead:
         parent_comment_id=comment.parent_comment_id,
         body=comment.body,
         created_at=comment.created_at,
+        unresolved_mentions=list(unresolved_mentions or ()),
     )
 
 

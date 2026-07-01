@@ -265,6 +265,61 @@ def test_wake_up_invokes_on_event_callback_for_text_and_result(tmp_path: Path) -
     assert result_events and result_events[0]["session_id"] == "sid"
 
 
+def test_wake_up_writes_session_log_with_prompt_and_response_preview(tmp_path: Path) -> None:
+    state = {"topics": {}, "experiments": {}, "claude_session_id": "sess-abc"}
+    long_reply = "x" * 250
+    messages = [
+        FakeAssistantMessage(FakeTextBlock(long_reply)),
+        FakeResultMessage(session_id="sess-abc", is_error=False),
+    ]
+    log_dir = tmp_path / "session-logs"
+
+    agent, _ = _make_client(state=state, project_root=tmp_path, messages=messages)
+    agent.session_log_dir = log_dir
+
+    import asyncio
+
+    asyncio.run(agent.wake_up("wake prompt body"))
+
+    log_path = log_dir / "sess-abc.jsonl"
+    assert log_path.is_file()
+    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    import json
+
+    entry = json.loads(lines[0])
+    assert entry["session_id"] == "sess-abc"
+    assert entry["persona"] == "host"
+    assert entry["prompt"] == "wake prompt body"
+    assert entry["response_preview"] == "x" * 200
+    assert entry["response_chars"] == 250
+    assert entry["status"] == "ok"
+
+
+def test_wake_up_appends_multiple_entries_for_same_session(tmp_path: Path) -> None:
+    state = {"topics": {}, "experiments": {}, "claude_session_id": "sess-repeat"}
+    log_dir = tmp_path / "session-logs"
+
+    agent, fake = _make_client(
+        state=state,
+        project_root=tmp_path,
+        messages=[FakeResultMessage(session_id="sess-repeat", is_error=False)],
+    )
+    agent.session_log_dir = log_dir
+
+    import asyncio
+
+    asyncio.run(agent.wake_up("first"))
+    fake.messages = [
+        FakeAssistantMessage(FakeTextBlock("second reply")),
+        FakeResultMessage(session_id="sess-repeat", is_error=False),
+    ]
+    asyncio.run(agent.wake_up("second"))
+
+    lines = (log_dir / "sess-repeat.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+
+
 # --- disconnect --------------------------------------------------------------
 
 

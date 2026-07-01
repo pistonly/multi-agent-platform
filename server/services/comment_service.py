@@ -39,7 +39,7 @@ def create_comment(
     experiment_id: uuid.UUID,
     author: Agent,
     payload: CommentCreate,
-) -> Comment:
+) -> tuple[Comment, list[str]]:
     get_experiment(db, experiment_id)
     _validate_anchor(db, experiment_id, payload.anchor_type, payload.anchor_id)
 
@@ -65,7 +65,7 @@ def create_comment(
     from server.services import mention_service
 
     experiment = get_experiment(db, experiment_id)
-    mention_service.process_experiment_comment_mentions(
+    unresolved = mention_service.process_experiment_comment_mentions(
         db,
         comment=comment,
         author=author,
@@ -79,7 +79,7 @@ def create_comment(
         topic_id=None,
         new_comment_id=comment.id,
     )
-    return comment
+    return comment, unresolved
 
 
 def list_comments(db: Session, experiment_id: uuid.UUID) -> list[Comment]:
@@ -97,7 +97,9 @@ def _agent_names_by_ids(db: Session, agent_ids: set[uuid.UUID]) -> dict[uuid.UUI
     }
 
 
-def comment_read(db: Session, comment: Comment) -> CommentRead:
+def comment_read(
+    db: Session, comment: Comment, *, unresolved_mentions: list[str] | None = None
+) -> CommentRead:
     author_names = _agent_names_by_ids(db, {comment.author_agent_id})
     return CommentRead(
         id=comment.id,
@@ -109,6 +111,7 @@ def comment_read(db: Session, comment: Comment) -> CommentRead:
         author_name=author_names.get(comment.author_agent_id),
         body=comment.body,
         created_at=comment.created_at,
+        unresolved_mentions=list(unresolved_mentions or ()),
     )
 
 

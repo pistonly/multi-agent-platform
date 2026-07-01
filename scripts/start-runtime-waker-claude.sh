@@ -64,8 +64,8 @@ if [[ "${MAP_RUNTIME_FORCE:-0}" == "1" ]]; then
   cmd+=(--force)
 fi
 
-if [[ "${MAP_RUNTIME_PARTICIPANT_OPEN_TOPICS:-0}" == "1" ]]; then
-  cmd+=(--include-participant-open-topics)
+if [[ "${MAP_RUNTIME_PARTICIPANT_OPEN_TOPICS:-1}" == "0" ]]; then
+  cmd+=(--no-participant-open-topics)
 fi
 
 if [[ $# -gt 0 ]]; then

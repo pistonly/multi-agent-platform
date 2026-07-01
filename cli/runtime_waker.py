@@ -57,7 +57,7 @@ class RuntimeWakerConfig:
     runtime_home: Path | None = None
     codex_bin: str | None = None
     force: bool = False
-    include_participant_open_topics: bool = False
+    include_participant_open_topics: bool = True
 
 
 @dataclass
@@ -315,12 +315,16 @@ class RuntimeWaker:
         self._ensure_identity()
         stats = RuntimeWakerStats(cycles=1)
         todos = self.client.todos() or {}
-        if self.config.persona == "participant" and self.config.include_participant_open_topics:
-            todos = {**todos, "open_topics": self.client.topic_list_open()}
+        participant_agent_id: str | None = None
+        if self.config.persona == "participant":
+            participant_agent_id = self.agent_id
+            if self.config.include_participant_open_topics:
+                todos = {**todos, "open_topics": self.client.topic_list_open()}
         events = discover_wake_events(
             self.config.persona,
             todos,
             include_participant_open_topics=self.config.include_participant_open_topics,
+            participant_agent_id=participant_agent_id,
         )
         stats.events_seen = len(events)
 
@@ -464,12 +468,17 @@ def discover_wake_events(
     persona: str,
     todos: dict[str, Any],
     *,
-    include_participant_open_topics: bool = False,
+    include_participant_open_topics: bool = True,
+    participant_agent_id: str | None = None,
 ) -> list[WakeEvent]:
     if persona == "host":
         return _host_events(todos)
     if persona == "participant":
-        return _participant_events(todos, include_open_topics=include_participant_open_topics)
+        return _participant_events(
+            todos,
+            include_open_topics=include_participant_open_topics,
+            participant_agent_id=participant_agent_id,
+        )
     if persona == "reviewer":
         return _reviewer_events(todos)
     return _generic_events(persona, todos)
@@ -583,40 +592,95 @@ def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
     return events
 
 
-def _participant_events(todos: dict[str, Any], *, include_open_topics: bool) -> list[WakeEvent]:
+def _participant_should_join_open_topic(
+    item: dict[str, Any],
+    *,
+    participant_agent_id: str | None,
+) -> bool:
+    """Wake participant when the topic's latest comment is not from this agent."""
+    if participant_agent_id is None:
+        return True
+    last_author = item.get("last_comment_author_agent_id")
+    if last_author in (None, ""):
+        return True
+    return str(last_author) != participant_agent_id
+
+
+def _mention_wake_events(persona: str, todos: dict[str, Any]) -> list[WakeEvent]:
     events: list[WakeEvent] = []
     for item in todos.get("mentions") or []:
-        topic_id = str(item.get("topic_id") or "")
         source_id = str(item.get("source_id") or item.get("id") or "")
-        if not topic_id or not source_id:
+        if not source_id:
+            continue
+        topic_id = str(item.get("topic_id") or "")
+        experiment_id = str(item.get("experiment_id") or "")
+        if topic_id:
+            object_id = topic_id
+            fingerprint = f"{persona}:mention:{topic_id}:{source_id}"
+        elif experiment_id:
+            object_id = experiment_id
+            fingerprint = f"{persona}:mention:exp:{experiment_id}:{source_id}"
+        else:
             continue
         events.append(
             WakeEvent(
-                persona="participant",
+                persona=persona,
                 kind="mention",
-                object_id=topic_id,
-                fingerprint=f"participant:mention:{topic_id}:{source_id}",
-                title=item.get("topic_title"),
+                object_id=object_id,
+                fingerprint=fingerprint,
+                title=item.get("topic_title") or item.get("experiment_title"),
                 reason="reply to an @mention",
-                payload=_compact_payload(item, keys=("id", "topic_id", "source_id", "author_name")),
+                payload=_compact_payload(
+                    item,
+                    keys=("id", "topic_id", "experiment_id", "source_id", "author_name", "excerpt"),
+                ),
             )
         )
+    return events
+
+
+def _participant_events(
+    todos: dict[str, Any],
+    *,
+    include_open_topics: bool,
+    participant_agent_id: str | None = None,
+) -> list[WakeEvent]:
+    events: list[WakeEvent] = []
+    events.extend(_mention_wake_events("participant", todos))
     if include_open_topics:
         for item in todos.get("open_topics") or []:
             topic_id = str(item.get("id") or "")
             if not topic_id:
                 continue
+            if not _participant_should_join_open_topic(
+                item, participant_agent_id=participant_agent_id
+            ):
+                continue
+            last_author = str(item.get("last_comment_author_agent_id") or "none")
             events.append(
                 WakeEvent(
                     persona="participant",
                     kind="open_topic_opportunity",
                     object_id=topic_id,
-                    fingerprint=f"participant:open_topic:{topic_id}:{item.get('comment_count') or ''}:{item.get('updated_at') or ''}",
+                    fingerprint=(
+                        f"participant:open_topic:{topic_id}:"
+                        f"{item.get('comment_count') or ''}:"
+                        f"{item.get('updated_at') or ''}:"
+                        f"last={last_author}"
+                    ),
                     title=item.get("title"),
-                    reason="inspect whether to participate in an open topic",
+                    reason="participate when the latest topic reply is not from you",
                     payload=_compact_payload(
                         item,
-                        keys=("id", "title", "discussion_round", "round_summary_count", "comment_count", "updated_at"),
+                        keys=(
+                            "id",
+                            "title",
+                            "discussion_round",
+                            "round_summary_count",
+                            "comment_count",
+                            "updated_at",
+                            "last_comment_author_agent_id",
+                        ),
                     ),
                 )
             )
@@ -625,6 +689,7 @@ def _participant_events(todos: dict[str, Any], *, include_open_topics: bool) -> 
 
 def _reviewer_events(todos: dict[str, Any]) -> list[WakeEvent]:
     events: list[WakeEvent] = []
+    events.extend(_mention_wake_events("reviewer", todos))
     for item in todos.get("pending_reviews") or []:
         experiment_id = str(item.get("id") or "")
         if not experiment_id:
@@ -708,9 +773,9 @@ def run(
     codex_bin: str | None = typer.Option(None, "--codex-bin", help="Optional Codex binary path for --backend codex."),
     force: bool = typer.Option(False, "--force", help="Wake even if the event was already handled."),
     include_participant_open_topics: bool = typer.Option(
-        False,
-        "--include-participant-open-topics",
-        help="Also wake participant for open-topic opportunities when todos include open_topics.",
+        True,
+        "--include-participant-open-topics/--no-participant-open-topics",
+        help="Wake participant for open topics when the latest comment is not from them.",
     ),
 ) -> None:
     root = project_root.resolve()

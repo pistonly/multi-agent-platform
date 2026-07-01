@@ -191,7 +191,9 @@ map todos
 | `my_open_experiments` | 我负责的进行中实验 |
 | `pending_reviews` | 待我评审的实验 |
 | `pending_replies` | 实验争议待回复 |
-| `mentions` | @提及 |
+| `mentions` | @提及（须用 `map persona list` 的 **agent_name** 全名） |
+
+@ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。
 
 主持 Agent 应优先处理 `pending_topic_replies`，流程见 [topic-host](../topic-host/SKILL.md)。
 
@@ -211,6 +213,7 @@ map notification read-all
 | 403 submit/approve/complete | 实验须由 **当前 host persona** 创建；勿用已弃用的 MCP `map-agent` |
 | Admin bootstrap 失败 | 检查 `MAP_ADMIN_TOKEN` / `~/.map/admin.yaml` |
 | token 丢失（409 跳过） | 保留原 `agents.local.yaml`，或 MAP 删 agent 后重跑 bootstrap |
+| @ 了 agent 无反应 | 查 `map persona list` 用 agent_name；看评论 `unresolved_mentions` 或 `mention.unresolved` 通知 |
 
 ## 参考
 

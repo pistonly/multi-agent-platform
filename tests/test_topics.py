@@ -66,6 +66,28 @@ def test_only_topic_host_or_admin_can_advance_round(client, auth_headers, review
     assert allowed.json()["discussion_round"] == "round2"
 
 
+def test_topic_list_includes_last_comment_author(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    listing = client.get(f"/api/v1/projects/{project['id']}/topics", headers=auth_headers)
+    assert listing.json()[0]["last_comment_author_agent_id"] is None
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "host 开场"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer["headers"],
+        json={"body": "reviewer 插话"},
+    )
+
+    listing = client.get(f"/api/v1/projects/{project['id']}/topics", headers=auth_headers)
+    row = next(item for item in listing.json() if item["id"] == topic["id"])
+    assert row["last_comment_author_agent_id"] == reviewer["id"]
+    assert row["comment_count"] == 2
+
+
 def test_topic_status_filter_and_transitions(client, auth_headers, project):
     t1 = _create_topic(client, auth_headers, project)
     _create_topic(client, auth_headers, project, title="第二个")
