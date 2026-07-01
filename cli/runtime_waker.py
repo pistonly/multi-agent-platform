@@ -22,6 +22,29 @@ from cli.worker_cycle_log import log_cycle_summary
 
 APP = typer.Typer(add_completion=False)
 
+# Codex wake: inject dispatcher + shared collab + persona skills (deduped, file order).
+WAKE_SKILL_CHAIN: dict[str, tuple[str, ...]] = {
+    "host": ("map-runtime-waker", "map-project-collab", "topic-host", "experiment-host"),
+    "participant": ("map-runtime-waker", "map-project-collab", "topic-participant"),
+    "reviewer": ("map-runtime-waker", "map-project-collab", "experiment-reviewer"),
+}
+
+
+def wake_skill_paths(project_root: Path, persona: str) -> list[Path]:
+    """Skill files to inject on Codex wake (missing files are skipped)."""
+    chain = WAKE_SKILL_CHAIN.get(persona, ("map-runtime-waker", "map-project-collab"))
+    skills_root = project_root / ".cursor" / "skills"
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for name in chain:
+        if name in seen:
+            continue
+        seen.add(name)
+        path = skills_root / name / "SKILL.md"
+        if path.is_file():
+            paths.append(path)
+    return paths
+
 
 @dataclass(frozen=True)
 class WakeEvent:
@@ -184,7 +207,6 @@ class CodexSdkWakeBackend:
         prompt: str,
         session_id: str | None,
     ) -> WakeResult:
-        del persona
         try:
             from openai_codex import ApprovalMode, Codex, CodexConfig, Sandbox, SkillInput, TextInput
         except ImportError as exc:  # pragma: no cover
@@ -203,10 +225,11 @@ class CodexSdkWakeBackend:
             ),
         )
 
-        input_items: list[Any] = [TextInput(prompt)]
-        skill_path = self.project_root / ".cursor" / "skills" / "map-runtime-waker" / "SKILL.md"
-        if skill_path.is_file():
-            input_items.insert(0, SkillInput(name="map-runtime-waker", path=str(skill_path)))
+        skill_inputs = [
+            SkillInput(name=path.parent.name, path=str(path))
+            for path in wake_skill_paths(self.project_root, persona)
+        ]
+        input_items: list[Any] = skill_inputs + [TextInput(prompt)]
 
         with Codex(config=config) as codex:
             thread_kwargs = {

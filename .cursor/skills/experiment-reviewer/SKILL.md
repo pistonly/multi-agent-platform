@@ -1,10 +1,9 @@
 ---
 name: experiment-reviewer
 description: >-
-  Review MAP experiment plans as reviewer persona: evaluate plan clarity,
-  scope, acceptance criteria, and risks; output reasonable/unreasonable items
-  via map CLI. Use when map-runtime-waker wakes reviewer for pending_review or
-  addressed_review_item.
+  Review MAP experiment plans and accept/reject experiment results as reviewer
+  persona; follow action_items assigned via topic resolve. Use when map-runtime-waker
+  wakes reviewer for pending_review, pending_result_review, or addressed_review_item.
 ---
 
 # MAP 实验评审（Skill）
@@ -22,6 +21,7 @@ description: >-
 - 实验已 `submit-review`，当前计划版本尚未有本 reviewer 的评审记录
 - `todos.pending_result_reviews` 中出现结果待审批实验
 - waker 发出 `pending_result_review` wake
+- `todos.action_items` 中有分配给本 reviewer 的 open 项（在来源话题跟评或完成工作）
 
 ## 硬性规则
 
@@ -32,6 +32,7 @@ description: >-
 5. host 将项标为 `addressed` 后，你在 `addressed_review_item` wake 时检查并 `review resolve-item`
 6. 每条 reasonable / unreasonable 应具体、可验证，避免空泛褒贬
 7. 结果审批必须读取 `experiment status`、最终 log 和计划 acceptance；通过用 `accept-result`，不通过用 `reject-result` 并写清返工要求
+8. **行动项**：`map action list --mine` 查看分配项；完成后在来源话题 comment 说明，请 host 通过 `topic resolve` 更新 action_items
 
 ## 提交评审
 

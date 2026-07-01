@@ -1,9 +1,9 @@
 ---
 name: experiment-host
 description: >-
-  Execute MAP experiments as host when resumed by map-runtime-waker: revise plans,
-  implement repo changes, write execution logs via map CLI. Do not rely on
-  deprecated host bridge / cli.host_worker.
+  Execute MAP experiments as host when resumed by map-runtime-waker: acquire/release
+  execution lock, revise plans, implement repo changes, write execution logs via
+  map CLI. Do not rely on deprecated host bridge / cli.host_worker.
 ---
 
 # MAP 实验执行（Host Skill）
@@ -25,11 +25,29 @@ description: >-
 
 ## Git
 
-你是直接改仓库的 Agent（用户未禁止时可自行 commit）：
+你是直接改仓库的 Agent（**用户未禁止时可自行 commit**；若用户要求不提交 git，只改文件并在 `experiment log` 中说明即可）：
 
 - 大项开始前：记录回滚点，例如 `git commit --allow-empty -m "map: checkpoint before experiment <id>"` 或记下当前 HEAD
 - 完成子项后：提交有意义的 commit message
 - 回滚：`git log --grep='map: checkpoint before experiment'`
+
+## 执行锁（多 waker / 多 session 并发）
+
+同一项目同一时刻只允许 **一个** `running` 实验持有执行锁。`running` 阶段开始前应 acquire，结束后 release：
+
+```bash
+map --persona host experiment lock acquire --id <exp-uuid>   # 默认 TTL 1800s
+# ... 改代码、跑测试、写 log ...
+map --persona host experiment lock release --id <exp-uuid>
+```
+
+| 情况 | 处理 |
+|------|------|
+| acquire 失败（lock busy） | 另一实验正在执行；用 `experiment status` 看 holder，或 `lock skip --next-attempt-at <ISO8601>` 退避 |
+| 进程崩溃未 release | 服务端 TTL 到期后自动释放 |
+| 运维强制释放 | `experiment lock force-release --id <uuid> --reason "..."` |
+
+环境变量：`MAP_HOST_NO_LOCK=1` 跳过锁（仅调试）；`MAP_HOST_LOCK_DRY_RUN=1` 只打日志不阻塞。
 
 ## experiment_lifecycle 各阶段
 
@@ -66,6 +84,7 @@ map --persona host experiment plan revise \
 
 ## execute_experiment（running 阶段）
 
+0. **（推荐）** `map --persona host experiment lock acquire --id <id>` — 若 lock busy 则 skip 并记录退避时间
 1. `map experiment status --id <id>` 阅读 `current_plan`
 2. 在仓库内**实际修改**文件；小步、可验证；不要无关重构
 3. 运行 plan 中列出的验证命令（pytest、grep 等）
@@ -80,6 +99,7 @@ map --persona host experiment log \
 ```
 
 6. 若 plan 定义的**全部 acceptance** 已满足，调用 `map experiment complete` 提交最终结果日志，实验进入 `result_review`；否则结束本次 wake，等待下次 `experiment_lifecycle` wake 继续下一子项
+7. **`experiment lock release --id <id>`**（若步骤 0 已 acquire）
 
 结果审批命令由 reviewer 或 admin 执行：
 

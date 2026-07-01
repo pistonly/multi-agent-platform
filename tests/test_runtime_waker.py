@@ -20,6 +20,7 @@ discover_wake_events = runtime_waker.discover_wake_events
 should_reset_session_for_context = runtime_waker.should_reset_session_for_context
 sync_runtime_skills = runtime_waker.sync_runtime_skills
 wake_context_key = runtime_waker.wake_context_key
+wake_skill_paths = runtime_waker.wake_skill_paths
 
 
 class FakeMapClient(MapCommandClient):
@@ -644,6 +645,25 @@ def test_build_wake_prompt_is_short_and_cli_oriented():
     assert len(prompt) < 400
 
 
+def test_wake_skill_paths_for_host(tmp_path):
+    for name in ("map-runtime-waker", "map-project-collab", "topic-host", "experiment-host"):
+        skill_dir = tmp_path / ".cursor" / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"name: {name}\n", encoding="utf-8")
+
+    names = [path.parent.name for path in wake_skill_paths(tmp_path, "host")]
+    assert names == ["map-runtime-waker", "map-project-collab", "topic-host", "experiment-host"]
+
+
+def test_wake_skill_paths_skips_missing_files(tmp_path):
+    waker = tmp_path / ".cursor" / "skills" / "map-runtime-waker" / "SKILL.md"
+    waker.parent.mkdir(parents=True)
+    waker.write_text("name: map-runtime-waker\n", encoding="utf-8")
+
+    names = [path.parent.name for path in wake_skill_paths(tmp_path, "reviewer")]
+    assert names == ["map-runtime-waker"]
+
+
 def test_sync_runtime_skills_copies_skill_dirs(tmp_path):
     project_root = tmp_path / "project"
     source = project_root / ".cursor" / "skills" / "example-skill"
@@ -747,6 +767,10 @@ def test_codex_backend_starts_and_resumes_threads(monkeypatch, tmp_path):
     skill = tmp_path / ".cursor" / "skills" / "map-runtime-waker"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: map-runtime-waker\ndescription: test\n---\n", encoding="utf-8")
+    for name in ("map-project-collab", "topic-host", "experiment-host"):
+        extra = tmp_path / ".cursor" / "skills" / name
+        extra.mkdir(parents=True, exist_ok=True)
+        (extra / "SKILL.md").write_text(f"---\nname: {name}\ndescription: test\n---\n", encoding="utf-8")
 
     backend = CodexSdkWakeBackend(
         project_root=tmp_path,
@@ -767,9 +791,9 @@ def test_codex_backend_starts_and_resumes_threads(monkeypatch, tmp_path):
     assert config_call["codex_bin"] == "/usr/bin/codex"
     assert config_call["env"]["CODEX_HOME"] == str(tmp_path / "codex-home")
     run_call = next(payload for name, payload in calls if name == "run")
-    assert isinstance(run_call["input_items"][0], FakeSkillInput)
-    assert run_call["input_items"][0].name == "map-runtime-waker"
-    assert isinstance(run_call["input_items"][1], FakeTextInput)
+    skill_names = [item.name for item in run_call["input_items"] if isinstance(item, FakeSkillInput)]
+    assert skill_names == ["map-runtime-waker", "map-project-collab", "topic-host", "experiment-host"]
+    assert isinstance(run_call["input_items"][-1], FakeTextInput)
 
 
 def test_cursor_backend_creates_and_resumes_agents(monkeypatch, tmp_path):

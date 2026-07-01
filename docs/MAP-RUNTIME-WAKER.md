@@ -69,12 +69,12 @@ pip install --pre openai-codex
 ```
 
 The official SDK package is `openai-codex` and is imported as `openai_codex`.
-The waker passes the `map-runtime-waker` skill explicitly as a Codex
-`SkillInput`, then resumes the saved Codex thread id with
-`Codex.thread_resume(...)` on later wake events. The Codex CLI exposes the same
-resumable idea through `codex exec resume <SESSION_ID> <PROMPT>`, but this
-implementation uses the Python SDK so the backend can manage thread ids and
-inputs directly.
+On each wake the waker injects a **skill chain** as Codex `SkillInput` items
+(`map-runtime-waker` dispatcher → `map-project-collab` → persona skill(s)), then
+resumes the saved Codex thread id with `Codex.thread_resume(...)` on later wake
+events. The Codex CLI exposes the same resumable idea through
+`codex exec resume <SESSION_ID> <PROMPT>`, but this implementation uses the
+Python SDK so the backend can manage thread ids and inputs directly.
 
 ### Cursor backend
 
