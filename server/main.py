@@ -42,7 +42,11 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
 
     def make_handler(code: int):
         def handler(_request: Request, exc: Exception) -> JSONResponse:
-            return JSONResponse(status_code=code, content={"detail": str(exc)})
+            content: dict[str, str] = {"detail": str(exc)}
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, str) and reason:
+                content["reason"] = reason
+            return JSONResponse(status_code=code, content=content)
 
         return handler
 

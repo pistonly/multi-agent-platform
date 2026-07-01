@@ -163,12 +163,19 @@ def advance_topic_round(
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
     topic = perm.ensure_topic_access(db, agent, topic_id)
+    body = payload or TopicAdvanceRound()
+
+    if body.ack is not None:
+        topic = topic_service.record_participant_round_ack(db, topic_id, agent, body.ack)
+        return topic_service.topic_summary(db, topic)
+
     if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
         raise ForbiddenError("Only the topic host or admin can advance the discussion round")
     topic = topic_service.advance_topic_round(
         db,
         topic_id,
-        increment_summary=True if payload is None else payload.increment_summary,
+        increment_summary=body.increment_summary,
+        acknowledged_by=body.acknowledged_by,
     )
     emit(
         db,

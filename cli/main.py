@@ -751,8 +751,25 @@ def topic_advance_round(
         "--increment-summary/--no-increment-summary",
         help="Increment round_summary_count before advancing.",
     ),
+    ack_ids: str | None = typer.Option(
+        None,
+        "--ack-ids",
+        help="Host: comma-separated participant agent UUIDs already acknowledged.",
+    ),
+    ack: str | None = typer.Option(
+        None,
+        "--ack",
+        help="Participant: accept, reject, or dismiss acknowledgement for the current round.",
+    ),
 ) -> None:
-    payload = TopicAdvanceRound(increment_summary=increment_summary)
+    acknowledged_by: list[uuid.UUID] = []
+    if ack_ids:
+        acknowledged_by = [uuid.UUID(item.strip()) for item in ack_ids.split(",") if item.strip()]
+    payload = TopicAdvanceRound(
+        increment_summary=increment_summary,
+        acknowledged_by=acknowledged_by,
+        ack=ack,  # type: ignore[arg-type]
+    )
     _run(lambda c: c.advance_topic_round(topic_id, payload))
 
 

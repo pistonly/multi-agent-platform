@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -204,12 +205,13 @@ class ExperimentSummaryRead(ORMModel):
     lock_ttl_seconds: int | None = None
     next_attempt_at: datetime | None = None
     lock_skip_count: int = 0
+    # Populated for todos / waker fingerprints; defaults to 0 on list endpoints.
+    open_unreasonable_count: int = 0
 
 
 class ExperimentDetailRead(ExperimentSummaryRead):
     current_plan: PlanVersionRead | None = None
     plan_version_count: int = 0
-    open_unreasonable_count: int = 0
     review_count: int = 0
     log_count: int = 0
     latest_log_summary: str | None = None
@@ -295,6 +297,8 @@ class TopicUpdate(BaseModel):
 
 class TopicAdvanceRound(BaseModel):
     increment_summary: bool = True
+    acknowledged_by: list[uuid.UUID] = Field(default_factory=list)
+    ack: Literal["accept", "reject", "dismiss"] | None = None
 
 
 class TopicActionItemCreate(BaseModel):
@@ -382,6 +386,7 @@ class TopicSummaryRead(BaseModel):
     last_comment_excerpt: str | None = None
     my_comment_count: int | None = None
     dismissed_at: datetime | None = None
+    advance_round_pending_since: datetime | None = None
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None

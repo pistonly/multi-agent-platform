@@ -471,3 +471,155 @@ def test_experiment_archive_allows_new_active_on_topic(client, auth_headers, pro
         json={"title": "第二个", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
     )
     assert second.status_code == 201, second.text
+
+
+def _participant_comment(client, headers, topic_id: str, body: str = "participant opinion"):
+    return client.post(
+        f"/api/v1/topics/{topic_id}/comments",
+        headers=headers,
+        json={"body": body},
+    )
+
+
+def test_host_only_topic_advance(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["discussion_round"] == "round2"
+
+
+def test_advance_round_ack_dynamic(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    assert _participant_comment(client, reviewer["headers"], topic["id"]).status_code == 201
+
+    pending = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert pending.status_code == 409
+    assert pending.json()["reason"] == "ack_pending"
+
+    ack = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+    assert ack.status_code == 200
+
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert advanced.status_code == 200
+    assert advanced.json()["discussion_round"] == "round2"
+
+
+def test_ack_rejected_409(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "reject"},
+    )
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "ack_rejected"
+
+
+def test_ack_timeout_silence_consent(client, db_session, auth_headers, reviewer, project):
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    from server.domain.models import Topic
+
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+
+    pending = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert pending.status_code == 409
+
+    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row.advance_round_pending_since = datetime.now(UTC) - timedelta(hours=25)
+    db_session.commit()
+
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert advanced.status_code == 200
+
+
+def test_ack_set_excludes_dismissed(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "dismiss"},
+    )
+
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["discussion_round"] == "round2"
+
+
+def test_ack_set_excludes_archived_topic(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+    archived = client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "archived_topic"
+
+
+def test_dismiss_after_advance_init(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+
+    pending = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert pending.status_code == 409
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "dismiss"},
+    )
+
+    advanced = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert advanced.status_code == 200
+
+
+def test_archived_topic_advance_rejected(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "archived_topic"
+

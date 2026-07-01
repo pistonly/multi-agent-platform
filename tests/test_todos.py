@@ -14,6 +14,8 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     # 发起者应看到自己的进行中实验
     agent_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
     assert any(e["id"] == exp["id"] for e in agent_todos["my_open_experiments"])
+    creator_exp = next(e for e in agent_todos["my_open_experiments"] if e["id"] == exp["id"])
+    assert creator_exp["open_unreasonable_count"] == 0
 
     # 评审后，pending_reviews 不再包含该实验
     client.post(
@@ -23,6 +25,12 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     )
     reviewer_todos2 = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert not any(e["id"] == exp["id"] for e in reviewer_todos2["pending_reviews"])
+
+    agent_todos_after_review = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    creator_exp_after_review = next(
+        e for e in agent_todos_after_review["my_open_experiments"] if e["id"] == exp["id"]
+    )
+    assert creator_exp_after_review["open_unreasonable_count"] == 1
 
     # 发起者修订计划并标记该不合理项为「已修改」(addressed) → 双方都应看到待回复
     item = client.get(f"/api/v1/experiments/{exp['id']}/reviews", headers=reviewer_headers).json()[0]

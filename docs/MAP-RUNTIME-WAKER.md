@@ -110,3 +110,38 @@ Keep `map-runtime-waker` as a thin runtime wake-up layer. If persona behavior
 changes, update `.cursor/skills/` and let the resumed agent use those skills.
 Do not move topic hosting, experiment review, or execution policy back into the
 waker.
+
+## v0.8 保留正则（不在 ROUND_SUMMARY_RE 清理范围）
+
+v0.8 实验 I1 删除 `cli/host_worker_topic.py` 中基于评论正文的 `ROUND_SUMMARY_RE`
+fallback，轮次与 Summary 门禁改读 `Topic.discussion_round` / `Topic.round_summary_count`。
+
+以下正则属于**必要校验或业务逻辑**，不在 v0.8 清理范围：
+
+| 正则 / 模式 | 位置 | 用途 |
+|-------------|------|------|
+| `_EXPORT_RE` | `cli/agent_client.py` | 解析 shell export 行 |
+| `_SAFE_SESSION_ID_RE` | `cli/session_wake_log.py` | session id sanitization |
+| `PROJECT_KEY_PATTERN` | `sdk/python/map_types/schemas.py` | project_key 校验 |
+| `MENTION_PATTERN` | `server/services/mention_service.py` | @ 提及解析 |
+
+## 生产 systemd 部署
+
+在 Linux 生产机上可用 systemd 常驻三 persona waker：
+
+```bash
+# 预览动作（不写 unit、不调用 systemctl）
+bash scripts/systemd/map-wakers.service.install.sh --dry-run
+
+# 安装并 enable --now（非 root 写入 ~/.config/systemd/user/）
+bash scripts/systemd/map-wakers.service.install.sh --project-root "$(pwd)"
+
+# 卸载
+bash scripts/systemd/map-wakers.service.install.sh --uninstall
+```
+
+Unit 模板：`scripts/systemd/map-wakers.service`（`ExecStart` 指向 `scripts/start-all-wakers.sh`）。
+
+开发机无 systemd 或权限不足时 install 脚本返回非零并打印 stderr，**不会** sudo 重试。
+
+验收：`pytest tests/test_systemd_install.py`

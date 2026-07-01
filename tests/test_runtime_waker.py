@@ -75,6 +75,43 @@ def test_discover_host_events_from_todos():
     assert events[2].fingerprint == "host:experiment_lifecycle:exp-1:review:v2:u"
 
 
+def test_experiment_lifecycle_fingerprint_includes_open_unreasonable_count():
+    events = discover_wake_events(
+        "host",
+        {
+            "my_open_experiments": [
+                {
+                    "id": "exp-1",
+                    "title": "Exp",
+                    "phase": "review",
+                    "current_plan_version": 1,
+                    "open_unreasonable_count": 9,
+                }
+            ],
+        },
+    )
+    assert len(events) == 1
+    assert events[0].fingerprint == "host:experiment_lifecycle:exp-1:review:v1:u9"
+
+
+def test_experiment_lifecycle_fingerprint_zero_open_count_is_explicit():
+    events = discover_wake_events(
+        "host",
+        {
+            "my_open_experiments": [
+                {
+                    "id": "exp-1",
+                    "title": "Exp",
+                    "phase": "review",
+                    "current_plan_version": 1,
+                    "open_unreasonable_count": 0,
+                }
+            ],
+        },
+    )
+    assert events[0].fingerprint == "host:experiment_lifecycle:exp-1:review:v1:u0"
+
+
 def test_discover_reviewer_and_participant_events():
     reviewer_events = discover_wake_events(
         "reviewer",

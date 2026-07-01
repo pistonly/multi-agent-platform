@@ -164,6 +164,9 @@ class Topic(Base):
     dismissed_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agents.id"), nullable=True
     )
+    advance_round_pending_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class TopicComment(Base):

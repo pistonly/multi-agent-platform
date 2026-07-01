@@ -122,9 +122,24 @@ def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicRe
     return pending
 
 
+def _experiment_summary_with_open_unreasonable(
+    db: Session,
+    experiment: Experiment,
+) -> ExperimentSummaryRead:
+    from server.services.review_service import count_open_unreasonable_for_experiment
+
+    return ExperimentSummaryRead.model_validate(experiment).model_copy(
+        update={
+            "open_unreasonable_count": count_open_unreasonable_for_experiment(
+                db, experiment.id
+            ),
+        }
+    )
+
+
 def get_todos(db: Session, agent: Agent) -> TodoRead:
     my_open_experiments = [
-        ExperimentSummaryRead.model_validate(e)
+        _experiment_summary_with_open_unreasonable(db, e)
         for e in db.scalars(
             select(Experiment)
             .where(

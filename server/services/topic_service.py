@@ -20,6 +20,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
+from server.services import mention_service, topic_ack_service
 from server.services.errors import ConflictError, NotFoundError, StateTransitionError
 from server.services.project_service import get_project
 
@@ -133,6 +134,7 @@ def topic_summaries_for_topics(
             updated_at=topic.updated_at,
             archived_at=topic.archived_at,
             dismissed_at=topic.dismissed_at,
+            advance_round_pending_since=topic.advance_round_pending_since,
         )
         for topic in topics
     ]
@@ -482,12 +484,24 @@ def set_topic_status(db: Session, topic_id: uuid.UUID, target: TopicStatus) -> T
     return topic
 
 
-def advance_topic_round(db: Session, topic_id: uuid.UUID, *, increment_summary: bool = True) -> Topic:
+def advance_topic_round(
+    db: Session,
+    topic_id: uuid.UUID,
+    *,
+    increment_summary: bool = True,
+    acknowledged_by: list[uuid.UUID] | None = None,
+) -> Topic:
     topic = _get_topic(db, topic_id)
     if topic.status != TopicStatus.open:
         raise ConflictError("Cannot advance a closed topic")
     if topic.discussion_round == TopicDiscussionRound.ready:
         raise ConflictError("Topic discussion round is already ready")
+
+    topic_ack_service.validate_advance_ack(
+        db,
+        topic,
+        acknowledged_by=acknowledged_by or [],
+    )
 
     current_count = topic.round_summary_count or 0
     next_count = current_count + 1 if increment_summary else current_count
@@ -504,7 +518,32 @@ def advance_topic_round(db: Session, topic_id: uuid.UUID, *, increment_summary: 
         raise ConflictError(f"Unknown topic discussion round: {topic.discussion_round}")
 
     topic.round_summary_count = next_count
+    topic.advance_round_pending_since = None
     db.commit()
+    db.refresh(topic)
+    return topic
+
+
+def record_participant_round_ack(
+    db: Session,
+    topic_id: uuid.UUID,
+    agent: Agent,
+    kind: str,
+) -> Topic:
+    topic = _get_topic(db, topic_id)
+    if topic.status != TopicStatus.open:
+        raise ConflictError("Cannot ack a closed topic")
+    if topic.archived_at is not None:
+        raise ConflictError("Cannot ack an archived topic")
+    if agent.id == topic.creator_agent_id:
+        raise ConflictError("Host cannot post participant ack; use acknowledged_by when advancing")
+
+    create_topic_comment(
+        db,
+        topic_id,
+        agent,
+        TopicCommentCreate(body=topic_ack_service.participant_ack_body(kind)),
+    )
     db.refresh(topic)
     return topic
 

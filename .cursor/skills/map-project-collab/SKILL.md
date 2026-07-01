@@ -14,6 +14,14 @@ description: >-
 
 与 [topic-host](../topic-host/SKILL.md) 分工：本 Skill 管 persona/CLI 通用协作；主持两轮讨论与开实验门禁见 topic-host。
 
+## Agent Runtime（本仓库）
+
+**标准路径**：`./scripts/start-all-wakers.sh` → [map-runtime-waker](../map-runtime-waker/SKILL.md)。各 persona 被 waker 唤醒后**直接用本 Skill + map CLI** 完成协作。
+
+**已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`、runner stdin/stdout JSON 代写。不要启动 bridge 也不要假设其在后台执行实验。
+
+常驻 waker 时，host 在 `running` 阶段须按 [experiment-host](../experiment-host/SKILL.md) **亲自改仓库并写 `experiment log`**。
+
 ## 何时启用
 
 - 用户提到 MAP、话题、实验、persona、host/participant/reviewer

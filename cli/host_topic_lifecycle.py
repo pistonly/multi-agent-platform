@@ -11,8 +11,8 @@ from cli.host_worker_topic import (
     _default_plan,
     _flatten_comments,
     _has_active_experiment,
-    _host_has_round_summary,
-    _host_has_round_summary_in_body,
+    _needs_advance_round_after_summary,
+    _needs_round_summary_for_topic,
     _topic_resolution_payload,
 )
 from cli.host_worker_types import WorkerStats
@@ -134,26 +134,19 @@ class HostTopicLifecycleMixin:
         if len(participant_comments) < self.config.min_participant_comments:
             return None
 
-        round_summary_count = int(topic.get("round_summary_count") or 0)
-        if discussion_round == "round1" and round_summary_count == 0:
-            if not _host_has_round_summary(comments, self.host_id, round_n=1):
-                return 1
-        elif discussion_round == "round2" and round_summary_count == 1:
-            if not _host_has_round_summary(comments, self.host_id, round_n=2):
-                return 2
+        topic_state = self._topic_state(topic_id)
+        if _needs_round_summary_for_topic(topic, topic_state, round_n=1):
+            return 1
+        if _needs_round_summary_for_topic(topic, topic_state, round_n=2):
+            return 2
         return None
 
     def _topic_needs_advance_round(self, topic: dict[str, Any]) -> bool:
-        discussion_round = topic.get("discussion_round")
-        if discussion_round not in ("round1", "round2"):
-            return False
-        round_summary_count = int(topic.get("round_summary_count") or 0)
-        comments = _flatten_comments(topic.get("comments") or [])
-        if discussion_round == "round1" and round_summary_count == 0:
-            return _host_has_round_summary(comments, self.host_id, round_n=1)
-        if discussion_round == "round2" and round_summary_count == 1:
-            return _host_has_round_summary(comments, self.host_id, round_n=2)
-        return False
+        topic_id = str(topic["id"])
+        topic_state = self._topic_state(topic_id)
+        if _needs_advance_round_after_summary(topic, topic_state, round_n=1):
+            return True
+        return _needs_advance_round_after_summary(topic, topic_state, round_n=2)
 
     def _handle_round_summary_with_runner(self, topic: dict[str, Any], stats: WorkerStats, *, round_n: int) -> bool:
         topic_id = str(topic["id"])
@@ -375,15 +368,7 @@ class HostTopicLifecycleMixin:
 
         discussion_round = topic.get("discussion_round")
         round_summary_count = int(topic.get("round_summary_count") or 0)
-        if discussion_round is not None and (discussion_round != "round1" or round_summary_count > 0):
-            return discussion_round == "ready" and round_summary_count >= self.config.min_round_summaries
-
-        round_summaries = [
-            c
-            for c in comments
-            if str(c.get("author_agent_id")) == self.host_id and _host_has_round_summary_in_body(c.get("body") or "")
-        ]
-        return len(round_summaries) >= self.config.min_round_summaries
+        return discussion_round == "ready" and round_summary_count >= self.config.min_round_summaries
 
     def _create_experiment_from_topic(self, topic: dict[str, Any], plan_content: str | None = None) -> None:
         topic_id = str(topic["id"])

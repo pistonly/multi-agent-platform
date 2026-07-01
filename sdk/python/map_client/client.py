@@ -521,7 +521,7 @@ class MAPClient:
         return TopicDecisionRead.model_validate(data)
 
     def advance_topic_round(self, topic_id: uuid.UUID, payload: TopicAdvanceRound | None = None) -> TopicSummaryRead:
-        body = (payload or TopicAdvanceRound()).model_dump()
+        body = (payload or TopicAdvanceRound()).model_dump(mode="json")
         data = self._json("POST", f"/topics/{topic_id}/advance-round", json=body)
         return TopicSummaryRead.model_validate(data)
 

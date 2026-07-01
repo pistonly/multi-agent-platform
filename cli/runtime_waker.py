@@ -643,6 +643,13 @@ def sync_runtime_skills(*, project_root: Path, runtime_home: Path) -> None:
             shutil.rmtree(existing)
 
 
+def _experiment_open_unreasonable_suffix(item: dict[str, Any]) -> str:
+    """Fingerprint suffix for open unreasonable count; absent field stays empty for legacy todos."""
+    if "open_unreasonable_count" not in item:
+        return ""
+    return str(int(item.get("open_unreasonable_count") or 0))
+
+
 def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
     events: list[WakeEvent] = []
     for item in todos.get("pending_topic_replies") or []:
@@ -699,7 +706,7 @@ def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
             continue
         phase = str(item.get("phase") or "open")
         version = str(item.get("current_plan_version") or "")
-        open_count = str(item.get("open_unreasonable_count") or "")
+        open_count = _experiment_open_unreasonable_suffix(item)
         events.append(
             WakeEvent(
                 persona="host",

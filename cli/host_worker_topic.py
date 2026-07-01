@@ -1,26 +1,43 @@
 from __future__ import annotations
 
-import re
 import uuid
 from typing import Any
 
-ROUND_SUMMARY_RE = re.compile(r"^##\s+Round\s+(\d+)\s+Summary\b", re.IGNORECASE | re.MULTILINE)
 ACTIVE_EXPERIMENT_PHASES = {"draft", "review", "approved", "running"}
 
 
-def _host_has_round_summary(comments: list[dict[str, Any]], host_id: str, *, round_n: int) -> bool:
-    for comment in comments:
-        if str(comment.get("author_agent_id")) != host_id:
-            continue
-        body = str(comment.get("body") or "")
-        for match in ROUND_SUMMARY_RE.finditer(body):
-            if int(match.group(1)) == round_n:
-                return True
+def _needs_round_summary_for_topic(
+    topic: dict[str, Any],
+    topic_state: dict[str, Any],
+    *,
+    round_n: int,
+) -> bool:
+    """Whether Round N summary still needs posting (topic fields + bridge local state)."""
+    discussion_round = topic.get("discussion_round")
+    round_summary_count = int(topic.get("round_summary_count") or 0)
+    posted = int(topic_state.get("last_posted_summary_round") or 0)
+    if round_n == 1:
+        return discussion_round == "round1" and round_summary_count == 0 and posted < 1
+    if round_n == 2:
+        return discussion_round == "round2" and round_summary_count == 1 and posted < 2
     return False
 
 
-def _host_has_round_summary_in_body(body: str) -> bool:
-    return bool(ROUND_SUMMARY_RE.search(body))
+def _needs_advance_round_after_summary(
+    topic: dict[str, Any],
+    topic_state: dict[str, Any],
+    *,
+    round_n: int,
+) -> bool:
+    """Summary recorded in bridge state but topic.round_summary_count not advanced yet."""
+    discussion_round = topic.get("discussion_round")
+    round_summary_count = int(topic.get("round_summary_count") or 0)
+    posted = int(topic_state.get("last_posted_summary_round") or 0)
+    if round_n == 1:
+        return discussion_round == "round1" and round_summary_count == 0 and posted >= 1
+    if round_n == 2:
+        return discussion_round == "round2" and round_summary_count == 1 and posted >= 2
+    return False
 
 
 def _flatten_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -56,7 +73,7 @@ def _topic_resolution_payload(topic: dict[str, Any], result: dict[str, Any]) -> 
         payload["rationale"] = rationale
     elif decision and result.get("create_experiment"):
         round_count = int(topic.get("round_summary_count") or 0)
-        payload["rationale"] = f"话题已完成 {round_count} 次 Round Summary，并满足 host bridge 开实验门禁。"
+        payload["rationale"] = f"话题已完成 {round_count} 次 Round Summary，并满足开实验门禁。"
     if rejected_options := _clean_text(result.get("rejected_options")):
         payload["rejected_options"] = rejected_options
     if open_questions := _clean_text(result.get("open_questions")):

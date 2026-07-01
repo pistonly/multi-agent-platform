@@ -41,8 +41,14 @@ def revise_plan(
     experiment = get_experiment(db, experiment_id)
     if experiment.creator_agent_id != author.id and author.role != AgentRole.admin:
         raise ForbiddenError("Only the creator can revise the plan")
-    if experiment.phase not in (ExperimentPhase.draft, ExperimentPhase.review):
-        raise StateTransitionError("Plan can only be revised in draft or review phase")
+    if experiment.phase not in (
+        ExperimentPhase.draft,
+        ExperimentPhase.review,
+        ExperimentPhase.running,
+    ):
+        raise StateTransitionError(
+            "Plan can only be revised in draft, review, or running phase"
+        )
 
     new_version = experiment.current_plan_version + 1
     plan = PlanVersion(
