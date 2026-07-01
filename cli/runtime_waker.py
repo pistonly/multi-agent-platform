@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import time
 from collections.abc import Callable
@@ -221,6 +222,116 @@ class CodexSdkWakeBackend:
             result = thread.run(input_items, **thread_kwargs)
 
         return WakeResult(session_id=thread.id, response_text=result.final_response)
+
+
+_CURSOR_EXPORT_RE = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+_CURSOR_CREDENTIAL_ENV_KEYS: tuple[str, ...] = ("CURSOR_API_KEY",)
+_CURSOR_MODEL_ENV_KEYS: tuple[str, ...] = ("CURSOR_MODEL",)
+
+
+class CursorSdkWakeBackend:
+    """Per-wake Cursor SDK backend: create or resume a local agent by agent_id."""
+
+    def __init__(
+        self,
+        *,
+        project_root: Path,
+        model: str | None = None,
+    ) -> None:
+        self.project_root = project_root
+        self.model = model
+
+    def wake(
+        self,
+        *,
+        persona: str,
+        prompt: str,
+        session_id: str | None,
+    ) -> WakeResult:
+        del persona
+        try:
+            from cursor_sdk import Agent, AgentOptions, CursorAgentError, LocalAgentOptions
+        except ImportError as exc:  # pragma: no cover
+            raise WorkerError("Install cursor-sdk to use the cursor runtime backend") from exc
+
+        api_key = self._resolve_api_key()
+        if not api_key:
+            raise WorkerError(
+                "CURSOR_API_KEY not found in environment or ~/.bashrc / ~/.profile / ~/.bash_profile"
+            )
+
+        model = self.model or self._resolve_model() or "composer-2.5"
+        options = AgentOptions(
+            api_key=api_key,
+            model=model,
+            local=LocalAgentOptions(
+                cwd=str(self.project_root),
+                setting_sources=["project"],
+            ),
+        )
+
+        try:
+            if session_id:
+                agent_cm = Agent.resume(session_id, options)
+            else:
+                agent_cm = Agent.create(options)
+            with agent_cm as agent:
+                run = agent.send(prompt)
+                result = run.wait()
+                agent_id = agent.agent_id
+        except CursorAgentError as exc:
+            raise WorkerError(f"Cursor wake failed: {exc}") from exc
+
+        if result.status == "error":
+            raise WorkerError(f"Cursor run failed: {getattr(result, 'id', 'unknown')}")
+
+        return WakeResult(session_id=agent_id, response_text=result.result or "")
+
+    def _resolve_api_key(self) -> str | None:
+        return self._resolve_env_key("CURSOR_API_KEY")
+
+    def _resolve_model(self) -> str | None:
+        for key in _CURSOR_MODEL_ENV_KEYS:
+            value = self._resolve_env_key(key)
+            if value:
+                return value
+        return None
+
+    def _resolve_env_key(self, name: str) -> str | None:
+        existing = os.environ.get(name, "").strip()
+        if existing:
+            return existing
+        home = Path.home()
+        for path in (
+            self.project_root / ".map" / ".cursor-env",
+            home / ".bashrc",
+            home / ".profile",
+            home / ".bash_profile",
+        ):
+            found = self._read_export(path, name)
+            if found:
+                return found
+        return None
+
+    @staticmethod
+    def _read_export(path: Path, name: str) -> str | None:
+        if not path.is_file():
+            return None
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        for line in text.splitlines():
+            match = _CURSOR_EXPORT_RE.match(line)
+            if match and match.group(1) == name:
+                value = match.group(2).strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                    value = value[1:-1]
+                elif value and value[0] not in {"'", '"'}:
+                    value = re.sub(r"\s+#.*$", "", value).strip()
+                if value:
+                    return value
+        return None
 
 
 def wake_context_key(event: WakeEvent) -> str:
@@ -519,6 +630,11 @@ def create_backend(config: RuntimeWakerConfig) -> WakeBackend:
             runtime_home=config.runtime_home,
             model=config.model,
             codex_bin=config.codex_bin,
+        )
+    if config.backend == "cursor":
+        return CursorSdkWakeBackend(
+            project_root=config.project_root,
+            model=config.model,
         )
     raise WorkerError(f"Unsupported runtime backend: {config.backend}")
 
@@ -913,7 +1029,11 @@ def run(
     max_wakes_per_cycle: int = typer.Option(3, "--max-wakes-per-cycle", min=1),
     cooldown_seconds: float = typer.Option(300.0, "--cooldown-seconds", min=0.0),
     state_file: Path | None = typer.Option(Path(".map/runtime-waker-state.json"), "--state-file"),
-    backend: str = typer.Option("claude", "--backend", help="Runtime backend: claude or codex."),
+    backend: str = typer.Option(
+        "claude",
+        "--backend",
+        help="Runtime backend: claude, codex, or cursor.",
+    ),
     model: str | None = typer.Option(None, "--model", help="Optional runtime model override."),
     runtime_home: Path | None = typer.Option(None, "--runtime-home", help="Optional HOME for the runtime process."),
     codex_bin: str | None = typer.Option(None, "--codex-bin", help="Optional Codex binary path for --backend codex."),
