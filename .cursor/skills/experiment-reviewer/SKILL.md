@@ -22,6 +22,7 @@ description: >-
 - `todos.pending_result_reviews` 中出现结果待审批实验
 - waker 发出 `pending_result_review` wake
 - `todos.action_items` 中有分配给本 reviewer 的 open 项（在来源话题跟评或完成工作）
+- `todos.pending_round_acks` 非空 → 优先 `topic advance-round --ack accept`
 
 ## 硬性规则
 

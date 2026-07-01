@@ -516,6 +516,34 @@ def test_advance_round_ack_dynamic(client, auth_headers, reviewer, project):
     assert advanced.json()["discussion_round"] == "round2"
 
 
+def test_round_summary_comment_sets_pending_ack_and_todos(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    assert _participant_comment(client, reviewer["headers"], topic["id"]).status_code == 201
+
+    summary = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- 混合方案\n"},
+    )
+    assert summary.status_code == 201, summary.text
+
+    detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+    assert detail.json()["advance_round_pending_since"] is not None
+
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert len(reviewer_todos["pending_round_acks"]) == 1
+    assert reviewer_todos["pending_round_acks"][0]["topic_id"] == topic["id"]
+    assert reviewer_todos["pending_round_acks"][0]["summary_comment_id"] == summary.json()["id"]
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+    reviewer_todos_after = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert reviewer_todos_after["pending_round_acks"] == []
+
+
 def test_ack_rejected_409(client, auth_headers, reviewer, project):
     topic = _create_topic(client, auth_headers, project)
     _participant_comment(client, reviewer["headers"], topic["id"])

@@ -599,6 +599,12 @@ def create_topic_comment(
     # Bump topic.updated_at so any prior host-side dismiss on this topic
     # is automatically un-dismissed — there's new activity worth seeing.
     topic.updated_at = datetime.now(timezone.utc)
+    if (
+        author.id == topic.creator_agent_id
+        and payload.parent_id is None
+        and topic_ack_service.is_round_summary_comment(payload.body)
+    ):
+        topic_ack_service.mark_round_ack_pending(topic)
     db.commit()
     db.refresh(comment)
 

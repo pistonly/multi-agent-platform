@@ -445,6 +445,17 @@ class PendingTopicReplyTodoRead(BaseModel):
     created_at: datetime
 
 
+class PendingRoundAckTodoRead(BaseModel):
+    topic_id: uuid.UUID
+    topic_title: str
+    discussion_round: TopicDiscussionRound
+    round_summary_count: int = 0
+    summary_comment_id: uuid.UUID | None = None
+    summary_excerpt: str | None = None
+    advance_round_pending_since: datetime | None = None
+    updated_at: datetime
+
+
 class MentionTodoRead(BaseModel):
     id: uuid.UUID
     mentioned_agent_id: uuid.UUID
@@ -490,6 +501,7 @@ class TodoRead(BaseModel):
     pending_result_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_replies: list[PendingReplyRead] = Field(default_factory=list)
     pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)
+    pending_round_acks: list[PendingRoundAckTodoRead] = Field(default_factory=list)
     my_open_topics: list[TopicSummaryRead] = Field(default_factory=list)
     mentions: list[MentionTodoRead] = Field(default_factory=list)
     action_items: list[TopicActionItemTodoRead] = Field(default_factory=list)

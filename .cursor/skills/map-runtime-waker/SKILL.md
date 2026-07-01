@@ -27,6 +27,7 @@ description: >-
 | 一步一 wake | 一次 wake 只推进当前事件的下一步 |
 | skip ≠ 执行中 | `wake_skips` 表示 fingerprint 已 wake 过（去重），不是后台在跑实验 |
 | action_items | waker 可能无专用 wake；`todos.action_items` 非空时仍须处理 |
+| round_ack_pending | `todos.pending_round_acks` 非空 → participant/reviewer 发 `--ack accept/reject/dismiss` |
 | 平台反馈 | 发现 MAP 本身的问题/改进点 → [map-project-collab §平台反馈](../map-project-collab/SKILL.md) 用 `map feedback submit` |
 
 ## kind → 读哪个 Skill
@@ -37,6 +38,7 @@ description: >-
 | `topic_lifecycle` | host | [topic-host](../topic-host/SKILL.md) |
 | `experiment_lifecycle` | host | [experiment-host](../experiment-host/SKILL.md) |
 | `mention` | participant / reviewer | [topic-participant](../topic-participant/SKILL.md) 或 [experiment-reviewer](../experiment-reviewer/SKILL.md) |
+| `round_ack_pending` | participant / reviewer | [topic-participant](../topic-participant/SKILL.md) — `topic advance-round --ack accept` |
 | `open_topic_opportunity` | participant | [topic-participant](../topic-participant/SKILL.md) |
 | `pending_review` | reviewer | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
 | `pending_result_review` | reviewer | [experiment-reviewer](../experiment-reviewer/SKILL.md) |

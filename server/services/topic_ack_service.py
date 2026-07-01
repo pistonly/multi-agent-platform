@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -16,6 +17,8 @@ from server.domain.topic_ack_constants import (
     ADVANCE_ROUND_ACK_TIMEOUT,
 )
 from server.services.errors import ConflictError
+
+ROUND_SUMMARY_RE = re.compile(r"^##\s*Round\s+\d+\s+Summary\b", re.MULTILINE | re.IGNORECASE)
 
 
 class AdvanceRoundError(ConflictError):
@@ -145,3 +148,70 @@ def participant_ack_body(kind: str) -> str:
         "dismiss": ACK_DISMISS_MARKER,
     }[kind]
     return f"Participant round acknowledgement ({marker})."
+
+
+def is_round_summary_comment(body: str) -> bool:
+    """Top-level Round N Summary posts use this heading (see topic-host Skill)."""
+    return bool(ROUND_SUMMARY_RE.search(body.strip()))
+
+
+def latest_host_round_summary_comment(
+    comments: list[TopicComment],
+    *,
+    host_agent_id: uuid.UUID,
+) -> TopicComment | None:
+    candidates = [
+        comment
+        for comment in comments
+        if comment.author_agent_id == host_agent_id
+        and comment.parent_comment_id is None
+        and is_round_summary_comment(comment.body)
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda comment: (comment.created_at, comment.id))
+
+
+def _ack_cutoff_for_topic(db: Session, topic: Topic) -> datetime | None:
+    comments = _topic_comments(db, topic.id)
+    summary = latest_host_round_summary_comment(comments, host_agent_id=topic.creator_agent_id)
+    if summary is not None:
+        return _as_utc(summary.created_at)
+    if topic.advance_round_pending_since is not None:
+        return _as_utc(topic.advance_round_pending_since)
+    return None
+
+
+def agent_has_round_ack_since(
+    comments: list[TopicComment],
+    agent_id: uuid.UUID,
+    *,
+    since: datetime,
+) -> bool:
+    cutoff = _as_utc(since)
+    for comment in comments:
+        if comment.author_agent_id != agent_id:
+            continue
+        if _as_utc(comment.created_at) <= cutoff:
+            continue
+        if _ack_kind(comment.body) in {"accept", "reject", "dismiss"}:
+            return True
+    return False
+
+
+def agent_needs_round_ack(db: Session, topic: Topic, agent_id: uuid.UUID) -> bool:
+    """True when agent must post --ack accept/reject/dismiss for the current Summary."""
+    if agent_id == topic.creator_agent_id:
+        return False
+    required = required_ack_agent_ids(db, topic)
+    if agent_id not in required:
+        return False
+    cutoff = _ack_cutoff_for_topic(db, topic)
+    if cutoff is None:
+        return False
+    comments = _topic_comments(db, topic.id)
+    return not agent_has_round_ack_since(comments, agent_id, since=cutoff)
+
+
+def mark_round_ack_pending(topic: Topic, *, now: datetime | None = None) -> None:
+    topic.advance_round_pending_since = now or datetime.now(UTC)

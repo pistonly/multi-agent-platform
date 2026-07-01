@@ -141,6 +141,42 @@ def test_discover_reviewer_and_participant_events():
     assert participant_events[0].fingerprint == "participant:mention:topic-1:comment-1"
 
 
+def test_discover_round_ack_pending_events():
+    participant_events = discover_wake_events(
+        "participant",
+        {
+            "pending_round_acks": [
+                {
+                    "topic_id": "topic-ack",
+                    "topic_title": "Ack topic",
+                    "summary_comment_id": "summary-1",
+                    "advance_round_pending_since": "2026-07-01T12:00:00+00:00",
+                }
+            ],
+        },
+    )
+    reviewer_events = discover_wake_events(
+        "reviewer",
+        {
+            "pending_round_acks": [
+                {
+                    "topic_id": "topic-ack",
+                    "topic_title": "Ack topic",
+                    "summary_comment_id": "summary-1",
+                    "advance_round_pending_since": "2026-07-01T12:00:00+00:00",
+                }
+            ],
+        },
+    )
+
+    assert [event.kind for event in participant_events] == ["round_ack_pending"]
+    assert participant_events[0].fingerprint.startswith("participant:round_ack_pending:topic-ack:")
+    assert reviewer_events[0].persona == "reviewer"
+    prompt = build_wake_prompt(participant_events[0], project_root=Path.cwd())
+    assert "topic advance-round" in prompt
+    assert "--ack accept" in prompt
+
+
 def test_runtime_waker_wakes_once_and_persists_session(tmp_path):
     state_file = tmp_path / "runtime-waker-state.json"
     backend = FakeWakeBackend()

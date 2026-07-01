@@ -369,7 +369,7 @@ def wake_context_key(event: WakeEvent) -> str:
         return f"review_item:{event.object_id}"
     if event.kind == "mention" and payload.get("experiment_id"):
         return f"experiment:{payload['experiment_id']}"
-    if event.kind in {"pending_topic_reply", "topic_lifecycle", "open_topic_opportunity"}:
+    if event.kind in {"pending_topic_reply", "topic_lifecycle", "open_topic_opportunity", "round_ack_pending"}:
         return f"topic:{event.object_id}"
     if event.kind == "mention" and payload.get("topic_id"):
         return f"topic:{payload['topic_id']}"
@@ -715,6 +715,8 @@ def _wake_latest_by(event: WakeEvent, payload: dict[str, Any]) -> str | None:
         return payload.get("author_name") or payload.get("author_agent_id")
     if event.kind == "pending_review":
         return payload.get("creator_name")
+    if event.kind == "round_ack_pending":
+        return payload.get("topic_title")
     return None
 
 
@@ -749,6 +751,11 @@ def _wake_command_hints(
         return [f"→ `{command} topic show --id {topic_id}`"]
     if event.kind == "topic_lifecycle":
         return [f"→ `{command} topic show --id {topic_id}`"]
+    if event.kind == "round_ack_pending":
+        return [
+            f"→ `{command} topic advance-round --id {topic_id} --ack accept`",
+            f"→ `{command} topic show --id {topic_id}`",
+        ]
     if event.kind == "experiment_lifecycle":
         return [f"→ `{command} experiment status --id {event.object_id}`"]
     if event.kind == "pending_review":
@@ -823,7 +830,13 @@ def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
             continue
         topic_key = ":".join(
             str(item.get(key) or "")
-            for key in ("discussion_round", "round_summary_count", "comment_count", "updated_at")
+            for key in (
+                "discussion_round",
+                "round_summary_count",
+                "comment_count",
+                "updated_at",
+                "advance_round_pending_since",
+            )
         ) or "open"
         events.append(
             WakeEvent(
@@ -835,7 +848,7 @@ def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
                 reason="check whether the hosted topic needs summary, round advance, or promotion",
                 payload=_compact_payload(
                     item,
-                    keys=("id", "title", "discussion_round", "round_summary_count", "comment_count", "updated_at"),
+                    keys=("id", "title", "discussion_round", "round_summary_count", "comment_count", "updated_at", "advance_round_pending_since"),
                 ),
             )
         )
@@ -857,6 +870,39 @@ def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
                 payload=_compact_payload(
                     item,
                     keys=("id", "title", "phase", "current_plan_version", "open_unreasonable_count"),
+                ),
+            )
+        )
+    return events
+
+
+def _round_ack_wake_events(persona: str, todos: dict[str, Any]) -> list[WakeEvent]:
+    events: list[WakeEvent] = []
+    for item in todos.get("pending_round_acks") or []:
+        topic_id = str(item.get("topic_id") or "")
+        if not topic_id:
+            continue
+        summary_id = str(item.get("summary_comment_id") or "pending")
+        pending_since = str(item.get("advance_round_pending_since") or item.get("updated_at") or "")
+        events.append(
+            WakeEvent(
+                persona=persona,
+                kind="round_ack_pending",
+                object_id=topic_id,
+                fingerprint=f"{persona}:round_ack_pending:{topic_id}:{summary_id}:{pending_since}",
+                title=item.get("topic_title"),
+                reason="acknowledge the host Round Summary before the topic can advance",
+                payload=_compact_payload(
+                    item,
+                    keys=(
+                        "topic_id",
+                        "topic_title",
+                        "discussion_round",
+                        "round_summary_count",
+                        "summary_comment_id",
+                        "summary_excerpt",
+                        "advance_round_pending_since",
+                    ),
                 ),
             )
         )
@@ -933,6 +979,7 @@ def _participant_events(
     participant_agent_id: str | None = None,
 ) -> list[WakeEvent]:
     events: list[WakeEvent] = []
+    events.extend(_round_ack_wake_events("participant", todos))
     events.extend(_mention_wake_events("participant", todos))
     if include_open_topics:
         for item in todos.get("open_topics") or []:
@@ -974,6 +1021,7 @@ def _participant_events(
 
 def _reviewer_events(todos: dict[str, Any]) -> list[WakeEvent]:
     events: list[WakeEvent] = []
+    events.extend(_round_ack_wake_events("reviewer", todos))
     events.extend(_mention_wake_events("reviewer", todos))
     for item in todos.get("pending_reviews") or []:
         experiment_id = str(item.get("id") or "")

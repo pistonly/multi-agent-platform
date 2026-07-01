@@ -242,6 +242,7 @@ map todos
 | `pending_result_reviews` | **reviewer**；host 已 `complete`、待审批实验结果 |
 | `mentions` | @提及（须用 `map persona list` 的 **agent_name** 全名） |
 | `action_items` | 分配给当前 Agent 的 open 行动项（来自 `topic resolve`） |
+| `pending_round_acks` | **participant/reviewer**；host 发 Round Summary 后待 `--ack accept/reject/dismiss` |
 
 @ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。
 

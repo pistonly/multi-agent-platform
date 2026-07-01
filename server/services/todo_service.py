@@ -20,12 +20,14 @@ from server.domain.schemas import (
     ExperimentSummaryRead,
     MentionTodoRead,
     PendingReplyRead,
+    PendingRoundAckTodoRead,
     PendingTopicReplyTodoRead,
     TopicActionItemTodoRead,
     TodoRead,
 )
 from server.services import mention_service
 from server.services import permissions as perm
+from server.services import topic_ack_service
 from server.services.topic_service import topic_summaries_for_topics
 
 _ACTIVE_PHASES = (
@@ -120,6 +122,56 @@ def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicRe
             )
 
     pending.sort(key=lambda p: p.created_at, reverse=True)
+    return pending
+
+
+def list_pending_round_acks(db: Session, agent: Agent) -> list[PendingRoundAckTodoRead]:
+    """Topics where this agent commented but has not acked the latest Round Summary."""
+    if agent.project_id is None:
+        return []
+
+    open_topics = list(
+        db.scalars(
+            select(Topic)
+            .where(
+                Topic.project_id == agent.project_id,
+                Topic.deleted_at.is_(None),
+                Topic.archived_at.is_(None),
+                Topic.status == TopicStatus.open,
+            )
+            .order_by(Topic.updated_at.desc())
+        )
+    )
+    pending: list[PendingRoundAckTodoRead] = []
+    for topic in open_topics:
+        if not topic_ack_service.agent_needs_round_ack(db, topic, agent.id):
+            continue
+        comments = list(
+            db.scalars(
+                select(TopicComment)
+                .where(TopicComment.topic_id == topic.id)
+                .order_by(TopicComment.created_at.asc())
+            )
+        )
+        summary = topic_ack_service.latest_host_round_summary_comment(
+            comments,
+            host_agent_id=topic.creator_agent_id,
+        )
+        excerpt = None
+        if summary is not None:
+            excerpt = _excerpt(summary.body)
+        pending.append(
+            PendingRoundAckTodoRead(
+                topic_id=topic.id,
+                topic_title=topic.title,
+                discussion_round=topic.discussion_round,
+                round_summary_count=int(topic.round_summary_count or 0),
+                summary_comment_id=summary.id if summary is not None else None,
+                summary_excerpt=excerpt,
+                advance_round_pending_since=topic.advance_round_pending_since,
+                updated_at=topic.updated_at,
+            )
+        )
     return pending
 
 
@@ -265,6 +317,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
     ]
 
     pending_topic_replies = list_pending_topic_replies(db, agent)
+    pending_round_acks = list_pending_round_acks(db, agent)
 
     action_items = [
         TopicActionItemTodoRead(
@@ -298,6 +351,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         pending_result_reviews=pending_result_reviews,
         pending_replies=pending_replies,
         pending_topic_replies=pending_topic_replies,
+        pending_round_acks=pending_round_acks,
         my_open_topics=my_open_topics,
         mentions=mentions,
         action_items=action_items,

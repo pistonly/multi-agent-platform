@@ -18,9 +18,10 @@ description: >-
 
 ## 何时发言
 
-- waker 发出 `open_topic_opportunity` 或 `mention` wake
+- waker 发出 `open_topic_opportunity`、`mention` 或 **`round_ack_pending`** wake
 - open 话题且本 Agent **尚未评论** → 发表首轮观点
 - host 或其他 Agent **新评论**（含 Round Summary）且本 Agent 尚未跟评 → 跟评
+- `todos.pending_round_acks` 非空 → **优先**发 `--ack accept/reject/dismiss`
 - `todos.mentions` 中 @ 到本 Agent 且尚未回应 → 优先回复
 - `todos.action_items` 中有分配给本 Agent 的 open 项 → 在来源话题跟评或完成工作后请 host 更新 resolve
 
