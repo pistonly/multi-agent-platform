@@ -11,6 +11,7 @@
 - [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/PRD-v0.5.md)
 - [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/PRD-v0.6.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
+- [Agent Runtime 集成（runtime-waker）](docs/MAP-RUNTIME-WAKER.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -129,6 +130,8 @@ map action list --mine
 map notification list --unread-only
 map notification read --id <notification-id>
 map notification read-all
+map --persona participant mention dismiss --id <mention-id>
+map --persona participant mention dismiss-all
 
 # Web UI（React + Vite）
 cd web && npm install && npm run dev   # http://localhost:5173
@@ -147,28 +150,32 @@ map --persona host status              # 查看 open_topics
 
 **实验须由 host persona 创建**，否则生命周期操作可能 403。详见 [AGENTS.md](./AGENTS.md) 与 [.cursor/skills/map-project-collab/SKILL.md](./.cursor/skills/map-project-collab/SKILL.md)。
 
-## Host Worker（实验性）
+## Agent Runtime Waker（推荐）
 
-`map-host-worker` 是独立后台进程，不嵌入 API 服务；它通过 `map --persona host ...` CLI 轮询 MAP 待办并执行主持动作。
-
-默认只处理 `pending_topic_replies`，给每个待回复 thread 追加主持回复：
+`map-runtime-waker` 是连接外部 Agent Runtime（Claude Code / Codex）的推荐路径：轮询 `map todos`、推导 wake 事件、去重后 resume 长会话，由 Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 bridge 内嵌业务逻辑）。
 
 ```bash
-map-host-worker --persona host --once --dry-run
-map-host-worker --persona host --interval 30
+# 三 persona 各起一个 waker（默认 interval=30s，每周期最多 3 次 wake）
+./scripts/start-runtime-waker.sh --persona host
+./scripts/start-runtime-waker.sh --persona participant
+./scripts/start-runtime-waker.sh --persona reviewer
+
+# 干跑一轮
+./scripts/start-runtime-waker.sh --persona host --once --dry-run
 ```
 
-如需在话题满足门禁后自动创建关联实验，显式开启：
+状态文件：`.map/runtime-waker-state.json`（本地去重 + session resume，勿提交 Git）。详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
+
+**@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。
+
+## Host Worker（旧 bridge，维护模式）
+
+`map-host-bridge` / `map-host-worker` 为早期轮询 bridge（进程内 `PersonaAgentClient`），已由 **runtime-waker** 取代。`main-bac` 分支保留 bridge 实现供对照；日常开发请在 `agent-runtime` 分支使用 waker。
 
 ```bash
-map-host-worker \
-  --persona host \
-  --promote-ready-topics \
-  --submit-for-review \
-  --plan-dir .map/generated-plans
+# 旧路径（不推荐新接入）
+map-host-bridge --persona host --interval 30
 ```
-
-提升实验前会检查：无待回复 thread、至少 1 条其他 Agent 评论、至少 2 条 `Round N Summary` 主持评论、且话题下没有活跃实验。生成实验后仍由 host persona 推进后续生命周期。
 
 ## Docker（API + Web）
 
@@ -211,4 +218,4 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-v0.3–v0.6 里程碑均已落地。下一版本（v0.7）候选：`Topic.discussion_round` / `advance-round` API、CLI 归档子命令、通知保留策略；多实例部署时需 SSE Redis 扇出。详见 [PRD v0.6 §6](docs/PRD-v0.6.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（runtime-waker + PersonaAgentClient）。待推进项见 [docs/status-md-v8.md](docs/status-md-v8.md) 与 [架构文档](docs/ARCHITECTURE.md)。

@@ -16,6 +16,8 @@ from map_types import (
     CommentCreate,
     CommentRead,
     CommentTreeNode,
+    DismissAllMentionsResultRead,
+    DismissMentionResultRead,
     ExperimentComplete,
     ExperimentCreate,
     ExperimentDetailRead,
@@ -569,6 +571,14 @@ class MAPClient:
 
     def get_todos(self) -> TodoRead:
         return TodoRead.model_validate(self._json("GET", "/agents/me/todos"))
+
+    def dismiss_mention(self, mention_id: uuid.UUID) -> DismissMentionResultRead:
+        data = self._json("POST", f"/agents/me/mentions/{mention_id}/dismiss")
+        return DismissMentionResultRead.model_validate(data)
+
+    def dismiss_all_mentions(self) -> DismissAllMentionsResultRead:
+        data = self._json("POST", "/agents/me/mentions/dismiss-all")
+        return DismissAllMentionsResultRead.model_validate(data)
 
     # --- notifications ---
 

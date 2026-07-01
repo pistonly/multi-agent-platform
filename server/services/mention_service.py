@@ -238,6 +238,128 @@ def _walk_root(
     return cur
 
 
+def auto_dismiss_mentions_after_comment(
+    db: Session,
+    *,
+    new_comment_author: Agent,
+    experiment_id: uuid.UUID | None,
+    topic_id: uuid.UUID | None,
+    new_comment_id: uuid.UUID,
+) -> int:
+    """Auto-dismiss open mentions after an agent participates in a topic/experiment."""
+    count = auto_dismiss_mentions_for_author_in_thread(
+        db,
+        new_comment_author=new_comment_author,
+        experiment_id=experiment_id,
+        topic_id=topic_id,
+        new_comment_id=new_comment_id,
+    )
+    count += auto_dismiss_mentions_in_container(
+        db,
+        author=new_comment_author,
+        topic_id=topic_id,
+        experiment_id=experiment_id,
+    )
+    return count
+
+
+def auto_dismiss_mentions_in_container(
+    db: Session,
+    *,
+    author: Agent,
+    topic_id: uuid.UUID | None,
+    experiment_id: uuid.UUID | None,
+) -> int:
+    """Dismiss all open mentions for ``author`` inside one topic or experiment.
+
+    Once the mentioned agent posts any comment in the container, treat earlier
+    @mentions there as seen — even if the reply started a new top-level thread.
+    """
+    now = datetime.now(timezone.utc)
+    filters = [
+        Mention.mentioned_agent_id == author.id,
+        Mention.dismissed_at.is_(None),
+    ]
+    if topic_id is not None:
+        filters.extend(
+            [
+                Mention.topic_id == topic_id,
+                Mention.source_type == MentionSourceType.topic_comment,
+            ]
+        )
+    elif experiment_id is not None:
+        filters.extend(
+            [
+                Mention.experiment_id == experiment_id,
+                Mention.source_type == MentionSourceType.experiment_comment,
+            ]
+        )
+    else:
+        return 0
+    result = db.execute(update(Mention).where(*filters).values(dismissed_at=now))
+    db.commit()
+    return result.rowcount or 0
+
+
+def reconcile_mentions_after_participation(db: Session, agent_id: uuid.UUID) -> int:
+    """Dismiss stale open mentions when the agent already replied in the container.
+
+    Covers historical rows that pre-date container-level auto-dismiss, and any
+    comments that slipped through without triggering a dismiss write.
+    """
+    from sqlalchemy import func
+
+    open_mentions = list(
+        db.scalars(
+            select(Mention).where(
+                Mention.mentioned_agent_id == agent_id,
+                Mention.dismissed_at.is_(None),
+            )
+        )
+    )
+    if not open_mentions:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    to_dismiss: list[uuid.UUID] = []
+    for mention in open_mentions:
+        if mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
+            replied = db.scalar(
+                select(func.count())
+                .select_from(TopicComment)
+                .where(
+                    TopicComment.topic_id == mention.topic_id,
+                    TopicComment.author_agent_id == agent_id,
+                    TopicComment.id != mention.source_id,
+                )
+            )
+        elif (
+            mention.source_type == MentionSourceType.experiment_comment
+            and mention.experiment_id is not None
+        ):
+            replied = db.scalar(
+                select(func.count())
+                .select_from(Comment)
+                .where(
+                    Comment.experiment_id == mention.experiment_id,
+                    Comment.author_agent_id == agent_id,
+                    Comment.id != mention.source_id,
+                )
+            )
+        else:
+            replied = 0
+        if replied:
+            to_dismiss.append(mention.id)
+
+    if not to_dismiss:
+        return 0
+    db.execute(
+        update(Mention).where(Mention.id.in_(to_dismiss)).values(dismissed_at=now)
+    )
+    db.commit()
+    return len(to_dismiss)
+
+
 def auto_dismiss_mentions_for_author_in_thread(
     db: Session,
     *,

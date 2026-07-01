@@ -13,8 +13,17 @@ cd "$ROOT"
 
 PERSONA="${MAP_RUNTIME_PERSONA:-host}"
 BACKEND="${MAP_RUNTIME_BACKEND:-claude}"
-INTERVAL="${MAP_RUNTIME_INTERVAL:-120}"
+INTERVAL="${MAP_RUNTIME_INTERVAL:-30}"
 STATE_FILE="${MAP_RUNTIME_STATE_FILE:-.map/runtime-waker-state.json}"
+# Let `./script.sh --persona reviewer` override MAP_RUNTIME_PERSONA default.
+_cli_args=("$@")
+for ((i = 0; i < ${#_cli_args[@]}; i++)); do
+  if [[ "${_cli_args[$i]}" == "--persona" && $((i + 1)) -lt ${#_cli_args[@]} ]]; then
+    PERSONA="${_cli_args[$((i + 1))]}"
+    break
+  fi
+done
+unset _cli_args
 if [[ -n "${MAP_RUNTIME_HOME:-}" ]]; then
   RUNTIME_HOME="$MAP_RUNTIME_HOME"
 elif [[ "$BACKEND" == "codex" ]]; then
@@ -22,7 +31,7 @@ elif [[ "$BACKEND" == "codex" ]]; then
 else
   RUNTIME_HOME=".map/claude-runtime-home"
 fi
-MAX_WAKES="${MAP_RUNTIME_MAX_WAKES_PER_CYCLE:-1}"
+MAX_WAKES="${MAP_RUNTIME_MAX_WAKES_PER_CYCLE:-3}"
 COOLDOWN="${MAP_RUNTIME_COOLDOWN_SECONDS:-300}"
 
 if ! map --persona "$PERSONA" persona whoami >/dev/null 2>&1; then

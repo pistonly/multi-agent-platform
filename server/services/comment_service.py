@@ -72,7 +72,7 @@ def create_comment(
         project_id=experiment.project_id,
         experiment_title=experiment.title,
     )
-    mention_service.auto_dismiss_mentions_for_author_in_thread(
+    mention_service.auto_dismiss_mentions_after_comment(
         db,
         new_comment_author=author,
         experiment_id=experiment_id,

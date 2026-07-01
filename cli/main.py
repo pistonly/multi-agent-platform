@@ -661,6 +661,26 @@ def project_or_global_status(
 topic_app = typer.Typer(help="Topic commands")
 app.add_typer(topic_app, name="topic")
 
+mention_app = typer.Typer(help="Mention todo commands")
+app.add_typer(mention_app, name="mention")
+
+
+@mention_app.command("dismiss")
+def mention_dismiss(
+    mention_id: uuid.UUID = typer.Option(..., "--id", help="Mention UUID from `map todos`."),
+) -> None:
+    """Dismiss one @mention for the current persona (removes it from `map todos`).
+
+    Idempotent: dismissing an already-dismissed mention returns the same result.
+    """
+    _run(lambda c: c.dismiss_mention(mention_id))
+
+
+@mention_app.command("dismiss-all")
+def mention_dismiss_all() -> None:
+    """Dismiss all open @mentions for the current persona."""
+    _run(lambda c: c.dismiss_all_mentions())
+
 
 @topic_app.command("create")
 def topic_create(

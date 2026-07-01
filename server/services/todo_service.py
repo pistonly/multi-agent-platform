@@ -207,6 +207,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         for item in db.scalars(reply_stmt)
     ]
 
+    mention_service.reconcile_mentions_after_participation(db, agent.id)
     mention_rows = mention_service.list_mentions_for_agent(db, agent.id)
     author_ids = {m.author_agent_id for m in mention_rows}
     authors = {

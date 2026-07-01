@@ -17,9 +17,10 @@ description: >-
 1. 先执行 `map --persona <persona> persona whoami` 确认身份。
 2. 只用 `map --persona <persona> ...` 做 MAP 操作；禁止 MCP 写操作，禁止 `curl` / 手写 `httpx` 调 MAP API。
 3. 先执行 `map --persona <persona> todos` 获取最新待办；不要只相信 wake event。
-4. 一次 wake 只处理事件直接相关的一项工作；处理后简短报告结果。
-5. 需要查看详情时用 `topic show`、`experiment status`、`review list` 等 CLI。
-6. 如果事件已被其他 agent 处理或已无待办，说明“无需动作”后结束。
+4. 处理完 @mention 后，若已在该话题/实验发过评论，系统会自动收敛；否则执行 `map --persona <persona> mention dismiss --id <uuid>`。
+5. 一次 wake 只处理事件直接相关的一项工作；处理后简短报告结果。
+6. 需要查看详情时用 `topic show`、`experiment status`、`review list` 等 CLI。
+7. 如果事件已被其他 agent 处理或已无待办，说明“无需动作”后结束。
 
 ## Persona 行为
 

@@ -52,6 +52,12 @@ class MapCommandClient:
     def todos(self) -> dict[str, Any]:
         return self._run(["todos"])
 
+    def mention_dismiss(self, mention_id: str) -> dict[str, Any] | None:
+        return self._run(["mention", "dismiss", "--id", mention_id])
+
+    def mention_dismiss_all(self) -> dict[str, Any] | None:
+        return self._run(["mention", "dismiss-all"])
+
     def topic_show(self, topic_id: str) -> dict[str, Any]:
         return self._run(["topic", "show", "--id", topic_id])
 

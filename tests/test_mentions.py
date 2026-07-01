@@ -244,36 +244,118 @@ def test_auto_dismiss_on_reply_in_topic_thread(client, auth_headers, reviewer, p
     )
 
 
-def test_auto_dismiss_does_not_touch_other_thread(
+def test_auto_dismiss_does_not_touch_other_topic(
     client, auth_headers, reviewer, project
 ):
-    """Auto-dismiss only clears mentions inside the same thread, not others."""
+    """Container auto-dismiss is per topic — replying on topic A must not clear topic B."""
+    reviewer_headers = reviewer["headers"]
+    topic_a = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Topic A", "description": "d"},
+    ).json()
+    topic_b = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Topic B", "description": "d"},
+    ).json()
+
+    client.post(
+        f"/api/v1/topics/{topic_a['id']}/comments",
+        headers=auth_headers,
+        json={"body": "Topic A @reviewer-agent 看 a"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic_b['id']}/comments",
+        headers=auth_headers,
+        json={"body": "Topic B @reviewer-agent 看 b"},
+    )
+
+    client.post(
+        f"/api/v1/topics/{topic_a['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "回复 A"},
+    )
+
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert len(todos["mentions"]) == 1
+    assert todos["mentions"][0]["topic_id"] == topic_b["id"]
+
+
+def test_auto_dismiss_topic_on_top_level_comment(
+    client, auth_headers, reviewer, project
+):
+    """Posting any topic comment dismisses all open mentions in that topic."""
     reviewer_headers = reviewer["headers"]
     topic = client.post(
         f"/api/v1/projects/{project['id']}/topics",
         headers=auth_headers,
-        json={"title": "Cross-thread", "description": "d"},
+        json={"title": "Top-level reply", "description": "d"},
     ).json()
 
-    root_a = client.post(
+    client.post(
         f"/api/v1/topics/{topic['id']}/comments",
         headers=auth_headers,
         json={"body": "Thread A @reviewer-agent 看 a"},
-    ).json()
+    )
     client.post(
         f"/api/v1/topics/{topic['id']}/comments",
         headers=auth_headers,
         json={"body": "Thread B @reviewer-agent 看 b"},
     )
 
-    # Reviewer replies only to thread A.
     client.post(
         f"/api/v1/topics/{topic['id']}/comments",
         headers=reviewer_headers,
-        json={"body": "只看 a", "parent_id": root_a["id"]},
+        json={"body": "新顶层回复，未挂 parent"},
     )
 
     todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
-    # Thread A's mention auto-dismissed; Thread B's remains.
-    assert len(todos["mentions"]) == 1
-    assert todos["mentions"][0]["excerpt"].startswith("Thread B")
+    assert todos["mentions"] == []
+
+
+def test_reconcile_mentions_on_todos_after_prior_participation(
+    client, auth_headers, reviewer, project, db_session
+):
+    """get_todos reconciles stale mentions when the agent already replied earlier."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from server.domain.models import Mention
+
+    reviewer_headers = reviewer["headers"]
+    reviewer_id = uuid.UUID(reviewer["id"])
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Reconcile", "description": "d"},
+    ).json()
+    root = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent stale mention"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "already replied", "parent_id": root["id"]},
+    )
+
+    mention = db_session.scalar(
+        select(Mention).where(
+            Mention.mentioned_agent_id == reviewer_id,
+            Mention.source_id == uuid.UUID(root["id"]),
+        )
+    )
+    assert mention is not None
+    assert mention.dismissed_at is not None
+
+    # Simulate legacy row left open after the agent already participated.
+    mention.dismissed_at = None
+    db_session.commit()
+
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert todos["mentions"] == []
+    db_session.refresh(mention)
+    assert mention.dismissed_at is not None

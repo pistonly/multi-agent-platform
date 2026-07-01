@@ -43,11 +43,11 @@ class WakeResult:
 @dataclass
 class RuntimeWakerConfig:
     persona: str = "host"
-    interval: float = 120.0
+    interval: float = 30.0
     once: bool = False
     max_cycles: int | None = None
     dry_run: bool = False
-    max_wakes_per_cycle: int = 1
+    max_wakes_per_cycle: int = 3
     cooldown_seconds: float = 300.0
     state_file: Path | None = Path(".map/runtime-waker-state.json")
     project_root: Path = Path.cwd()
@@ -695,11 +695,11 @@ def run(
     persona: str = typer.Option("host", "--persona", help="MAP persona to wake: host, participant, or reviewer."),
     project_root: Path = typer.Option(Path("."), "--project-root", help="Project root containing .map/."),
     map_cmd: str = typer.Option("map", "--map-cmd", help="MAP CLI command."),
-    interval: float = typer.Option(120.0, "--interval", min=1.0, help="Polling interval in seconds."),
+    interval: float = typer.Option(30.0, "--interval", min=1.0, help="Polling interval in seconds."),
     once: bool = typer.Option(False, "--once", help="Run one cycle and exit."),
     max_cycles: int | None = typer.Option(None, "--max-cycles", min=1, help="Stop after N cycles."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print wake actions without invoking runtime."),
-    max_wakes_per_cycle: int = typer.Option(1, "--max-wakes-per-cycle", min=1),
+    max_wakes_per_cycle: int = typer.Option(3, "--max-wakes-per-cycle", min=1),
     cooldown_seconds: float = typer.Option(300.0, "--cooldown-seconds", min=0.0),
     state_file: Path | None = typer.Option(Path(".map/runtime-waker-state.json"), "--state-file"),
     backend: str = typer.Option("claude", "--backend", help="Runtime backend: claude or codex."),

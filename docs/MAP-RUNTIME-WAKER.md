@@ -35,11 +35,11 @@ Useful environment variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MAP_RUNTIME_PERSONA` | `host` | Persona to wake |
-| `MAP_RUNTIME_INTERVAL` | `120` | Polling interval |
+| `MAP_RUNTIME_INTERVAL` | `30` | Polling interval |
 | `MAP_RUNTIME_STATE_FILE` | `.map/runtime-waker-state.json` | Runtime session + event state |
 | `MAP_RUNTIME_HOME` | backend-specific | Runtime home passed to Claude or Codex |
 | `MAP_RUNTIME_BACKEND` | `claude` | Runtime backend: `claude` or `codex` |
-| `MAP_RUNTIME_MAX_WAKES_PER_CYCLE` | `1` | Hard cap per cycle |
+| `MAP_RUNTIME_MAX_WAKES_PER_CYCLE` | `3` | Hard cap per cycle |
 | `MAP_RUNTIME_COOLDOWN_SECONDS` | `300` | Retry cooldown for failed events |
 | `MAP_RUNTIME_FORCE` | `0` | Re-wake already seen events |
 | `MAP_RUNTIME_MODEL` | unset | Optional runtime model override |
