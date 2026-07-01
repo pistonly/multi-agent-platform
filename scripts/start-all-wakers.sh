@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./scripts/start-all-wakers.sh
+#   MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
 #   ./scripts/start-all-wakers.sh --once --dry-run
 #   MAP_RUNTIME_INTERVAL=60 ./scripts/start-all-wakers.sh
 #

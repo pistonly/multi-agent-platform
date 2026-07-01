@@ -4,6 +4,8 @@
 # Usage:
 #   ./scripts/start-runtime-waker-claude.sh --persona host
 #   MAP_RUNTIME_PERSONA=reviewer ./scripts/start-runtime-waker-claude.sh
+#   MAP_RUNTIME_BACKEND=codex ./scripts/start-runtime-waker-claude.sh --persona host
+#   MAP_RUNTIME_BACKEND=cursor ./scripts/start-runtime-waker-claude.sh --persona host
 #   ./scripts/start-runtime-waker-claude.sh --once --dry-run
 
 set -euo pipefail

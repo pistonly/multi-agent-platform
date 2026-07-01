@@ -20,6 +20,7 @@ Supported runtime backends:
 
 - `claude`: `PersonaAgentClient` — in-process `ClaudeSDKClient` with `resume=<session_id>`
 - `codex`: `openai_codex.Codex.thread_start/thread_resume`
+- `cursor`: `cursor_sdk.Agent.create` / `Agent.resume` — local agent per wake, session id is `agent_id` (`agent-...`)
 
 ## Usage
 
@@ -27,6 +28,8 @@ Supported runtime backends:
 ./scripts/start-runtime-waker.sh --persona host
 MAP_RUNTIME_PERSONA=reviewer ./scripts/start-runtime-waker.sh
 MAP_RUNTIME_BACKEND=codex ./scripts/start-runtime-waker.sh --persona host
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-runtime-waker.sh --persona host
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
 ./scripts/start-runtime-waker.sh --once --dry-run
 ```
 
@@ -37,8 +40,8 @@ Useful environment variables:
 | `MAP_RUNTIME_PERSONA` | `host` | Persona to wake |
 | `MAP_RUNTIME_INTERVAL` | `30` | Polling interval |
 | `MAP_RUNTIME_STATE_FILE` | `.map/runtime-waker-state.json` | Runtime session + event state |
-| `MAP_RUNTIME_HOME` | backend-specific | Runtime home passed to Claude or Codex |
-| `MAP_RUNTIME_BACKEND` | `claude` | Runtime backend: `claude` or `codex` |
+| `MAP_RUNTIME_HOME` | backend-specific | Runtime home passed to Claude or Codex (ignored by `cursor`) |
+| `MAP_RUNTIME_BACKEND` | `claude` | Runtime backend: `claude`, `codex`, or `cursor` |
 | `MAP_RUNTIME_MAX_WAKES_PER_CYCLE` | `3` | Hard cap per cycle |
 | `MAP_RUNTIME_COOLDOWN_SECONDS` | `300` | Retry cooldown for failed events |
 | `MAP_RUNTIME_FORCE` | `0` | Re-wake already seen events |
@@ -47,6 +50,17 @@ Useful environment variables:
 
 When `MAP_RUNTIME_HOME` is not set, the start script uses
 `.map/claude-runtime-home` for Claude and `.map/codex-runtime-home` for Codex.
+The `cursor` backend does not use `MAP_RUNTIME_HOME`; it runs local agents
+against `project_root` via the Cursor SDK bridge.
+
+### Claude backend
+
+Default. Holds one in-process `ClaudeSDKClient` per waker process. Requires
+`claude_agent_sdk` and Anthropic credentials (`ANTHROPIC_API_KEY` or
+`.map/.claude-env`). When `MAP_RUNTIME_HOME` is set, project skills are synced
+into `$MAP_RUNTIME_HOME/.claude/skills/`.
+
+### Codex backend
 
 The Codex backend requires the Python Codex SDK package:
 
@@ -61,6 +75,38 @@ The waker passes the `map-runtime-waker` skill explicitly as a Codex
 resumable idea through `codex exec resume <SESSION_ID> <PROMPT>`, but this
 implementation uses the Python SDK so the backend can manage thread ids and
 inputs directly.
+
+### Cursor backend
+
+The Cursor backend uses the Python Cursor SDK (`cursor-sdk`, imported as
+`cursor_sdk`). Each wake creates or resumes a **local** agent; the persisted
+session id is `agent.agent_id` (prefix `agent-`), stored in the same state file
+fields as other backends (`runtime_session_id` / `claude_session_id`).
+
+```bash
+pip install cursor-sdk
+export CURSOR_API_KEY="cursor_..."   # or .map/.cursor-env / shell rc export
+export CURSOR_MODEL="composer-2.5"   # optional; --model / MAP_RUNTIME_MODEL override
+```
+
+On each wake:
+
+1. `Agent.create(...)` when there is no saved session id (or wake context changed)
+2. `Agent.resume(agent_id, ...)` when resuming the same MAP object context
+3. `agent.send(prompt)` then `run.wait()`
+
+Project skills load through `local.setting_sources=["project"]` (`.cursor/skills/`,
+including `map-runtime-waker`). Unlike Codex, the waker does not pass an explicit
+`SkillInput`; the agent discovers skills from the repo.
+
+Credentials resolve in order: process environment → `.map/.cursor-env` →
+`~/.bashrc` / `~/.profile` / `~/.bash_profile` export lines.
+
+Smoke test (no MAP todos required):
+
+```bash
+python3 -m cli.runtime_waker --persona host --backend cursor --once --dry-run
+```
 
 ## Event Model
 
@@ -93,9 +139,9 @@ This state is local runtime data and is ignored by Git.
 
 ## Session wake logs
 
-Each Claude SDK `session_id` gets an append-only JSONL file under
-`.map/runtime-waker-sessions/<session_id>.jsonl`. Every `PersonaAgentClient`
-wake records:
+**Claude backend only:** each Claude SDK `session_id` gets an append-only JSONL
+file under `.map/runtime-waker-sessions/<session_id>.jsonl`. Every
+`PersonaAgentClient` wake records:
 
 - full user `prompt`
 - first 200 characters of assistant text (`response_preview`)
@@ -103,6 +149,9 @@ wake records:
 
 Disable with `MAP_SESSION_WAKE_LOG=0`. Override directory with
 `MAP_SESSION_WAKE_LOG_DIR`.
+
+Codex and Cursor backends do not write these JSONL files; inspect waker stdout /
+`.map/waker-logs/*.log` instead.
 
 ## Boundary
 

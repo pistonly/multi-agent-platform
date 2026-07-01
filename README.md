@@ -152,10 +152,16 @@ map --persona host status              # 查看 open_topics
 
 ## Agent Runtime Waker（推荐）
 
-`map-runtime-waker` 是连接外部 Agent Runtime（Claude Code / Codex）的推荐路径：轮询 `map todos`、推导 wake 事件、去重后 resume 长会话，由 Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 bridge 内嵌业务逻辑）。
+`map-runtime-waker` 是连接外部 Agent Runtime（Claude Code / Codex / Cursor SDK）的推荐路径：轮询 `map todos`、推导 wake 事件、去重后 resume 长会话，由 Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 bridge 内嵌业务逻辑）。
 
 ```bash
-# 三 persona 各起一个 waker（默认 interval=30s，每周期最多 3 次 wake）
+# 三 persona 各起一个 waker（默认 backend=claude，interval=30s，每周期最多 3 次 wake）
+./scripts/start-all-wakers.sh
+
+# 使用 Cursor SDK 本地 agent 作为运行时
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
+
+# 单 persona
 ./scripts/start-runtime-waker.sh --persona host
 ./scripts/start-runtime-waker.sh --persona participant
 ./scripts/start-runtime-waker.sh --persona reviewer

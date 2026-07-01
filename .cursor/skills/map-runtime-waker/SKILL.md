@@ -62,3 +62,10 @@ description: >-
 | `running` | 实施 plan 子项 + `experiment log`；全部验收后 `complete` |
 
 始终以最新 `todos` 和对象详情为准。waker 的本地 state 只用于唤醒去重，不代表 MAP 权威状态。
+
+## Runtime 后端（waker 侧）
+
+waker 本身不执行业务，只负责 resume 会话并发送短 wake prompt。后端由环境变量
+`MAP_RUNTIME_BACKEND` 选择（`claude` / `codex` / `cursor`）。你被唤醒时通常已在
+某一会话中——继续用本 Skill 与 `map` CLI 即可。部署与凭证见仓库
+[docs/MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)。

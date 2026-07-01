@@ -25,6 +25,8 @@
 
 **标准路径**：`./scripts/start-all-wakers.sh` → Agent 读 Skill → `map --persona <name>` CLI。
 
+**Runtime 后端**（`MAP_RUNTIME_BACKEND`）：`claude`（默认）、`codex`、`cursor`（Cursor SDK 本地 agent）。详见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md)。
+
 **已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`、runner JSON 契约。
 
 ## v0.8 闭环验收（实验 `c9776cb4`，plan v3）
@@ -50,7 +52,7 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 
 - **后端**：FastAPI + SQLAlchemy + Alembic
 - **前端**：React + Vite + TypeScript
-- **协作**：CLI (`map`)、runtime-waker、`.cursor/skills/`
+- **协作**：CLI (`map`)、runtime-waker（`claude` / `codex` / `cursor` 后端）、`.cursor/skills/`
 - **部署**：Docker Compose（API :8001 / Web :3000）；可选 systemd `map-wakers.service`
 
 ## 阻塞 / 风险

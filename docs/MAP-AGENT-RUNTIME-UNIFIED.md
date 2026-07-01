@@ -3,29 +3,37 @@
 This branch combines:
 
 - **Event-driven wake layer** from `runtime-waker` (`cli/runtime_waker.py`)
-- **Long-lived Claude SDK client** from `main` (`cli/agent_client.py` / `PersonaAgentClient`)
+- **Pluggable runtime backends**: Claude (`PersonaAgentClient`), Codex, or Cursor SDK
 
 ## Architecture
 
 ```text
 map-runtime-waker
   poll todos → discover_wake_events → dedupe → short event prompt
-       └── PersonaAgentWakeBackend (process lifetime)
-              └── PersonaAgentClient (ClaudeSDKClient + resume)
+       ├── PersonaAgentWakeBackend (claude) — one ClaudeSDKClient per process
+       ├── CodexSdkWakeBackend — thread_start / thread_resume per wake
+       └── CursorSdkWakeBackend — Agent.create / Agent.resume per wake
 ```
 
-Claude backend holds one in-process `ClaudeSDKClient` per waker process. Session id
-is stored as `claude_session_id` / `runtime_session_id` in
-`.map/runtime-waker-state.json`.
+Session id is stored as `claude_session_id` / `runtime_session_id` in
+`.map/runtime-waker-state.json` (Claude session id, Codex thread id, or Cursor
+`agent_id`).
 
 ## Quick start
 
 ```bash
-cd .claude/worktrees/agent-runtime
+# Default: Claude backend
 ./scripts/start-runtime-waker.sh --persona host --once --dry-run
+
+# Cursor SDK backend
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-runtime-waker.sh --persona host --once --dry-run
+
+# All three personas
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
 ```
 
-See [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md).
+See [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md) for credentials,
+models, and backend-specific setup.
 
 ## Status
 
