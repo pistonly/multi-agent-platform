@@ -23,9 +23,9 @@ from server.domain.schemas import (
     TopicResolve,
 )
 
-app = typer.Typer(name="map", help="Multi-Agent Platform CLI")
+app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
 project_app = typer.Typer(help="Project commands")
-experiment_app = typer.Typer(help="Experiment commands")
+experiment_app = typer.Typer(help="Experiment commands", rich_markup_mode=None)
 persona_app = typer.Typer(help="Persona / identity commands")
 app.add_typer(project_app, name="project")
 app.add_typer(experiment_app, name="experiment")
@@ -118,6 +118,14 @@ def _run(action) -> None:
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
+
+
+def _require_option_uuid(value: uuid.UUID | None, *, option: str = "--id") -> uuid.UUID:
+    """Typer 0.16 + nested subcommands do not enforce required UUID options."""
+    if value is None:
+        typer.echo(f"Error: Missing option '{option}'.", err=True)
+        raise typer.Exit(2)
+    return value
 
 
 def _require_map_dir(project_root: Path | None = None) -> Path:
@@ -458,9 +466,21 @@ def experiment_status(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> N
     _run(lambda c: c.get_experiment(experiment_id))
 
 
-@experiment_app.command("archive")
+@experiment_app.command("show")
+def experiment_show(
+    experiment_id: uuid.UUID | None = typer.Option(None, "--id", help="Experiment UUID."),
+) -> None:
+    """Show one experiment (including archived) by UUID."""
+    experiment_id = _require_option_uuid(experiment_id)
+    _run(lambda c: c.get_experiment(experiment_id))
+
+
+@experiment_app.command(
+    "archive",
+    epilog="Use --undo or --unarchive to restore an archived experiment.",
+)
 def experiment_archive(
-    experiment_id: uuid.UUID = typer.Option(..., "--id", help="Experiment UUID."),
+    experiment_id: uuid.UUID | None = typer.Option(None, "--id", help="Experiment UUID."),
     undo: bool = typer.Option(
         False,
         "--undo",
@@ -489,6 +509,7 @@ def experiment_archive(
         map --persona host experiment archive --id <uuid> --undo
         map --persona host experiment archive --id <uuid> --unarchive
     """
+    experiment_id = _require_option_uuid(experiment_id)
     from server.domain.schemas import ExperimentUpdate
 
     payload = ExperimentUpdate(archived=not (undo or unarchive))
@@ -658,7 +679,7 @@ def project_or_global_status(
     _run(action)
 
 
-topic_app = typer.Typer(help="Topic commands")
+topic_app = typer.Typer(help="Topic commands", rich_markup_mode=None)
 app.add_typer(topic_app, name="topic")
 
 mention_app = typer.Typer(help="Mention todo commands")
@@ -795,9 +816,12 @@ def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.reopen_topic(topic_id))
 
 
-@topic_app.command("archive")
+@topic_app.command(
+    "archive",
+    epilog="Use --undo or --unarchive to restore an archived topic.",
+)
 def topic_archive(
-    topic_id: uuid.UUID = typer.Option(..., "--id", help="Topic UUID."),
+    topic_id: uuid.UUID | None = typer.Option(None, "--id", help="Topic UUID."),
     undo: bool = typer.Option(
         False,
         "--undo",
@@ -826,6 +850,7 @@ def topic_archive(
         map --persona host topic archive --id <uuid> --undo
         map --persona host topic archive --id <uuid> --unarchive
     """
+    topic_id = _require_option_uuid(topic_id)
     from server.domain.schemas import TopicUpdate
 
     payload = TopicUpdate(archived=not (undo or unarchive))

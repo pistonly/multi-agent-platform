@@ -395,6 +395,7 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         topic_id=experiment.topic_id,
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
+        archived_at=experiment.archived_at,
         current_plan=current_plan,
         plan_version_count=plan_version_count,
         open_unreasonable_count=count_open_unreasonable_for_experiment(db, experiment.id),
