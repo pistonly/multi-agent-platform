@@ -40,6 +40,7 @@ export function TodosPage() {
   const empty =
     data.my_open_experiments.length === 0 &&
     data.pending_reviews.length === 0 &&
+    data.pending_result_reviews.length === 0 &&
     data.pending_replies.length === 0 &&
     (data.pending_topic_replies?.length ?? 0) === 0 &&
     (data.action_items?.length ?? 0) === 0 &&
@@ -156,6 +157,17 @@ export function TodosPage() {
       {data.pending_reviews.length > 0 && (
         <Section title={`待评审（${data.pending_reviews.length}）`}>
           {data.pending_reviews.map((e) => (
+            <Row key={e.id} to={`/experiments/${e.id}`}>
+              <span className="text-accent hover:underline">{e.title}</span>
+              <PhaseBadge phase={e.phase} />
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {data.pending_result_reviews.length > 0 && (
+        <Section title={`结果待审批（${data.pending_result_reviews.length}）`}>
+          {data.pending_result_reviews.map((e) => (
             <Row key={e.id} to={`/experiments/${e.id}`}>
               <span className="text-accent hover:underline">{e.title}</span>
               <PhaseBadge phase={e.phase} />

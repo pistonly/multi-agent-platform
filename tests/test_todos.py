@@ -60,6 +60,34 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     assert any(t["id"] == topic["id"] for t in agent_todos3["my_open_topics"])
 
 
+def test_pending_result_reviews(client, auth_headers, reviewer, project):
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "结果审批实验", "plan": {"content_md": "p"}, "submit_for_review": True},
+    ).json()
+    exp_id = exp["id"]
+    client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"reasonable_items": ["OK"]},
+    )
+    client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
+    client.post(f"/api/v1/experiments/{exp_id}/start", headers=auth_headers)
+    client.post(
+        f"/api/v1/experiments/{exp_id}/complete",
+        headers=auth_headers,
+        json={"summary": "提交结果", "content_md": "结果内容"},
+    )
+
+    creator_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert any(e["id"] == exp_id for e in creator_todos["my_open_experiments"])
+    assert not any(e["id"] == exp_id for e in creator_todos["pending_result_reviews"])
+
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert any(e["id"] == exp_id for e in reviewer_todos["pending_result_reviews"])
+
+
 def test_dismiss_topic_hides_from_my_open_topics(client, auth_headers, project):
     topic = client.post(
         f"/api/v1/projects/{project['id']}/topics",

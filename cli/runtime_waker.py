@@ -968,6 +968,22 @@ def _reviewer_events(todos: dict[str, Any]) -> list[WakeEvent]:
                 payload=_compact_payload(item, keys=("id", "title", "phase", "current_plan_version")),
             )
         )
+    for item in todos.get("pending_result_reviews") or []:
+        experiment_id = str(item.get("id") or "")
+        if not experiment_id:
+            continue
+        updated_at = str(item.get("updated_at") or "")
+        events.append(
+            WakeEvent(
+                persona="reviewer",
+                kind="pending_result_review",
+                object_id=experiment_id,
+                fingerprint=f"reviewer:pending_result_review:{experiment_id}:{updated_at}",
+                title=item.get("title"),
+                reason="review submitted experiment results before the experiment can be marked done",
+                payload=_compact_payload(item, keys=("id", "title", "phase", "updated_at")),
+            )
+        )
     for item in todos.get("pending_replies") or []:
         status = str(item.get("status") or "")
         item_id = str(item.get("item_id") or item.get("id") or "")

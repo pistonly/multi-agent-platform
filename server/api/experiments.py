@@ -20,6 +20,7 @@ from server.domain.schemas import (
     ExperimentBundleRead,
     ExperimentLogCreate,
     ExperimentLogRead,
+    ExperimentResultDecision,
     ExperimentSummaryRead,
     ExperimentUpdate,
     PlanRevise,
@@ -402,7 +403,55 @@ def complete_experiment(
         target_type="experiment",
         target_id=experiment_id,
         project_id=experiment.project_id,
-        summary=f"完成实验（{experiment.title}）",
+        summary=f"提交实验结果待审批（{experiment.title}）",
+        event="experiment.phase_changed",
+        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
+    )
+    return ExperimentSummaryRead.model_validate(experiment)
+
+
+@experiments_router.post("/experiments/{experiment_id}/accept-result", response_model=ExperimentSummaryRead)
+def accept_experiment_result(
+    experiment_id: uuid.UUID,
+    payload: ExperimentResultDecision,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentSummaryRead:
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.accept_result(db, experiment_id, agent, payload)
+    experiment = svc.get_experiment(db, experiment_id)
+    emit(
+        db,
+        agent,
+        action="experiment.phase_changed",
+        target_type="experiment",
+        target_id=experiment_id,
+        project_id=experiment.project_id,
+        summary=f"审批通过实验结果（{experiment.title}）",
+        event="experiment.phase_changed",
+        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
+    )
+    return ExperimentSummaryRead.model_validate(experiment)
+
+
+@experiments_router.post("/experiments/{experiment_id}/reject-result", response_model=ExperimentSummaryRead)
+def reject_experiment_result(
+    experiment_id: uuid.UUID,
+    payload: ExperimentResultDecision,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentSummaryRead:
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.reject_result(db, experiment_id, agent, payload)
+    experiment = svc.get_experiment(db, experiment_id)
+    emit(
+        db,
+        agent,
+        action="experiment.phase_changed",
+        target_type="experiment",
+        target_id=experiment_id,
+        project_id=experiment.project_id,
+        summary=f"驳回实验结果（{experiment.title}）",
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )

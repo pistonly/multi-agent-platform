@@ -261,6 +261,22 @@ export async function completeExperiment(
   return data;
 }
 
+export async function acceptExperimentResult(
+  experimentId: string,
+  body: { summary: string; content_md: string; metadata?: Record<string, unknown> }
+): Promise<ExperimentSummary> {
+  const { data } = await api.post<ExperimentSummary>(`/experiments/${experimentId}/accept-result`, body);
+  return data;
+}
+
+export async function rejectExperimentResult(
+  experimentId: string,
+  body: { summary: string; content_md: string; metadata?: Record<string, unknown> }
+): Promise<ExperimentSummary> {
+  const { data } = await api.post<ExperimentSummary>(`/experiments/${experimentId}/reject-result`, body);
+  return data;
+}
+
 export async function updateReviewItem(itemId: string, status: string): Promise<void> {
   await api.patch(`/review-items/${itemId}`, { status });
 }

@@ -9,7 +9,7 @@ description: >-
 
 # MAP 实验评审（Skill）
 
-评审 Agent 对 **phase=review** 的实验计划给出结构化评审，供 host 修订计划或继续推进。
+评审 Agent 对 **phase=review** 的实验计划给出结构化评审，并对 **phase=result_review** 的实验结果做通过/驳回审批。
 
 本仓库通过 **map-runtime-waker** 唤醒；你用 `map --persona reviewer` CLI **直接**写评审与 resolve，不经过 bridge/runner。
 
@@ -20,6 +20,8 @@ description: >-
 - `todos.pending_reviews` 中出现待评审实验
 - waker 发出 `pending_review` wake
 - 实验已 `submit-review`，当前计划版本尚未有本 reviewer 的评审记录
+- `todos.pending_result_reviews` 中出现结果待审批实验
+- waker 发出 `pending_result_review` wake
 
 ## 硬性规则
 
@@ -29,6 +31,7 @@ description: >-
 4. **不**修改实验计划正文（修订是 host 的 `plan revise`）
 5. host 将项标为 `addressed` 后，你在 `addressed_review_item` wake 时检查并 `review resolve-item`
 6. 每条 reasonable / unreasonable 应具体、可验证，避免空泛褒贬
+7. 结果审批必须读取 `experiment status`、最终 log 和计划 acceptance；通过用 `accept-result`，不通过用 `reject-result` 并写清返工要求
 
 ## 提交评审
 
@@ -58,6 +61,25 @@ map --persona reviewer experiment review resolve-item \
   --item-id <item-uuid>
 ```
 
+## 审批实验结果
+
+```bash
+map --persona reviewer experiment status --id <exp-uuid>
+map --persona reviewer experiment logs --id <exp-uuid>
+
+map --persona reviewer experiment accept-result \
+  --id <exp-uuid> \
+  --summary "结果通过：验收标准已满足" \
+  --file ./result-review.md
+
+map --persona reviewer experiment reject-result \
+  --id <exp-uuid> \
+  --summary "结果驳回：缺少关键证据" \
+  --file ./result-review.md
+```
+
+`accept-result` 使实验进入 `done`；`reject-result` 使实验回到 `running`，host 继续返工。不要替 host 修改仓库或直接补执行日志。
+
 ## 评审维度（建议）
 
 - 目标与范围是否清晰、可执行
@@ -65,12 +87,14 @@ map --persona reviewer experiment review resolve-item \
 - 与来源话题共识是否一致
 - 风险、依赖、Out of Scope 是否说明
 - 是否有遗漏的非目标或安全/权限问题
+- 实验结果是否覆盖计划中的 acceptance、测试命令、关键风险和产物路径
 
 ## 非目标
 
 - 代替 host 执行实验或改仓库
 - 在评审中重写完整 plan（只列条目）
 - 假设 bridge 会自动 resolve
+- 对自己创建的实验做结果审批
 
 ## 参考
 

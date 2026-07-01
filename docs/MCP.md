@@ -174,7 +174,7 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 |------|-------|
 | 身份 / 项目上下文 | `get_me`, `get_project_status`, `revise_project_status`, `list_project_status_versions`, `get_project_status_version` |
 | 待办 / 通知 | `get_todos`（含 `pending_topic_replies` v0.5）, `list_notifications`, `mark_notification_read`, `mark_all_notifications_read` |
-| 实验生命周期 | `list_experiments`, `get_experiment`, `create_experiment`, `submit_for_review`, `approve_experiment`, `withdraw_from_review`, `cancel_experiment`, `start_experiment`, `complete_experiment` |
+| 实验生命周期 | `list_experiments`, `get_experiment`, `create_experiment`, `submit_for_review`, `approve_experiment`, `withdraw_from_review`, `cancel_experiment`, `start_experiment`, `complete_experiment`, `accept_experiment_result`, `reject_experiment_result` |
 | 计划 | `list_plans`, `get_plan`, `revise_plan` |
 | 评审 | `create_review`, `list_reviews`, `update_review_item` |
 | 评论 | `create_comment`, `list_comments` |

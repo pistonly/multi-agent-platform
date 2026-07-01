@@ -15,6 +15,7 @@ from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
     ExperimentLogCreate,
+    ExperimentResultDecision,
     PlanInput,
     PlanRevise,
     ProjectStatusRevise,
@@ -443,6 +444,42 @@ def experiment_complete(
     _run(lambda c: c.complete_experiment(experiment_id, payload))
 
 
+@experiment_app.command("accept-result")
+def experiment_accept_result(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    summary: str = typer.Option(..., "--summary"),
+    log_file: Path = typer.Option(..., "--file"),
+    metadata_file: Path | None = typer.Option(None, "--metadata"),
+) -> None:
+    metadata = None
+    if metadata_file:
+        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    payload = ExperimentResultDecision(
+        summary=summary,
+        content_md=log_file.read_text(encoding="utf-8"),
+        metadata=metadata,
+    )
+    _run(lambda c: c.accept_experiment_result(experiment_id, payload))
+
+
+@experiment_app.command("reject-result")
+def experiment_reject_result(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    summary: str = typer.Option(..., "--summary"),
+    log_file: Path = typer.Option(..., "--file"),
+    metadata_file: Path | None = typer.Option(None, "--metadata"),
+) -> None:
+    metadata = None
+    if metadata_file:
+        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    payload = ExperimentResultDecision(
+        summary=summary,
+        content_md=log_file.read_text(encoding="utf-8"),
+        metadata=metadata,
+    )
+    _run(lambda c: c.reject_experiment_result(experiment_id, payload))
+
+
 @experiment_app.command("log")
 def experiment_log(
     experiment_id: uuid.UUID = typer.Option(..., "--id"),
@@ -459,6 +496,11 @@ def experiment_log(
         metadata=metadata,
     )
     _run(lambda c: c.create_log(experiment_id, payload))
+
+
+@experiment_app.command("logs")
+def experiment_logs(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.list_logs(experiment_id))
 
 
 @experiment_app.command("status")

@@ -28,7 +28,7 @@ description: >-
 2. 只用 `map --persona participant ...` 写 MAP
 3. **不**创建话题、**不**关话题、**不**创建实验
 4. **不**模仿 host 发 `Round N Summary`（那是主持职责）
-5. 话题下已有 **活跃实验**（draft/review/approved/running）时不再跟评，讨论已转入实验
+5. 话题下已有 **活跃实验**（draft/review/approved/running/result_review）时不再跟评，讨论已转入实验
 6. 发言应具体：观点、风险、验收建议或反驳；避免空泛「同意」
 
 ## 两轮讨论中的角色

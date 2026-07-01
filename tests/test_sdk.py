@@ -9,6 +9,7 @@ from server.domain.models import ExperimentPhase
 from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
+    ExperimentResultDecision,
     PlanInput,
     ReviewCreate,
 )
@@ -59,9 +60,15 @@ def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: 
     map_client.approve_experiment(exp.id)
     map_client.start_experiment(exp.id)
 
-    done = map_client.complete_experiment(
+    submitted = map_client.complete_experiment(
         exp.id,
         ExperimentComplete(summary="done", content_md="result"),
+    )
+    assert submitted.phase == ExperimentPhase.result_review
+
+    done = reviewer_client.accept_experiment_result(
+        exp.id,
+        ExperimentResultDecision(summary="accepted", content_md="result approved"),
     )
     assert done.phase == ExperimentPhase.done
 

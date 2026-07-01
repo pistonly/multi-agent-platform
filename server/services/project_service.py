@@ -31,6 +31,7 @@ _ACTIVE_TOPIC_EXPERIMENT_PHASES = (
     ExperimentPhase.review,
     ExperimentPhase.approved,
     ExperimentPhase.running,
+    ExperimentPhase.result_review,
 )
 
 
@@ -143,6 +144,7 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
         ExperimentPhase.review,
         ExperimentPhase.approved,
         ExperimentPhase.running,
+        ExperimentPhase.result_review,
     )
     active_map: dict[uuid.UUID, list[ExperimentSummaryRead]] = {pid: [] for pid in project_ids}
     active_stmt = (

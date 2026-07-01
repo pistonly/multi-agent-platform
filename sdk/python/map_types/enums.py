@@ -11,6 +11,7 @@ class ExperimentPhase(str, enum.Enum):
     review = "review"
     approved = "approved"
     running = "running"
+    result_review = "result_review"
     done = "done"
     cancelled = "cancelled"
 

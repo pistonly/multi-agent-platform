@@ -248,6 +248,12 @@ class ExperimentComplete(BaseModel):
     metadata: dict | None = None
 
 
+class ExperimentResultDecision(BaseModel):
+    summary: str = Field(min_length=1, max_length=1024)
+    content_md: str = Field(min_length=1)
+    metadata: dict | None = None
+
+
 class ExperimentBundleRead(BaseModel):
     """Aggregated experiment page payload (detail + plans + reviews + comment tree + logs)."""
 
@@ -481,6 +487,7 @@ class TopicActionItemTodoRead(BaseModel):
 class TodoRead(BaseModel):
     my_open_experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
+    pending_result_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_replies: list[PendingReplyRead] = Field(default_factory=list)
     pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)
     my_open_topics: list[TopicSummaryRead] = Field(default_factory=list)

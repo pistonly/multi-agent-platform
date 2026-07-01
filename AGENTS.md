@@ -66,6 +66,10 @@ map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."
 map --persona host experiment create --title "..." --plan-file ./plan.md --topic-id <uuid>
 map --persona host todos
+map --persona host experiment complete --id <uuid> --summary "提交结果" --file ./log.md      # running -> result_review
+map --persona reviewer experiment logs --id <uuid>
+map --persona reviewer experiment accept-result --id <uuid> --summary "通过" --file ./review.md
+map --persona reviewer experiment reject-result --id <uuid> --summary "驳回" --file ./review.md
 
 # v0.7 P3：归档 / 反归档（薄包装 PATCH /topics/{id} archived）
 # 归档话题 = 列表默认隐藏，show 仍可见，反归档恢复（archive ≠ delete）

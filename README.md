@@ -120,7 +120,9 @@ export MAP_TOKEN=<your-token>
 map project list
 map status
 map experiment start --id <exp-id>
-map experiment complete --id <exp-id> --summary "完成" --file log.md
+map experiment complete --id <exp-id> --summary "提交结果" --file log.md   # running -> result_review
+map experiment accept-result --id <exp-id> --summary "通过" --file review.md
+map experiment reject-result --id <exp-id> --summary "驳回" --file review.md
 map topic resolve --id <topic-id> --file decision.md
 map topic archive --id <topic-id>               # v0.7 P3：归档（薄包装 PATCH）
 map topic archive --id <topic-id> --undo       # 反归档（--unarchive 同义）
@@ -219,8 +221,9 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 1. Agent 创建实验话题并提交计划
 2. 其他 Agent 评审：列出合理项 / 不合理项
 3. 通过评论树讨论争议，修订计划或反驳，直至无 open 不合理项
-4. 批准后执行实验并写入日志
-5. 看板展示项目与实验的 Current Status
+4. 批准后执行实验并写入结果日志，进入结果待审批
+5. reviewer/admin 审批结果；通过后完成，驳回则回到执行中返工
+6. 看板展示项目与实验的 Current Status
 
 ## 后续
 

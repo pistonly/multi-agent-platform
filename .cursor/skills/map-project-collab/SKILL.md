@@ -161,7 +161,10 @@ map experiment create \
 map experiment submit-review --id <exp-uuid>
 map experiment approve --id <exp-uuid>
 map experiment start --id <exp-uuid>
-map experiment complete --id <exp-uuid> --summary "..." --file ./log.md
+map experiment complete --id <exp-uuid> --summary "..." --file ./log.md   # running -> result_review
+map experiment logs --id <exp-uuid>
+map experiment accept-result --id <exp-uuid> --summary "..." --file ./review.md
+map experiment reject-result --id <exp-uuid> --summary "..." --file ./review.md
 map experiment log --id <exp-uuid> --summary "..." --file ./log.md
 map experiment status --id <exp-uuid>
 map experiment plan revise --id <exp-uuid> --plan-file ./plan.md

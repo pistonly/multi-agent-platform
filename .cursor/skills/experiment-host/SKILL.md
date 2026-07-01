@@ -21,6 +21,7 @@ description: >-
 3. **`phase=running` 表示由你执行**——不要写「等 host bridge / auto-experiment-lifecycle 接手」
 4. 一次 wake 完成**当前 phase 的下一步**；`running` 阶段每次 wake 至少推进 **一个 plan 子项**（如 I1），写 execution log 后结束
 5. 实验须由本 host persona 创建，否则 approve/start/complete 会 403
+6. `complete` 只表示**提交结果待审批**（`running -> result_review`），不是最终完成；host 禁止自审结果
 
 ## Git
 
@@ -38,7 +39,8 @@ description: >-
 | `review` 且 `open_unreasonable_count > 0` | 修订 plan（见下节 revise_plan） |
 | `review` 且 `open_unreasonable_count = 0` | `map experiment approve --id <id>` |
 | `approved` | `map experiment start --id <id>` |
-| `running` | 按 plan 改代码、跑测试、写 log（见 execute_experiment）；plan 全部验收通过后 `map experiment complete` |
+| `running` | 按 plan 改代码、跑测试、写 log（见 execute_experiment）；plan 全部验收通过后 `map experiment complete` 提交结果待审批 |
+| `result_review` | 等 reviewer `accept-result` 或 `reject-result`；若被驳回回到 `running`，继续返工 |
 
 收到 `experiment_lifecycle` wake 时：
 
@@ -77,13 +79,28 @@ map --persona host experiment log \
   --file ./path/to/log.md
 ```
 
-6. 若 plan 定义的**全部 acceptance** 已满足，调用 `map experiment complete`；否则结束本次 wake，等待下次 `experiment_lifecycle` wake 继续下一子项
+6. 若 plan 定义的**全部 acceptance** 已满足，调用 `map experiment complete` 提交最终结果日志，实验进入 `result_review`；否则结束本次 wake，等待下次 `experiment_lifecycle` wake 继续下一子项
+
+结果审批命令由 reviewer 或 admin 执行：
+
+```bash
+map --persona reviewer experiment accept-result \
+  --id <exp-uuid> \
+  --summary "结果通过：..." \
+  --file ./path/to/review.md
+
+map --persona reviewer experiment reject-result \
+  --id <exp-uuid> \
+  --summary "结果驳回：..." \
+  --file ./path/to/review.md
+```
 
 ## 非目标
 
 - 启动或假设 host bridge 在后台运行
 - 返回 bridge 用的 JSON（`execution_log_md` 等）而不写 MAP log
 - 在 `running` 阶段只 approve/start 不实施
+- host 自己调用 `accept-result` 审批自己提交的实验结果
 
 ## 参考
 

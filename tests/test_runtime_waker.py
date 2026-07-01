@@ -118,6 +118,7 @@ def test_discover_reviewer_and_participant_events():
         "reviewer",
         {
             "pending_reviews": [{"id": "exp-1", "current_plan_version": 3}],
+            "pending_result_reviews": [{"id": "exp-2", "phase": "result_review", "updated_at": "t1"}],
             "pending_replies": [{"item_id": "item-1", "status": "addressed"}],
             "mentions": [{"topic_id": "topic-2", "source_id": "comment-9"}],
         },
@@ -130,10 +131,12 @@ def test_discover_reviewer_and_participant_events():
     assert [event.kind for event in reviewer_events] == [
         "mention",
         "pending_review",
+        "pending_result_review",
         "addressed_review_item",
     ]
     assert reviewer_events[0].fingerprint == "reviewer:mention:topic-2:comment-9"
     assert reviewer_events[1].fingerprint == "reviewer:pending_review:exp-1:v3"
+    assert reviewer_events[2].fingerprint == "reviewer:pending_result_review:exp-2:t1"
     assert participant_events[0].fingerprint == "participant:mention:topic-1:comment-1"
 
 

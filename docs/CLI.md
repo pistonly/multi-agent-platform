@@ -101,7 +101,8 @@ map --persona host experiment archive --id <exp-uuid> --undo
 | `map topic show --id <uuid>` | 显示话题详情（含归档对象） |
 | `map topic close --id <uuid>` / `topic reopen` | 关闭 / 重开话题 |
 | `map experiment list` / `experiment show` | 实验列表 / 详情 |
-| `map experiment submit-review / approve / start / complete` | 实验生命周期 |
+| `map experiment submit-review / approve / start / complete / accept-result / reject-result` | 实验生命周期与结果审批 |
+| `map experiment logs --id <uuid>` | 列出实验日志 |
 | `map notification list / read / read-all` | 站内通知 |
 
 完整子命令列表请运行 `map --help`。

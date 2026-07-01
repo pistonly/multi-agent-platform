@@ -85,7 +85,9 @@ with MAPClient.from_env() as client:
 | `update_review_item` | `PATCH /review-items/{id}` |
 | `approve_experiment` | `POST /experiments/{id}/approve` |
 | `start_experiment` | `POST /experiments/{id}/start` |
-| `complete_experiment` | `POST /experiments/{id}/complete` |
+| `complete_experiment` | `POST /experiments/{id}/complete`（提交结果待审批） |
+| `accept_experiment_result` | `POST /experiments/{id}/accept-result` |
+| `reject_experiment_result` | `POST /experiments/{id}/reject-result` |
 | `create_log` | `POST /experiments/{id}/logs` |
 | `get_todos` | `GET /agents/me/todos`（含 `pending_topic_replies`、`mentions` 等分区） |
 | `list_notifications` | `GET /agents/me/notifications` |

@@ -13,7 +13,7 @@ import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
 import { commentDomId, parseCommentAnchor } from "../utils/commentAnchor";
 
-const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running"]);
+const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running", "result_review"]);
 const ROUND_LABELS = {
   round1: "Round 1",
   round2: "Round 2",

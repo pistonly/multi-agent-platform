@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-ACTIVE_EXPERIMENT_PHASES = {"draft", "review", "approved", "running"}
+ACTIVE_EXPERIMENT_PHASES = {"draft", "review", "approved", "running", "result_review"}
 
 
 def _needs_round_summary_for_topic(

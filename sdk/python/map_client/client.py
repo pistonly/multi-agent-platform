@@ -24,6 +24,7 @@ from map_types import (
     ExperimentBundleRead,
     ExperimentLogCreate,
     ExperimentLogRead,
+    ExperimentResultDecision,
     ExperimentPhase,
     ExperimentSummaryRead,
     ExperimentUpdate,
@@ -351,6 +352,30 @@ class MAPClient:
         data = self._json(
             "POST",
             f"/experiments/{experiment_id}/complete",
+            json=payload.model_dump(),
+        )
+        return ExperimentSummaryRead.model_validate(data)
+
+    def accept_experiment_result(
+        self,
+        experiment_id: uuid.UUID,
+        payload: ExperimentResultDecision,
+    ) -> ExperimentSummaryRead:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/accept-result",
+            json=payload.model_dump(),
+        )
+        return ExperimentSummaryRead.model_validate(data)
+
+    def reject_experiment_result(
+        self,
+        experiment_id: uuid.UUID,
+        payload: ExperimentResultDecision,
+    ) -> ExperimentSummaryRead:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/reject-result",
             json=payload.model_dump(),
         )
         return ExperimentSummaryRead.model_validate(data)
@@ -719,6 +744,7 @@ __all__ = [
     "ReviewItemStatus",
     "ExperimentCreate",
     "ExperimentComplete",
+    "ExperimentResultDecision",
     "ExperimentLogCreate",
     "PlanRevise",
     "ReviewCreate",

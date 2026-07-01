@@ -75,7 +75,7 @@ class Agent(Base):
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="author")
 
 
-_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL = "('draft','review','approved','running')"
+_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL = "('draft','review','approved','running','result_review')"
 _ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE = (
     f"topic_id IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL "
     f"AND phase IN {_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL}"

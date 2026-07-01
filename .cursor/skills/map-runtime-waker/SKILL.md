@@ -43,10 +43,11 @@ description: >-
 
 - `pending_topic_reply`：host 检查并回复指定 topic/thread。
 - `topic_lifecycle`：host 检查是否需要 Summary、advance-round、promote experiment。
-- `experiment_lifecycle`：host 按 phase 推进实验生命周期（见下表）；**running = 直接改代码 + 写 log**，不等待 bridge。
+- `experiment_lifecycle`：host 按 phase 推进实验生命周期（见下表）；**running = 直接改代码 + 写 log + complete 提交结果待审**，不等待 bridge。
 - `mention`：participant / reviewer 回复指定 @mention。
 - `open_topic_opportunity`：participant 在 open 话题中最新评论不是自己时参与讨论。
 - `pending_review`：reviewer 评审指定 experiment 当前计划。
+- `pending_result_review`：reviewer 审批 host 提交的实验结果；通过则 `accept-result`，不通过则 `reject-result` 返工。
 - `addressed_review_item`：reviewer 检查 addressed item 是否可 resolve。
 
 ### host：`experiment_lifecycle` 速查
@@ -59,7 +60,8 @@ description: >-
 | `review` + open 不合理项 | `plan revise`（experiment-host） |
 | `review` + 无不合理项 | `approve` |
 | `approved` | `start` |
-| `running` | 实施 plan 子项 + `experiment log`；全部验收后 `complete` |
+| `running` | 实施 plan 子项 + `experiment log`；全部验收后 `complete` 提交结果待审批 |
+| `result_review` | 等 reviewer 审批结果；host 不自审，若被驳回回到 `running` 后继续返工 |
 
 始终以最新 `todos` 和对象详情为准。waker 的本地 state 只用于唤醒去重，不代表 MAP 权威状态。
 

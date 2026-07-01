@@ -3,6 +3,7 @@ export type ExperimentPhase =
   | "review"
   | "approved"
   | "running"
+  | "result_review"
   | "done"
   | "cancelled";
 
@@ -318,6 +319,7 @@ export interface TopicActionItemTodo {
 export interface TodoRead {
   my_open_experiments: ExperimentSummary[];
   pending_reviews: ExperimentSummary[];
+  pending_result_reviews: ExperimentSummary[];
   pending_replies: PendingReply[];
   pending_topic_replies: PendingTopicReplyTodo[];
   my_open_topics: TopicSummary[];

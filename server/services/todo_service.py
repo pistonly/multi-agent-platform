@@ -33,6 +33,7 @@ _ACTIVE_PHASES = (
     ExperimentPhase.review,
     ExperimentPhase.approved,
     ExperimentPhase.running,
+    ExperimentPhase.result_review,
 )
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
 _EXCERPT_LEN = 200
@@ -193,6 +194,22 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         ExperimentSummaryRead.model_validate(exp) for exp in db.scalars(review_stmt)
     ]
 
+    result_review_stmt = (
+        select(Experiment)
+        .where(
+            Experiment.deleted_at.is_(None),
+            Experiment.phase == ExperimentPhase.result_review,
+            Experiment.creator_agent_id != agent.id,
+        )
+        .order_by(Experiment.updated_at.desc())
+    )
+    if project_clause is not None:
+        result_review_stmt = result_review_stmt.where(project_clause)
+
+    pending_result_reviews = [
+        ExperimentSummaryRead.model_validate(exp) for exp in db.scalars(result_review_stmt)
+    ]
+
     reply_stmt = (
         select(ReviewItem)
         .join(Review, ReviewItem.review_id == Review.id)
@@ -278,6 +295,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
     return TodoRead(
         my_open_experiments=my_open_experiments,
         pending_reviews=pending_reviews,
+        pending_result_reviews=pending_result_reviews,
         pending_replies=pending_replies,
         pending_topic_replies=pending_topic_replies,
         my_open_topics=my_open_topics,
