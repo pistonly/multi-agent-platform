@@ -64,7 +64,11 @@ inputs directly.
 
 ## Event Model
 
-The state file stores one resumed session id per persona:
+The state file stores the active resumed session per persona and wake context.
+When the wake context changes, for example from one topic to another topic or
+from one experiment to another experiment, the waker clears the old session id
+and starts a fresh runtime session. Events in the same context continue to
+resume the existing session.
 
 ```json
 {
@@ -72,6 +76,8 @@ The state file stores one resumed session id per persona:
   "personas": {
     "host": {
       "runtime_session_id": "...",
+      "last_wake_context_key": "topic:<topic_id>",
+      "last_wake_object_id": "<topic_id>",
       "events": {
         "host:pending_topic_reply:<topic_id>:<comment_id>": {
           "status": "woken",

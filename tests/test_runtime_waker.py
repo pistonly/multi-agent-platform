@@ -16,7 +16,9 @@ CodexSdkWakeBackend = runtime_waker.CodexSdkWakeBackend
 build_wake_prompt = runtime_waker.build_wake_prompt
 create_backend = runtime_waker.create_backend
 discover_wake_events = runtime_waker.discover_wake_events
+should_reset_session_for_context = runtime_waker.should_reset_session_for_context
 sync_runtime_skills = runtime_waker.sync_runtime_skills
+wake_context_key = runtime_waker.wake_context_key
 
 
 class FakeMapClient(MapCommandClient):
@@ -123,6 +125,7 @@ def test_runtime_waker_wakes_once_and_persists_session(tmp_path):
     assert backend.calls[0]["session_id"] is None
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert state["personas"]["host"]["runtime_session_id"] == "session-host"
+    assert state["personas"]["host"]["last_wake_object_id"] == "topic-1"
     assert state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]["status"] == "woken"
 
 
@@ -196,6 +199,239 @@ def test_runtime_waker_uses_persisted_session_when_forced(tmp_path):
 
     assert stats.wakes_sent == 1
     assert backend.calls[0]["session_id"] == "existing-session"
+
+
+def test_wake_context_key_groups_events_by_map_object():
+    topic_event = discover_wake_events(
+        "host",
+        {"pending_topic_replies": [{"topic_id": "topic-a", "comment_id": "comment-1"}]},
+    )[0]
+    experiment_event = discover_wake_events(
+        "reviewer",
+        {"pending_reviews": [{"id": "experiment-a", "current_plan_version": 1}]},
+    )[0]
+    addressed_item_event = discover_wake_events(
+        "reviewer",
+        {
+            "pending_replies": [
+                {"item_id": "item-a", "status": "addressed", "experiment_id": "experiment-a"}
+            ]
+        },
+    )[0]
+
+    assert wake_context_key(topic_event) == "topic:topic-a"
+    assert wake_context_key(experiment_event) == "experiment:experiment-a"
+    assert wake_context_key(addressed_item_event) == "experiment:experiment-a"
+
+
+def test_should_reset_session_for_context():
+    assert not should_reset_session_for_context(last_wake_context_key=None, wake_context_key="topic:topic-a")
+    assert not should_reset_session_for_context(
+        last_wake_context_key="topic:topic-a", wake_context_key="topic:topic-a"
+    )
+    assert should_reset_session_for_context(
+        last_wake_context_key="topic:topic-a", wake_context_key="topic:topic-b"
+    )
+
+
+def test_runtime_waker_clears_codex_session_when_wake_object_changes(tmp_path):
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "claude_session_id": "session-old",
+                        "runtime_session_id": "session-old",
+                        "last_wake_context_key": "topic:topic-a",
+                        "events": {},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-b", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+            backend="codex",
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    assert backend.calls[0]["session_id"] is None
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["personas"]["host"]["last_wake_context_key"] == "topic:topic-b"
+    assert state["personas"]["host"]["last_wake_object_id"] == "topic-b"
+    assert state["personas"]["host"]["runtime_session_id"] == "session-host"
+
+
+def test_runtime_waker_keeps_codex_session_for_same_wake_object(tmp_path):
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "claude_session_id": "session-old",
+                        "runtime_session_id": "session-old",
+                        "last_wake_context_key": "topic:topic-a",
+                        "events": {},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-a", "comment_id": "comment-2"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+            backend="codex",
+            force=True,
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    assert backend.calls[0]["session_id"] == "session-old"
+
+
+def test_runtime_waker_keeps_session_for_same_experiment_review_context(tmp_path):
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "reviewer": {
+                        "claude_session_id": "session-old",
+                        "runtime_session_id": "session-old",
+                        "last_wake_context_key": "experiment:experiment-a",
+                        "events": {},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="reviewer",
+        todos={
+            "pending_replies": [
+                {"item_id": "item-a", "status": "addressed", "experiment_id": "experiment-a"}
+            ]
+        },
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="reviewer",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+            backend="codex",
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    assert backend.calls[0]["session_id"] == "session-old"
+
+
+def test_runtime_waker_resets_claude_backend_when_wake_object_changes(tmp_path):
+    import asyncio
+
+    class FakeAgentClient:
+        def __init__(self, state: dict[str, Any]) -> None:
+            self.state = state
+            self.resume_ids: list[str | None] = []
+            self.disconnected = 0
+
+        async def connect(self) -> None:
+            self.resume_ids.append(self.state.get("claude_session_id"))
+
+        async def disconnect(self) -> None:
+            self.disconnected += 1
+
+        async def wake_up(self, prompt: str) -> str:
+            del prompt
+            self.state["claude_session_id"] = "session-new"
+            return "ok"
+
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "claude_session_id": "session-old",
+                        "runtime_session_id": "session-old",
+                        "last_wake_context_key": "topic:topic-a",
+                        "events": {},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    holder: dict[str, RuntimeWaker] = {}
+    backend = runtime_waker.PersonaAgentWakeBackend(
+        project_root=Path.cwd(),
+        persona="host",
+        get_agent_state=lambda: holder["worker"]._persona_state("host"),
+        save_state_fn=lambda: None,
+    )
+    worker = RuntimeWaker(
+        client=FakeMapClient(
+            persona="host",
+            todos={"pending_topic_replies": [{"topic_id": "topic-b", "comment_id": "comment-1"}]},
+        ),
+        config=RuntimeWakerConfig(
+            persona="host",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+        ),
+        backend=backend,
+    )
+    holder["worker"] = worker
+    backend._agent_client = FakeAgentClient(worker._persona_state("host"))  # noqa: SLF001
+
+    asyncio.run(worker._run_once_async())
+
+    fake_client = backend._agent_client
+    assert fake_client.disconnected >= 1
+    assert fake_client.resume_ids[-1] is None
+    host_state = worker._persona_state("host")
+    assert host_state["last_wake_context_key"] == "topic:topic-b"
+    assert host_state["last_wake_object_id"] == "topic-b"
+    assert host_state["claude_session_id"] == "session-new"
 
 
 def test_participant_waker_scans_open_topics_by_default(tmp_path):

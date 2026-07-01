@@ -130,8 +130,7 @@ class PersonaAgentWakeBackend:
         await self._agent_client.connect()
 
     async def wake_async(self, *, prompt: str) -> WakeResult:
-        if self._agent_client is None:
-            await self.connect()
+        await self.connect()
         assert self._agent_client is not None
         status = await self._agent_client.wake_up(prompt)
         state = self._get_agent_state()
@@ -144,6 +143,11 @@ class PersonaAgentWakeBackend:
         return WakeResult(session_id=session_id)
 
     async def disconnect(self) -> None:
+        if self._agent_client is not None:
+            await self._agent_client.disconnect()
+
+    async def reset_session(self) -> None:
+        """Disconnect so the next wake reconnects without resuming the prior session."""
         if self._agent_client is not None:
             await self._agent_client.disconnect()
 
@@ -217,6 +221,36 @@ class CodexSdkWakeBackend:
             result = thread.run(input_items, **thread_kwargs)
 
         return WakeResult(session_id=thread.id, response_text=result.final_response)
+
+
+def wake_context_key(event: WakeEvent) -> str:
+    """Return the MAP object context that owns a resumed runtime session."""
+    payload = event.payload or {}
+    if event.kind in {"experiment_lifecycle", "pending_review"}:
+        return f"experiment:{event.object_id}"
+    if event.kind == "addressed_review_item":
+        experiment_id = payload.get("experiment_id")
+        if experiment_id:
+            return f"experiment:{experiment_id}"
+        return f"review_item:{event.object_id}"
+    if event.kind == "mention" and payload.get("experiment_id"):
+        return f"experiment:{payload['experiment_id']}"
+    if event.kind in {"pending_topic_reply", "topic_lifecycle", "open_topic_opportunity"}:
+        return f"topic:{event.object_id}"
+    if event.kind == "mention" and payload.get("topic_id"):
+        return f"topic:{payload['topic_id']}"
+    return f"{event.kind}:{event.object_id}"
+
+
+def should_reset_session_for_context(
+    *,
+    last_wake_context_key: str | None,
+    wake_context_key: str,
+) -> bool:
+    """Return True when the wake context changed and we must not resume the prior session."""
+    if last_wake_context_key is None:
+        return False
+    return str(last_wake_context_key) != wake_context_key
 
 
 class RuntimeWaker:
@@ -363,7 +397,29 @@ class RuntimeWaker:
             )
         self.agent_id = str(me["id"])
 
+    async def _prepare_session_for_event(self, event: WakeEvent) -> None:
+        persona_state = self._persona_state(event.persona)
+        context_key = wake_context_key(event)
+        legacy_context_key = persona_state.get("last_wake_context_key")
+        if legacy_context_key is None and persona_state.get("last_wake_object_id") is not None:
+            legacy_context_key = str(persona_state["last_wake_object_id"])
+            context_key_for_compare = event.object_id
+        else:
+            context_key_for_compare = context_key
+        if not should_reset_session_for_context(
+            last_wake_context_key=legacy_context_key,
+            wake_context_key=context_key_for_compare,
+        ):
+            return
+        persona_state.pop("claude_session_id", None)
+        persona_state.pop("runtime_session_id", None)
+        self._state_dirty = True
+        if isinstance(self.backend, PersonaAgentWakeBackend):
+            await self.backend.reset_session()
+        self._save_state_if_needed(force=True)
+
     async def _wake_event(self, event: WakeEvent) -> None:
+        await self._prepare_session_for_event(event)
         persona_state = self._persona_state(event.persona)
         session_id = self._session_id(persona_state)
         prompt = build_wake_prompt(event, project_root=self.config.project_root)
@@ -378,6 +434,9 @@ class RuntimeWaker:
             persona_state["runtime_session_id"] = result.session_id
             persona_state["claude_session_id"] = result.session_id
             persona_state["last_session_at"] = datetime.now(UTC).isoformat()
+        persona_state["last_wake_context_key"] = wake_context_key(event)
+        persona_state["last_wake_object_id"] = event.object_id
+        self._state_dirty = True
         self._mark_event(event, status="woken")
 
     def _session_id(self, persona_state: dict[str, Any]) -> str | None:

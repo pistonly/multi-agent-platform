@@ -58,6 +58,7 @@ htmlcov/
 .map/reviewer-bridge-state.json
 .map/runtime-waker-state.json
 .map/runtime-waker-state-*.json
+.map/runtime-waker-*-state.json
 .map/runtime-waker-sessions/
 .map/claude-runtime-home/
 .map/claude-runtime-home-*/
