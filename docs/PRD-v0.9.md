@@ -1,0 +1,369 @@
+# 多 Agent 实验协作平台 — 产品需求文档（PRD）
+
+> 版本：**v0.9 草案**  
+> 日期：2026-07-03  
+> 状态：**草案**  
+> 基线：[status-md-v10](./status-md-v10.md)（v0.8+ waker Phase 1、inbound_event 去重、action items）  
+> 主题：waker Phase 2 通知降噪与对象级通知聚合
+
+---
+
+## 1. 变更摘要
+
+v0.8+ 已把 MAP 的自动推进路径收敛到 `runtime-waker`：waker 轮询 `map todos` 与未读通知，写入 `inbound_event` 做服务端去重，再用短 prompt 唤醒对应 persona runtime。当前剩余问题不是“是否能唤醒”，而是**通知噪音与 wake 信号边界不清**：
+
+- 同一 topic / experiment 的连续更新会产生大量重复通知。
+- 很多通知只需要人类知道，不应该唤醒 Agent。
+- 部分通知语义与 `todos` bucket 重叠，若不统一 fingerprint，会造成重复 wake。
+- 后续 SSE 叠加时，需要保持 `notification -> inbound_event -> session log` 三层审计可 join。
+
+v0.9 目标是把通知从“逐事件入箱”升级为“分层通知 + 可选对象级聚合”，并确保 waker 仍以 `todos` 为行动真相源。
+
+| 主题 | 现状 | v0.9 |
+|------|------|------|
+| 行动真相 | `GET /agents/me/todos` | 保持不变，仍是唯一行动真相 |
+| waker 触发 | `todos` + unread notifications | `todos` + **非 todo 可表达的 wakeable notifications** |
+| 通知语义 | 单条事件直接入箱 | `wakeable` / `digest` 分类，聚合分阶段接入 |
+| 去重 | 本地 state + `inbound_event.fingerprint` | 通知分类必须复用或兼容现有 fingerprint 语义 |
+| 审计 | notification / inbound_event / session log | 聚合后仍可证明三层链路 |
+
+---
+
+## 2. 设计原则
+
+### 2.1 todos 是行动真相
+
+`GET /agents/me/todos` 决定 Agent 是否需要行动。凡是已经能由 todos bucket 表达的事项，waker 必须优先以 todos item 生成 wake event。
+
+硬规则：
+
+- 同一业务对象不得同时通过 todo wake 和 notification wake 触发两次。
+- 通知可以辅助人类浏览，也可以作为非 todo 事件的 wake source，但不能覆盖 todos 的生命周期判断。
+- 若某通知对应的业务项已经在 `todos` 中出现，waker 必须忽略该通知，或把它规范化为与 todo 完全相同的 fingerprint。
+
+### 2.2 runtime-waker 保持薄层
+
+waker 只做：
+
+- 拉取 `map todos`
+- 拉取过滤后的 wakeable notifications
+- 生成稳定 fingerprint
+- 写入 `inbound_event`
+- 短 prompt 唤醒 runtime
+
+waker 不做：
+
+- 判断事件是否应聚合
+- 判断通知分类策略
+- 实现复杂业务路由
+- 代替 persona Skill 执行业务动作
+
+### 2.3 先分类过滤，再对象聚合
+
+v0.9 分两步交付：
+
+1. 先落通知分类和过滤参数，让 waker 只消费明确允许 wake 的通知。
+2. 再落对象级聚合。聚合必须先解决 `inbound_event` fingerprint 和原始事件追溯问题。
+
+不要把 `category`、聚合、Web 展开和 SSE 补偿一次性绑死，否则风险集中在通知、waker、审计三条链路上。
+
+---
+
+## 3. 产品模型
+
+```
+Event
+  ├── todos（行动真相）
+  │     └── runtime-waker primary source
+  ├── notifications（提醒与分发）
+  │     ├── wakeable：仅限 todos 无法表达但需要唤醒的事件
+  │     └── digest：人类通知中心 / 普通提醒
+  ├── inbound_event（waker ingest 去重与审计）
+  └── runtime-waker session log（执行审计）
+```
+
+### 3.1 分类定义
+
+#### `wakeable`
+
+允许触发 waker 的通知。必须满足：
+
+- 不会和当前 `todos` bucket 产生重复 wake。
+- 有稳定 `target_type` / `target_id` / `event`。
+- 能生成稳定且可审计的 fingerprint。
+- 有明确清理动作，例如 read notification 或业务 lifecycle action。
+
+#### `digest`
+
+只进入通知中心，不触发 waker：
+
+- 普通状态更新
+- 同一对象的重复更新
+- 低优先级提醒
+- 已由 todos 表达的行动项的旁路提醒
+- 仅供浏览的系统消息
+
+---
+
+## 4. 事件策略表
+
+通知分类策略必须集中在 `notification_service`，不要分散在 API route 或 waker 内。
+
+| event | persona | 是否进入 todos | category | group_key | wake fingerprint | 清理动作 |
+|-------|---------|----------------|----------|-----------|------------------|----------|
+| `agent.mentioned` | 被提及 Agent | 是：`mentions` | `digest` | `recipient:target_type:target_id:agent.mentioned` | `persona:mentions:<mention_id>` | `map mention dismiss --id <id>` |
+| `experiment.pending_review` | reviewer | 是：`pending_reviews` | `digest` | `recipient:experiment:<id>:pending_review` | `persona:pending_reviews:<experiment_id>` | 提交 review / lifecycle 推进 |
+| `experiment.pending_result_review` | reviewer | 是：`pending_result_reviews` | `digest` | `recipient:experiment:<id>:pending_result_review` | `persona:pending_result_reviews:<experiment_id>` | `accept-result` / `reject-result` |
+| `topic.pending_round_ack` | participant / reviewer | 是：`pending_round_acks` | `digest` | `recipient:topic:<id>:pending_round_ack` | `persona:pending_round_acks:<topic_id>:<summary_id>` | `topic advance-round --ack ...` |
+| `topic.pending_advance_round` | host | 是：`pending_advance_rounds` | `digest` | `recipient:topic:<id>:pending_advance_round` | `persona:pending_advance_rounds:<topic_id>:<pending_since>` | `topic advance-round` |
+| `action_item.assigned` | owner | 是：`action_items` | `digest` | `recipient:action_item:<id>:assigned` | `persona:action_items:<action_item_id>` | `action complete` / `action cancel` / `action link` |
+| `system.runtime_attention` | 指定 persona | 否 | `wakeable` | `recipient:target_type:target_id:runtime_attention` | `persona:notification:<notification_id>` 或 `<wake_version>` | `notification read` 或对应业务动作 |
+| `topic.comment.created` | 项目成员 | 视场景，主持待回复由 todos 表达 | `digest` | `recipient:topic:<topic_id>:comment` | 不直接 wake | read notification |
+
+说明：
+
+- 当前已经有 todos bucket 的事件默认应归类为 `digest`，避免同一事件从 notification 再 wake 一次。
+- 如果确实需要 notification wake，必须先证明 todos 无法表达该事件，并为它定义专属 event、fingerprint、清理动作。
+- `payload_json.kind` 可以继续用于辅助诊断，但不能成为 waker 业务规则的唯一来源。
+
+---
+
+## 5. 数据模型
+
+### 5.1 M30A：通知分类字段
+
+在 `notifications` 表新增：
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `category` | enum/string | `wakeable` / `digest`，默认 `digest` |
+| `group_key` | string nullable | 后续聚合键；分类阶段可为空 |
+| `wake_version` | int | 用于聚合通知后生成新 wake fingerprint，默认 `1` |
+| `updated_at` | timestamp | 最近一次分类或聚合更新时间 |
+
+分类阶段不要求 `event_count`，避免把统计语义和 wake 去重语义提前耦合。
+
+### 5.2 M30B：对象级聚合字段
+
+聚合阶段再启用：
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `event_count` | int | 聚合次数 |
+| `first_event_at` | timestamp | 首次事件时间 |
+| `last_event_at` | timestamp | 最近事件时间 |
+
+聚合更新规则：
+
+- 命中同一 `recipient_agent_id + project_id + target_type + target_id + event_group` 时，可更新已有通知。
+- 若该聚合通知是 `wakeable`，每次需要重新唤醒的更新必须递增 `wake_version`，或产生新的 `notification_event_id`。
+- 重新唤醒的 fingerprint 必须包含 `wake_version` 或等价版本字段，不能只用 notification id。
+- 聚合更新是否重置 `read_at` 必须由 category 策略决定：`digest` 可重置或计数，`wakeable` 必须能让未处理状态重新可见。
+
+### 5.3 原始事件追溯
+
+v0.9 不强制实现“展开查看聚合内原始事件”。若要支持展开，必须新增 `notification_events` 子表或有界 history 字段：
+
+| 字段 | 含义 |
+|------|------|
+| `notification_id` | 所属聚合通知 |
+| `event` | 原始 event |
+| `summary` | 原始摘要 |
+| `payload_json` | 原始 payload |
+| `created_at` | 原始事件时间 |
+
+在没有该存储前，Web 只能展示聚合摘要和计数，不能承诺完整原始事件展开。
+
+---
+
+## 6. API / SDK / CLI 需求
+
+### 6.1 API
+
+`GET /agents/me/notifications` 增加可选查询参数：
+
+| 参数 | 说明 |
+|------|------|
+| `category` | `wakeable` / `digest` / `all`，默认 `all` 以保持兼容 |
+| `target_type` | 按对象类型过滤 |
+| `unread_only` | 保留既有行为 |
+
+响应 `NotificationRead` 增加：
+
+- `category`
+- `group_key`
+- `wake_version`
+- `event_count`（聚合阶段可选，分类阶段默认为 `1`）
+- `updated_at`
+
+### 6.2 SDK
+
+`MAPClient.list_notifications()` 增加：
+
+- `category: NotificationCategory | None`
+- `target_type: str | None`
+
+`NotificationRead` 同步新增上述字段，保持 shared schema 为合同源。
+
+### 6.3 CLI
+
+`map notification list` 增加：
+
+```bash
+map notification list --category wakeable --unread-only
+map notification list --category digest
+map notification list --target-type topic
+```
+
+runtime-waker 内部的 `MapCommandClient.notifications_unread()` 改为：
+
+```bash
+map --persona <name> notification list --category wakeable --unread-only
+```
+
+---
+
+## 7. runtime-waker 需求
+
+### 7.1 输入源
+
+waker 只消费：
+
+- `map --persona <name> todos`
+- `map --persona <name> notification list --category wakeable --unread-only`
+
+### 7.2 去重与 fingerprint
+
+todo wake：
+
+```text
+{persona}:{todo_bucket}:{todo_stable_id}
+```
+
+notification wake：
+
+```text
+{persona}:notification:{notification_id}:{wake_version}
+```
+
+如果某通知对应的 `target_type/target_id/event` 已经能映射到当前 todos item，waker 应丢弃该 notification wake，或在服务端直接把该通知归为 `digest`。
+
+### 7.3 inbound_event 兼容
+
+每次 wake 前仍必须写入 `inbound_event`：
+
+- `event_id` 对 notification wake 应使用 `notification.id` 或 `notification_event.id`
+- `event_type` 使用 `notification.event` 或 todo bucket
+- `fingerprint` 使用上述统一格式
+- `source` 当前保持 `polling`，后续 SSE 叠加时再增加 `sse`
+
+验收时必须能从 notification、inbound_event、session wake log 三层追踪同一次唤醒。
+
+---
+
+## 8. Web UI 需求
+
+### 8.1 通知中心
+
+通知中心分两个视图：
+
+- `需要处理`：`category=wakeable` 的未读通知；说明这些是不在 todos 中表达但仍需注意的事件。
+- `普通通知`：`category=digest`。
+
+### 8.2 默认展示
+
+- 默认展示 `digest + wakeable` 的聚合摘要。
+- 待办页仍以 `todos` 为准，不应因为 notification category 改变待办语义。
+- 列表项显示对象标题、事件类型、未读状态、最近更新时间、聚合计数。
+
+### 8.3 展开详情
+
+v0.9 分类阶段不承诺完整原始事件展开。只有实现 `notification_events` 或等价 history 后，Web 才展示“查看原始事件”。
+
+---
+
+## 9. 非目标
+
+v0.9 不做：
+
+- 通知全文搜索
+- 通知保留策略 Admin UI
+- 多实例 SSE 扇出
+- 复杂规则引擎式通知路由
+- 跨项目通知合并
+- 未有存储支撑的完整原始事件展开
+- 把 persona 业务判断移动到 runtime-waker
+
+---
+
+## 10. 验收标准
+
+### M30A：通知分类与过滤
+
+- `notifications.category` 默认兼容旧数据，旧通知能继续显示。
+- `GET /agents/me/notifications?category=wakeable&unread_only=true` 只返回 wakeable 未读通知。
+- SDK / CLI / Web schema 与 API 返回字段一致。
+- 当前已有 todos 表达的事件不会因为 notification 再触发第二次 wake。
+
+### M31：waker 降噪接线
+
+- runtime-waker 只消费 `category=wakeable` 的未读通知。
+- `digest` 通知不会触发 waker。
+- todo wake 与 notification wake 的 fingerprint 不冲突、不重复。
+- 重复运行 waker 时，`inbound_event.fingerprint` 仍能阻止重复 resume。
+- session wake log 保留 `event_id` / `event_source` / `fingerprint`，审计三层可 join。
+
+### M32：对象级聚合
+
+- 同一对象短时间重复 digest 事件不会生成大量独立通知。
+- 聚合 digest 更新不会误触发 waker。
+- 聚合 wakeable 更新若需要重新唤醒，必须通过 `wake_version` 或 `notification_event_id` 产生新 fingerprint。
+- Web 默认展示更简洁，同时不承诺不存在的原始事件历史。
+
+---
+
+## 11. 里程碑建议
+
+### M30A — 通知分类与查询过滤
+
+- `NotificationCategory` enum / schema
+- `notifications.category`
+- `notifications.group_key`
+- `notifications.wake_version`
+- `notifications.updated_at`
+- API / SDK / CLI 过滤参数
+- 分类策略集中到 `notification_service`
+
+### M31 — waker 降噪接线
+
+- `MapCommandClient.notifications_unread(category="wakeable")`
+- `discover_wake_events` 跳过与 todos 重叠的 notification
+- notification fingerprint 加入 `wake_version`
+- targeted tests：todo/notification 去重、digest 不 wake、inbound_event replay
+
+### M32 — 对象级聚合
+
+- `event_count` / `first_event_at` / `last_event_at`
+- `notification_service` 聚合写入
+- 聚合 wakeable 的版本化 fingerprint
+- Web 聚合展示
+
+### M33 — 原始事件 history（可选）
+
+- `notification_events` 子表或有界 history
+- Web 展开原始事件
+- 审计查询增强
+
+---
+
+## 12. 协作提示
+
+```bash
+map --persona host status
+map --persona host todos
+map --persona host project status revise --file ./docs/status-md-v10.md --note "同步 v0.9 通知降噪 PRD"
+```
+
+---
+
+_本 PRD 为 v0.9 通知分层、对象级聚合与 runtime-waker 降噪设计草案。核心约束是：todos 仍为行动真相，runtime-waker 保持薄层，通知聚合不得破坏 inbound_event 去重与审计链路。_

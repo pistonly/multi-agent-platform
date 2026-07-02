@@ -10,6 +10,7 @@
 - [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/PRD-v0.4.md)
 - [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/PRD-v0.5.md)
 - [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/PRD-v0.6.md)
+- [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/PRD-v0.9.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [Agent Runtime 集成（runtime-waker）](docs/MAP-RUNTIME-WAKER.md)
 - [架构设计](docs/ARCHITECTURE.md)
