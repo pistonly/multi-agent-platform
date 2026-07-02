@@ -1103,3 +1103,238 @@ def test_host_cycle_does_not_starve_experiments(tmp_path):
         "experiment_lifecycle starved by topic_lifecycle"
     )
     assert any("topic_lifecycle" in p for p in woken_prompts)
+
+
+def _stale_event_records(count: int, stale: str, *, kind: str, object_id: str, prefix: str) -> dict[str, Any]:
+    """Build N orphaned dedup entries (derived-fingerprint variants) aged to ``stale``."""
+    return {
+        f"{prefix}-{i}": {"status": "woken", "last_attempt_at": stale, "kind": kind, "object_id": object_id}
+        for i in range(count)
+    }
+
+
+def test_prune_monotonically_shrinks_dead_entries(tmp_path):
+    """A1: orphaned dead entries (derived-fingerprint variants + resolved objects)
+    are pruned and the count only ever decreases across cycles.
+
+    The fingerprint encodes derived fields, so once the underlying object moves the
+    old key is never matched again. With empty todos nothing is rediscovered, so the
+    sweep is the only thing touching these entries. Prune runs every cycle, so all
+    stale orphans clear in one pass; subsequent cycles must not regrow the set.
+    """
+    state_file = tmp_path / "state.json"
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    dead_events: dict[str, Any] = {}
+    # 120 pending_topic_reply orphans: same topic, different comment_id.
+    dead_events.update(
+        _stale_event_records(
+            120, stale, kind="pending_topic_reply", object_id="topic-1",
+            prefix="host:pending_topic_reply:topic-1:comment",
+        )
+    )
+    # 80 experiment_lifecycle orphans: same experiment, different plan version.
+    dead_events.update(
+        _stale_event_records(
+            80, stale, kind="experiment_lifecycle", object_id="exp-1",
+            prefix="host:experiment_lifecycle:exp-1:review:v",
+        )
+    )
+    # A truly resolved object: experiment gone from todos, fingerprint frozen forever.
+    dead_events["host:experiment_lifecycle:exp-resolved:done:v1:u0"] = {
+        "status": "woken", "last_attempt_at": stale, "kind": "experiment_lifecycle",
+        "object_id": "exp-resolved",
+    }
+    initial = len(dead_events)
+    assert initial >= 200
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"events": dead_events}}}),
+        encoding="utf-8",
+    )
+    worker = RuntimeWaker(
+        client=FakeMapClient(persona="host", todos={}),
+        config=RuntimeWakerConfig(
+            persona="host", state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60, woken_cooldown_seconds=60,
+        ),
+        backend=FakeWakeBackend(),
+    )
+
+    stats1 = worker.run_once()
+    events1 = json.loads(state_file.read_text(encoding="utf-8"))["personas"]["host"]["events"]
+    assert stats1.events_pruned == initial
+    assert len(events1) == 0  # all orphans gone; nothing live to retain
+
+    # Cycles 2 and 3: stable — no new dead entries, the count never grows back.
+    stats2 = worker.run_once()
+    events2 = json.loads(state_file.read_text(encoding="utf-8"))["personas"]["host"]["events"]
+    stats3 = worker.run_once()
+    events3 = json.loads(state_file.read_text(encoding="utf-8"))["personas"]["host"]["events"]
+    assert (stats2.events_pruned, stats3.events_pruned) == (0, 0)
+    assert len(events2) == len(events3) == len(events1) == 0
+
+
+def test_prune_keeps_entries_within_ttl(tmp_path):
+    """A2: an entry whose last_attempt_at is inside the TTL window must survive."""
+    state_file = tmp_path / "state.json"
+    fresh = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()  # half of the 60s window
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"events": {
+            "host:pending_topic_reply:topic-1:comment-1": {"status": "woken", "last_attempt_at": fresh},
+        }}}}),
+        encoding="utf-8",
+    )
+    worker = RuntimeWaker(
+        client=FakeMapClient(persona="host", todos={}),
+        config=RuntimeWakerConfig(
+            persona="host", state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60, woken_cooldown_seconds=60,
+        ),
+        backend=FakeWakeBackend(),
+    )
+
+    stats = worker.run_once()
+    events = json.loads(state_file.read_text(encoding="utf-8"))["personas"]["host"]["events"]
+    assert "host:pending_topic_reply:topic-1:comment-1" in events
+    assert stats.events_pruned == 0
+
+
+def test_prune_dry_run_does_not_write_state(tmp_path):
+    """A3: --dry-run reports the would-prune count but leaves the state file untouched."""
+    state_file = tmp_path / "state.json"
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    payload = {"schema_version": 1, "personas": {"host": {"events": {
+        f"host:pending_topic_reply:topic-1:comment-{i}": {"status": "woken", "last_attempt_at": stale}
+        for i in range(5)
+    }}}}
+    state_file.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    before = state_file.read_bytes()
+
+    worker = RuntimeWaker(
+        client=FakeMapClient(persona="host", todos={}),
+        config=RuntimeWakerConfig(
+            persona="host", state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60, woken_cooldown_seconds=60, dry_run=True,
+        ),
+        backend=FakeWakeBackend(),
+    )
+
+    stats = worker.run_once()
+    after = state_file.read_bytes()
+
+    assert stats.events_pruned == 5  # surfaced via the cycle summary stats
+    assert after == before  # dry-run contract: never write
+    assert len(json.loads(after)["personas"]["host"]["events"]) == 5
+
+
+def test_cycle_summary_reports_events_pruned_sync(tmp_path, monkeypatch):
+    """A4 (sync loop): events_pruned is in the cycle-summary fields and populated."""
+    captured: dict[str, Any] = {}
+
+    def fake_log(name, stats, *, fields):
+        captured["fields"] = list(fields)
+        captured["events_pruned"] = stats.events_pruned
+
+    monkeypatch.setattr(runtime_waker, "log_cycle_summary", fake_log)
+
+    state_file = tmp_path / "state.json"
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"events": {
+            f"host:pending_topic_reply:topic-1:comment-{i}": {"status": "woken", "last_attempt_at": stale}
+            for i in range(3)
+        }}}}),
+        encoding="utf-8",
+    )
+    worker = RuntimeWaker(
+        client=FakeMapClient(persona="host", todos={}),
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60, woken_cooldown_seconds=60,
+        ),
+        backend=FakeWakeBackend(),
+    )
+
+    worker.run_forever()
+
+    assert "events_pruned" in captured["fields"]
+    assert captured["events_pruned"] == 3
+
+
+def test_cycle_summary_reports_events_pruned_claude(tmp_path, monkeypatch):
+    """A4 (claude loop): events_pruned is in the claude cycle-summary fields too."""
+    import asyncio
+
+    captured: dict[str, Any] = {}
+
+    def fake_log(name, stats, *, fields):
+        captured["fields"] = list(fields)
+        captured["events_pruned"] = stats.events_pruned
+
+    monkeypatch.setattr(runtime_waker, "log_cycle_summary", fake_log)
+
+    class FakeAgentClient:
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def wake_up(self, prompt: str) -> str:
+            return "ok"
+
+    state_file = tmp_path / "state.json"
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"events": {
+            f"host:pending_topic_reply:topic-1:comment-{i}": {"status": "woken", "last_attempt_at": stale}
+            for i in range(2)
+        }}}}),
+        encoding="utf-8",
+    )
+    backend = runtime_waker.PersonaAgentWakeBackend(
+        project_root=Path.cwd(),
+        persona="host",
+        get_agent_state=lambda: {},
+        save_state_fn=lambda: None,
+    )
+    backend._agent_client = FakeAgentClient()  # noqa: SLF001
+    worker = RuntimeWaker(
+        client=FakeMapClient(persona="host", todos={}),
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60, woken_cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+
+    asyncio.run(worker._run_forever_claude())  # noqa: SLF001
+
+    assert "events_pruned" in captured["fields"]
+    assert captured["events_pruned"] == 2
+
+
+def test_no_prune_events_escape_hatch(tmp_path):
+    """A5: --no-prune-events disables the sweep — nothing pruned, state untouched."""
+    state_file = tmp_path / "state.json"
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    payload = {"schema_version": 1, "personas": {"host": {"events": {
+        f"host:pending_topic_reply:topic-1:comment-{i}": {"status": "woken", "last_attempt_at": stale}
+        for i in range(4)
+    }}}}
+    state_file.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    before = state_file.read_bytes()
+
+    worker = RuntimeWaker(
+        client=FakeMapClient(persona="host", todos={}),
+        config=RuntimeWakerConfig(
+            persona="host", state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60, woken_cooldown_seconds=60, prune_events=False,
+        ),
+        backend=FakeWakeBackend(),
+    )
+
+    stats = worker.run_once()
+    after = state_file.read_bytes()
+
+    assert stats.events_pruned == 0
+    assert after == before  # escape hatch: sweep never mutates state

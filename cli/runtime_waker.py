@@ -77,6 +77,9 @@ class RuntimeWakerConfig:
     # Unlike cooldown_seconds (retry backoff), this bounds how long an agent that
     # woke but took no action can stay stuck before the waker reconsiders it.
     woken_cooldown_seconds: float = 1800.0
+    # TTL sweep: drop event dedup entries that can no longer affect _should_skip_event
+    # (orphaned by a derived-fingerprint change). Default on; --no-prune-events disables.
+    prune_events: bool = True
     state_file: Path | None = Path(".map/runtime-waker-state.json")
     project_root: Path = Path.cwd()
     map_cmd: str = "map"
@@ -96,6 +99,9 @@ class RuntimeWakerStats:
     wake_skips: int = 0
     wake_errors: int = 0
     dry_run_actions: int = 0
+    # Orphaned event dedup entries dropped by the TTL sweep (see _prune_events).
+    # Mirrors dry_run_actions: aggregated across cycles so run_forever totals stay correct.
+    events_pruned: int = 0
 
     def add(self, other: "RuntimeWakerStats") -> None:
         self.cycles += other.cycles
@@ -104,6 +110,7 @@ class RuntimeWakerStats:
         self.wake_skips += other.wake_skips
         self.wake_errors += other.wake_errors
         self.dry_run_actions += other.dry_run_actions
+        self.events_pruned += other.events_pruned
 
 
 class WakeBackend(Protocol):
@@ -442,6 +449,7 @@ class RuntimeWaker:
                     "wake_skips",
                     "wake_errors",
                     "dry_run_actions",
+                    "events_pruned",
                 ],
             )
             if self.config.once:
@@ -469,6 +477,7 @@ class RuntimeWaker:
                         "wake_skips",
                         "wake_errors",
                         "dry_run_actions",
+                        "events_pruned",
                     ],
                 )
                 if self.config.once:
@@ -527,6 +536,9 @@ class RuntimeWaker:
                 continue
             stats.wakes_sent += 1
 
+        # Sweep orphaned event entries after waking: anything rediscovered this
+        # cycle had last_attempt_at refreshed above, so only true orphans age out.
+        self._prune_events(stats)
         self._save_state_if_needed()
         return stats
 
@@ -673,6 +685,62 @@ class RuntimeWaker:
             return
         save_bridge_state(self.config.state_file, self.state)
         self._state_dirty = False
+
+    def _prune_events(self, stats: RuntimeWakerStats) -> None:
+        """Drop event dedup entries that can no longer affect _should_skip_event.
+
+        Fingerprint encodes derived fields (updated_at/comment_count for topics,
+        plan version / open-count for experiments), so once the underlying object
+        moves the old key is orphaned and is never matched again. Such entries
+        would accumulate forever; this sweep removes them once they are older than
+        the skip window. Safety invariant: threshold = max(cooldown_seconds,
+        woken_cooldown_seconds) is exactly when _should_skip_event must return
+        False, so anything deleted here would not have been skipped anyway.
+
+        Runs after the wake loop: events rediscovered and woken this cycle already
+        had last_attempt_at refreshed by _mark_event, so only true orphans age out.
+        """
+        if not self.config.prune_events:
+            return
+        now = datetime.now(UTC)
+        threshold = max(self.config.cooldown_seconds, self.config.woken_cooldown_seconds)
+        pruned = 0
+        personas = self.state.get("personas")
+        if not isinstance(personas, dict):
+            return
+        for persona_state in personas.values():
+            if not isinstance(persona_state, dict):
+                continue
+            events = persona_state.get("events")
+            if not isinstance(events, dict):
+                continue
+            for fingerprint in list(events.keys()):
+                record = events[fingerprint]
+                # Non-dict anomaly: count it; clear on a real run (leave dry-run intact).
+                if not isinstance(record, dict):
+                    pruned += 1
+                    if not self.config.dry_run:
+                        del events[fingerprint]
+                    continue
+                # Age on last_attempt_at only; applies to both woken (with woken_at)
+                # and legacy records that fall back to last_attempt_at. A record we
+                # cannot age is left untouched rather than risk a wrong delete.
+                last_attempt = _parse_datetime(str(record.get("last_attempt_at") or ""))
+                if last_attempt is None:
+                    continue
+                if (now - last_attempt).total_seconds() <= threshold:
+                    continue
+                pruned += 1
+                if not self.config.dry_run:
+                    del events[fingerprint]
+        if not pruned:
+            return
+        if self.config.dry_run:
+            typer.echo(f"[dry-run] would prune {pruned} events")
+        else:
+            # Only a real prune mutates state; a no-op cycle stays no-write.
+            self._state_dirty = True
+        stats.events_pruned += pruned
 
 
 def create_backend(config: RuntimeWakerConfig) -> WakeBackend:
@@ -1193,6 +1261,11 @@ def run(
         "--include-participant-open-topics/--no-participant-open-topics",
         help="Wake participant for open topics when the latest comment is not from them.",
     ),
+    prune_events: bool = typer.Option(
+        True,
+        "--prune-events/--no-prune-events",
+        help="Drop orphaned event dedup entries once they pass the TTL sweep window (default on).",
+    ),
 ) -> None:
     root = project_root.resolve()
     state_file_path = None
@@ -1221,6 +1294,7 @@ def run(
         codex_bin=codex_bin,
         force=force,
         include_participant_open_topics=include_participant_open_topics,
+        prune_events=prune_events,
     )
     client = MapCommandClient(map_cmd=map_cmd, persona=persona, project_root=root, dry_run=dry_run)
     stats = RuntimeWaker(client=client, config=cfg).run_forever()
