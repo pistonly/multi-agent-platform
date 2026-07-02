@@ -35,12 +35,14 @@ trap cleanup EXIT INT TERM
 
 start_waker() {
   local name="$1"
-  shift
+  local inflight="$2"
+  shift 2
   MAP_RUNTIME_STATE_FILE="${MAP_RUNTIME_STATE_FILE:-.map/runtime-waker-state-${name}.json}" \
   MAP_RUNTIME_HOME="${MAP_RUNTIME_HOME:-.map/claude-runtime-home-${name}}" \
+  MAP_RUNTIME_PERSONA_INFLIGHT_SECONDS="$inflight" \
   ./scripts/start-runtime-waker.sh --persona "$name" "$@" >>"$LOG_DIR/${name}.log" 2>&1 &
   pids+=("$!")
-  echo "started waker $name pid=$! log=$LOG_DIR/${name}.log state=.map/runtime-waker-state-${name}.json" >&2
+  echo "started waker $name pid=$! log=$LOG_DIR/${name}.log state=.map/runtime-waker-state-${name}.json inflight=${inflight}s" >&2
 }
 
 for persona in host participant reviewer; do
@@ -51,9 +53,17 @@ for persona in host participant reviewer; do
 done
 
 extra_args=("$@")
-start_waker host "${extra_args[@]}"
-start_waker participant "${extra_args[@]}"
-start_waker reviewer "${extra_args[@]}"
+# Per-persona inflight defaults: short-task personas (participant/reviewer)
+# get a smaller window so a quick accept/ack/reply doesn't idle them for the
+# full host-style window. Override per persona via MAP_RUNTIME_<NAME>_INFLIGHT_SECONDS.
+# (Inflight is also scoped to the current process — a wake from a previous
+# waker process does not suppress a freshly started one.)
+host_inflight="${MAP_RUNTIME_HOST_INFLIGHT_SECONDS:-600}"
+participant_inflight="${MAP_RUNTIME_PARTICIPANT_INFLIGHT_SECONDS:-300}"
+reviewer_inflight="${MAP_RUNTIME_REVIEWER_INFLIGHT_SECONDS:-300}"
+start_waker host "$host_inflight" "${extra_args[@]}"
+start_waker participant "$participant_inflight" "${extra_args[@]}"
+start_waker reviewer "$reviewer_inflight" "${extra_args[@]}"
 
 echo "" >&2
 echo "All runtime wakers running. Tail logs:" >&2

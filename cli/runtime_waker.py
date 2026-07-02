@@ -461,6 +461,12 @@ class RuntimeWaker:
         )
         self._state_dirty = False
         self.agent_id: str | None = None
+        # Process start time: persona inflight must only count wakes that
+        # happened during THIS process. ``last_woken_at`` persists in the state
+        # file, so without this guard a restart inherits the previous process's
+        # wake and suppresses the new process for the whole inflight window
+        # (observed: host/reviewer idle for 30min after every waker restart).
+        self._started_at: datetime = datetime.now(UTC)
         if backend is not None:
             self.backend = backend
         elif self.config.backend == "claude":
@@ -688,9 +694,16 @@ class RuntimeWaker:
             last_woken = _parse_datetime(
                 str(self._persona_state(event.persona).get("last_woken_at") or "")
             )
-            if last_woken is not None and (
-                datetime.now(UTC) - last_woken
-            ).total_seconds() < self.config.persona_inflight_seconds:
+            # Only count wakes from THIS process (last_woken_at >= startup).
+            # The timestamp persists in the state file; without this guard a
+            # restart would inherit the prior process's wake and skip the whole
+            # inflight window despite no session actually running here.
+            if (
+                last_woken is not None
+                and last_woken >= self._started_at
+                and (datetime.now(UTC) - last_woken).total_seconds()
+                < self.config.persona_inflight_seconds
+            ):
                 return True
         record = self._event_state(event)
         if not record:

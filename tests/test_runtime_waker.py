@@ -1707,13 +1707,45 @@ def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
 
 
 def test_persona_inflight_skips_when_seeded_recent(tmp_path):
-    # A persona-level last_woken_at within the inflight window skips the event
-    # even when the event itself has no prior dedup record — the single-flight
-    # gate protecting a background session from preemption by a sibling event.
-    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    # A persona-level wake during THIS process (after startup) suppresses the
+    # persona's other events within the inflight window.
     state_file = tmp_path / "runtime-waker-state.json"
     state_file.write_text(
-        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": recent}}}),
+        json.dumps({"schema_version": 1, "personas": {"host": {}}}),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="host", todos=_host_topic_todos())
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=1800,
+        ),
+        backend=backend,
+    )
+    # Simulate a wake that happened during this process (>= _started_at).
+    # Writing last_woken_at into the state file BEFORE construction would be
+    # treated as a previous-process wake and ignored — see test below.
+    worker.state["personas"]["host"]["last_woken_at"] = datetime.now(UTC).isoformat()
+
+    stats = worker.run_once()
+
+    assert stats.wake_skips == 1
+    assert stats.wakes_sent == 0
+    assert backend.calls == []
+
+
+def test_persona_inflight_ignores_wake_from_previous_process(tmp_path):
+    # last_woken_at persisted by a PREVIOUS waker process must not suppress a
+    # freshly started process — inflight only counts wakes from this process,
+    # so a restart no longer idles the persona for the whole window.
+    stale = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": stale}}}),
         encoding="utf-8",
     )
     backend = FakeWakeBackend()
@@ -1731,9 +1763,9 @@ def test_persona_inflight_skips_when_seeded_recent(tmp_path):
 
     stats = worker.run_once()
 
-    assert stats.wake_skips == 1
-    assert stats.wakes_sent == 0
-    assert backend.calls == []
+    # Stale wake predates this process -> not suppressed.
+    assert stats.wakes_sent == 1
+    assert len(backend.calls) == 1
 
 
 def test_persona_inflight_expires(tmp_path):
