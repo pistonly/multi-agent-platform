@@ -66,6 +66,10 @@ if [[ -n "${MAP_RUNTIME_CODEX_BIN:-}" ]]; then
   cmd+=(--codex-bin "$MAP_RUNTIME_CODEX_BIN")
 fi
 
+if [[ -n "${MAP_RUNTIME_PERSONA_INFLIGHT_SECONDS:-}" ]]; then
+  cmd+=(--persona-inflight-seconds "$MAP_RUNTIME_PERSONA_INFLIGHT_SECONDS")
+fi
+
 if [[ "${MAP_RUNTIME_FORCE:-0}" == "1" ]]; then
   cmd+=(--force)
 fi

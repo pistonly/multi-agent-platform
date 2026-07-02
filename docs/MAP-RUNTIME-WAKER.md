@@ -45,6 +45,7 @@ Useful environment variables:
 | `MAP_RUNTIME_MAX_WAKES_PER_CYCLE` | `3` | Hard cap per cycle |
 | `MAP_RUNTIME_COOLDOWN_SECONDS` | `300` | Retry cooldown for failed events |
 | `MAP_RUNTIME_HEARTBEAT_SECONDS` | same as `MAP_RUNTIME_INTERVAL` | Re-wake interval when todos still show pending work after agent finished a wake without advancing MAP state |
+| `MAP_RUNTIME_PERSONA_INFLIGHT_SECONDS` | `1800` | After a successful wake, skip ALL of this persona's events for this many seconds so a background session is not preempted by a sibling event waking into a different context (single-flight). `0` disables |
 | `MAP_RUNTIME_WOKEN_COOLDOWN_SECONDS` | `1800` | Fallback self-heal TTL when heartbeat is not set (CLI/tests) |
 | `MAP_RUNTIME_FORCE` | `0` | Re-wake already seen events |
 | `MAP_RUNTIME_MODEL` | unset | Optional runtime model override |
@@ -125,6 +126,17 @@ When the wake context changes, for example from one topic to another topic or
 from one experiment to another experiment, the waker clears the old session id
 and starts a fresh runtime session. Events in the same context continue to
 resume the existing session.
+
+**Persona single-flight.** The backend resumes one session per persona, and a
+context change resets it — so a sibling event selected while a prior wake is
+still running would preempt that session (the agent's in-flight edits could be
+lost or interleaved). To prevent this, a successful wake stamps
+`personas.<persona>.last_woken_at`; until `MAP_RUNTIME_PERSONA_INFLIGHT_SECONDS`
+(default `1800`) elapses, every event of that persona is skipped. This
+intentionally suppresses `heartbeat` re-wakes during the window, so a
+long-running host experiment is not interrupted by a sibling experiment. For
+short-task personas (participant/reviewer) that suffer throughput, set a smaller
+value. `0` falls back to pure per-event dedup. `force` bypasses the gate.
 
 ```json
 {

@@ -94,6 +94,12 @@ class RuntimeWakerConfig:
     # re-resumes the agent after this many seconds even if D6 returns 409.
     # When None, falls back to woken_cooldown_seconds (backward compatible).
     heartbeat_seconds: float | None = None
+    # Persona-level single-flight: after a successful wake, skip ALL of this
+    # persona's events until the window elapses, so a background session still
+    # executing a prior wake is not preempted by another event waking into a
+    # different context (e.g. experiment A still running when experiment B is
+    # selected next cycle). 0 disables -> pure per-event dedup.
+    persona_inflight_seconds: float = 1800.0
     # TTL sweep: drop event dedup entries that can no longer affect _should_skip_event
     # (orphaned by a derived-fingerprint change). Default on; --no-prune-events disables.
     prune_events: bool = True
@@ -673,6 +679,19 @@ class RuntimeWaker:
         return self.config.woken_cooldown_seconds
 
     def _should_skip_event(self, event: WakeEvent) -> bool:
+        # Persona-level single-flight: if this persona was woken recently and the
+        # inflight window hasn't elapsed, skip ALL its events so a background
+        # session still executing a prior wake is not preempted by a new one
+        # waking into a different context. force bypasses this via the outer
+        # _run_once_async gate (not re-checked here, matching per-event style).
+        if self.config.persona_inflight_seconds > 0:
+            last_woken = _parse_datetime(
+                str(self._persona_state(event.persona).get("last_woken_at") or "")
+            )
+            if last_woken is not None and (
+                datetime.now(UTC) - last_woken
+            ).total_seconds() < self.config.persona_inflight_seconds:
+                return True
         record = self._event_state(event)
         if not record:
             return False
@@ -739,6 +758,10 @@ class RuntimeWaker:
             # Stamp the self-heal TTL origin so _should_skip_event can re-evaluate
             # this event after woken_cooldown_seconds instead of skipping forever.
             record["woken_at"] = now
+            # Persona-level single-flight origin: while recent, _should_skip_event
+            # suppresses every other event of this persona so a running background
+            # session is not preempted by a wake into a different context.
+            persona_state["last_woken_at"] = now
         elif "woken_at" in record and status != "woken":
             # A non-woken transition (e.g. error) clears the woken stamp so the
             # regular cooldown path applies until it is woken again.
@@ -1157,6 +1180,16 @@ def run(
             "--woken-cooldown-seconds."
         ),
     ),
+    persona_inflight_seconds: float = typer.Option(
+        1800.0,
+        "--persona-inflight-seconds",
+        min=0.0,
+        help=(
+            "After a successful wake, skip ALL of this persona's events for this "
+            "many seconds so a background session is not preempted by another event "
+            "waking into a different context. 0 disables (pure per-event dedup)."
+        ),
+    ),
     state_file: Path | None = typer.Option(Path(".map/runtime-waker-state.json"), "--state-file"),
     backend: str = typer.Option(
         "claude",
@@ -1192,6 +1225,7 @@ def run(
         cooldown_seconds=cooldown_seconds,
         woken_cooldown_seconds=woken_cooldown_seconds,
         heartbeat_seconds=heartbeat_seconds,
+        persona_inflight_seconds=persona_inflight_seconds,
         state_file=state_file_path,
         project_root=root,
         map_cmd=map_cmd,

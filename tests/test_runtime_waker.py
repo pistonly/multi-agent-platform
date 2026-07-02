@@ -1706,4 +1706,202 @@ def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
     assert record["status"] == "woken"
 
 
+def test_persona_inflight_skips_when_seeded_recent(tmp_path):
+    # A persona-level last_woken_at within the inflight window skips the event
+    # even when the event itself has no prior dedup record — the single-flight
+    # gate protecting a background session from preemption by a sibling event.
+    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": recent}}}),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="host", todos=_host_topic_todos())
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=1800,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wake_skips == 1
+    assert stats.wakes_sent == 0
+    assert backend.calls == []
+
+
+def test_persona_inflight_expires(tmp_path):
+    # Once last_woken_at is older than persona_inflight_seconds the gate opens
+    # again; an event with no per-event dedup record is woken.
+    stale = (datetime.now(UTC) - timedelta(seconds=1900)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": stale}}}),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="host", todos=_host_topic_todos())
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=1800,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wakes_sent == 1
+    assert len(backend.calls) == 1
+
+
+def test_persona_inflight_zero_disables(tmp_path):
+    # persona_inflight_seconds=0 falls back to pure per-event dedup: a recent
+    # last_woken_at does not block an event with no prior record.
+    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": recent}}}),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="host", todos=_host_topic_todos())
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=0,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wakes_sent == 1
+    assert len(backend.calls) == 1
+
+
+def test_persona_inflight_bypassed_by_force(tmp_path):
+    # force bypasses _should_skip_event at the outer _run_once_async gate, so a
+    # recent inflight stamp does not block the wake.
+    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": recent}}}),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="host", todos=_host_topic_todos())
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=1800,
+            force=True,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wakes_sent == 1
+    assert len(backend.calls) == 1
+
+
+def test_persona_inflight_isolated_per_persona(tmp_path):
+    # A host-side last_woken_at must not suppress a participant event: the gate
+    # keys on the event's own persona state.
+    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "personas": {"host": {"last_woken_at": recent}}}),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="participant", todos=_host_topic_todos())
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="participant",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=1800,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wakes_sent == 1
+    assert len(backend.calls) == 1
+
+
+def test_persona_inflight_skips_other_event_after_successful_wake(tmp_path):
+    # End-to-end: waking event A stamps personas.host.last_woken_at; on the next
+    # cycle a sibling event B is skipped by single-flight, proving a running
+    # session is not preempted by a different-context wake.
+    state_file = tmp_path / "runtime-waker-state.json"
+    two_topic_todos = {
+        "pending_topic_replies": [
+            {
+                "topic_id": "topic-1",
+                "comment_id": "comment-1",
+                "topic_title": "T1",
+                "author_agent_id": "participant-1",
+                "author_name": "p",
+                "excerpt": "a",
+                "created_at": "2026-07-02T10:00:00+00:00",
+            },
+            {
+                "topic_id": "topic-2",
+                "comment_id": "comment-2",
+                "topic_title": "T2",
+                "author_agent_id": "participant-1",
+                "author_name": "p",
+                "excerpt": "b",
+                "created_at": "2026-07-02T10:00:00+00:00",
+            },
+        ]
+    }
+    backend = FakeWakeBackend()
+    client = FakeMapClient(persona="host", todos=two_topic_todos)
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            persona_inflight_seconds=1800,
+            max_wakes_per_cycle=1,
+        ),
+        backend=backend,
+    )
+
+    first = worker.run_once()
+    assert first.wakes_sent == 1
+    # The successful wake must persist the persona-level inflight stamp.
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert "last_woken_at" in state["personas"]["host"]
+
+    # Second cycle: both A (woken) and B (no prior record) are skipped by the
+    # persona single-flight gate; neither is woken again.
+    second = worker.run_once()
+    assert second.wakes_sent == 0
+    assert second.wake_skips == 2
+    assert len(backend.calls) == 1  # only A was ever woken; B was not
+
+
 
