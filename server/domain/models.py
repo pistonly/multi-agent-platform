@@ -10,6 +10,7 @@ from map_types.enums import (
     ExperimentPhase,
     FeedbackCategory,
     FeedbackStatus,
+    InboundEventSource,
     MentionSourceType,
     ReviewItemKind,
     ReviewItemStatus,
@@ -385,6 +386,51 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     recipient: Mapped["Agent"] = relationship()
+
+
+class InboundEvent(Base):
+    """Waker-side ingest log. Decouples "server published a notification" from
+    "waker saw and (about to) act on it" with a stable ``fingerprint`` unique key.
+
+    Audit three-layer split:
+      - ``notification`` (event layer, server-side fan-out)
+      - ``inbound_event`` (this table, access layer — waker's idempotent ingest)
+      - ``runtime-waker-sessions/<id>.jsonl`` (execution layer)
+
+    ``event_id`` matches ``notification.id`` one-to-one (UUID) so reviewers can
+    join the three layers without persona-name string joins. ``fingerprint`` is
+    the dedup key and is the server-side primary gate for replay rejection
+    (Phase 1 ``UNIQUE(fingerprint)`` enforces A1).
+    """
+
+    __tablename__ = "inbound_events"
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_inbound_events_fingerprint"),
+        Index(
+            "ix_inbound_events_agent_source_received",
+            "agent_id",
+            "source",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[InboundEventSource] = mapped_column(
+        Enum(InboundEventSource),
+        default=InboundEventSource.polling,
+        nullable=False,
+    )
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    agent: Mapped["Agent"] = relationship()
 
 
 class Mention(Base):

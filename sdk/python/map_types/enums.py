@@ -71,3 +71,16 @@ class FeedbackStatus(str, enum.Enum):
     triaged = "triaged"
     in_progress = "in_progress"
     resolved = "resolved"
+
+
+class InboundEventSource(str, enum.Enum):
+    """Origin channel through which the runtime-waker received a notification.
+
+    Phase 1 only writes ``polling``. ``sse`` and ``replay`` are reserved for
+    Phase 2 (SSE overlay + reconnect compensation) so the enum is forward-compat
+    and DB migrations don't need to widen the column later.
+    """
+
+    polling = "polling"
+    sse = "sse"
+    replay = "replay"

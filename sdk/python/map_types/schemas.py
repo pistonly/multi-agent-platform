@@ -11,6 +11,7 @@ from map_types.enums import (
     ExperimentPhase,
     FeedbackCategory,
     FeedbackStatus,
+    InboundEventSource,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -527,6 +528,48 @@ class NotificationListRead(BaseModel):
     items: list[NotificationRead]
     total: int
     unread_count: int
+
+
+# --- InboundEvent ---
+
+
+class InboundEventCreate(BaseModel):
+    """Waker-side record of a notification it intends to act on.
+
+    ``fingerprint`` is the dedup key — server enforces ``UNIQUE(fingerprint)``
+    and returns 409 Conflict on replay. ``event_id`` should match the upstream
+    ``notification.id`` so the three audit layers stay joinable.
+    """
+
+    event_id: uuid.UUID
+    event_type: str = Field(min_length=1, max_length=64)
+    source: InboundEventSource = InboundEventSource.polling
+    fingerprint: str = Field(min_length=1, max_length=128)
+    payload: dict | None = None
+
+
+class InboundEventRead(ORMModel):
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    event_id: uuid.UUID
+    event_type: str
+    source: InboundEventSource
+    fingerprint: str
+    payload: dict | None
+    received_at: datetime
+    acked_at: datetime | None
+
+
+class InboundEventRecordResult(BaseModel):
+    """Return shape for ``POST /me/inbound-events``.
+
+    ``status="recorded"`` → first time, waker may proceed.
+    ``status="duplicate"`` → fingerprint already existed; treat as already woken
+    (Phase 1 server gate; see plan D6).
+    """
+
+    status: Literal["recorded", "duplicate"]
+    event: InboundEventRead
 
 
 # --- Webhook ---
