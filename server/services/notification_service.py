@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from server.domain.models import Agent, AgentRole, Notification
+from server.domain.models import Agent, AgentRole, Notification, TopicActionItem
+from map_types.enums import NotificationCategory
 from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
 
@@ -18,6 +19,15 @@ PERSONA_AGENT_NAMES: dict[str, str] = {
     "host": "multi-agents-platform-host",
     "participant": "multi-agents-platform-participant",
     "reviewer": "multi-agents-platform-reviewer",
+}
+
+WAKEABLE_NOTIFICATION_EVENTS: set[str] = {
+    "experiment.lifecycle.withdrawn",
+    "experiment.lifecycle.cancelled",
+    "review_item.status_changed",
+    "system.runtime_attention",
+    "topic.lifecycle.closed",
+    "topic.lifecycle.reopened",
 }
 
 
@@ -55,6 +65,123 @@ def _resolve_persona_agent_ids(
     return [agent.id for agent in rows]
 
 
+def _event_category(event: str, *, wakeable: bool | None = None) -> NotificationCategory:
+    if wakeable is not None:
+        return NotificationCategory.wakeable if wakeable else NotificationCategory.digest
+    if event in WAKEABLE_NOTIFICATION_EVENTS:
+        return NotificationCategory.wakeable
+    return NotificationCategory.digest
+
+
+def _group_target(
+    *,
+    event: str,
+    target_type: str,
+    target_id: uuid.UUID | None,
+    payload: dict | None,
+) -> tuple[str, str]:
+    data = payload or {}
+    if event == "topic.comment.created" and data.get("topic_id"):
+        return "topic", str(data["topic_id"])
+    if event == "comment.created" and data.get("experiment_id"):
+        return "experiment", str(data["experiment_id"])
+    if target_id is not None:
+        return target_type, str(target_id)
+    for key in ("topic_id", "experiment_id", "id"):
+        if data.get(key):
+            inferred_type = "topic" if key == "topic_id" else "experiment" if key == "experiment_id" else target_type
+            return inferred_type, str(data[key])
+    return target_type, "none"
+
+
+def _group_key(
+    *,
+    recipient_agent_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    event: str,
+    target_type: str,
+    target_id: uuid.UUID | None,
+    payload: dict | None,
+) -> str:
+    group_target_type, group_target_id = _group_target(
+        event=event,
+        target_type=target_type,
+        target_id=target_id,
+        payload=payload,
+    )
+    project = str(project_id) if project_id is not None else "global"
+    return f"recipient:{recipient_agent_id}:project:{project}:{group_target_type}:{group_target_id}:{event}"
+
+
+def _upsert_notification(
+    db: Session,
+    *,
+    recipient_agent_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    event: str,
+    summary: str,
+    target_type: str,
+    target_id: uuid.UUID | None,
+    payload: dict | None,
+    category: NotificationCategory,
+) -> Notification:
+    now = datetime.now(timezone.utc)
+    group_key = _group_key(
+        recipient_agent_id=recipient_agent_id,
+        project_id=project_id,
+        event=event,
+        target_type=target_type,
+        target_id=target_id,
+        payload=payload,
+    )
+    existing = db.scalar(
+        select(Notification)
+        .where(
+            Notification.recipient_agent_id == recipient_agent_id,
+            Notification.group_key == group_key,
+        )
+        .order_by(Notification.updated_at.desc(), Notification.created_at.desc())
+        .limit(1)
+    )
+    if existing is not None:
+        existing.event = event
+        existing.summary = summary
+        existing.target_type = target_type
+        existing.target_id = target_id
+        existing.payload_json = payload
+        existing.category = category
+        existing.read_at = None
+        existing.event_count = (existing.event_count or 1) + 1
+        existing.last_event_at = now
+        existing.updated_at = now
+        if existing.first_event_at is None:
+            existing.first_event_at = existing.created_at
+        if category == NotificationCategory.wakeable:
+            existing.wake_version = (existing.wake_version or 1) + 1
+        db.flush()
+        return existing
+
+    notification = Notification(
+        recipient_agent_id=recipient_agent_id,
+        project_id=project_id,
+        event=event,
+        summary=summary,
+        target_type=target_type,
+        target_id=target_id,
+        payload_json=payload,
+        category=category,
+        group_key=group_key,
+        wake_version=1,
+        event_count=1,
+        first_event_at=now,
+        last_event_at=now,
+        updated_at=now,
+    )
+    db.add(notification)
+    db.flush()
+    return notification
+
+
 def emit_kind(
     db: Session,
     *,
@@ -66,6 +193,7 @@ def emit_kind(
     target_type: str,
     target_id: uuid.UUID,
     payload: dict | None,
+    wakeable: bool | None = None,
 ) -> list[uuid.UUID]:
     """Insert one Notification per persona agent + SSE publish.
 
@@ -97,6 +225,7 @@ def emit_kind(
         target_type=target_type,
         target_id=target_id,
         payload=enriched,
+        wakeable=wakeable,
     )
 
 
@@ -123,6 +252,7 @@ def enqueue_from_event(
     target_id: uuid.UUID | None,
     payload: dict | None,
     exclude_recipient_ids: set[uuid.UUID] | None = None,
+    wakeable: bool | None = None,
 ) -> list[uuid.UUID]:
     """Write in-app notifications for project agents (and admins), excluding the actor."""
     skip = exclude_recipient_ids or set()
@@ -136,18 +266,19 @@ def enqueue_from_event(
 
     notification_ids: list[uuid.UUID] = []
     recipient_ids: list[uuid.UUID] = []
+    category = _event_category(event, wakeable=wakeable)
     for recipient in recipients:
-        notification = Notification(
+        notification = _upsert_notification(
+            db,
             recipient_agent_id=recipient.id,
             project_id=project_id,
-            event=event,
             summary=summary,
+            event=event,
             target_type=target_type,
             target_id=target_id,
-            payload_json=payload,
+            payload=payload,
+            category=category,
         )
-        db.add(notification)
-        db.flush()
         notification_ids.append(notification.id)
         recipient_ids.append(recipient.id)
     db.commit()
@@ -207,24 +338,27 @@ def enqueue_for_agents(
     target_type: str,
     target_id: uuid.UUID | None,
     payload: dict | None,
+    wakeable: bool | None = None,
+    exclude_actor: bool = True,
 ) -> list[uuid.UUID]:
     """Write in-app notifications for specific agents (e.g. @mentions)."""
     notification_ids: list[uuid.UUID] = []
     recipient_ids: list[uuid.UUID] = []
+    category = _event_category(event, wakeable=wakeable)
     for recipient_id in recipient_agent_ids:
-        if recipient_id == actor_id:
+        if exclude_actor and recipient_id == actor_id:
             continue
-        notification = Notification(
+        notification = _upsert_notification(
+            db,
             recipient_agent_id=recipient_id,
             project_id=project_id,
             event=event,
             summary=summary,
             target_type=target_type,
             target_id=target_id,
-            payload_json=payload,
+            payload=payload,
+            category=category,
         )
-        db.add(notification)
-        db.flush()
         notification_ids.append(notification.id)
         recipient_ids.append(recipient_id)
     if notification_ids:
@@ -238,18 +372,24 @@ def list_for_agent(
     agent: Agent,
     *,
     unread_only: bool = False,
+    category: NotificationCategory | None = None,
+    target_type: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Notification], int]:
     filters = [Notification.recipient_agent_id == agent.id]
     if unread_only:
         filters.append(Notification.read_at.is_(None))
+    if category is not None:
+        filters.append(Notification.category == category)
+    if target_type is not None:
+        filters.append(Notification.target_type == target_type)
     total = db.scalar(select(func.count()).select_from(Notification).where(*filters)) or 0
     rows = list(
         db.scalars(
             select(Notification)
             .where(*filters)
-            .order_by(Notification.created_at.desc())
+            .order_by(Notification.updated_at.desc(), Notification.created_at.desc())
             .offset(offset)
             .limit(min(limit, 200))
         )
@@ -257,12 +397,23 @@ def list_for_agent(
     return rows, total
 
 
-def count_unread(db: Session, agent: Agent) -> int:
+def count_unread(
+    db: Session,
+    agent: Agent,
+    *,
+    category: NotificationCategory | None = None,
+    target_type: str | None = None,
+) -> int:
+    filters = [Notification.recipient_agent_id == agent.id, Notification.read_at.is_(None)]
+    if category is not None:
+        filters.append(Notification.category == category)
+    if target_type is not None:
+        filters.append(Notification.target_type == target_type)
     return (
         db.scalar(
             select(func.count())
             .select_from(Notification)
-            .where(Notification.recipient_agent_id == agent.id, Notification.read_at.is_(None))
+            .where(*filters)
         )
         or 0
     )
@@ -296,3 +447,130 @@ def mark_all_read(db: Session, agent: Agent) -> int:
     if rows:
         db.commit()
     return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# action_item wake / stale notification helpers (experiment B, plan §3 #2 #3)
+# ---------------------------------------------------------------------------
+#
+# The runtime-waker calls ``mark_wake_sent`` / ``mark_stale`` via the API,
+# but those endpoints only mutate the action_item + write the audit row.
+# They do NOT post any in-app notification — by design, the wakeable
+# signals the assignee / admin sees live here, alongside the audit row.
+#
+# Why split this out instead of folding into the endpoint wrappers:
+# - Keeps ``action_item_service`` / ``topic_service`` free of notification
+#   service imports (service layering: audit + state in service, fan-out in
+#   notification service).
+# - Makes the actor / recipient policy explicit per plan section §3 #2 #3:
+#   wake goes to the assignee; stale goes to admins; creator is intentionally
+#   skipped (audit-only path, see I6).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_admin_agent_ids(
+    db: Session,
+    *,
+    exclude_agent_id: uuid.UUID | None,
+) -> list[uuid.UUID]:
+    """Return the list of admin Agent ids in the system.
+
+    Admin role is global in this codebase (no per-project scoping), so a
+    single query against ``Agent.role == AgentRole.admin`` is sufficient.
+    ``exclude_agent_id`` filters the assignee out so the owner does not get
+    a duplicate notification through the admin path when the assignee is
+    themselves an admin.
+    """
+    rows = db.scalars(select(Agent.id).where(Agent.role == AgentRole.admin)).all()
+    if exclude_agent_id is None:
+        return list(rows)
+    return [row for row in rows if row != exclude_agent_id]
+
+
+def notify_owner_action_item_wake(
+    db: Session,
+    *,
+    action_item: TopicActionItem,
+) -> list[uuid.UUID]:
+    """Send a wakeable notification to the assignee after a wake bump.
+
+    Plan §3 wake path: the runtime-waker wakes the owner at T+24h / T+72h /
+    every 7d up to 4 times. Each bump surfaces here as an in-app notification
+    so the assignee sees a wakeable signal in their todos (independent of
+    whether they happen to be looking at the action_item list right now).
+    Falls through silently when the item has no owner (shouldn't happen —
+    ``mark_wake_sent`` already rejected unassigned items upstream — but the
+    guard is here for defence-in-depth).
+    """
+    if action_item.owner_agent_id is None:
+        return []
+    payload: dict[str, object] = {
+        "action_item_id": str(action_item.id),
+        "topic_id": str(action_item.topic_id),
+        "wake_count": action_item.wake_count,
+    }
+    if action_item.last_woken_at is not None:
+        payload["last_woken_at"] = action_item.last_woken_at.isoformat()
+    return enqueue_for_agents(
+        db,
+        recipient_agent_ids=[action_item.owner_agent_id],
+        project_id=action_item.project_id,
+        actor_id=action_item.owner_agent_id,
+        event="action_item.wake_sent",
+        summary=f"待办提醒：{action_item.title}（第 {action_item.wake_count} 次）",
+        target_type="topic_action_item",
+        target_id=action_item.id,
+        payload=payload,
+        wakeable=True,
+        exclude_actor=False,
+    )
+
+
+def notify_admin_action_item_stale(
+    db: Session,
+    *,
+    action_item: TopicActionItem,
+) -> list[uuid.UUID]:
+    """Send a wakeable notification to every admin after a stale transition.
+
+    Plan §3 #2 (3c admin 优先): admin is the most stable收口 because the
+    creator may have been deactivated / changed roles / left the project.
+    The owner is explicitly excluded — if the owner happens to be an admin
+    they'd otherwise get a duplicate notification through both paths, and
+    the audit row + plan §3 #3 (3c creator audit-only) policy says admin
+    notification should not double as the owner's channel.
+
+    Plan §3 #3 (creator audit-only): the creator is intentionally NOT in
+    this recipient set. They can find the stale event via ``action_items``
+    or the audit history, but they do NOT get a wake notification (per I6).
+    """
+    admin_ids = _resolve_admin_agent_ids(
+        db, exclude_agent_id=action_item.owner_agent_id
+    )
+    if not admin_ids:
+        return []
+    payload: dict[str, object] = {
+        "action_item_id": str(action_item.id),
+        "topic_id": str(action_item.topic_id),
+        "wake_count": action_item.wake_count,
+    }
+    if action_item.stale_at is not None:
+        payload["stale_at"] = action_item.stale_at.isoformat()
+    # actor_id is unused because exclude_actor=False — every admin in the
+    # resolved list gets the notification regardless. We still need to pass
+    # a UUID-shaped value to satisfy the signature, so use the first admin
+    # or the owner as a stable label.
+    actor_id = action_item.owner_agent_id or admin_ids[0]
+    return enqueue_for_agents(
+        db,
+        recipient_agent_ids=admin_ids,
+        project_id=action_item.project_id,
+        actor_id=actor_id,
+        event="action_item.stale",
+        summary=f"行动项已 stale：{action_item.title}",
+        target_type="topic_action_item",
+        target_id=action_item.id,
+        payload=payload,
+        wakeable=True,
+        exclude_actor=False,
+    )
