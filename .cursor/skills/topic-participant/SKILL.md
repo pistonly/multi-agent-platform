@@ -41,6 +41,14 @@ description: >-
 - **Round 2**：只讨论 host Round 1 Summary 中的「未决项」
 - 看到 **Round 2 Summary** 后：可简短确认是否还有遗漏，勿重复 Round 1 已共识内容
 
+### Round 2 防过早沉默（重要）
+
+> ⚠️ 若你在 Round 2 被 `open_topic_opportunity` 唤醒后**完全不发帖**，话题最后评论不变，waker 在 woken TTL 到期前不会再次唤醒你，host 也收不到你的收尾意见 → 话题卡死。
+
+- 被 Round 2 唤醒时，**至少发一条评论**（哪怕只是「议题 X 已收敛，同意 host 方向；Y 项留待实验验证」），给 host 发 Round 2 Summary 的信号。
+- 不要因「自认议题已收敛」就静默——你的**静默对 host 是「未表态」，不是「同意」**。
+- 若确实无话可说，发一条明确收尾意见或对 Round 1 Summary 发 `--ack accept`，**不要什么都不留**。
+
 ## Round Summary 后 ack（participant 职责）
 
 host 发完 **Round N Summary** 后，若你曾在该话题下评论，通常需要发 **ack**（确认是否认可 Summary）：

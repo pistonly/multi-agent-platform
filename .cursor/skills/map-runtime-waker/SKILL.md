@@ -25,7 +25,8 @@ description: >-
 |------|------|
 | todos 优先 | prompt 里 `kind` / `object_id` 只是提示；以 `todos` 与对象详情为准 |
 | 一步一 wake | 一次 wake 只推进当前事件的下一步 |
-| skip ≠ 执行中 | `wake_skips` 表示 fingerprint 已 wake 过（去重），不是后台在跑实验 |
+| skip ≠ 执行中 | `wake_skips` 表示 fingerprint 在 TTL 内已 wake 过（去重），不是后台在跑实验 |
+| woken 自愈 | woken **不再永久去重**：TTL（默认 30min，`--woken-cooldown-seconds`）到期后会被重新唤醒。每次醒都以当前 `todos` 为准**重新判断**，不要假设「上次处理过 = 这次无动作」；若确实无事可做，也要明确收尾 / ack，**别静默**（静默会让 waker 误判已处理而暂停推进） |
 | action_items | waker 可能无专用 wake；`todos.action_items` 非空时仍须处理 |
 | round_ack_pending | `todos.pending_round_acks` 非空 → participant/reviewer 发 `--ack accept/reject/dismiss` |
 | 平台反馈 | 发现 MAP 本身的问题/改进点 → [map-project-collab §平台反馈](../map-project-collab/SKILL.md) 用 `map feedback submit` |

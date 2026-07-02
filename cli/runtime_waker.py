@@ -73,6 +73,10 @@ class RuntimeWakerConfig:
     dry_run: bool = False
     max_wakes_per_cycle: int = 3
     cooldown_seconds: float = 300.0
+    # How long a "woken" event stays deduped before self-healing re-evaluation.
+    # Unlike cooldown_seconds (retry backoff), this bounds how long an agent that
+    # woke but took no action can stay stuck before the waker reconsiders it.
+    woken_cooldown_seconds: float = 1800.0
     state_file: Path | None = Path(".map/runtime-waker-state.json")
     project_root: Path = Path.cwd()
     map_cmd: str = "map"
@@ -496,17 +500,24 @@ class RuntimeWaker:
         )
         stats.events_seen = len(events)
 
-        wakes = 0
+        # Filter out skipped events first so a skip never consumes a wake slot,
+        # then round-robin across event kinds. Without the round-robin, a long
+        # backlog of one kind (e.g. topic_lifecycle for several open topics) would
+        # monopolize the per-cycle wake budget and starve another kind (e.g.
+        # experiment_lifecycle), so host could never approve/start experiments
+        # while topics keep it busy.
+        candidates: list[WakeEvent] = []
         for event in events:
-            if wakes >= self.config.max_wakes_per_cycle:
-                break
             if not self.config.force and self._should_skip_event(event):
                 stats.wake_skips += 1
                 continue
+            candidates.append(event)
+        selected = _round_robin_by_kind(candidates, self.config.max_wakes_per_cycle)
+
+        for event in selected:
             if self.config.dry_run:
                 typer.echo(f"[dry-run] would wake persona={event.persona} event={event.fingerprint}")
                 stats.dry_run_actions += 1
-                wakes += 1
                 continue
             try:
                 await self._wake_event(event)
@@ -515,7 +526,6 @@ class RuntimeWaker:
                 stats.wake_errors += 1
                 continue
             stats.wakes_sent += 1
-            wakes += 1
 
         self._save_state_if_needed()
         return stats
@@ -587,7 +597,18 @@ class RuntimeWaker:
         if not record:
             return False
         if record.get("status") == "woken":
-            return True
+            # woken no longer permanently skips: it enters a long self-heal TTL.
+            # Once the TTL elapses, the event is reconsidered so an agent that
+            # woke but took no action is not stuck forever. Falls back to
+            # last_attempt_at for state files written before woken_at existed.
+            woken_at = _parse_datetime(
+                str(record.get("woken_at") or record.get("last_attempt_at") or "")
+            )
+            if woken_at is None:
+                return False
+            return (
+                datetime.now(UTC) - woken_at
+            ).total_seconds() < self.config.woken_cooldown_seconds
         last_attempt = _parse_datetime(str(record.get("last_attempt_at") or ""))
         if last_attempt is None:
             return False
@@ -632,6 +653,14 @@ class RuntimeWaker:
                 "title": event.title,
             }
         )
+        if status == "woken":
+            # Stamp the self-heal TTL origin so _should_skip_event can re-evaluate
+            # this event after woken_cooldown_seconds instead of skipping forever.
+            record["woken_at"] = now
+        elif "woken_at" in record and status != "woken":
+            # A non-woken transition (e.g. error) clears the woken stamp so the
+            # regular cooldown path applies until it is woken again.
+            del record["woken_at"]
         if error:
             record["error"] = error
         elif "error" in record:
@@ -660,6 +689,34 @@ def create_backend(config: RuntimeWakerConfig) -> WakeBackend:
             model=config.model,
         )
     raise WorkerError(f"Unsupported runtime backend: {config.backend}")
+
+
+def _round_robin_by_kind(events: list[WakeEvent], limit: int) -> list[WakeEvent]:
+    """Select up to ``limit`` events, round-robin across event kinds.
+
+    Guarantees no single event kind monopolizes the per-cycle wake budget: as long
+    as ``limit`` >= number of distinct kinds present, every kind gets at least one
+    slot. This prevents e.g. several ``topic_lifecycle`` events from starving an
+    ``experiment_lifecycle`` event that is queued behind them.
+    """
+    if limit <= 0:
+        return []
+    by_kind: dict[str, list[WakeEvent]] = {}
+    for event in events:
+        by_kind.setdefault(event.kind, []).append(event)
+    selected: list[WakeEvent] = []
+    while len(selected) < limit:
+        progressed = False
+        for group in by_kind.values():
+            if not group:
+                continue
+            selected.append(group.pop(0))
+            progressed = True
+            if len(selected) >= limit:
+                break
+        if not progressed:
+            break
+    return selected
 
 
 def discover_wake_events(
@@ -1115,6 +1172,12 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print wake actions without invoking runtime."),
     max_wakes_per_cycle: int = typer.Option(3, "--max-wakes-per-cycle", min=1),
     cooldown_seconds: float = typer.Option(300.0, "--cooldown-seconds", min=0.0),
+    woken_cooldown_seconds: float = typer.Option(
+        1800.0,
+        "--woken-cooldown-seconds",
+        min=0.0,
+        help="How long a woken event stays deduped before self-heal re-evaluation.",
+    ),
     state_file: Path | None = typer.Option(Path(".map/runtime-waker-state.json"), "--state-file"),
     backend: str = typer.Option(
         "claude",
@@ -1148,6 +1211,7 @@ def run(
         dry_run=dry_run,
         max_wakes_per_cycle=max_wakes_per_cycle,
         cooldown_seconds=cooldown_seconds,
+        woken_cooldown_seconds=woken_cooldown_seconds,
         state_file=state_file_path,
         project_root=root,
         map_cmd=map_cmd,

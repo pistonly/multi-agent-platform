@@ -1,6 +1,7 @@
 import json
 import importlib
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +209,10 @@ def test_runtime_waker_wakes_once_and_persists_session(tmp_path):
 
 
 def test_runtime_waker_skips_already_woken_event(tmp_path):
+    # Under the self-heal TTL, a woken event is skipped only while woken_at is
+    # still within woken_cooldown_seconds. Use a freshly-stamped woken_at so the
+    # default 1800s TTL has not elapsed.
+    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
     state_file = tmp_path / "runtime-waker-state.json"
     state_file.write_text(
         json.dumps(
@@ -219,7 +224,8 @@ def test_runtime_waker_skips_already_woken_event(tmp_path):
                         "events": {
                             "host:pending_topic_reply:topic-1:comment-1": {
                                 "status": "woken",
-                                "last_attempt_at": "2026-06-30T00:00:00+00:00",
+                                "woken_at": recent,
+                                "last_attempt_at": recent,
                             }
                         },
                     }
@@ -243,6 +249,101 @@ def test_runtime_waker_skips_already_woken_event(tmp_path):
 
     assert stats.wake_skips == 1
     assert backend.calls == []
+
+
+def test_woken_event_self_heals_after_ttl(tmp_path):
+    # A woken event whose woken_at is older than woken_cooldown_seconds must be
+    # reconsidered instead of skipped forever — this is the self-heal that
+    # breaks deadlocks when an agent woke but took no action.
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "events": {
+                            "host:pending_topic_reply:topic-1:comment-1": {
+                                "status": "woken",
+                                "woken_at": stale,
+                                "last_attempt_at": stale,
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            woken_cooldown_seconds=1800,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wakes_sent == 1
+    # The wake must refresh woken_at so the TTL restarts from this attempt.
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    record = state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]
+    assert record["status"] == "woken"
+    assert record["woken_at"] > stale
+
+
+def test_woken_fallback_to_last_attempt_at(tmp_path):
+    # State files written before woken_at existed have no woken_at stamp; the
+    # TTL must fall back to last_attempt_at so legacy records also self-heal.
+    stale = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "events": {
+                            "host:pending_topic_reply:topic-1:comment-1": {
+                                "status": "woken",
+                                "last_attempt_at": stale,
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            state_file=state_file,
+            project_root=Path.cwd(),
+            woken_cooldown_seconds=1800,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    assert stats.wakes_sent == 1
 
 
 def test_runtime_waker_uses_persisted_session_when_forced(tmp_path):
@@ -925,3 +1026,80 @@ def test_cursor_backend_requires_api_key(monkeypatch, tmp_path):
         assert "CURSOR_API_KEY" in str(exc)
     else:
         raise AssertionError("expected WorkerError for missing CURSOR_API_KEY")
+
+
+def test_round_robin_by_kind_prevents_kind_starvation():
+    """With 3 topic_lifecycle + 2 experiment_lifecycle at limit=3, round-robin
+    must give experiment_lifecycle a slot instead of letting topics starve it."""
+    topics = [
+        runtime_waker.WakeEvent(
+            persona="host", kind="topic_lifecycle", object_id=f"t{i}", fingerprint=f"t{i}"
+        )
+        for i in range(3)
+    ]
+    experiments = [
+        runtime_waker.WakeEvent(
+            persona="host", kind="experiment_lifecycle", object_id=f"e{i}", fingerprint=f"e{i}"
+        )
+        for i in range(2)
+    ]
+    selected = runtime_waker._round_robin_by_kind(topics + experiments, limit=3)
+    assert len(selected) == 3
+    kinds = [e.kind for e in selected]
+    # first pass takes one of each kind, then a second topic
+    assert kinds == ["topic_lifecycle", "experiment_lifecycle", "topic_lifecycle"]
+
+
+def test_round_robin_by_kind_limit_zero():
+    assert runtime_waker._round_robin_by_kind(
+        [
+            runtime_waker.WakeEvent(
+                persona="host", kind="topic_lifecycle", object_id="t", fingerprint="t"
+            )
+        ],
+        limit=0,
+    ) == []
+
+
+def test_host_cycle_does_not_starve_experiments(tmp_path):
+    """3 open topics must not monopolize a 3-wake cycle and starve 2 experiments.
+
+    Regression for the deadlock where host kept waking only topic_lifecycle events
+    and never reached experiment_lifecycle, so experiments stuck in review never
+    got approved.
+    """
+    state_file = tmp_path / "state.json"
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={
+            "my_open_topics": [
+                {"id": f"topic-{i}", "title": f"T{i}", "discussion_round": "round1"}
+                for i in range(3)
+            ],
+            "my_open_experiments": [
+                {"id": f"exp-{i}", "title": f"E{i}", "phase": "review", "current_plan_version": 1}
+                for i in range(2)
+            ],
+        },
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+            max_wakes_per_cycle=3,
+            backend="codex",
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    woken_prompts = [c["prompt"] for c in backend.calls]
+    assert any("experiment_lifecycle" in p for p in woken_prompts), (
+        "experiment_lifecycle starved by topic_lifecycle"
+    )
+    assert any("topic_lifecycle" in p for p in woken_prompts)

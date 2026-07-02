@@ -1,0 +1,10 @@
+reasonable_items:
+  - "计划与来源话题 e158dc08 两轮讨论 + decision 完全一致：TTL sweep（now - last_attempt_at > max(cooldown, woken_cooldown)）、默认开 + --no-prune-events、每 cycle 扫按需置 dirty、不动 fingerprint、不 bump schema——决策落点逐条对齐，无偏移。"
+  - "安全不变量经代码核实成立：_should_skip_event（runtime_waker.py:589-609）对 woken record 用 woken_at、其他 status 用 last_attempt_at；_mark_event（:640,:653）在 woken 时同时写两者。故 now - last_attempt_at > max(cooldown, woken_cooldown) ⟹ 两条 skip 分支都返 False，「凡被删的本就不会被 skip」为真，行为零回归。"
+  - "reviewer 在话题提的 3 个实现坑（dirty flag _save_state_if_needed :666 no-op、add() :100-106 须同步累加、dry-run :510-514 只报告不写盘）+ participant 补的 dry-run 真删分支须用 if not self.config.dry_run 守卫——全部显式纳入交付物 D1-D4，无遗漏。"
+  - "行号引用逐一核实准确：_run_once_async 486-525 / wake loop 504-522 / _save_state_if_needed :524 / _event_state 623-628（events.get(fingerprint) 整键查 :627）/ run :1131 / 两个 log_cycle_summary fields 438-445·465-472 / asdict(stats) :1193。"
+  - "回归论证逐条成立：test_runtime_waker_skips_already_woken_event（recent 10s ≪ max(300,1800) 阈值，prune 不删）；test_woken_event_self_heals_after_ttl / test_woken_fallback_to_last_attempt_at（stale 3600s 即便被 sweep 删，_should_skip_event 对无 record 返 False → 照常 wake，wakes_sent==1 与 woken_at>stale 仍成立）；test_runtime_waker_wakes_once_and_persists_session（fresh，不涉及死条）。max() 阈值下均不破。"
+  - "验收 A1-A5 断言式、可观测、覆盖死条路径：A1 注入 200+ 混合 fingerprint 含同 object_id 不同 version / 不同 comment_id / 对象已 resolve 的真死条，补现有用例盲区；A3 dry-run state 字节不变 + events_pruned 仅进 summary；A5 --no-prune-events 逃逸阀 events_pruned==0。风险段含实施前 git commit checkpoint + --no-prune-events 即时回滚，返工成本低。"
+  - "实现提示（非阻塞，建议 host 实现时明确）：A1 的「≤ 某 bound」建议具体化为常数（= 注入的 fresh entry 数 + 本轮 todos 对齐的 entry 数），避免验收时 bound 被自我放宽。"
+  - "实现提示（非阻塞）：D2 对 dict 但 last_attempt_at 缺失/格式坏的 record 处理未明说——_parse_datetime 返 None 时 (now - None) 会抛 TypeError。建议明确 None 即跳过保留（契合「宁可保留也不误删」的安全方向）；计划已覆盖「非 dict 异常 record」，此类可类推。"
+unreasonable_items: []

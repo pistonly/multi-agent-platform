@@ -1,0 +1,11 @@
+reasonable_items:
+  - "方向与话题共识一致：D1–D5 + 硬性约束忠实反映 Round 2 Summary 收敛（inbound_event 表、per-persona channel、Phase 1 gate=重放/并发零误唤醒+审计三段可 join、P95 为副产品非门槛），分阶段策略清晰。"
+  - "D3 与当前代码现状的关系需明确：调查显示 cli/runtime_waker.py 当前顺序已是『先 _mark_event/_save_state_if_needed 写盘 → 后 _wake_event resume』(runtime_waker.py:516-521,524,578)，即客户端侧顺序现状正确。D3 应表述为『加回归测试固化该顺序』而非『重构顺序』，与风险段『不回退当前去重能力』呼应，避免实施时误重构引入回归。"
+  - "D2 增量游标的语义与服务端支持需澄清：map todos 当前是聚合视图(pending_reviews/pending_replies/mentions/action_items 等多维度)，且客户端 todos() 无 since 参数(map_command_client.py:52-53)。请明确(a)游标基于哪个单调字段(notification.id? received_at?);(b)服务端 todos 查询是否已支持 since 游标,若否则 D2 交付物应包含服务端 API 改造;(c)聚合视图下『只拉增量』的具体语义。"
+  - "D1 persona 字段建议与服务端 agent 对齐：inbound_event.persona 宜用 agent_id 外键(对齐 notification.recipient_agent_id @ models.py:376)而非 persona name 字符串，便于 A3 的 notification ↔ inbound_event join，避免字符串 vs UUID 的口径分裂。"
+  - "A4 P95 基线测量口径应明确：『记录 polling-only P95 基线』未定义端到端起止点(事件 created_at → waker resume 完成?)与是否按 wake kind 分别测；虽不卡门槛，但为 Phase 2 对照建议固化测量定义。"
+  - "A2 并发注入测试方法需点明：tests/test_runtime_waker.py 现无并发/重放注入用例，A2『同 fingerprint 并发注入只 wake 一次』需明确并发设施(threading/asyncio + 真实 DB UNIQUE 约束测试 vs mock)，I5 建议补一句测试实现路径。"
+  - "回应 resolve.yaml open_question 1(点名 reviewer 补刀)：兜底频率 SLA 终值 10 vs 15min 属 Phase 2 决策——Phase 1 polling 仍是主路径、频率维持 MAP_RUNTIME_INTERVAL 现状不阻塞；Phase 2 SSE 上线后基于实测漏事件率(<0.1%)再定 10→15min，与本计划『Phase 1 不锁死』一致。"
+unreasonable_items:
+  - "A3 三表 join 在 sessions jsonl 侧缺 join key：A3 要求 notification.id ↔ inbound_event.event_id ↔ sessions jsonl 三表可 join 对齐，但 D5 仅给 sessions jsonl 补 event_source 字段，未补 event_id/fingerprint。当前 jsonl 字段(ts/session_id/persona/integration/status/prompt/response_preview/response_chars)无任何能与 inbound_event 对齐的 key。请 plan revise：D5 扩展为补 event_source + event_id(或 fingerprint)，使 A3 的 join 断言可落地，否则 A3 不可证伪。"
+  - "D4『服务端层重放拒绝』机制与写入路径未定义：A1(服务端层重放 100 次 0 成功)/A2 的服务端层去重依赖一个具体机制——最可能是 inbound_event 表的 UNIQUE(fingerprint) 约束在写入时拒绝重复，但 D1 只描述表结构、I2 只写『服务端重放拒绝』，未定义该写入端点与服务端/waker 侧的调用集成。polling 路径下 waker 主动读 todos，服务端无从『拒绝读』，必须有一个 waker 在 resume 前 record fingerprint 到服务端的写入路径作为主闸。请 plan revise：补一条交付物明确该机制(新增 inbound_event 写入 API + CLI/waker 调用，或复用现有端点)+ 指明它是 A1/A2 主闸、D3 客户端 fingerprint 为第二道闸。"
