@@ -597,7 +597,7 @@ def test_runtime_waker_resets_claude_backend_when_wake_object_changes(tmp_path):
         async def disconnect(self) -> None:
             self.disconnected += 1
 
-        async def wake_up(self, prompt: str) -> str:
+        async def wake_up(self, prompt: str, **_kwargs: Any) -> str:
             del prompt
             self.state["claude_session_id"] = "session-new"
             return "ok"
@@ -1300,6 +1300,75 @@ def test_cycle_summary_reports_events_pruned_sync(tmp_path, monkeypatch):
     assert captured["events_pruned"] == 3
 
 
+def test_waker_passes_wake_event_metadata_to_session_log(tmp_path, monkeypatch):
+    """D5: the waker's WakeEvent.event_id / fingerprint reach the sessions jsonl.
+
+    Without this, A3 (notification.id ↔ inbound_event.event_id ↔ sessions
+    jsonl.event_id) cannot be assembled. We assert the waker-derived event_id
+    equals the UUID5 of (agent_id, fingerprint) — same value used by D6 to
+    record the inbound_event row, so the join keys align.
+    """
+    import asyncio
+    import uuid
+
+    captured_wake_kwargs: dict[str, Any] = {}
+
+    class CapturingAgentClient:
+        def __init__(self, state: dict[str, Any]) -> None:
+            self.state = state
+
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def wake_up(self, prompt: str, **_kwargs: Any) -> str:
+            captured_wake_kwargs.update(_kwargs)
+            self.state["claude_session_id"] = "sid-from-wake"
+            return "ok"
+
+    state_file = tmp_path / "state.json"
+    backend = runtime_waker.PersonaAgentWakeBackend(
+        project_root=Path.cwd(),
+        persona="host",
+        get_agent_state=lambda: {},
+        save_state_fn=lambda: None,
+    )
+    backend._agent_client = CapturingAgentClient({"claude_session_id": None})  # noqa: SLF001
+
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+
+    asyncio.run(worker._run_once_async())  # noqa: SLF001
+
+    # D6 used the UUID5 of (agent_id, fingerprint) — the same value must show
+    # up as event_id in the wake_up kwargs so the sessions jsonl row joins on
+    # the inbound_event row recorded by D6.
+    expected_event_id = str(
+        uuid.uuid5(
+            runtime_waker._EVENT_UUID_NAMESPACE,
+            f"{client.persona}-agent:host:pending_topic_reply:topic-1:comment-1",
+        )
+    )
+    assert captured_wake_kwargs["event_id"] == expected_event_id
+    assert captured_wake_kwargs["event_source"] == "polling"
+    assert captured_wake_kwargs["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
+
+
 def test_cycle_summary_reports_events_pruned_claude(tmp_path, monkeypatch):
     """A4 (claude loop): events_pruned is in the claude cycle-summary fields too."""
     import asyncio
@@ -1319,7 +1388,7 @@ def test_cycle_summary_reports_events_pruned_claude(tmp_path, monkeypatch):
         async def disconnect(self) -> None:
             return None
 
-        async def wake_up(self, prompt: str) -> str:
+        async def wake_up(self, prompt: str, **_kwargs: Any) -> str:
             return "ok"
 
     state_file = tmp_path / "state.json"

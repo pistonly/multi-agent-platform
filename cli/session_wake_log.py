@@ -36,8 +36,19 @@ def append_session_wake_log(
     response_text: str,
     status: str,
     preview_chars: int = RESPONSE_PREVIEW_MAX,
+    event_id: str | None = None,
+    event_source: str = "polling",
+    fingerprint: str | None = None,
 ) -> Path:
-    """Append one JSON line to ``<log_dir>/<session_id>.jsonl``."""
+    """Append one JSON line to ``<log_dir>/<session_id>.jsonl``.
+
+    ``event_id`` and ``event_source`` are the join keys for the A3 audit
+    three-way join (notification ↔ inbound_event ↔ sessions jsonl). Default
+    ``event_source="polling"`` matches Phase 1 reality; Phase 2 will start
+    emitting ``sse`` once the event-driven path is wired.
+    ``fingerprint`` is optional — included when the caller has it on hand so
+    A3 join fallbacks can pivot on it without consulting inbound_event.
+    """
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / f"{safe_session_log_name(session_id)}.jsonl"
     entry: dict[str, Any] = {
@@ -46,6 +57,9 @@ def append_session_wake_log(
         "persona": persona,
         "integration": integration,
         "status": status,
+        "event_source": event_source,
+        "event_id": event_id,
+        "fingerprint": fingerprint,
         "prompt": prompt,
         "response_preview": response_preview(response_text, max_chars=preview_chars),
         "response_chars": len(response_text),

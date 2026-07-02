@@ -176,10 +176,22 @@ class PersonaAgentWakeBackend:
             )
         await self._agent_client.connect()
 
-    async def wake_async(self, *, prompt: str) -> WakeResult:
+    async def wake_async(
+        self,
+        *,
+        prompt: str,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
+    ) -> WakeResult:
         await self.connect()
         assert self._agent_client is not None
-        status = await self._agent_client.wake_up(prompt)
+        status = await self._agent_client.wake_up(
+            prompt,
+            event_id=event_id,
+            event_source=event_source,
+            fingerprint=fingerprint,
+        )
         state = self._get_agent_state()
         session_id = state.get("claude_session_id")
         if session_id:
@@ -662,7 +674,12 @@ class RuntimeWaker:
         session_id = self._session_id(persona_state)
         prompt = build_wake_prompt(event, project_root=self.config.project_root)
         if isinstance(self.backend, PersonaAgentWakeBackend):
-            result = await self.backend.wake_async(prompt=prompt)
+            result = await self.backend.wake_async(
+                prompt=prompt,
+                event_id=str(event_uuid),
+                event_source="polling",
+                fingerprint=event.fingerprint,
+            )
         else:
             result = self.backend.wake(persona=event.persona, prompt=prompt, session_id=session_id)
         if result.skipped:

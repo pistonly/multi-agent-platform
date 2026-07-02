@@ -112,6 +112,9 @@ class PersonaAgentClient:
         prompt: str,
         *,
         on_event: Callable[[WakeUpEvent], None] | None = None,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
     ) -> str:
         if not self._connected or self._client is None:
             await self.connect()
@@ -164,6 +167,9 @@ class PersonaAgentClient:
             prompt=prompt,
             response_text=response_text,
             status=status,
+            event_id=event_id,
+            event_source=event_source,
+            fingerprint=fingerprint,
         )
         return status
 
@@ -231,6 +237,9 @@ class PersonaAgentClient:
         prompt: str,
         response_text: str,
         status: str,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
     ) -> None:
         if os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
             "0",
@@ -248,6 +257,9 @@ class PersonaAgentClient:
                 prompt=prompt,
                 response_text=response_text,
                 status=status,
+                event_id=event_id,
+                event_source=event_source,
+                fingerprint=fingerprint,
             )
         except OSError as exc:
             logger.warning("[%s] session wake log write failed: %s", self.persona, exc)

@@ -38,3 +38,44 @@ def test_append_session_wake_log_writes_jsonl(tmp_path: Path) -> None:
     assert entry["prompt"] == "do work"
     assert entry["response_preview"] == "abcdefghij"
     assert entry["response_chars"] == 16
+
+
+def test_append_session_wake_log_includes_d5_join_keys(tmp_path: Path) -> None:
+    """D5: event_id + event_source land in the jsonl entry so A3 can join.
+
+    Without these fields the sessions jsonl has no FK to inbound_event /
+    notification, so the audit three-way join cannot be proven.
+    """
+    path = append_session_wake_log(
+        log_dir=tmp_path,
+        session_id="sid-2",
+        persona="host",
+        integration="waker",
+        prompt="wake",
+        response_text="ok",
+        status="ok",
+        event_id="11111111-1111-1111-1111-111111111111",
+        event_source="polling",
+        fingerprint="host:pending_topic_reply:topic-1:comment-1",
+    )
+    entry = json.loads(path.read_text(encoding="utf-8").strip())
+    assert entry["event_id"] == "11111111-1111-1111-1111-111111111111"
+    assert entry["event_source"] == "polling"
+    assert entry["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
+
+
+def test_append_session_wake_log_defaults_event_source_to_polling(tmp_path: Path) -> None:
+    """D5 default: Phase 1 emits only polling — explicit default avoids silent sse."""
+    path = append_session_wake_log(
+        log_dir=tmp_path,
+        session_id="sid-3",
+        persona="host",
+        integration="waker",
+        prompt="wake",
+        response_text="ok",
+        status="ok",
+    )
+    entry = json.loads(path.read_text(encoding="utf-8").strip())
+    assert entry["event_source"] == "polling"
+    assert entry["event_id"] is None
+    assert entry["fingerprint"] is None

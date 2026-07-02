@@ -320,6 +320,58 @@ def test_wake_up_appends_multiple_entries_for_same_session(tmp_path: Path) -> No
     assert len(lines) == 2
 
 
+def test_wake_up_passes_d5_join_keys_to_session_log(tmp_path: Path) -> None:
+    """D5: wake_up forwards event_id / event_source / fingerprint to the jsonl.
+
+    Without this, the waker's `WakeEvent.event_id` / fingerprint cannot reach
+    the sessions jsonl, leaving A3 (notification ↔ inbound_event ↔ jsonl)
+    without a join key.
+    """
+    state = {"topics": {}, "experiments": {}, "claude_session_id": "sid-jk"}
+    log_dir = tmp_path / "session-logs"
+    messages = [FakeResultMessage(session_id="sid-jk", is_error=False)]
+
+    agent, _ = _make_client(state=state, project_root=tmp_path, messages=messages)
+    agent.session_log_dir = log_dir
+
+    import asyncio
+    import json
+
+    asyncio.run(
+        agent.wake_up(
+            "wake",
+            event_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            event_source="polling",
+            fingerprint="host:pending_topic_reply:topic-1:comment-1",
+        )
+    )
+
+    entry = json.loads((log_dir / "sid-jk.jsonl").read_text(encoding="utf-8").strip())
+    assert entry["event_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assert entry["event_source"] == "polling"
+    assert entry["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
+
+
+def test_wake_up_session_log_defaults_event_source_to_polling(tmp_path: Path) -> None:
+    """Phase 1 default: polling is the only source until SSE lands in Phase 2."""
+    state = {"topics": {}, "experiments": {}, "claude_session_id": "sid-d"}
+    log_dir = tmp_path / "session-logs"
+    messages = [FakeResultMessage(session_id="sid-d", is_error=False)]
+
+    agent, _ = _make_client(state=state, project_root=tmp_path, messages=messages)
+    agent.session_log_dir = log_dir
+
+    import asyncio
+    import json
+
+    asyncio.run(agent.wake_up("wake"))
+
+    entry = json.loads((log_dir / "sid-d.jsonl").read_text(encoding="utf-8").strip())
+    assert entry["event_source"] == "polling"
+    assert entry["event_id"] is None
+    assert entry["fingerprint"] is None
+
+
 # --- disconnect --------------------------------------------------------------
 
 
