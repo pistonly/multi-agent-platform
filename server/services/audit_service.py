@@ -9,7 +9,7 @@ from server.domain.models import AuditLog
 from server.domain.schemas import AuditLogRead
 
 
-def log(
+def _log_no_commit(
     db: Session,
     *,
     action: str,
@@ -30,6 +30,31 @@ def log(
         payload_json=payload,
     )
     db.add(entry)
+    db.flush()
+    return entry
+
+
+def log(
+    db: Session,
+    *,
+    action: str,
+    target_type: str,
+    agent_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
+    target_id: uuid.UUID | None = None,
+    summary: str | None = None,
+    payload: dict | None = None,
+) -> AuditLog:
+    entry = _log_no_commit(
+        db,
+        action=action,
+        target_type=target_type,
+        agent_id=agent_id,
+        project_id=project_id,
+        target_id=target_id,
+        summary=summary,
+        payload=payload,
+    )
     db.commit()
     db.refresh(entry)
     return entry
