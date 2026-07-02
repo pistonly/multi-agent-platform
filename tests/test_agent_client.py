@@ -8,6 +8,7 @@ from typing import Any
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
 from cli.agent_client import PersonaAgentClient, make_wakeup_prompt
+from cli.session_wake_log import resolve_session_log_path
 
 
 # --- Fakes -------------------------------------------------------------------
@@ -281,7 +282,7 @@ def test_wake_up_writes_session_log_with_prompt_and_response_preview(tmp_path: P
 
     asyncio.run(agent.wake_up("wake prompt body"))
 
-    log_path = log_dir / "sess-abc.jsonl"
+    log_path = resolve_session_log_path(log_dir, "sess-abc", "host")
     assert log_path.is_file()
     lines = log_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
@@ -316,7 +317,9 @@ def test_wake_up_appends_multiple_entries_for_same_session(tmp_path: Path) -> No
     ]
     asyncio.run(agent.wake_up("second"))
 
-    lines = (log_dir / "sess-repeat.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    lines = resolve_session_log_path(log_dir, "sess-repeat", "host").read_text(
+        encoding="utf-8"
+    ).strip().splitlines()
     assert len(lines) == 2
 
 
@@ -346,7 +349,9 @@ def test_wake_up_passes_d5_join_keys_to_session_log(tmp_path: Path) -> None:
         )
     )
 
-    entry = json.loads((log_dir / "sid-jk.jsonl").read_text(encoding="utf-8").strip())
+    entry = json.loads(
+        resolve_session_log_path(log_dir, "sid-jk", "host").read_text(encoding="utf-8").strip()
+    )
     assert entry["event_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     assert entry["event_source"] == "polling"
     assert entry["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
@@ -366,7 +371,9 @@ def test_wake_up_session_log_defaults_event_source_to_polling(tmp_path: Path) ->
 
     asyncio.run(agent.wake_up("wake"))
 
-    entry = json.loads((log_dir / "sid-d.jsonl").read_text(encoding="utf-8").strip())
+    entry = json.loads(
+        resolve_session_log_path(log_dir, "sid-d", "host").read_text(encoding="utf-8").strip()
+    )
     assert entry["event_source"] == "polling"
     assert entry["event_id"] is None
     assert entry["fingerprint"] is None

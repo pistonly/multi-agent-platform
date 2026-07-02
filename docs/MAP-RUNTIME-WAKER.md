@@ -140,15 +140,21 @@ This state is local runtime data and is ignored by Git.
 ## Session wake logs
 
 **Claude backend only:** each Claude SDK `session_id` gets an append-only JSONL
-file under `.map/runtime-waker-sessions/<session_id>.jsonl`. Every
-`PersonaAgentClient` wake records:
+file under `.map/runtime-waker-sessions/`. New sessions use a sortable filename:
+
+`YYYYMMDD-HHMMSS_<persona>_<session_id>.jsonl` (timestamps default to
+`Asia/Shanghai`; override with `MAP_LOG_TIMEZONE`). Resume wakes append to the
+same file. Legacy plain `<session_id>.jsonl` files are still read if present.
+
+Every `PersonaAgentClient` wake records:
 
 - full user `prompt`
 - first 200 characters of assistant text (`response_preview`)
 - `status`, `persona`, `integration`, timestamp
 
 Disable with `MAP_SESSION_WAKE_LOG=0`. Override directory with
-`MAP_SESSION_WAKE_LOG_DIR`.
+`MAP_SESSION_WAKE_LOG_DIR`. Override log timestamp timezone with
+`MAP_LOG_TIMEZONE` (default `Asia/Shanghai`).
 
 Codex and Cursor backends do not write these JSONL files; inspect waker stdout /
 `.map/waker-logs/*.log` instead.

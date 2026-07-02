@@ -3,21 +3,47 @@
 from __future__ import annotations
 
 import json
+import os
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 DEFAULT_SESSION_LOG_DIR = Path(".map/runtime-waker-sessions")
+DEFAULT_LOG_TIMEZONE = "Asia/Shanghai"
 RESPONSE_PREVIEW_MAX = 200
 
 _SAFE_SESSION_ID_RE = re.compile(r"[^\w.\-]+")
+
+
+def log_timezone() -> ZoneInfo:
+    """Timezone for human-readable session log timestamps (default: Asia/Shanghai)."""
+    return ZoneInfo(os.environ.get("MAP_LOG_TIMEZONE", DEFAULT_LOG_TIMEZONE))
+
+
+def log_now() -> datetime:
+    return datetime.now(log_timezone())
 
 
 def safe_session_log_name(session_id: str) -> str:
     """Turn a session id into a single path segment safe for log filenames."""
     safe = _SAFE_SESSION_ID_RE.sub("_", session_id.strip())
     return safe or "unknown"
+
+
+def resolve_session_log_path(log_dir: Path, session_id: str, persona: str) -> Path:
+    """Resolve the JSONL path for a session (reuse existing file across resume wakes)."""
+    safe_id = safe_session_log_name(session_id)
+    stamped = sorted(log_dir.glob(f"*_{safe_id}.jsonl"), key=lambda path: path.stat().st_mtime)
+    if stamped:
+        return stamped[-1]
+    legacy = log_dir / f"{safe_id}.jsonl"
+    if legacy.exists():
+        return legacy
+    ts = log_now().strftime("%Y%m%d-%H%M%S")
+    safe_persona = safe_session_log_name(persona)
+    return log_dir / f"{ts}_{safe_persona}_{safe_id}.jsonl"
 
 
 def response_preview(text: str, *, max_chars: int = RESPONSE_PREVIEW_MAX) -> str:
@@ -40,7 +66,7 @@ def append_session_wake_log(
     event_source: str = "polling",
     fingerprint: str | None = None,
 ) -> Path:
-    """Append one JSON line to ``<log_dir>/<session_id>.jsonl``.
+    """Append one JSON line to the session's JSONL file under ``log_dir``.
 
     ``event_id`` and ``event_source`` are the join keys for the A3 audit
     three-way join (notification ↔ inbound_event ↔ sessions jsonl). Default
@@ -50,9 +76,9 @@ def append_session_wake_log(
     A3 join fallbacks can pivot on it without consulting inbound_event.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
-    path = log_dir / f"{safe_session_log_name(session_id)}.jsonl"
+    path = resolve_session_log_path(log_dir, session_id, persona)
     entry: dict[str, Any] = {
-        "ts": datetime.now(UTC).isoformat(),
+        "ts": log_now().isoformat(),
         "session_id": session_id,
         "persona": persona,
         "integration": integration,
@@ -70,9 +96,13 @@ def append_session_wake_log(
 
 
 __all__ = [
+    "DEFAULT_LOG_TIMEZONE",
     "DEFAULT_SESSION_LOG_DIR",
     "RESPONSE_PREVIEW_MAX",
     "append_session_wake_log",
+    "log_now",
+    "log_timezone",
+    "resolve_session_log_path",
     "response_preview",
     "safe_session_log_name",
 ]

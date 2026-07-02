@@ -8,7 +8,7 @@
 #   MAP_RUNTIME_INTERVAL=60 ./scripts/start-all-wakers.sh
 #
 # Logs: .map/waker-logs/{host,participant,reviewer}.log
-# Session prompts: .map/runtime-waker-sessions/<session_id>.jsonl
+# Session prompts: .map/runtime-waker-sessions/<YYYYMMDD-HHMMSS>_<persona>_<session_id>.jsonl
 # Stop all with Ctrl+C.
 
 set -euo pipefail
