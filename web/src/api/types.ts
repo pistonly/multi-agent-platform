@@ -332,6 +332,13 @@ export interface TopicActionItemTodo {
   status: TopicActionItemStatus;
   due_at: string | null;
   linked_experiment_id: string | null;
+  // Wake / stale escalation fields (experiment B). Server returns these on
+  // every todo row; runtime-waker also consumes them via the SDK schema.
+  // Mirror `sdk/python/map_types/schemas.py::TopicActionItemTodoRead`.
+  wake_count: number;
+  first_open_at: string | null;
+  last_woken_at: string | null;
+  stale_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -358,8 +365,15 @@ export interface Notification {
   target_type: string;
   target_id: string | null;
   payload_json: Record<string, unknown> | null;
+  category: "wakeable" | "digest";
+  group_key: string | null;
+  wake_version: number;
+  event_count: number;
+  first_event_at: string | null;
+  last_event_at: string | null;
   read_at: string | null;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface NotificationList {

@@ -11,6 +11,7 @@ import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { withCommentAnchor } from "../utils/commentAnchor";
 import { sumTodos } from "../utils/todoCount";
+import { formatElapsed, wakeBadge } from "../utils/actionItemWake";
 
 export function TodosPage() {
   const queryClient = useQueryClient();
@@ -162,18 +163,37 @@ export function TodosPage() {
       )}
 
       {(data.action_items?.length ?? 0) > 0 && (
-        <Section title={`行动项（${data.action_items.length}）`}>
-          {data.action_items.map((item) => (
-            <Row key={item.id} to={`/topics/${item.topic_id}`}>
-              <div>
-                <div className="text-accent hover:underline">{item.title}</div>
-                <div className="text-xs text-slate-400">{item.topic_title}</div>
-              </div>
-              <div className="text-right text-xs text-slate-500">
-                {item.due_at ? `截止 ${new Date(item.due_at).toLocaleDateString()}` : item.status}
-              </div>
-            </Row>
-          ))}
+        <Section title={`待唤醒行动项（${data.action_items.length}）`}>
+          {data.action_items.map((item) => {
+            const badge = wakeBadge(item);
+            const elapsed = formatElapsed(item.first_open_at);
+            return (
+              <Row key={item.id} to={`/topics/${item.topic_id}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-accent hover:underline">{item.title}</span>
+                    <span
+                      className={`badge text-[10px] ${badge.className}`}
+                      title={badge.title}
+                    >
+                      {badge.label}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {item.topic_title}
+                    <span className="mx-2 text-slate-600">·</span>
+                    开放 {elapsed}
+                    {item.due_at ? (
+                      <>
+                        <span className="mx-2 text-slate-600">·</span>
+                        截止 {new Date(item.due_at).toLocaleDateString()}
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </Row>
+            );
+          })}
         </Section>
       )}
 
