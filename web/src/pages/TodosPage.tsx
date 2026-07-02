@@ -10,6 +10,7 @@ import {
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { withCommentAnchor } from "../utils/commentAnchor";
+import { sumTodos } from "../utils/todoCount";
 
 export function TodosPage() {
   const queryClient = useQueryClient();
@@ -37,17 +38,7 @@ export function TodosPage() {
   if (isLoading) return <p className="text-slate-400">加载待办…</p>;
   if (!data) return null;
 
-  const empty =
-    data.my_open_experiments.length === 0 &&
-    data.pending_reviews.length === 0 &&
-    data.pending_result_reviews.length === 0 &&
-    data.pending_replies.length === 0 &&
-    (data.pending_topic_replies?.length ?? 0) === 0 &&
-    (data.pending_round_acks?.length ?? 0) === 0 &&
-    (data.pending_advance_rounds?.length ?? 0) === 0 &&
-    (data.action_items?.length ?? 0) === 0 &&
-    data.my_open_topics.length === 0 &&
-    data.mentions.length === 0;
+  const empty = sumTodos(data) === 0;
 
   return (
     <div className="space-y-8">
