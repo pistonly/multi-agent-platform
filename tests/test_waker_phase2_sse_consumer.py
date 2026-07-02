@@ -20,9 +20,7 @@ land in ``.map/generated-plans/phase2-p95-baseline.json``.
 from __future__ import annotations
 
 import asyncio
-import json
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -36,8 +34,6 @@ from cli.runtime_waker import (
     WAKE_SOURCE_POLLING,
     WAKE_SOURCE_REPLAY,
     WAKE_SOURCE_SSE,
-    _notification_event_to_wake_kind,
-    parse_sse_frame,
 )
 
 
@@ -249,10 +245,7 @@ async def test_sse_replay_bypasses_d4_rate_limit() -> None:
 
     # Pre-stamp the D4 bucket with the same fingerprint so a normal sse
     # source would be skipped.
-    from cli.runtime_waker import WakeEvent
-    fingerprint = (
-        f"host:topic_lifecycle:dddd4444-4444-4444-4444-444444444444:1"
-    )
+    fingerprint = "host:topic_lifecycle:dddd4444-4444-4444-4444-444444444444:1"
     waker._recent_resume_attempts[fingerprint] = datetime.now(UTC)
 
     stats = RuntimeWakerStats()

@@ -25,16 +25,14 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from map_types.enums import InboundEventSource
 from map_types.schemas import InboundEventCreate
-from server.db.base import Base
-from server.db.session import SessionLocal, get_db
-from server.domain.models import Agent, InboundEvent
+from server.db.session import get_db
+from server.domain.models import InboundEvent
 
 
 def _post_inbound(

@@ -445,7 +445,7 @@ def test_a2_10_link_cross_project_rejected(
     ).json()
 
     # 在 project_a 创建并 done 一个实验；在 project_b 创建 action_item
-    topic = _create_topic(client, auth_headers, project)
+    _create_topic(client, auth_headers, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project, title="A2-10 cross exp")
     _run_experiment_to_done(client, auth_headers, reviewer["headers"], exp_id)
 
