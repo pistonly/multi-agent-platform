@@ -7,11 +7,24 @@ participant / reviewer business logic.
 
 The waker only:
 
-- polls `map --persona <name> todos`
-- derives small wake events
+- subscribes to a Server-Sent Events (SSE) long-poll on
+  `GET /agents/me/notifications/stream` for real-time wake events
+- derives small wake events from SSE frames **and** from the periodic
+  `MAP_RUNTIME_INTERVAL` polling fallback (`map --persona <name> todos` +
+  unread notifications)
 - de-duplicates events in `.map/runtime-waker-state.json`
 - resumes the persona's runtime session when a new event exists
 - sends a short prompt containing the event id and CLI rules
+
+The SSE subscription lives in the waker process itself — a plain Python
+loop independent of the runtime backend. All three backends (`claude`,
+`codex`, `cursor`) benefit identically: per-wake-started Cursor / Codex
+agents do **not** need to maintain their own SSE connection because the
+waker already covers them.
+
+The polling fallback is **last-line defense and is never disabled** —
+SSE can drop, the API server can restart, the network can partition. The
+fallback ensures the waker still self-heals after any of those.
 
 The resumed runtime agent then uses project skills and `map --persona <name>`
 CLI commands to inspect current MAP state and perform the work.
@@ -38,7 +51,7 @@ Useful environment variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MAP_RUNTIME_PERSONA` | `host` | Persona to wake |
-| `MAP_RUNTIME_INTERVAL` | `30` | Polling interval |
+| `MAP_RUNTIME_INTERVAL` | `600` | Polling fallback interval (seconds). SSE 长连为主路径；此变量仅控制兜底轮询节奏 |
 | `MAP_RUNTIME_STATE_FILE` | `.map/runtime-waker-state.json` | Runtime session + event state |
 | `MAP_RUNTIME_HOME` | backend-specific | Runtime home passed to Claude or Codex (ignored by `cursor`) |
 | `MAP_RUNTIME_BACKEND` | `claude` | Runtime backend: `claude`, `codex`, or `cursor` |
@@ -50,6 +63,13 @@ Useful environment variables:
 | `MAP_RUNTIME_FORCE` | `0` | Re-wake already seen events |
 | `MAP_RUNTIME_MODEL` | unset | Optional runtime model override |
 | `MAP_RUNTIME_CODEX_BIN` | unset | Optional Codex binary path for `codex` backend |
+| `MAP_RUNTIME_SSE_ENABLED` | `1` | Enable SSE long-poll primary path. `0` falls back to polling-only (escape hatch) |
+| `MAP_RUNTIME_SSE_CONNECT_TIMEOUT_SECONDS` | `10` | SSE handshake connect timeout |
+| `MAP_RUNTIME_SSE_READ_TIMEOUT_SECONDS` | unset | SSE per-read timeout (defaults to None; rely on server-side keepalive) |
+| `MAP_RUNTIME_SSE_BACKOFF_BASE_SECONDS` | `1` | D3 reconnect exponential backoff base (1s, 2s, 4s, …) |
+| `MAP_RUNTIME_SSE_BACKOFF_MAX_SECONDS` | `30` | D3 reconnect backoff cap |
+| `MAP_RUNTIME_SSE_RECENT_RESUME_WINDOW_SECONDS` | `60` | D4 client-side dedup window — same fingerprint may attempt resume at most once per window |
+| `MAP_RUNTIME_SSE_REPLAY_LIMIT` | `200` | D3 reconnect backfill — max unread wakeables re-pulled via `unread_only=true` after reconnect |
 
 When `MAP_RUNTIME_HOME` is not set, the start script uses
 `.map/claude-runtime-home` for Claude and `.map/codex-runtime-home` for Codex.
@@ -158,6 +178,87 @@ value. `0` falls back to pure per-event dedup. `force` bypasses the gate.
 ```
 
 This state is local runtime data and is ignored by Git.
+
+## SSE long-poll primary path
+
+The waker subscribes to `GET /agents/me/notifications/stream` (Phase 1
+endpoint, see `server/api/agents.py`) and treats the SSE stream as the
+**primary** event source. `MAP_RUNTIME_INTERVAL` polling is retained as
+last-line defense and is never disabled.
+
+### Event routing
+
+Each SSE `notification.created` frame carries `payload_json.kind`. The
+waker maps that field to a wake-event kind:
+
+| `payload_json.kind` | wake kind |
+| --- | --- |
+| `mention` | `pending_mention_reply` |
+| `topic.lifecycle` / `topic.comment` / `topic.advance_round` / `topic.resolved` | `topic_lifecycle` |
+| `experiment.lifecycle` / `experiment.phase_changed` / `plan.revised` | `experiment_lifecycle` |
+| `review.submitted` / `review_item.status_changed` | `pending_review` |
+| `comment.created` (on experiment) | `pending_result_review` |
+
+Unknown / unmapped kinds are dropped silently from the SSE stream — the
+polling fallback will still surface them. This avoids waking the agent on
+a notification that has no corresponding todo bucket.
+
+### D3 — Reconnect compensation
+
+SSE disconnects (network blip, server restart, keepalive timeout) trigger
+an exponential backoff before reconnect:
+
+`delay = min(base * 2^attempt, max) + jitter` with default
+`base=1s, max=30s`. The attempt counter persists in
+`.map/runtime-waker-state-<persona>.json` so a process restart resumes
+the backoff where it left off (not a fresh `attempt=0`).
+
+After a successful reconnect the waker pulls **all unread wakeable
+notifications** via `notifications_unread` (capped by
+`MAP_RUNTIME_SSE_REPLAY_LIMIT`) and dispatches each one as
+`event_source="replay"`. This catches events the SSE long-poll missed
+during the disconnect window.
+
+Server-side, the `inbound_event.UNIQUE(fingerprint)` table (Phase 1 D6)
+is the authoritative cross-process replay gate. Client-side, D4 below
+is the cheap in-memory gate that prevents pointless round-trips.
+
+### D4 — Client-side rate limit + replay exemption
+
+The waker keeps a per-fingerprint timestamp of the last resume attempt.
+A new event whose fingerprint was seen within
+`MAP_RUNTIME_SSE_RECENT_RESUME_WINDOW_SECONDS` (default 60s) is skipped
+without calling the server-side `record` endpoint or invoking a backend
+resume. This keeps an SSE frame + a polling fallback cycle from
+double-resuming the same fingerprint.
+
+The rate limit is bypassed in one case: events arriving via
+`event_source="replay"` (D3 backfill). Replay must wake — if the waker
+deduplicated reconnect backfill, any event the SSE long-poll missed
+during the disconnect would stay missed. The bypass is local to the
+client; the server-side `UNIQUE(fingerprint)` gate still rejects
+cross-process replays, so the exemption is safe.
+
+### `event_source` taxonomy
+
+Every entry written to `inbound_event.source` (and to the wake session
+JSONL) carries exactly one of three values:
+
+- `polling` — sourced from `MAP_RUNTIME_INTERVAL` fallback cycle
+- `sse` — sourced from a real-time SSE long-poll frame
+- `replay` — sourced from D3 reconnect backfill
+
+Audit three-way joins (Phase 1 A3) work unchanged because the schema is
+unchanged — only the value set grew.
+
+### Backend neutrality
+
+The SSE client lives in `cli/runtime_waker.py` and runs as part of the
+waker process. It does not depend on Claude / Codex / Cursor SDKs.
+Per-wake-started backends (Cursor local agents, Codex CLI invocations)
+do **not** maintain their own SSE connection — the waker covers them.
+This is why all three backends get identical latency improvements from
+Phase 2 without per-backend changes.
 
 ## Session wake logs
 

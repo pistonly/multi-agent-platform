@@ -55,3 +55,13 @@ description: >-
 ## 部署
 
 `./scripts/start-all-wakers.sh` · 后端与凭证见 [MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)
+
+## 触发方式（v0.8 起 SSE 长连为主路径）
+
+- **主路径**：waker 订阅 `GET /agents/me/notifications/stream`（SSE 长连），由服务端 `notification.created` 帧触发 wake
+- **兜底**：`MAP_RUNTIME_INTERVAL`（默认 `600s`，10min）轮询 `map --persona <name> todos` + 未读通知
+- **D3 重连补偿**：SSE 断连后指数退避（1s → 30s 上限），重连成功先做一次 `unread_only=true` 全量补漏
+- **D4 客户端限速**：同 fingerprint 60s 内最多 1 次 resume 尝试；**补漏事件（`event_source="replay"`）豁免 D4**，服务端 `inbound_event.UNIQUE(fingerprint)` 主闸仍防跨进程重投
+- SSE 订阅发生在 waker 进程层（与 backend 无关），三 backend（claude / codex / cursor）等价受益
+
+详见 [MAP-RUNTIME-WAKER.md §SSE long-poll primary path](../../../docs/MAP-RUNTIME-WAKER.md#sse-long-poll-primary-path)。
