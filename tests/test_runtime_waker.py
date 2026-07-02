@@ -31,10 +31,14 @@ class FakeMapClient(MapCommandClient):
         persona: str,
         todos: dict[str, Any],
         open_topics: list[dict[str, Any]] | None = None,
+        duplicate_fingerprints: set[str] | None = None,
     ) -> None:
         self.persona = persona
         self._todos = todos
         self._open_topics = open_topics or []
+        self._duplicate_fingerprints: set[str] = set(duplicate_fingerprints or set())
+        self.record_calls: list[dict[str, Any]] = []
+        self.duplicate_on_call: dict[str, int] = {}
 
     def whoami(self) -> dict[str, Any]:
         return {"id": f"{self.persona}-agent", "name": self.persona}
@@ -44,6 +48,42 @@ class FakeMapClient(MapCommandClient):
 
     def topic_list_open(self) -> list[dict[str, Any]]:
         return self._open_topics
+
+    def inbound_event_record(
+        self,
+        *,
+        event_id: str,
+        fingerprint: str,
+        event_type: str,
+        source: str = "polling",
+    ) -> bool:
+        self.record_calls.append(
+            {
+                "event_id": event_id,
+                "fingerprint": fingerprint,
+                "event_type": event_type,
+                "source": source,
+            }
+        )
+        # Per-fingerprint override: return False (server says duplicate).
+        if fingerprint in self.duplicate_fingerprints:
+            return False
+        # Optional: "fail on the Nth call to this fingerprint" — lets a test
+        # express "first call OK, subsequent calls 409".
+        limit = self.duplicate_on_call.get(fingerprint)
+        if limit is not None:
+            seen = sum(
+                1
+                for c in self.record_calls[:-1]
+                if c["fingerprint"] == fingerprint
+            )
+            if seen >= limit:
+                return False
+        return True
+
+    @property
+    def duplicate_fingerprints(self) -> set[str]:
+        return self._duplicate_fingerprints
 
 
 class FakeWakeBackend:
@@ -1338,3 +1378,294 @@ def test_no_prune_events_escape_hatch(tmp_path):
 
     assert stats.events_pruned == 0
     assert after == before  # escape hatch: sweep never mutates state
+
+
+# --- D6 / D3 / D2 regression tests for runtime-waker inbound-event integration ---
+
+
+class _OrderCapturingBackend:
+    """Backend that records the on-disk state file at the moment wake() is called.
+
+    The D3 contract is: ``_mark_event(status="woken")`` + ``_save_state_if_needed``
+    must run **before** ``backend.wake()`` so a crash mid-resume does not let the
+    next start re-wake the same fingerprint. The state path is set by the test
+    harness via :py:meth:`set_state_file` so we can read it at wake() entry.
+    """
+
+    _state_file: Path | None = None
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.state_at_call: list[dict[str, Any]] = []
+
+    @classmethod
+    def set_state_file(cls, path: Path) -> None:
+        cls._state_file = path
+
+    def wake(self, *, persona: str, prompt: str, session_id: str | None) -> WakeResult:
+        self.calls.append({"persona": persona, "prompt": prompt, "session_id": session_id})
+        path = type(self)._state_file
+        if path is not None and path.exists():
+            self.state_at_call.append(json.loads(path.read_text(encoding="utf-8")))
+        else:
+            self.state_at_call.append({})
+        return WakeResult(session_id=f"session-{persona}", response_text="done")
+
+
+def test_waker_persists_woken_state_before_resume(tmp_path):
+    """D3 regression: dedup state is on disk before the backend resumes."""
+    state_file = tmp_path / "runtime-waker-state.json"
+    _OrderCapturingBackend.set_state_file(state_file)
+    backend = _OrderCapturingBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    assert len(backend.calls) == 1, "resume must happen exactly once"
+    assert len(backend.state_at_call) == 1
+    # Read the snapshot the backend captured at wake() entry. The state file is
+    # also re-read end-of-cycle, but the snapshot proves the order: status=woken
+    # was persisted BEFORE wake().
+    state = backend.state_at_call[0]
+    record = state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]
+    assert record["status"] == "woken"
+    assert "woken_at" in record
+
+    # The on-disk state file must also reflect the woken stamp by the time
+    # backend.wake() returns.
+    on_disk = json.loads(state_file.read_text(encoding="utf-8"))
+    assert (
+        on_disk["personas"]["host"]["events"][
+            "host:pending_topic_reply:topic-1:comment-1"
+        ]["status"]
+        == "woken"
+    )
+
+
+def test_waker_records_inbound_event_before_resume(tmp_path):
+    """D6 + D3 combined: server record call precedes backend.wake()."""
+    state_file = tmp_path / "runtime-waker-state.json"
+    _OrderCapturingBackend.set_state_file(state_file)
+    backend = _OrderCapturingBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    assert len(client.record_calls) == 1
+    record = client.record_calls[0]
+    assert record["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
+    assert record["event_type"] == "pending_topic_reply"
+    assert record["source"] == "polling"
+    # event_id is a UUID5 derived from (agent_id, fingerprint).
+    import uuid as _uuid
+
+    parsed = _uuid.UUID(record["event_id"])
+    # Calling uuid5 with the same namespace+name must yield the same UUID.
+    assert parsed == _uuid.uuid5(
+        _uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        "host-agent:host:pending_topic_reply:topic-1:comment-1",
+    )
+
+
+def test_waker_skips_resume_when_server_says_duplicate(tmp_path):
+    """D6: server gate 409 → backend never resumes, event marked server_skip."""
+    state_file = tmp_path / "runtime-waker-state.json"
+    _OrderCapturingBackend.set_state_file(state_file)
+    backend = _OrderCapturingBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        duplicate_fingerprints={"host:pending_topic_reply:topic-1:comment-1"},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    assert backend.calls == [], "resume must be skipped when server returns duplicate"
+    assert len(client.record_calls) == 1
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    record = state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]
+    assert record["status"] == "server_skip"
+    # No woken stamp — this is a duplicate claim, not our own success.
+    assert "woken_at" not in record
+
+
+def test_server_skip_uses_self_heal_ttl(tmp_path):
+    """server_skip must use the long self-heal TTL (woken_cooldown_seconds), not the short one."""
+    recent = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    state_file = tmp_path / "runtime-waker-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "events": {
+                            "host:pending_topic_reply:topic-1:comment-1": {
+                                "status": "server_skip",
+                                "last_attempt_at": recent,
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = FakeWakeBackend()
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=300, woken_cooldown_seconds=1800,
+        ),
+        backend=backend,
+    )
+
+    stats = worker.run_once()
+
+    # Within the 1800s TTL, the event is skipped even though it would have
+    # passed the 300s cooldown if status were treated as a normal skip.
+    assert stats.wake_skips == 1
+    assert backend.calls == []
+
+
+def test_apply_todo_cursor_filters_old_mentions_and_advances(tmp_path):
+    """D2: cursor filter on mentions/pending_topic_replies, advance to max seen."""
+    state_file = tmp_path / "runtime-waker-state.json"
+    backend = FakeWakeBackend()
+    iso = datetime.now(UTC).isoformat()
+    iso_old = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+    iso_newer = (datetime.now(UTC) + timedelta(seconds=5)).isoformat()
+    todos_v1 = {
+        "mentions": [
+            {"id": "m-1", "created_at": iso_old, "excerpt": "old"},
+            {"id": "m-2", "created_at": iso, "excerpt": "first"},
+        ],
+        "pending_topic_replies": [
+            {"topic_id": "t-1", "comment_id": "c-1", "created_at": iso_old},
+            {"topic_id": "t-2", "comment_id": "c-2", "created_at": iso},
+        ],
+        "my_open_topics": [],
+    }
+    todos_v2 = {
+        "mentions": todos_v1["mentions"],  # unchanged on server
+        "pending_topic_replies": [
+            # Old t-1 is still in the server response — must be filtered.
+            {"topic_id": "t-1", "comment_id": "c-1", "created_at": iso_old},
+            # New t-3 with a fresher timestamp — must survive and be woken.
+            {"topic_id": "t-3", "comment_id": "c-3", "created_at": iso_newer},
+        ],
+        "my_open_topics": [],
+    }
+
+    # First cycle: no cursor yet → all items pass, cursor seeded to iso.
+    client = FakeMapClient(persona="host", todos=todos_v1)
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+    backend.calls.clear()
+    worker.run_once()
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    cursor_iso = state.get("last_seen_todo_created_at")
+    assert cursor_iso is not None
+    assert datetime.fromisoformat(cursor_iso) == datetime.fromisoformat(iso)
+
+    # Second cycle: cursor present. Old items dropped (m-1, t-1, m-2 iso
+    # equals cursor so excluded). New t-3 (iso_newer > iso) survives AND
+    # has a brand-new fingerprint so cooldown does not block it.
+    client2 = FakeMapClient(persona="host", todos=todos_v2)
+    worker2 = RuntimeWaker(
+        client=client2,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+    backend.calls.clear()
+    worker2.run_once()
+
+    survived = [
+        c
+        for c in backend.calls
+        if "pending_topic_reply" in c["prompt"] and "· t-3" in c["prompt"]
+    ]
+    assert len(survived) == 1, "t-3 (newer than cursor) must be woken"
+    dropped = [
+        c
+        for c in backend.calls
+        if "pending_topic_reply" in c["prompt"] and "· t-1" in c["prompt"]
+    ]
+    assert dropped == [], "t-1 (older than cursor) must be filtered out"
+
+    # Cursor advances to the new max (iso_newer).
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    new_cursor = state.get("last_seen_todo_created_at")
+    assert datetime.fromisoformat(new_cursor) == datetime.fromisoformat(iso_newer)
+
+
+def test_apply_todo_cursor_starts_unfiltered_when_no_cursor_set(tmp_path):
+    """First run: no cursor yet → everything passes; cursor is seeded."""
+    state_file = tmp_path / "runtime-waker-state.json"
+    backend = FakeWakeBackend()
+    iso = datetime.now(UTC).isoformat()
+    client = FakeMapClient(
+        persona="host",
+        todos={
+            "mentions": [{"id": "m-1", "created_at": iso, "excerpt": "first"}],
+            "pending_topic_replies": [],
+        },
+    )
+    worker = RuntimeWaker(
+        client=client,
+        config=RuntimeWakerConfig(
+            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
+            cooldown_seconds=60,
+        ),
+        backend=backend,
+    )
+
+    worker.run_once()
+
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["last_seen_todo_created_at"] == iso
+

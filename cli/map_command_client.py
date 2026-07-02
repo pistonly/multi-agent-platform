@@ -204,6 +204,52 @@ class MapCommandClient:
             ]
         )
 
+    # --- inbound event (D6 server gate) ------------------------------------
+
+    def inbound_event_record(
+        self,
+        *,
+        event_id: str,
+        fingerprint: str,
+        event_type: str,
+        source: str = "polling",
+    ) -> bool:
+        """Record a waker fingerprint against the D6 server gate.
+
+        Returns ``True`` on first-time success, ``False`` if the server already
+        had the fingerprint (409 → CLI exit 2). Any other non-zero exit raises
+        :class:`WorkerError`. The waker treats ``False`` as "already woken by
+        another worker" and skips resume.
+        """
+        args = [
+            "inbound-event",
+            "record",
+            "--event-id",
+            event_id,
+            "--fingerprint",
+            fingerprint,
+            "--event-type",
+            event_type,
+            "--source",
+            source,
+        ]
+        cmd = self._base_args() + args
+        if self.dry_run and _is_write_command(args):
+            typer.echo("[dry-run] " + " ".join(cmd))
+            return True
+        result = subprocess.run(
+            cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+        )
+        if result.returncode == 0:
+            return True
+        if result.returncode == 2:
+            # CLI maps 409 Conflict to exit 2; treat as duplicate.
+            return False
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise WorkerError(
+            f"Command failed ({result.returncode}): {' '.join(cmd)}\n{detail}"
+        )
+
 
 def _is_write_command(args: list[str]) -> bool:
     if not args:
@@ -236,5 +282,7 @@ def _is_write_command(args: list[str]) -> bool:
     if args[:3] == ["experiment", "lock", "force-release"]:
         return True
     if args[:3] == ["experiment", "lock", "skip"]:
+        return True
+    if args[:2] == ["inbound-event", "record"]:
         return True
     return False

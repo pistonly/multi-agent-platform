@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -28,6 +29,17 @@ WAKE_SKILL_CHAIN: dict[str, tuple[str, ...]] = {
     "participant": ("map-runtime-waker", "map-project-collab", "topic-participant"),
     "reviewer": ("map-runtime-waker", "map-project-collab", "experiment-reviewer"),
 }
+
+# Stable namespace used to derive a UUID from a (agent_id, fingerprint) pair when
+# the upstream WakeEvent has no notification UUID of its own. UUID5 is deterministic
+# so the same fingerprint always maps to the same inbound_event.event_id, which
+# keeps DB rows joinable across cycles.
+_EVENT_UUID_NAMESPACE = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+def _event_uuid_for_fingerprint(agent_id: str, fingerprint: str) -> uuid.UUID:
+    """Derive a stable event_id UUID for an inbound_event record."""
+    return uuid.uuid5(_EVENT_UUID_NAMESPACE, f"{agent_id}:{fingerprint}")
 
 
 def wake_skill_paths(project_root: Path, persona: str) -> list[Path]:
@@ -501,6 +513,11 @@ class RuntimeWaker:
             participant_agent_id = self.agent_id
             if self.config.include_participant_open_topics:
                 todos = {**todos, "open_topics": self.client.topic_list_open()}
+        # D2: client-side created_at cursor — filter out notification-bearing
+        # todos older than the latest one we've already processed, so a long
+        # backlog never inflates the wake set. Server-side dedup (D6) plus
+        # per-fingerprint cooldowns still protect against true duplicates.
+        todos = self._apply_todo_cursor(todos)
         events = discover_wake_events(
             self.config.persona,
             todos,
@@ -553,6 +570,50 @@ class RuntimeWaker:
             )
         self.agent_id = str(me["id"])
 
+    def _apply_todo_cursor(self, todos: dict[str, Any]) -> dict[str, Any]:
+        """D2 client-side cursor over notification-bearing todo lists.
+
+        Filters ``mentions`` and ``pending_topic_replies`` to items with
+        ``created_at > last_seen_todo_created_at``. Other todo lists are not
+        cursor-filtered (they encode their own change fingerprint in the wake
+        fingerprint via plan version / comment count). Advances the cursor to
+        the max ``created_at`` seen across the full (unfiltered) lists so a
+        freshly-arrived old item is not silently lost behind a newer item with
+        a later timestamp.
+        """
+        cursor_iso = self.state.get("last_seen_todo_created_at")
+        cursor_dt = _parse_datetime(cursor_iso) if cursor_iso else None
+        max_dt = cursor_dt
+
+        def _coerce(value: Any) -> datetime | None:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value if value.tzinfo else value.replace(tzinfo=UTC)
+            return _parse_datetime(str(value))
+
+        for key in ("mentions", "pending_topic_replies"):
+            rows = todos.get(key) or []
+            if not isinstance(rows, list):
+                continue
+            kept: list[dict[str, Any]] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    kept.append(row)
+                    continue
+                ts = _coerce(row.get("created_at"))
+                if ts is not None and (max_dt is None or ts > max_dt):
+                    max_dt = ts
+                if cursor_dt is not None and ts is not None and ts <= cursor_dt:
+                    continue
+                kept.append(row)
+            todos[key] = kept
+
+        if max_dt != cursor_dt and max_dt is not None:
+            self.state["last_seen_todo_created_at"] = max_dt.isoformat()
+            self._state_dirty = True
+        return todos
+
     async def _prepare_session_for_event(self, event: WakeEvent) -> None:
         persona_state = self._persona_state(event.persona)
         context_key = wake_context_key(event)
@@ -576,6 +637,27 @@ class RuntimeWaker:
 
     async def _wake_event(self, event: WakeEvent) -> None:
         await self._prepare_session_for_event(event)
+
+        # D6 server gate: record the fingerprint against the inbound_events table
+        # BEFORE any resume. If another worker (or a previous waker process) has
+        # already claimed this fingerprint, the server returns 409 and we skip the
+        # resume entirely — the cross-process / cross-restart dedup guarantee.
+        event_uuid = _event_uuid_for_fingerprint(self.agent_id or "", event.fingerprint)
+        server_first = self.client.inbound_event_record(
+            event_id=str(event_uuid),
+            fingerprint=event.fingerprint,
+            event_type=event.kind,
+        )
+        if not server_first:
+            self._mark_event(event, status="server_skip")
+            return
+
+        # D3 client gate: persist dedup state BEFORE resume. If resume crashes or
+        # the process dies mid-prompt, the next start sees status=woken and the
+        # self-heal TTL prevents a duplicate wake of the same fingerprint.
+        self._mark_event(event, status="woken")
+        self._save_state_if_needed(force=True)
+
         persona_state = self._persona_state(event.persona)
         session_id = self._session_id(persona_state)
         prompt = build_wake_prompt(event, project_root=self.config.project_root)
@@ -593,7 +675,6 @@ class RuntimeWaker:
         persona_state["last_wake_context_key"] = wake_context_key(event)
         persona_state["last_wake_object_id"] = event.object_id
         self._state_dirty = True
-        self._mark_event(event, status="woken")
 
     def _session_id(self, persona_state: dict[str, Any]) -> str | None:
         sid = persona_state.get("claude_session_id") or persona_state.get("runtime_session_id")
@@ -608,18 +689,20 @@ class RuntimeWaker:
         record = self._event_state(event)
         if not record:
             return False
-        if record.get("status") == "woken":
-            # woken no longer permanently skips: it enters a long self-heal TTL.
+        status = record.get("status")
+        if status in ("woken", "server_skip"):
+            # Successful claims (woken by us, or server_skip — D6 server gate
+            # reported another worker claimed it) use the long self-heal TTL.
             # Once the TTL elapses, the event is reconsidered so an agent that
             # woke but took no action is not stuck forever. Falls back to
             # last_attempt_at for state files written before woken_at existed.
-            woken_at = _parse_datetime(
+            ref = _parse_datetime(
                 str(record.get("woken_at") or record.get("last_attempt_at") or "")
             )
-            if woken_at is None:
+            if ref is None:
                 return False
             return (
-                datetime.now(UTC) - woken_at
+                datetime.now(UTC) - ref
             ).total_seconds() < self.config.woken_cooldown_seconds
         last_attempt = _parse_datetime(str(record.get("last_attempt_at") or ""))
         if last_attempt is None:
