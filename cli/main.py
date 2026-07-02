@@ -770,6 +770,63 @@ def notification_read_all() -> None:
     _run(lambda c: c.mark_all_notifications_read())
 
 
+inbound_event_app = typer.Typer(help="Runtime-waker inbound event commands (D6 server gate)")
+app.add_typer(inbound_event_app, name="inbound-event")
+
+
+@inbound_event_app.command("record")
+def inbound_event_record(
+    event_id: uuid.UUID = typer.Option(..., "--event-id", help="Upstream notification id (UUID)."),
+    fingerprint: str = typer.Option(
+        ..., "--fingerprint", help="Dedup key (server enforces UNIQUE per agent)."
+    ),
+    event_type: str = typer.Option(
+        ..., "--event-type", help="Logical event type (e.g. mention, pending_review, topic_lifecycle)."
+    ),
+    source: str = typer.Option(
+        "polling", "--source", help="polling|sse|replay (Phase 1 = polling)."
+    ),
+    payload_file: Path | None = typer.Option(
+        None, "--payload-file", help="Optional JSON file with extra payload fields."
+    ),
+) -> None:
+    """Record that the caller is about to act on ``event_id``.
+
+    Thin wrapper for ``POST /agents/me/inbound-events``. On 409 the CLI exits
+    with a non-zero status and prints the server detail — the waker treats
+    409 as "already woken" and skips resume.
+    """
+    from map_types.enums import InboundEventSource
+    from server.domain.schemas import InboundEventCreate
+
+    extra_payload: dict | None = None
+    if payload_file is not None:
+        import json
+
+        extra_payload = json.loads(payload_file.read_text(encoding="utf-8"))
+    payload = InboundEventCreate(
+        event_id=event_id,
+        event_type=event_type,
+        source=InboundEventSource(source),
+        fingerprint=fingerprint,
+        payload=extra_payload,
+    )
+
+    def action(c: MAPClient):
+        try:
+            return c.record_inbound_event(payload)
+        except MAPHTTPError as exc:
+            if exc.status_code == 409:
+                typer.echo(
+                    f"inbound-event duplicate (409): {exc.detail}",
+                    err=True,
+                )
+                raise typer.Exit(2) from exc
+            raise
+
+    _run(action)
+
+
 @app.command("status")
 def project_or_global_status(
     project: uuid.UUID | None = typer.Option(None, "--project"),

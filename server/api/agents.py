@@ -13,11 +13,15 @@ from server.domain.schemas import (
     AgentRead,
     DismissAllMentionsResultRead,
     DismissMentionResultRead,
+    InboundEventCreate,
+    InboundEventRead,
+    InboundEventRecordResult,
     NotificationListRead,
     NotificationRead,
     TodoRead,
 )
 from server.services import auth as auth_service
+from server.services import inbound_event_service
 from server.services import mention_service
 from server.services import notification_service
 from server.services import todo_service
@@ -197,5 +201,38 @@ def mark_all_notifications_read(
 ) -> dict[str, int]:
     count = notification_service.mark_all_read(db, agent)
     return {"marked": count}
+
+
+@agents_router.post(
+    "/me/inbound-events",
+    response_model=InboundEventRecordResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_my_inbound_event(
+    payload: InboundEventCreate,
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> InboundEventRecordResult:
+    """Record that the caller has seen ``payload.event_id`` and intends to act
+    on it. This is the D6 server-side primary dedup gate: ``UNIQUE(fingerprint)``
+    enforces A1 (replay rejection) and A2 (concurrent claim) across processes
+    and restarts. A replay returns 409 Conflict — waker treats that as
+    "already woken" and skips resume.
+    """
+    event, result_status = inbound_event_service.record_inbound_event(
+        db, agent, payload
+    )
+    if result_status == "duplicate":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"inbound_event with fingerprint '{payload.fingerprint}' already exists; "
+                "treating as already woken (D6 server gate)"
+            ),
+        )
+    return InboundEventRecordResult(
+        status="recorded",
+        event=InboundEventRead.model_validate(event),
+    )
 
 

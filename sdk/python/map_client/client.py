@@ -30,6 +30,8 @@ from map_types import (
     ExperimentSummaryRead,
     ExperimentUpdate,
     GlobalStatusRead,
+    InboundEventCreate,
+    InboundEventRecordResult,
     PlanRevise,
     PlanVersionRead,
     ProjectCreate,
@@ -642,6 +644,25 @@ class MAPClient:
 
     def mark_all_notifications_read(self) -> dict[str, int]:
         return self._json("POST", "/agents/me/notifications/read-all")
+
+    # --- inbound events (runtime-waker dedup gate; D6) ---
+
+    def record_inbound_event(
+        self,
+        payload: InboundEventCreate,
+    ) -> InboundEventRecordResult:
+        """Record that the caller is about to act on ``event_id``.
+
+        Raises :class:`MAPHTTPError` with ``status_code == 409`` when the
+        fingerprint already exists (server gate). Callers should treat 409 as
+        "already woken" and skip the resume step (see plan D6 / A1 / A2).
+        """
+        data = self._json(
+            "POST",
+            "/agents/me/inbound-events",
+            json=payload.model_dump(mode="json"),
+        )
+        return InboundEventRecordResult.model_validate(data)
 
     # --- webhooks (admin) ---
 
