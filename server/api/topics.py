@@ -125,6 +125,18 @@ def close_topic(
 ) -> TopicSummaryRead:
     perm.ensure_topic_access(db, agent, topic_id)
     topic = topic_service.set_topic_status(db, topic_id, TopicStatus.closed)
+    # Phase 2 D2: kind-directed SSE so the waker can map to ``topic_lifecycle``.
+    notification_service.emit_kind(
+        db,
+        project_id=topic.project_id,
+        actor_id=agent.id,
+        personas=["host", "participant"],
+        event="topic.lifecycle.closed",
+        summary=f"话题已关闭「{topic.title}」",
+        target_type="topic",
+        target_id=topic.id,
+        payload={"topic_id": str(topic.id), "title": topic.title, "status": "closed"},
+    )
     return topic_service.topic_summary(db, topic)
 
 
@@ -152,6 +164,19 @@ def reopen_topic(
 ) -> TopicSummaryRead:
     perm.ensure_topic_access(db, agent, topic_id)
     topic = topic_service.set_topic_status(db, topic_id, TopicStatus.open)
+    # Phase 2 D2: kind-directed SSE for reopen so the waker can map to
+    # ``topic_lifecycle`` and resume the participant wake loop.
+    notification_service.emit_kind(
+        db,
+        project_id=topic.project_id,
+        actor_id=agent.id,
+        personas=["host", "participant"],
+        event="topic.lifecycle.reopened",
+        summary=f"话题已重开「{topic.title}」",
+        target_type="topic",
+        target_id=topic.id,
+        payload={"topic_id": str(topic.id), "title": topic.title, "status": "open"},
+    )
     return topic_service.topic_summary(db, topic)
 
 

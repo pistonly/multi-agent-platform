@@ -30,7 +30,7 @@ from server.domain.schemas import (
     ReviewItemUpdate,
     ReviewRead,
 )
-from server.services import comment_service, log_service, lock_service, phase_service, plan_service, review_service
+from server.services import comment_service, log_service, lock_service, notification_service, phase_service, plan_service, review_service
 from server.services import permissions as perm
 from server.services import project_service as svc
 
@@ -195,6 +195,18 @@ def withdraw_from_review(
     perm.ensure_experiment_access(db, agent, experiment_id)
     phase_service.withdraw_from_review(db, experiment_id, agent)
     experiment = svc.get_experiment(db, experiment_id)
+    # Phase 2 D2: kind-directed SSE so the waker can map to ``experiment_lifecycle``.
+    notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        actor_id=agent.id,
+        personas=["host", "reviewer"],
+        event="experiment.lifecycle.withdrawn",
+        summary=f"实验已撤回评审（{experiment.title}）",
+        target_type="experiment",
+        target_id=experiment.id,
+        payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
+    )
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -207,6 +219,18 @@ def cancel_experiment(
     perm.ensure_experiment_access(db, agent, experiment_id)
     phase_service.cancel_experiment(db, experiment_id, agent)
     experiment = svc.get_experiment(db, experiment_id)
+    # Phase 2 D2: kind-directed SSE so the waker can map to ``experiment_lifecycle``.
+    notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        actor_id=agent.id,
+        personas=["host", "reviewer"],
+        event="experiment.lifecycle.cancelled",
+        summary=f"实验已取消（{experiment.title}）",
+        target_type="experiment",
+        target_id=experiment.id,
+        payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
+    )
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -313,6 +337,25 @@ def update_review_item(
 ) -> ReviewItemRead:
     perm.ensure_review_item_access(db, agent, item_id)
     item = review_service.update_review_item(db, item_id, agent, payload)
+    # Phase 2 D2: kind-directed SSE for the addressed/responded/rebutted
+    # transition so the waker can map to ``addressed_review_item``.
+    experiment = svc.get_experiment(db, item.review.experiment_id)
+    notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        actor_id=agent.id,
+        personas=["host"],
+        event="review_item.status_changed",
+        summary=f"评审项状态变为 {item.status.value if item.status else 'updated'}（{experiment.title}）",
+        target_type="review_item",
+        target_id=item.id,
+        payload={
+            "experiment_id": str(experiment.id),
+            "review_id": str(item.review_id),
+            "item_id": str(item.id),
+            "status": item.status.value if item.status else None,
+        },
+    )
     return ReviewItemRead.model_validate(item)
 
 
