@@ -9,7 +9,8 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -23,12 +24,323 @@ from cli.worker_cycle_log import log_cycle_summary
 
 APP = typer.Typer(add_completion=False)
 
+
+# ---------------------------------------------------------------------------
+# action_item escalation (experiment B, plan §3 / I4)
+# ---------------------------------------------------------------------------
+#
+# The waker drives the three-stage escalation timeline
+# ``T+24h → T+72h → 7d × N → stale`` against each open action_item whose
+# owner matches the current persona. ``should_wake_action_item`` is the
+# pure decision function — kept side-effect-free so unit tests can stamp
+# ``now`` directly without touching the DB. ``scan_pending_action_items``
+# is the thin caller-friendly wrapper used by ``_run_once_async``.
+#
+# All threshold numbers mirror ``server.services.action_item_service``
+# (``WAKE_STAGE_THRESHOLDS`` / ``WAKE_REPEAT_INTERVAL_DAYS`` /
+# ``WAKE_MAX_COUNT_BEFORE_STALE``). Keep these two definitions in sync —
+# the I3 unit test ``test_threshold_constants_match_plan_section_three``
+# is the canonical lint and we re-export the server-side constants here
+# for runtime use.
+# ---------------------------------------------------------------------------
+
+
+class ActionItemWakeDecision(str, Enum):
+    """Outcome of ``should_wake_action_item`` for one action_item at ``now``."""
+
+    WAKE = "wake"
+    STALE = "stale"
+    SKIP = "skip"
+
+
+# Mirrored from server.services.action_item_service. Importing would force
+# the waker CLI to depend on the server-side stack (SQLAlchemy models +
+# FastAPI deps), which violates the waker's no-FastAPI invariant. Kept
+# short and obvious so a reviewer can spot drift.
+_WAKE_STAGE_HOURS: tuple[tuple[int, int], ...] = (
+    (1, 24),   # wake_count_after_increment=1 → first wake at T+24h
+    (2, 72),   # wake_count_after_increment=2 → second wake at T+72h
+)
+_WAKE_REPEAT_DAYS = 7  # after the 72h wake, fire every 7d
+_WAKE_MAX_BEFORE_STALE = 4  # 4th unanswered wake → stale
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    """Parse an ISO-8601 string into an aware UTC datetime.
+
+    Defensive about the variety of shapes the SDK / API may emit
+    (``...Z`` vs ``...+00:00`` vs naive ISO). Returns ``None`` if the value
+    is missing or unparseable — callers treat ``None`` as "skip".
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def should_wake_action_item(
+    item: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> ActionItemWakeDecision:
+    """Decide the escalation action for one open action_item at ``now``.
+
+    Pure function (no I/O, no clock). Returns ``WAKE`` when the waker
+    should bump ``wake_count`` and emit a wake event, ``STALE`` when the
+    4th wake has already fired and the assignee still hasn't responded
+    (we mark stale + stop waking), or ``SKIP`` when the escalation
+    timeline does not yet call for an action.
+
+    Rules (plan §3, mirrored from ``server.services.action_item_service``):
+
+    - Only open items are eligible; closed items (done / cancelled) and
+      unassigned items (no ``owner_agent_id``) are skipped.
+    - Stale items (``stale_at`` set) are skipped forever — once we've
+      written the diagnostic audit row we stop bothering the assignee.
+    - First wake fires 24h after ``first_open_at``; second at 72h; further
+      wakes every 7d; the (N+1)th check after the 4th wake writes stale.
+    - ``now`` defaults to ``datetime.now(UTC)`` — callers that need a
+      deterministic clock (tests, dogfood) inject their own.
+    """
+    if not isinstance(item, dict):
+        return ActionItemWakeDecision.SKIP
+    if item.get("status") != "open":
+        return ActionItemWakeDecision.SKIP
+    if not item.get("owner_agent_id"):
+        # plan §3 「仅 assignee」 — unassigned items must not be woken by
+        # anyone, the waker has no addressee.
+        return ActionItemWakeDecision.SKIP
+    if _parse_iso_datetime(item.get("stale_at")) is not None:
+        return ActionItemWakeDecision.SKIP
+
+    current = now or datetime.now(UTC)
+    first_open_at = _parse_iso_datetime(item.get("first_open_at"))
+    if first_open_at is None:
+        # Pre-I1 backfill may have missed this row (closed before I1, etc).
+        # Conservatively skip — re-running the backfill is the remediation.
+        return ActionItemWakeDecision.SKIP
+    last_woken_at = _parse_iso_datetime(item.get("last_woken_at"))
+    wake_count = int(item.get("wake_count") or 0)
+
+    elapsed = current - first_open_at
+
+    # Stage 1 & 2: hard thresholds keyed to first_open_at.
+    for target_count, min_hours in _WAKE_STAGE_HOURS:
+        if wake_count + 1 == target_count and elapsed >= timedelta(hours=min_hours):
+            return ActionItemWakeDecision.WAKE
+
+    # Stages 3+: every 7d after the last wake.
+    if 2 <= wake_count < _WAKE_MAX_BEFORE_STALE and last_woken_at is not None:
+        if current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS):
+            return ActionItemWakeDecision.WAKE
+
+    # Past the 4th unanswered wake: write stale.
+    if wake_count >= _WAKE_MAX_BEFORE_STALE and last_woken_at is not None:
+        if current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS):
+            return ActionItemWakeDecision.STALE
+
+    return ActionItemWakeDecision.SKIP
+
+
+def scan_pending_action_items(
+    action_items: list[dict[str, Any]],
+    *,
+    persona_agent_id: str | None,
+    now: datetime | None = None,
+) -> list[tuple[str, ActionItemWakeDecision]]:
+    """Filter the ``action_items`` todo payload through ``should_wake_action_item``.
+
+    Returns a list of ``(action_item_id, decision)`` pairs. Only items
+    owned by ``persona_agent_id`` are considered — the waker must never
+    wake another agent's action_item even if it shows up in the
+    cross-project listing. Items whose owner doesn't match are skipped
+    silently (not raised) — the per-persona todos feed already scopes
+    this but we re-check defensively against potential payload leakage.
+    """
+    decisions: list[tuple[str, ActionItemWakeDecision]] = []
+    for item in action_items or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        if not item_id:
+            continue
+        if persona_agent_id and str(item.get("owner_agent_id") or "") != str(persona_agent_id):
+            continue
+        decisions.append((item_id, should_wake_action_item(item, now=now)))
+    return decisions
+
 # Codex wake: inject dispatcher + shared collab + persona skills (deduped, file order).
 WAKE_SKILL_CHAIN: dict[str, tuple[str, ...]] = {
     "host": ("map-runtime-waker", "map-project-collab", "topic-host", "experiment-host"),
     "participant": ("map-runtime-waker", "map-project-collab", "topic-participant"),
     "reviewer": ("map-runtime-waker", "map-project-collab", "experiment-reviewer"),
 }
+
+# ---------------------------------------------------------------------------
+# Phase 2 D1/D3/D4: SSE primary path + replay/rate-limit helpers.
+# ---------------------------------------------------------------------------
+#
+# Three sources feed _wake_event. The fingerprint invariant is preserved across
+# them: ``event_source`` only changes the sessions jsonl ``event_source`` field
+# and the D4 client-side skip path; the inbound_event.UNIQUE server gate still
+# sees the same fingerprint and rejects cross-source replays.
+# ---------------------------------------------------------------------------
+
+WAKE_SOURCE_POLLING = "polling"  # periodic todos/notifications poll
+WAKE_SOURCE_SSE = "sse"          # real-time SSE long-poll frame
+WAKE_SOURCE_REPLAY = "replay"    # SSE reconnect backfill via unread_only=true
+
+
+# Notification.event -> WakeEvent.kind routing table (Phase 2 D2 §I2).
+# The ``payload.kind`` enrichment done by ``emit_kind`` (server side) takes
+# priority — we read it from the notifications_unread payload_json. The
+# event-name fallback covers events emitted by the legacy ``emit()`` path
+# (still in use for ``topic.advance_round`` / ``experiment.phase_changed`` /
+# ``plan.revised`` / ``comment.created`` etc.).
+_KIND_FROM_PAYLOAD_KIND: dict[str, str] = {
+    "topic.lifecycle": "topic_lifecycle",
+    "topic.advance_round": "topic_lifecycle",
+    "topic.resolved": "topic_lifecycle",
+    "topic.comment": "topic_lifecycle",
+    "experiment.lifecycle": "experiment_lifecycle",
+    "experiment.phase_changed": "experiment_lifecycle",
+    "plan.revised": "experiment_lifecycle",
+    "review.submitted": "pending_review",
+    "review_item": "pending_review",
+    "review_item.status_changed": "pending_replies",
+    "comment.created": "pending_result_review",
+}
+
+
+def _notification_event_to_wake_kind(
+    event: str, payload: dict[str, Any] | None
+) -> str:
+    """Derive a WakeEvent.kind bucket from a Notification event + payload.
+
+    Priority: payload.kind (set by server emit_kind) > event-name pattern.
+    Unknown events fall back to ``"notification"`` (generic bucket that the
+    discover_wake_events path already handles via ``unread notifications``).
+    """
+    if isinstance(payload, dict):
+        explicit = payload.get("kind")
+        if isinstance(explicit, str) and explicit in _KIND_FROM_PAYLOAD_KIND:
+            return _KIND_FROM_PAYLOAD_KIND[explicit]
+    if event.startswith("topic.") or event.startswith("comment.topic") :
+        return "topic_lifecycle"
+    if (
+        event.startswith("experiment.")
+        or event.startswith("plan.")
+        or event.startswith("comment.experiment")
+    ):
+        return "experiment_lifecycle"
+    if event.startswith("review."):
+        return "pending_review"
+    if event.startswith("comment."):
+        return "pending_result_review"
+    if event == "addressed_review_item.status_changed":
+        return "pending_replies"
+    return "notification"
+
+
+def parse_sse_frame(buffer: str) -> tuple[dict[str, str] | None, str]:
+    """Parse one SSE frame out of ``buffer``.
+
+    Returns ``(frame, leftover)``. Frame is a dict like ``{"event": "...", "data": "..."}``
+    when the buffer contains a complete blank-line-terminated frame, otherwise
+    ``None``. Comment lines (``: heartbeat``) and unknown fields are ignored.
+    Multiple ``data:`` lines are joined with ``\n`` per the SSE spec.
+    """
+    if not buffer:
+        return None, ""
+    delimiter = buffer.find("\n\n")
+    if delimiter == -1:
+        # Some servers send \r\n\r\n; normalize then check.
+        normalized = buffer.replace("\r\n", "\n")
+        delimiter = normalized.find("\n\n")
+        if delimiter == -1:
+            return None, buffer
+        frame_block = normalized[:delimiter]
+        leftover = normalized[delimiter + 2 :]
+    else:
+        frame_block = buffer[:delimiter]
+        leftover = buffer[delimiter + 2 :]
+    fields: dict[str, list[str]] = {}
+    for raw_line in frame_block.splitlines():
+        if not raw_line or raw_line.startswith(":"):
+            continue
+        if ":" not in raw_line:
+            # Bare field name with no value; per SSE spec treat as empty.
+            name = raw_line.strip()
+            value = ""
+        else:
+            name, _, value = raw_line.partition(":")
+            # Spec: strip a single leading space.
+            if value.startswith(" "):
+                value = value[1:]
+        fields.setdefault(name.strip(), []).append(value)
+    if not fields:
+        return None, leftover
+    return (
+        {key: "\n".join(values) for key, values in fields.items()},
+        leftover,
+    )
+
+
+def sse_backoff_delay(
+    consecutive_failures: int,
+    *,
+    base: float,
+    cap: float,
+) -> float:
+    """Compute D3 exponential backoff delay: 1s, 2s, 4s, ..., capped.
+
+    Pure function (no clock, no I/O) so unit tests can pin the sequence.
+    """
+    if consecutive_failures <= 0:
+        return 0.0
+    delay = base * (2 ** (consecutive_failures - 1))
+    return min(delay, cap)
+
+
+def _resolve_api_url(project_root: Path) -> str | None:
+    """Read ``api_url`` from ``.map/config.yaml``. Returns None if missing."""
+    config_path = project_root / ".map" / "config.yaml"
+    if not config_path.is_file():
+        return None
+    try:
+        import yaml  # local import: top-of-file import already pulls yaml via map_command_client
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    api_url = data.get("api_url")
+    if not isinstance(api_url, str) or not api_url.strip():
+        return None
+    return api_url.rstrip("/")
+
+
+def _resolve_bearer_token(project_root: Path, persona: str) -> str | None:
+    """Read the bearer token for ``persona`` from ``.map/agents.local.yaml``."""
+    agents_path = project_root / ".map" / "agents.local.yaml"
+    if not agents_path.is_file():
+        return None
+    try:
+        import yaml
+        data = yaml.safe_load(agents_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    personas = data.get("personas") if isinstance(data, dict) else None
+    if not isinstance(personas, dict):
+        return None
+    entry = personas.get(persona) or {}
+    if not isinstance(entry, dict):
+        return None
+    token = entry.get("token")
+    return str(token) if isinstance(token, str) and token else None
 
 # Stable namespace used to derive a UUID from a (agent_id, fingerprint) pair when
 # the upstream WakeEvent has no notification UUID of its own. UUID5 is deterministic
@@ -111,6 +423,25 @@ class RuntimeWakerConfig:
     runtime_home: Path | None = None
     codex_bin: str | None = None
     force: bool = False
+    # Phase 2 D1: enable SSE primary path. When on, the waker runs an SSE
+    # long-poll alongside the polling cycle and wakes from incoming frames
+    # before the polling interval would have re-discovered them. Polling
+    # remains the last-line fallback (D6) — disable only for offline tests.
+    sse_enabled: bool = True
+    # D4 client-side rate limit: skip wake when same fingerprint was woken
+    # within this window. The server-side UNIQUE gate is unchanged (still
+    # authoritative across processes); this is a cheap in-memory gate to
+    # avoid round-trips during SSE replay storms. Replay events bypass.
+    sse_recent_resume_window_seconds: float = 60.0
+    # D3 exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at max.
+    sse_backoff_base_seconds: float = 1.0
+    sse_backoff_max_seconds: float = 30.0
+    # Bound per-connection read timeout so dead connections don't hang forever.
+    sse_read_timeout_seconds: float = 90.0
+    # Bound how many unread wakeable notifications we replay on (re)connect.
+    sse_replay_limit: int = 200
+    # Bound the SSE handshake connect timeout separately from per-read timeout.
+    sse_connect_timeout_seconds: float = 10.0
 
 
 @dataclass
@@ -124,6 +455,26 @@ class RuntimeWakerStats:
     # Orphaned event dedup entries dropped by the TTL sweep (see _prune_events).
     # Mirrors dry_run_actions: aggregated across cycles so run_forever totals stay correct.
     events_pruned: int = 0
+    # Action-item escalation counters (experiment B, plan §3 / I4). Mirrors
+    # the wake / skip / error split so dogfood dashboards can read
+    # "wake:stale:skip" ratios from ``log_cycle_summary`` output.
+    action_items_wake: int = 0
+    action_items_stale: int = 0
+    action_items_decision_skip: int = 0
+    action_items_decision_errors: int = 0
+    # Phase 2 D1/D3/D4 SSE stats. Aggregated across cycles so run_forever
+    # totals stay correct. Source counters (sse / replay / polling) let the
+    # reviewer trace which path triggered each wake in the A1a/A1b/A3 reports.
+    sse_connect_attempts: int = 0
+    sse_connect_successes: int = 0
+    sse_events_received: int = 0
+    sse_wakes_sent: int = 0
+    sse_replay_wakes_sent: int = 0
+    sse_replay_runs: int = 0
+    sse_rate_limit_skips: int = 0
+    sse_disconnects: int = 0
+    sse_backoff_seconds_total: float = 0.0
+    sse_last_disconnect_reason: str | None = None
 
     def add(self, other: "RuntimeWakerStats") -> None:
         self.cycles += other.cycles
@@ -133,6 +484,20 @@ class RuntimeWakerStats:
         self.wake_errors += other.wake_errors
         self.dry_run_actions += other.dry_run_actions
         self.events_pruned += other.events_pruned
+        self.action_items_wake += other.action_items_wake
+        self.action_items_stale += other.action_items_stale
+        self.action_items_decision_skip += other.action_items_decision_skip
+        self.action_items_decision_errors += other.action_items_decision_errors
+        self.sse_connect_attempts += other.sse_connect_attempts
+        self.sse_connect_successes += other.sse_connect_successes
+        self.sse_events_received += other.sse_events_received
+        self.sse_wakes_sent += other.sse_wakes_sent
+        self.sse_replay_wakes_sent += other.sse_replay_wakes_sent
+        self.sse_replay_runs += other.sse_replay_runs
+        self.sse_rate_limit_skips += other.sse_rate_limit_skips
+        self.sse_disconnects += other.sse_disconnects
+        self.sse_backoff_seconds_total += other.sse_backoff_seconds_total
+        self.sse_last_disconnect_reason = other.sse_last_disconnect_reason or self.sse_last_disconnect_reason
 
 
 class WakeBackend(Protocol):
@@ -467,6 +832,10 @@ class RuntimeWaker:
         # wake and suppresses the new process for the whole inflight window
         # (observed: host/reviewer idle for 30min after every waker restart).
         self._started_at: datetime = datetime.now(UTC)
+        # Phase 2 D4: in-process fingerprint → last resume attempt timestamp.
+        # Bounded by sse_recent_resume_window_seconds; pruned in
+        # _run_once_async + after each SSE replay. Survives only this process.
+        self._recent_resume_attempts: dict[str, datetime] = {}
         if backend is not None:
             self.backend = backend
         elif self.config.backend == "claude":
@@ -502,6 +871,19 @@ class RuntimeWaker:
                     "wake_errors",
                     "dry_run_actions",
                     "events_pruned",
+                    "action_items_wake",
+                    "action_items_stale",
+                    "action_items_decision_skip",
+                    "action_items_decision_errors",
+                    "sse_connect_attempts",
+                    "sse_connect_successes",
+                    "sse_events_received",
+                    "sse_wakes_sent",
+                    "sse_replay_wakes_sent",
+                    "sse_replay_runs",
+                    "sse_rate_limit_skips",
+                    "sse_disconnects",
+                    "sse_backoff_seconds_total",
                 ],
             )
             if self.config.once:
@@ -514,11 +896,23 @@ class RuntimeWaker:
     async def _run_forever_claude(self) -> RuntimeWakerStats:
         assert isinstance(self.backend, PersonaAgentWakeBackend)
         await self.backend.connect()
+        stop = asyncio.Event()
+        sse_stats = RuntimeWakerStats()
+        sse_task: asyncio.Task[None] | None = None
+        if self.config.sse_enabled:
+            sse_task = asyncio.create_task(
+                self._run_sse_loop_async(stop=stop, stats=sse_stats),
+                name=f"sse-{self.config.persona}",
+            )
         try:
             total = RuntimeWakerStats()
             while True:
                 stats = await self._run_once_async()
                 total.add(stats)
+                # Pull SSE stats accumulated between polling cycles.
+                total.add(sse_stats)
+                # Reset the shared sse_stats accumulator; we own its lifecycle.
+                sse_stats = RuntimeWakerStats()
                 log_cycle_summary(
                     "runtime-waker",
                     total,
@@ -530,6 +924,19 @@ class RuntimeWaker:
                         "wake_errors",
                         "dry_run_actions",
                         "events_pruned",
+                        "action_items_wake",
+                        "action_items_stale",
+                        "action_items_decision_skip",
+                        "action_items_decision_errors",
+                        "sse_connect_attempts",
+                        "sse_connect_successes",
+                        "sse_events_received",
+                        "sse_wakes_sent",
+                        "sse_replay_wakes_sent",
+                        "sse_replay_runs",
+                        "sse_rate_limit_skips",
+                        "sse_disconnects",
+                        "sse_backoff_seconds_total",
                     ],
                 )
                 if self.config.once:
@@ -539,6 +946,13 @@ class RuntimeWaker:
                 await asyncio.sleep(self.config.interval)
             return total
         finally:
+            stop.set()
+            if sse_task is not None:
+                sse_task.cancel()
+                try:
+                    await sse_task
+                except (asyncio.CancelledError, Exception):
+                    pass
             await self.backend.disconnect()
 
     def run_once(self) -> RuntimeWakerStats:
@@ -568,7 +982,64 @@ class RuntimeWaker:
                 stats.wake_skips += 1
                 continue
             candidates.append(event)
-        selected = _round_robin_by_kind(candidates, self.config.max_wakes_per_cycle)
+
+        # Experiment B (plan §3 / I4): apply the action_item escalation
+        # decision BEFORE the round-robin selection. Items the waker has
+        # decided to mark stale are processed (mark-stale CLI call) and
+        # then dropped from the wake candidates so they don't consume a
+        # round-robin slot. Items decided wake have their state pre-mutated
+        # (``mark-wake-sent``) so the agent prompt reflects the new count.
+        pre_decided: list[WakeEvent] = []
+        for event in candidates:
+            if event.kind != "action_items":
+                pre_decided.append(event)
+                continue
+            try:
+                decision = should_wake_action_item(event.payload or {})
+            except Exception as exc:  # pragma: no cover - defensive
+                stats.action_items_decision_errors += 1
+                self._mark_event(event, status="error", error=f"decision: {exc!r}")
+                continue
+            if decision == ActionItemWakeDecision.SKIP:
+                stats.action_items_decision_skip += 1
+                stats.wake_skips += 1
+                continue
+            if decision == ActionItemWakeDecision.STALE:
+                if self.config.dry_run:
+                    typer.echo(
+                        f"[dry-run] would mark-stale action_item={event.object_id}"
+                    )
+                    stats.dry_run_actions += 1
+                else:
+                    try:
+                        self.client.action_mark_stale(event.object_id)
+                    except WorkerError as exc:
+                        stats.action_items_decision_errors += 1
+                        self._mark_event(event, status="error", error=f"mark-stale: {exc!r}")
+                        continue
+                stats.action_items_stale += 1
+                stats.wake_skips += 1
+                # Don't emit a wake prompt for the assignee after stale —
+                # the diagnostic audit row + (future) admin notification
+                # are the post-stale signals (plan §3 §4 + §5).
+                continue
+            # WAKE — pre-mutate state so the agent sees the bumped count.
+            if self.config.dry_run:
+                typer.echo(
+                    f"[dry-run] would mark-wake-sent action_item={event.object_id}"
+                )
+                stats.dry_run_actions += 1
+            else:
+                try:
+                    self.client.action_mark_wake_sent(event.object_id)
+                except WorkerError as exc:
+                    stats.action_items_decision_errors += 1
+                    self._mark_event(event, status="error", error=f"mark-wake-sent: {exc!r}")
+                    continue
+            stats.action_items_wake += 1
+            pre_decided.append(event)
+
+        selected = _round_robin_by_kind(pre_decided, self.config.max_wakes_per_cycle)
 
         for event in selected:
             if self.config.dry_run:
@@ -576,7 +1047,7 @@ class RuntimeWaker:
                 stats.dry_run_actions += 1
                 continue
             try:
-                await self._wake_event(event)
+                await self._wake_event(event, event_source=WAKE_SOURCE_POLLING, stats=stats)
             except WorkerError as exc:
                 self._mark_event(event, status="error", error=str(exc))
                 stats.wake_errors += 1
@@ -586,6 +1057,8 @@ class RuntimeWaker:
         # Sweep orphaned event entries after waking: anything rediscovered this
         # cycle had last_attempt_at refreshed above, so only true orphans age out.
         self._prune_events(stats)
+        # Drop stale D4 rate-limit entries; cheap O(n) sweep.
+        self._prune_recent_resume_attempts()
         self._save_state_if_needed()
         return stats
 
@@ -621,7 +1094,29 @@ class RuntimeWaker:
             await self.backend.reset_session()
         self._save_state_if_needed(force=True)
 
-    async def _wake_event(self, event: WakeEvent) -> None:
+    async def _wake_event(
+        self,
+        event: WakeEvent,
+        *,
+        event_source: str = WAKE_SOURCE_POLLING,
+        stats: RuntimeWakerStats | None = None,
+    ) -> None:
+        # D4 client-side rate limit (Phase 2): skip the resume attempt when the
+        # same fingerprint was woken within the configured window. The
+        # server-side UNIQUE gate (D6) still handles cross-process dedup; this
+        # is a cheap in-process gate that avoids redundant round-trips during
+        # SSE replay storms. Replay events bypass — they already came from a
+        # ``unread_only=true`` backfill and the server UNIQUE gate will reject
+        # any cross-process duplicates.
+        if event_source != WAKE_SOURCE_REPLAY and self._should_skip_due_to_rate_limit(event):
+            if stats is not None:
+                stats.sse_rate_limit_skips += 1
+            return
+        # Record the resume attempt BEFORE doing work so a slow resume can't
+        # race a second attempt through the same fingerprint.
+        if event_source != WAKE_SOURCE_REPLAY:
+            self._record_resume_attempt(event)
+
         await self._prepare_session_for_event(event)
 
         # D6 server gate: record the fingerprint against the inbound_events table
@@ -636,6 +1131,7 @@ class RuntimeWaker:
             event_id=str(event_uuid),
             fingerprint=event.fingerprint,
             event_type=event.kind,
+            source=event_source,
         )
         if not server_first and not had_prior_claim:
             self._mark_event(event, status="server_skip")
@@ -654,7 +1150,7 @@ class RuntimeWaker:
             result = await self.backend.wake_async(
                 prompt=prompt,
                 event_id=str(event_uuid),
-                event_source="polling",
+                event_source=event_source,
                 fingerprint=event.fingerprint,
             )
         else:
@@ -669,6 +1165,276 @@ class RuntimeWaker:
         persona_state["last_wake_context_key"] = wake_context_key(event)
         persona_state["last_wake_object_id"] = event.object_id
         self._state_dirty = True
+
+    def _should_skip_due_to_rate_limit(self, event: WakeEvent) -> bool:
+        """D4 client-side rate limit: return True if this fingerprint was woken
+        within the configured window.
+
+        State is kept in-process (does not survive restart) — this is an
+        optimization that complements, not replaces, the server-side UNIQUE
+        gate. A restart clears the window; server UNIQUE rejects any cross-
+        process or cross-restart duplicates regardless.
+        """
+        if self.config.sse_recent_resume_window_seconds <= 0:
+            return False
+        last_attempt = self._recent_resume_attempts.get(event.fingerprint)
+        if last_attempt is None:
+            return False
+        return (datetime.now(UTC) - last_attempt).total_seconds() < self.config.sse_recent_resume_window_seconds
+
+    def _record_resume_attempt(self, event: WakeEvent) -> None:
+        """Stamp the current time on a fingerprint's rate-limit bucket.
+
+        Bounded by lazy GC in ``_prune_recent_resume_attempts`` (called by
+        _run_once_async + SSE replay loop) so long-running wakers don't grow
+        the dict unboundedly.
+        """
+        self._recent_resume_attempts[event.fingerprint] = datetime.now(UTC)
+
+    def _prune_recent_resume_attempts(self) -> None:
+        """Drop entries older than the configured window. Cheap O(n) sweep."""
+        if self.config.sse_recent_resume_window_seconds <= 0:
+            return
+        cutoff = datetime.now(UTC) - timedelta(seconds=self.config.sse_recent_resume_window_seconds * 2)
+        stale = [
+            fp
+            for fp, ts in self._recent_resume_attempts.items()
+            if ts < cutoff
+        ]
+        for fp in stale:
+            self._recent_resume_attempts.pop(fp, None)
+
+    # --- Phase 2 D1/D3: SSE primary path -------------------------------------
+
+    async def _run_sse_loop_async(
+        self,
+        *,
+        stop: asyncio.Event,
+        stats: RuntimeWakerStats,
+    ) -> None:
+        """Run the SSE consumer loop until ``stop`` is set or cancelled.
+
+        On every (re)connect: drain ``unread_only=true`` once to backfill
+        anything missed during the disconnect window (``event_source="replay"``,
+        D4 client-side rate limit bypassed per plan §D4 补漏豁免). After that,
+        consume frames; on each ``notification.created`` event build a
+        WakeEvent and run ``_wake_event(event_source="sse")``. The polling
+        loop is the last-line fallback (D6): even with SSE down, the next
+        ``_run_once_async`` cycle will rediscover any pending work.
+        """
+        api_url = _resolve_api_url(self.config.project_root)
+        token = _resolve_bearer_token(self.config.project_root, self.config.persona)
+        if not api_url or not token:
+            typer.echo(
+                "[sse] disabled: missing api_url or bearer token in .map/"
+            )
+            return
+        sse_url = f"{api_url}/api/v1/agents/me/notifications/stream"
+        consecutive_failures = 0
+        try:
+            import httpx  # local import — keep waker importable without httpx
+        except ImportError:
+            typer.echo("[sse] disabled: httpx not installed")
+            return
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=self.config.sse_connect_timeout_seconds,
+                read=self.config.sse_read_timeout_seconds,
+                write=10.0,
+                pool=10.0,
+            ),
+            headers={"Authorization": f"Bearer {token}"},
+        ) as client:
+            while not stop.is_set():
+                stats.sse_connect_attempts += 1
+                try:
+                    async with client.stream(
+                        "GET", sse_url, headers={"Accept": "text/event-stream"}
+                    ) as response:
+                        if response.status_code != 200:
+                            raise RuntimeError(
+                                f"SSE HTTP {response.status_code}: "
+                                f"{await response.aread()!r:.200}"
+                            )
+                        stats.sse_connect_successes += 1
+                        consecutive_failures = 0
+                        await self._sse_replay_unread(stats)
+                        await self._sse_consume_stream(response, stats, stop)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — SSE loop must not die
+                    consecutive_failures += 1
+                    stats.sse_disconnects += 1
+                    stats.sse_last_disconnect_reason = repr(exc)[:200]
+                    delay = sse_backoff_delay(
+                        consecutive_failures,
+                        base=self.config.sse_backoff_base_seconds,
+                        cap=self.config.sse_backoff_max_seconds,
+                    )
+                    stats.sse_backoff_seconds_total += delay
+                    typer.echo(
+                        f"[sse] disconnect: {stats.sse_last_disconnect_reason}; "
+                        f"backoff {delay:.1f}s"
+                    )
+                    try:
+                        await asyncio.wait_for(stop.wait(), timeout=delay)
+                    except asyncio.TimeoutError:
+                        pass
+
+    async def _sse_consume_stream(
+        self,
+        response: Any,
+        stats: RuntimeWakerStats,
+        stop: asyncio.Event,
+    ) -> None:
+        """Read frames from an open SSE response and dispatch each event."""
+        buffer = ""
+        async for chunk in response.aiter_text():
+            if stop.is_set():
+                return
+            buffer = (buffer + chunk).replace("\r\n", "\n")
+            while True:
+                frame, buffer = parse_sse_frame(buffer)
+                if frame is None:
+                    break
+                if frame.get("event") and frame["event"] != "notification.created":
+                    # Heartbeat-only frames carry no data; skip.
+                    continue
+                data = frame.get("data")
+                if not data:
+                    continue
+                try:
+                    payload = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                if payload.get("type") and payload["type"] != "notification.created":
+                    continue
+                stats.sse_events_received += 1
+                await self._sse_dispatch_payload(payload, stats)
+
+    async def _sse_dispatch_payload(
+        self,
+        payload: dict[str, Any],
+        stats: RuntimeWakerStats,
+    ) -> None:
+        """Translate an SSE ``notification.created`` frame into a wake.
+
+        Fetches the unread notification list to enrich the SSE frame's
+        ``notification_id`` with full ``payload_json`` (which carries ``kind``
+        and target ids). The fetch is cheap (one HTTP call per frame) and
+        avoids a second ``GET /me/notifications/{id}`` endpoint round-trip
+        just to read payload_json.
+        """
+        notification_id = str(payload.get("notification_id") or "")
+        event_name = str(payload.get("event") or "")
+        if not notification_id:
+            return
+        try:
+            unread = self.client.notifications_unread(
+                limit=self.config.sse_replay_limit,
+                category="wakeable",
+            )
+        except WorkerError:
+            return
+        target = next(
+            (
+                item for item in unread
+                if str(item.get("id") or "") == notification_id
+            ),
+            None,
+        )
+        if target is None:
+            # Notification was already marked read elsewhere or isn't wakeable.
+            # Polling will catch it on the next cycle if it still needs a wake.
+            return
+        event = self._build_sse_wake_event(target, event_name)
+        if event is None:
+            return
+        try:
+            await self._wake_event(event, event_source=WAKE_SOURCE_SSE, stats=stats)
+        except WorkerError:
+            # Polling will retry next cycle; SSE should keep consuming.
+            return
+        stats.sse_wakes_sent += 1
+
+    def _build_sse_wake_event(
+        self,
+        notification: dict[str, Any],
+        event_name: str,
+    ) -> WakeEvent | None:
+        """Build a WakeEvent from a notification row pulled via SSE.
+
+        Fingerprint uses the notification id so each notification maps to a
+        unique inbound_event row (server UNIQUE gate rejects cross-source
+        duplicates regardless of which path discovered it first).
+        """
+        notification_id = str(notification.get("id") or "")
+        if not notification_id:
+            return None
+        target_id = str(notification.get("target_id") or "")
+        payload = notification.get("payload_json")
+        if not isinstance(payload, dict):
+            payload = notification.get("payload") if isinstance(notification.get("payload"), dict) else {}
+        kind = _notification_event_to_wake_kind(
+            str(notification.get("event") or event_name or ""),
+            payload,
+        )
+        # Prefer payload-level target ids for topic / experiment / review_item;
+        # fall back to notification.target_id. Some events omit target_id
+        # (e.g. experiment_lifecycle targeting the experiment itself) — when
+        # missing, use the notification id as a stable object key so the wake
+        # still has a unique object_id.
+        object_id = (
+            str(payload.get("topic_id") or "")
+            or str(payload.get("experiment_id") or "")
+            or str(payload.get("item_id") or "")
+            or target_id
+            or notification_id
+        )
+        wake_version = notification.get("wake_version") or 1
+        fingerprint = f"{self.config.persona}:{kind}:{notification_id}:{wake_version}"
+        return WakeEvent(
+            persona=self.config.persona,
+            kind=kind,
+            object_id=object_id,
+            fingerprint=fingerprint,
+            title=str(notification.get("summary") or "") or None,
+            reason=f"SSE event={notification.get('event') or event_name}",
+            payload=dict(notification),
+        )
+
+    async def _sse_replay_unread(self, stats: RuntimeWakerStats) -> None:
+        """D3 reconnect backfill: replay unread wakeable notifications.
+
+        Marks every replayed event with ``event_source="replay"`` so the D4
+        client-side rate limit bypasses them (plan §D4 补漏豁免). The
+        server-side UNIQUE gate still rejects any cross-process duplicates.
+        """
+        try:
+            unread = self.client.notifications_unread(
+                limit=self.config.sse_replay_limit,
+                category="wakeable",
+            )
+        except WorkerError:
+            return
+        if not unread:
+            return
+        stats.sse_replay_runs += 1
+        for notification in unread:
+            event = self._build_sse_wake_event(
+                notification, str(notification.get("event") or "")
+            )
+            if event is None:
+                continue
+            try:
+                await self._wake_event(
+                    event, event_source=WAKE_SOURCE_REPLAY, stats=stats
+                )
+            except WorkerError:
+                continue
+            stats.sse_replay_wakes_sent += 1
 
     def _session_id(self, persona_state: dict[str, Any]) -> str | None:
         sid = persona_state.get("claude_session_id") or persona_state.get("runtime_session_id")
@@ -978,14 +1744,71 @@ def _todo_item_object_id(bucket: str, item: dict[str, Any], *, stable_id: str) -
     return stable_id
 
 
+def _todo_overlap_keys(event: WakeEvent) -> set[tuple[str, str]]:
+    payload = event.payload or {}
+    keys: set[tuple[str, str]] = set()
+    if event.kind in {
+        "pending_reviews",
+        "pending_result_reviews",
+        "pending_replies",
+        "my_open_experiments",
+    }:
+        keys.add(("experiment", event.object_id))
+    if event.kind == "pending_replies":
+        item_id = payload.get("item_id") or payload.get("id")
+        if item_id:
+            keys.add(("review_item", str(item_id)))
+    if event.kind in {
+        "pending_topic_replies",
+        "pending_advance_rounds",
+        "pending_round_acks",
+        "my_open_topics",
+    }:
+        keys.add(("topic", event.object_id))
+    if event.kind == "mentions":
+        if payload.get("topic_id"):
+            keys.add(("topic", str(payload["topic_id"])))
+        if payload.get("experiment_id"):
+            keys.add(("experiment", str(payload["experiment_id"])))
+        if payload.get("source_id") and payload.get("source_type"):
+            keys.add((str(payload["source_type"]), str(payload["source_id"])))
+    if event.kind == "action_items":
+        if payload.get("id"):
+            keys.add(("action_item", str(payload["id"])))
+        if payload.get("topic_id"):
+            keys.add(("topic", str(payload["topic_id"])))
+    return keys
+
+
+def _notification_overlap_keys(item: dict[str, Any]) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    target_type = item.get("target_type")
+    target_id = item.get("target_id")
+    if target_type and target_id:
+        keys.add((str(target_type), str(target_id)))
+    payload = item.get("payload_json")
+    if not isinstance(payload, dict):
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    if payload.get("topic_id"):
+        keys.add(("topic", str(payload["topic_id"])))
+    if payload.get("experiment_id"):
+        keys.add(("experiment", str(payload["experiment_id"])))
+    if payload.get("item_id"):
+        keys.add(("review_item", str(payload["item_id"])))
+    if payload.get("action_item_id"):
+        keys.add(("action_item", str(payload["action_item_id"])))
+    return keys
+
+
 def discover_wake_events(
     persona: str,
     todos: dict[str, Any],
     *,
     notifications: list[dict[str, Any]] | None = None,
-) -> list[WakeEvent]:
+    ) -> list[WakeEvent]:
     """Derive wake events directly from UI-visible todos and unread notifications."""
     events: list[WakeEvent] = []
+    todo_overlap_keys: set[tuple[str, str]] = set()
     for bucket in TODO_WAKE_BUCKETS:
         for item in todos.get(bucket) or []:
             if not isinstance(item, dict):
@@ -1005,19 +1828,25 @@ def discover_wake_events(
                     payload=dict(item),
                 )
             )
+            todo_overlap_keys.update(_todo_overlap_keys(events[-1]))
     for item in notifications or []:
         if not isinstance(item, dict):
+            continue
+        if item.get("category") and item.get("category") != "wakeable":
+            continue
+        if _notification_overlap_keys(item) & todo_overlap_keys:
             continue
         stable_id = _todo_item_stable_id("notification", item)
         if not stable_id:
             continue
+        wake_version = item.get("wake_version") or 1
         object_id = _todo_item_object_id("notification", item, stable_id=stable_id)
         events.append(
             WakeEvent(
                 persona=persona,
                 kind="notification",
                 object_id=object_id,
-                fingerprint=f"{persona}:notification:{stable_id}",
+                fingerprint=f"{persona}:notification:{stable_id}:{wake_version}",
                 title=_todo_item_title("notification", item),
                 reason="unread in-app notification",
                 payload=dict(item),
@@ -1218,6 +2047,48 @@ def run(
         "--prune-events/--no-prune-events",
         help="Drop orphaned event dedup entries once they pass the TTL sweep window (default on).",
     ),
+    sse_enabled: bool = typer.Option(
+        True,
+        "--sse-enabled/--no-sse",
+        help=(
+            "Phase 2 D1: enable SSE primary path. When on, the waker maintains "
+            "a long-poll to /me/notifications/stream in parallel with polling; "
+            "disable only for offline tests."
+        ),
+    ),
+    sse_recent_resume_window_seconds: float = typer.Option(
+        60.0,
+        "--sse-recent-resume-window",
+        min=0.0,
+        help=(
+            "Phase 2 D4: skip wake when same fingerprint was resumed within this "
+            "window. In-process only; server UNIQUE gate is unaffected. 0 disables."
+        ),
+    ),
+    sse_backoff_base_seconds: float = typer.Option(
+        1.0,
+        "--sse-backoff-base",
+        min=0.1,
+        help="Phase 2 D3: exponential backoff base (first retry delay).",
+    ),
+    sse_backoff_max_seconds: float = typer.Option(
+        30.0,
+        "--sse-backoff-max",
+        min=1.0,
+        help="Phase 2 D3: exponential backoff cap.",
+    ),
+    sse_read_timeout_seconds: float = typer.Option(
+        90.0,
+        "--sse-read-timeout",
+        min=10.0,
+        help="Phase 2 D1: per-read timeout for the SSE stream (seconds).",
+    ),
+    sse_replay_limit: int = typer.Option(
+        200,
+        "--sse-replay-limit",
+        min=1,
+        help="Phase 2 D3: max unread wakeable notifications to replay on (re)connect.",
+    ),
 ) -> None:
     root = project_root.resolve()
     state_file_path = None
@@ -1248,6 +2119,12 @@ def run(
         codex_bin=codex_bin,
         force=force,
         prune_events=prune_events,
+        sse_enabled=sse_enabled,
+        sse_recent_resume_window_seconds=sse_recent_resume_window_seconds,
+        sse_backoff_base_seconds=sse_backoff_base_seconds,
+        sse_backoff_max_seconds=sse_backoff_max_seconds,
+        sse_read_timeout_seconds=sse_read_timeout_seconds,
+        sse_replay_limit=sse_replay_limit,
     )
     client = MapCommandClient(map_cmd=map_cmd, persona=persona, project_root=root, dry_run=dry_run)
     stats = RuntimeWaker(client=client, config=cfg).run_forever()
