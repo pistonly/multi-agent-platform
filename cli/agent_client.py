@@ -40,7 +40,7 @@ _MODEL_ENV_KEYS: tuple[str, ...] = ("ANTHROPIC_MODEL", "CLAUDE_MODEL")
 
 _EXPORT_RE = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
-IntegrationMode = Literal["bridge", "waker"]
+IntegrationMode = Literal["bridge", "waker", "manual"]
 
 
 class WakeUpEvent(TypedDict, total=False):
@@ -274,6 +274,15 @@ class PersonaAgentClient:
                 "event in the wake prompt using the appropriate skill from `.cursor/skills/`. "
                 "Gather missing context via the `map` CLI; do not wait for the waker to supply "
                 "a full plan."
+            )
+        if self.integration == "manual":
+            return (
+                f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
+                "project. A human operator resumed this session via `map runtime chat`. "
+                f"Use `map --persona {self.persona}` CLI and skills under `.cursor/skills/` "
+                "(topic-host, topic-participant, experiment-host, experiment-reviewer, "
+                "map-project-collab). Follow the operator's instructions for the current task. "
+                "Do not assume map-runtime-waker will send another wake for the same work item."
             )
         return (
             f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
