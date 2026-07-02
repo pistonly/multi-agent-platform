@@ -52,6 +52,13 @@ class MapCommandClient:
     def todos(self) -> dict[str, Any]:
         return self._run(["todos"])
 
+    def notifications_unread(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        data = self._run(["notification", "list", "--unread-only", "--limit", str(limit)])
+        if not isinstance(data, dict):
+            return []
+        items = data.get("items")
+        return list(items) if isinstance(items, list) else []
+
     def mention_dismiss(self, mention_id: str) -> dict[str, Any] | None:
         return self._run(["mention", "dismiss", "--id", mention_id])
 

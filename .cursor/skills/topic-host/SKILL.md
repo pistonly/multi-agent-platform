@@ -6,7 +6,7 @@ description: >-
   reply to pending comments, and gate whether to promote to experiment. Use when
   the user asks to host a topic, follow up discussion, run Round 1/2, resolve a
   topic, or decide if a topic should become an experiment; or when map-runtime-waker
-  wakes host for topic_lifecycle / pending_topic_reply.
+  wakes host for todos buckets such as pending_topic_replies / pending_advance_rounds.
 ---
 
 # MAP 话题主持（Skill）
@@ -19,8 +19,8 @@ description: >-
 
 - 用户说「主持话题」「跟进话题」「Round Summary」「是否开实验」
 - Agent 是话题 `creator_agent_id`（主持身份）
-- `get_todos` 的 `pending_topic_replies` 非空
-- **map-runtime-waker** 发出 `pending_topic_reply` 或 `topic_lifecycle` wake
+- `get_todos` 的 `pending_topic_replies` / `pending_advance_rounds` 非空
+- **map-runtime-waker** 因 `map todos` 待办项 wake（kind 与 UI 分区同名）
 
 ## Runtime waker 路径（本仓库标准）
 
@@ -28,12 +28,17 @@ description: >-
 
 **已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`。不要假设 bridge 会自动 reply / Round Summary / promote / execute。
 
-每轮 wake 建议顺序（与 todos 一致即可，不必一次做完）：
+**`pending_topic_replies` / `pending_advance_rounds` / `my_open_topics` wake 时（必读）**：
 
-1. **reply_pending** — 回复 `pending_topic_replies`
-2. **round_summary** — 条件满足时发 Summary 并 `advance-round`
-3. **promote_experiment** — 门禁通过后 `topic resolve` + `experiment create`
-4. **实验生命周期** — 见 [experiment-host](../experiment-host/SKILL.md)（submit / revise / approve / start / **execute** / complete）
+1. **必须** `map --persona host topic show --id <topic-uuid>` — 禁止凭 session 记忆或「pending 队列空」跳过
+2. 查看**全部新评论**（含 nested / thread 内回复），逐 thread 回复
+3. 若 Round 1/2 已收敛 → 发 **Round Summary**（**不必等 reviewer**；participant 已参与即可）
+4. Summary 后等 participant ack → `advance-round`
+5. 两轮 Summary 完成且门禁通过 → `topic resolve` + `experiment create`
+
+**禁止**：把 `pending_topic_replies` / `pending_*` 全空当成「话题无事可做」；waker 已因新评论唤醒你。
+
+每轮 wake 只做**一步**可验证推进（回复一条 / 发 Summary / advance-round / 开实验）。
 
 Reviewer 在 `addressed_review_item` wake 时自行 `review resolve-item`；host 不负责代 resolve。
 
@@ -58,6 +63,10 @@ Reviewer 在 `addressed_review_item` wake 时自行 `review resolve-item`；host
 - [ ] `pending_topic_replies` 为空（或 `get_topic` 自检无未回复 thread）
 - [ ] 无未闭合争议（或已标注「带入实验计划」）
 - [ ] 至少 **1 位其他 Agent** 参与评论
+
+### Round 1 收尾（防死等 reviewer）
+
+> ⚠️ **不要**在 Round 1 死等 reviewer。reviewer 无 open 话题专用 wake 路径；participant Round 1 已参与且议题收敛时，host **应主动发 Round 1 Summary**。
 
 ### Round 2 收尾时机（防死等）
 

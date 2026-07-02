@@ -24,6 +24,41 @@ wake_context_key = runtime_waker.wake_context_key
 wake_skill_paths = runtime_waker.wake_skill_paths
 
 
+def _host_topic_todos(
+    topic_id: str = "topic-1",
+    comment_id: str = "comment-1",
+    *,
+    author_id: str = "participant-1",
+    comment_count: int = 1,
+    **topic_fields: Any,
+) -> dict[str, Any]:
+    del comment_count
+    return _pending_topic_reply_todos(
+        topic_id=topic_id,
+        comment_id=comment_id,
+        author_agent_id=author_id,
+        **topic_fields,
+    )
+
+
+def _pending_topic_reply_todos(
+    topic_id: str = "topic-1",
+    comment_id: str = "comment-1",
+    **fields: Any,
+) -> dict[str, Any]:
+    row = {
+        "topic_id": topic_id,
+        "comment_id": comment_id,
+        "topic_title": "T",
+        "author_agent_id": "participant-1",
+        "author_name": "participant",
+        "excerpt": "hello",
+        "created_at": "2026-07-02T10:00:00+00:00",
+        **fields,
+    }
+    return {"pending_topic_replies": [row]}
+
+
 class FakeMapClient(MapCommandClient):
     def __init__(
         self,
@@ -45,6 +80,9 @@ class FakeMapClient(MapCommandClient):
 
     def todos(self) -> dict[str, Any]:
         return self._todos
+
+    def notifications_unread(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        return []
 
     def topic_list_open(self) -> list[dict[str, Any]]:
         return self._open_topics
@@ -100,9 +138,16 @@ def test_discover_host_events_from_todos():
         "host",
         {
             "pending_topic_replies": [
-                {"topic_id": "topic-1", "comment_id": "comment-1", "topic_title": "T"}
+                {
+                    "topic_id": "topic-2",
+                    "comment_id": "comment-new",
+                    "topic_title": "Open",
+                    "author_agent_id": "participant-1",
+                    "author_name": "multi-agents-platform-participant",
+                    "excerpt": "new comment",
+                    "created_at": "2026-07-02T10:00:00+00:00",
+                }
             ],
-            "my_open_topics": [{"id": "topic-2", "title": "Open", "discussion_round": "round1"}],
             "my_open_experiments": [
                 {"id": "exp-1", "title": "Exp", "phase": "review", "current_plan_version": 2}
             ],
@@ -110,15 +155,53 @@ def test_discover_host_events_from_todos():
     )
 
     assert [event.kind for event in events] == [
-        "pending_topic_reply",
-        "topic_lifecycle",
-        "experiment_lifecycle",
+        "pending_topic_replies",
+        "my_open_experiments",
     ]
-    assert events[0].fingerprint == "host:pending_topic_reply:topic-1:comment-1"
-    assert events[2].fingerprint == "host:experiment_lifecycle:exp-1:review:v2:u"
+    assert events[0].fingerprint == "host:pending_topic_replies:comment-new"
+    assert events[1].fingerprint == "host:my_open_experiments:exp-1"
 
 
-def test_experiment_lifecycle_fingerprint_includes_open_unreasonable_count():
+def test_host_events_pending_advance_rounds():
+    events = discover_wake_events(
+        "host",
+        {
+            "pending_advance_rounds": [
+                {
+                    "topic_id": "topic-advance",
+                    "topic_title": "Ready topic",
+                    "discussion_round": "round1",
+                    "advance_round_pending_since": "2026-07-02T10:40:42+00:00",
+                    "updated_at": "2026-07-02T10:40:42+00:00",
+                }
+            ],
+        },
+    )
+    assert [event.kind for event in events] == ["pending_advance_rounds"]
+    assert events[0].fingerprint.startswith("host:pending_advance_rounds:topic-advance:")
+
+
+def test_my_open_topics_always_wake():
+    events = discover_wake_events(
+        "host",
+        {
+            "my_open_topics": [
+                {
+                    "id": "topic-1",
+                    "title": "T",
+                    "comment_count": 2,
+                    "last_comment_id": "c2",
+                    "last_comment_author_agent_id": "host-agent-1",
+                }
+            ],
+        },
+    )
+    assert len(events) == 1
+    assert events[0].kind == "my_open_topics"
+    assert events[0].fingerprint == "host:my_open_topics:topic-1"
+
+
+def test_my_open_experiments_fingerprint_includes_open_unreasonable_count():
     events = discover_wake_events(
         "host",
         {
@@ -134,10 +217,10 @@ def test_experiment_lifecycle_fingerprint_includes_open_unreasonable_count():
         },
     )
     assert len(events) == 1
-    assert events[0].fingerprint == "host:experiment_lifecycle:exp-1:review:v1:u9"
+    assert events[0].fingerprint == "host:my_open_experiments:exp-1"
 
 
-def test_experiment_lifecycle_fingerprint_zero_open_count_is_explicit():
+def test_my_open_experiments_fingerprint_zero_open_count_is_explicit():
     events = discover_wake_events(
         "host",
         {
@@ -152,37 +235,38 @@ def test_experiment_lifecycle_fingerprint_zero_open_count_is_explicit():
             ],
         },
     )
-    assert events[0].fingerprint == "host:experiment_lifecycle:exp-1:review:v1:u0"
+    assert events[0].fingerprint == "host:my_open_experiments:exp-1"
 
 
 def test_discover_reviewer_and_participant_events():
     reviewer_events = discover_wake_events(
         "reviewer",
         {
-            "pending_reviews": [{"id": "exp-1", "current_plan_version": 3}],
-            "pending_result_reviews": [{"id": "exp-2", "phase": "result_review", "updated_at": "t1"}],
-            "pending_replies": [{"item_id": "item-1", "status": "addressed"}],
-            "mentions": [{"topic_id": "topic-2", "source_id": "comment-9"}],
+            "pending_reviews": [{"id": "exp-1", "title": "E1", "current_plan_version": 3}],
+            "pending_result_reviews": [{"id": "exp-2", "title": "E2", "phase": "result_review", "updated_at": "t1"}],
+            "pending_replies": [{"item_id": "item-1", "status": "addressed", "experiment_id": "exp-1"}],
+            "mentions": [{"id": "mention-9", "topic_id": "topic-2", "source_id": "comment-9", "excerpt": "hi"}],
         },
     )
     participant_events = discover_wake_events(
         "participant",
-        {"mentions": [{"topic_id": "topic-1", "source_id": "comment-1"}]},
+        {"mentions": [{"id": "mention-1", "topic_id": "topic-1", "source_id": "comment-1", "excerpt": "hi"}]},
     )
 
     assert [event.kind for event in reviewer_events] == [
-        "mention",
-        "pending_review",
-        "pending_result_review",
-        "addressed_review_item",
+        "mentions",
+        "pending_reviews",
+        "pending_result_reviews",
+        "pending_replies",
     ]
-    assert reviewer_events[0].fingerprint == "reviewer:mention:topic-2:comment-9"
-    assert reviewer_events[1].fingerprint == "reviewer:pending_review:exp-1:v3"
-    assert reviewer_events[2].fingerprint == "reviewer:pending_result_review:exp-2:t1"
-    assert participant_events[0].fingerprint == "participant:mention:topic-1:comment-1"
+    assert reviewer_events[0].fingerprint == "reviewer:mentions:mention-9"
+    assert reviewer_events[1].fingerprint == "reviewer:pending_reviews:exp-1"
+    assert reviewer_events[2].fingerprint == "reviewer:pending_result_reviews:exp-2"
+    assert reviewer_events[3].fingerprint == "reviewer:pending_replies:item-1"
+    assert participant_events[0].fingerprint == "participant:mentions:mention-1"
 
 
-def test_discover_round_ack_pending_events():
+def test_discover_pending_round_acks_events():
     participant_events = discover_wake_events(
         "participant",
         {
@@ -210,8 +294,8 @@ def test_discover_round_ack_pending_events():
         },
     )
 
-    assert [event.kind for event in participant_events] == ["round_ack_pending"]
-    assert participant_events[0].fingerprint.startswith("participant:round_ack_pending:topic-ack:")
+    assert [event.kind for event in participant_events] == ["pending_round_acks"]
+    assert participant_events[0].fingerprint.startswith("participant:pending_round_acks:topic-ack:")
     assert reviewer_events[0].persona == "reviewer"
     prompt = build_wake_prompt(participant_events[0], project_root=Path.cwd())
     assert "topic advance-round" in prompt
@@ -223,7 +307,7 @@ def test_runtime_waker_wakes_once_and_persists_session(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -245,7 +329,7 @@ def test_runtime_waker_wakes_once_and_persists_session(tmp_path):
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert state["personas"]["host"]["runtime_session_id"] == "session-host"
     assert state["personas"]["host"]["last_wake_object_id"] == "topic-1"
-    assert state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]["status"] == "woken"
+    assert state["personas"]["host"]["events"]["host:pending_topic_replies:comment-1"]["status"] == "woken"
 
 
 def test_runtime_waker_skips_already_woken_event(tmp_path):
@@ -262,7 +346,7 @@ def test_runtime_waker_skips_already_woken_event(tmp_path):
                     "host": {
                         "runtime_session_id": "existing-session",
                         "events": {
-                            "host:pending_topic_reply:topic-1:comment-1": {
+                            "host:pending_topic_replies:comment-1": {
                                 "status": "woken",
                                 "woken_at": recent,
                                 "last_attempt_at": recent,
@@ -277,7 +361,7 @@ def test_runtime_waker_skips_already_woken_event(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -304,7 +388,7 @@ def test_woken_event_self_heals_after_ttl(tmp_path):
                 "personas": {
                     "host": {
                         "events": {
-                            "host:pending_topic_reply:topic-1:comment-1": {
+                            "host:pending_topic_replies:comment-1": {
                                 "status": "woken",
                                 "woken_at": stale,
                                 "last_attempt_at": stale,
@@ -319,7 +403,7 @@ def test_woken_event_self_heals_after_ttl(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -337,7 +421,7 @@ def test_woken_event_self_heals_after_ttl(tmp_path):
     assert stats.wakes_sent == 1
     # The wake must refresh woken_at so the TTL restarts from this attempt.
     state = json.loads(state_file.read_text(encoding="utf-8"))
-    record = state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]
+    record = state["personas"]["host"]["events"]["host:pending_topic_replies:comment-1"]
     assert record["status"] == "woken"
     assert record["woken_at"] > stale
 
@@ -354,7 +438,7 @@ def test_woken_fallback_to_last_attempt_at(tmp_path):
                 "personas": {
                     "host": {
                         "events": {
-                            "host:pending_topic_reply:topic-1:comment-1": {
+                            "host:pending_topic_replies:comment-1": {
                                 "status": "woken",
                                 "last_attempt_at": stale,
                             }
@@ -368,7 +452,7 @@ def test_woken_fallback_to_last_attempt_at(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -406,7 +490,7 @@ def test_runtime_waker_uses_persisted_session_when_forced(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -423,7 +507,7 @@ def test_runtime_waker_uses_persisted_session_when_forced(tmp_path):
 def test_wake_context_key_groups_events_by_map_object():
     topic_event = discover_wake_events(
         "host",
-        {"pending_topic_replies": [{"topic_id": "topic-a", "comment_id": "comment-1"}]},
+        _host_topic_todos("topic-a", "comment-1"),
     )[0]
     experiment_event = discover_wake_events(
         "reviewer",
@@ -474,7 +558,7 @@ def test_runtime_waker_clears_codex_session_when_wake_object_changes(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-b", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos("topic-b", "comment-1"),
     )
     worker = RuntimeWaker(
         client=client,
@@ -518,7 +602,7 @@ def test_runtime_waker_keeps_codex_session_for_same_wake_object(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-a", "comment_id": "comment-2"}]},
+        todos=_host_topic_todos("topic-a", "comment-2"),
     )
     worker = RuntimeWaker(
         client=client,
@@ -629,7 +713,7 @@ def test_runtime_waker_resets_claude_backend_when_wake_object_changes(tmp_path):
     worker = RuntimeWaker(
         client=FakeMapClient(
             persona="host",
-            todos={"pending_topic_replies": [{"topic_id": "topic-b", "comment_id": "comment-1"}]},
+            todos=_host_topic_todos("topic-b", "comment-1"),
         ),
         config=RuntimeWakerConfig(
             persona="host",
@@ -657,15 +741,7 @@ def test_participant_waker_scans_open_topics_by_default(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="participant",
-        todos={},
-        open_topics=[
-            {
-                "id": "topic-open",
-                "title": "Open",
-                "updated_at": "2026-06-30T00:00:00Z",
-                "comment_count": 0,
-            }
-        ],
+        todos={"my_open_topics": [{"id": "topic-open", "title": "Open"}]},
     )
     worker = RuntimeWaker(
         client=client,
@@ -681,100 +757,39 @@ def test_participant_waker_scans_open_topics_by_default(tmp_path):
 
     assert stats.events_seen == 1
     assert stats.wakes_sent == 1
-    assert "MAP wake · open_topic_opportunity · topic-open" in backend.calls[0]["prompt"]
+    assert "MAP wake · my_open_topics · topic-open" in backend.calls[0]["prompt"]
 
 
-def test_participant_skips_open_topic_when_latest_comment_is_self():
-    participant_id = "participant-agent"
-    events = discover_wake_events(
-        "participant",
-        {
-            "open_topics": [
-                {
-                    "id": "topic-1",
-                    "title": "T",
-                    "comment_count": 2,
-                    "last_comment_id": "comment-2",
-                    "last_comment_author_agent_id": participant_id,
-                }
-            ]
-        },
-        participant_agent_id=participant_id,
-    )
+def test_participant_empty_todos_has_no_events():
+    events = discover_wake_events("participant", {})
     assert events == []
 
 
-def test_participant_skips_open_topic_without_last_comment_id():
+def test_participant_my_open_topics_wake():
     events = discover_wake_events(
         "participant",
         {
-            "open_topics": [
-                {
-                    "id": "topic-1",
-                    "title": "T",
-                    "comment_count": 2,
-                    "last_comment_author_agent_id": "host-agent",
-                }
-            ]
-        },
-        participant_agent_id="participant-agent",
-    )
-    assert events == []
-
-
-def test_participant_skips_round1_when_already_spoke_twice_without_summary():
-    participant_id = "participant-agent"
-    events = discover_wake_events(
-        "participant",
-        {
-            "open_topics": [
-                {
-                    "id": "topic-1",
-                    "title": "T",
-                    "discussion_round": "round1",
-                    "round_summary_count": 0,
-                    "my_comment_count": 2,
-                    "comment_count": 4,
-                    "last_comment_id": "comment-4",
-                    "last_comment_author_agent_id": "host-agent",
-                }
-            ]
-        },
-        participant_agent_id=participant_id,
-    )
-    assert events == []
-
-
-def test_participant_wakes_for_open_topic_when_latest_comment_is_other():
-    participant_id = "participant-agent"
-    events = discover_wake_events(
-        "participant",
-        {
-            "open_topics": [
+            "my_open_topics": [
                 {
                     "id": "topic-1",
                     "title": "T",
                     "comment_count": 1,
                     "last_comment_id": "comment-1",
                     "last_comment_author_agent_id": "host-agent",
-                    "last_comment_author_name": "multi-agents-platform-host",
-                    "last_comment_excerpt": "host 开场",
                 }
             ]
         },
-        participant_agent_id=participant_id,
     )
     assert len(events) == 1
-    assert events[0].kind == "open_topic_opportunity"
-    assert events[0].fingerprint == "participant:open_topic:topic-1:comment-1"
+    assert events[0].kind == "my_open_topics"
+    assert events[0].fingerprint == "participant:my_open_topics:topic-1"
 
 
-def test_participant_waker_can_scan_open_topics_when_enabled(tmp_path):
+def test_participant_waker_with_my_open_topics(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="participant",
-        todos={},
-        open_topics=[{"id": "topic-open", "title": "Open", "updated_at": "2026-06-30T00:00:00Z"}],
+        todos={"my_open_topics": [{"id": "topic-open", "title": "Open"}]},
     )
     worker = RuntimeWaker(
         client=client,
@@ -782,7 +797,6 @@ def test_participant_waker_can_scan_open_topics_when_enabled(tmp_path):
             persona="participant",
             state_file=tmp_path / "state.json",
             project_root=Path.cwd(),
-            include_participant_open_topics=True,
         ),
         backend=backend,
     )
@@ -791,7 +805,7 @@ def test_participant_waker_can_scan_open_topics_when_enabled(tmp_path):
 
     assert stats.events_seen == 1
     assert stats.wakes_sent == 1
-    assert "MAP wake · open_topic_opportunity · topic-open" in backend.calls[0]["prompt"]
+    assert "MAP wake · my_open_topics · topic-open" in backend.calls[0]["prompt"]
 
 
 def test_build_wake_prompt_is_short_and_cli_oriented():
@@ -803,23 +817,25 @@ def test_build_wake_prompt_is_short_and_cli_oriented():
                     "topic_id": "topic-1",
                     "comment_id": "comment-1",
                     "topic_title": "T",
+                    "author_agent_id": "participant-1",
                     "author_name": "multi-agents-platform-participant",
                     "excerpt": "需要 host 回复",
+                    "created_at": "2026-07-02T10:00:00+00:00",
                 }
-            ]
+            ],
         },
     )[0]
 
     prompt = build_wake_prompt(event, project_root=Path("/tmp/multi_agents_platform"))
 
-    assert prompt.startswith("MAP wake · pending_topic_reply · topic-1")
+    assert prompt.startswith("MAP wake · pending_topic_replies · topic-1")
+    assert "话题待回复" in prompt
     assert "latest_by=multi-agents-platform-participant" in prompt
     assert "excerpt=需要 host 回复" in prompt
-    assert "reply_to=comment-1" in prompt
     assert "map --persona host topic show --id topic-1" in prompt
     assert "不要使用 MCP" not in prompt
     assert "```json" not in prompt
-    assert len(prompt) < 400
+    assert len(prompt) < 500
 
 
 def test_wake_skill_paths_for_host(tmp_path):
@@ -1069,17 +1085,17 @@ def test_cursor_backend_requires_api_key(monkeypatch, tmp_path):
 
 
 def test_round_robin_by_kind_prevents_kind_starvation():
-    """With 3 topic_lifecycle + 2 experiment_lifecycle at limit=3, round-robin
-    must give experiment_lifecycle a slot instead of letting topics starve it."""
+    """With 3 pending_topic_replies + 2 my_open_experiments at limit=3, round-robin
+    must give my_open_experiments a slot instead of letting topics starve it."""
     topics = [
         runtime_waker.WakeEvent(
-            persona="host", kind="topic_lifecycle", object_id=f"t{i}", fingerprint=f"t{i}"
+            persona="host", kind="pending_topic_replies", object_id=f"t{i}", fingerprint=f"t{i}"
         )
         for i in range(3)
     ]
     experiments = [
         runtime_waker.WakeEvent(
-            persona="host", kind="experiment_lifecycle", object_id=f"e{i}", fingerprint=f"e{i}"
+            persona="host", kind="my_open_experiments", object_id=f"e{i}", fingerprint=f"e{i}"
         )
         for i in range(2)
     ]
@@ -1087,14 +1103,14 @@ def test_round_robin_by_kind_prevents_kind_starvation():
     assert len(selected) == 3
     kinds = [e.kind for e in selected]
     # first pass takes one of each kind, then a second topic
-    assert kinds == ["topic_lifecycle", "experiment_lifecycle", "topic_lifecycle"]
+    assert kinds == ["pending_topic_replies", "my_open_experiments", "pending_topic_replies"]
 
 
 def test_round_robin_by_kind_limit_zero():
     assert runtime_waker._round_robin_by_kind(
         [
             runtime_waker.WakeEvent(
-                persona="host", kind="topic_lifecycle", object_id="t", fingerprint="t"
+                persona="host", kind="pending_topic_replies", object_id="t", fingerprint="t"
             )
         ],
         limit=0,
@@ -1102,10 +1118,10 @@ def test_round_robin_by_kind_limit_zero():
 
 
 def test_host_cycle_does_not_starve_experiments(tmp_path):
-    """3 open topics must not monopolize a 3-wake cycle and starve 2 experiments.
+    """Open topics without unseen comments must not monopolize the wake budget.
 
-    Regression for the deadlock where host kept waking only topic_lifecycle events
-    and never reached experiment_lifecycle, so experiments stuck in review never
+    Regression for the deadlock where host kept waking only topic events
+    and never reached my_open_experiments, so experiments stuck in review never
     got approved.
     """
     state_file = tmp_path / "state.json"
@@ -1139,10 +1155,10 @@ def test_host_cycle_does_not_starve_experiments(tmp_path):
     worker.run_once()
 
     woken_prompts = [c["prompt"] for c in backend.calls]
-    assert any("experiment_lifecycle" in p for p in woken_prompts), (
-        "experiment_lifecycle starved by topic_lifecycle"
+    assert any("my_open_experiments" in p for p in woken_prompts), (
+        "my_open_experiments starved by hosted topics"
     )
-    assert any("topic_lifecycle" in p for p in woken_prompts)
+    assert not any("pending_topic_replies" in p for p in woken_prompts)
 
 
 def _stale_event_records(count: int, stale: str, *, kind: str, object_id: str, prefix: str) -> dict[str, Any]:
@@ -1172,16 +1188,16 @@ def test_prune_monotonically_shrinks_dead_entries(tmp_path):
             prefix="host:pending_topic_reply:topic-1:comment",
         )
     )
-    # 80 experiment_lifecycle orphans: same experiment, different plan version.
+    # 80 my_open_experiments orphans: same experiment, different plan version.
     dead_events.update(
         _stale_event_records(
-            80, stale, kind="experiment_lifecycle", object_id="exp-1",
-            prefix="host:experiment_lifecycle:exp-1:review:v",
+            80, stale, kind="my_open_experiments", object_id="exp-1",
+            prefix="host:my_open_experiments:exp-1-old",
         )
     )
     # A truly resolved object: experiment gone from todos, fingerprint frozen forever.
-    dead_events["host:experiment_lifecycle:exp-resolved:done:v1:u0"] = {
-        "status": "woken", "last_attempt_at": stale, "kind": "experiment_lifecycle",
+    dead_events["host:my_open_experiments:exp-resolved"] = {
+        "status": "woken", "last_attempt_at": stale, "kind": "my_open_experiments",
         "object_id": "exp-resolved",
     }
     initial = len(dead_events)
@@ -1219,7 +1235,7 @@ def test_prune_keeps_entries_within_ttl(tmp_path):
     fresh = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()  # half of the 60s window
     state_file.write_text(
         json.dumps({"schema_version": 1, "personas": {"host": {"events": {
-            "host:pending_topic_reply:topic-1:comment-1": {"status": "woken", "last_attempt_at": fresh},
+            "host:pending_topic_replies:comment-1": {"status": "woken", "last_attempt_at": fresh},
         }}}}),
         encoding="utf-8",
     )
@@ -1234,7 +1250,7 @@ def test_prune_keeps_entries_within_ttl(tmp_path):
 
     stats = worker.run_once()
     events = json.loads(state_file.read_text(encoding="utf-8"))["personas"]["host"]["events"]
-    assert "host:pending_topic_reply:topic-1:comment-1" in events
+    assert "host:pending_topic_replies:comment-1" in events
     assert stats.events_pruned == 0
 
 
@@ -1339,7 +1355,7 @@ def test_waker_passes_wake_event_metadata_to_session_log(tmp_path, monkeypatch):
 
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -1361,12 +1377,12 @@ def test_waker_passes_wake_event_metadata_to_session_log(tmp_path, monkeypatch):
     expected_event_id = str(
         uuid.uuid5(
             runtime_waker._EVENT_UUID_NAMESPACE,
-            f"{client.persona}-agent:host:pending_topic_reply:topic-1:comment-1",
+            f"{client.persona}-agent:host:pending_topic_replies:comment-1",
         )
     )
     assert captured_wake_kwargs["event_id"] == expected_event_id
     assert captured_wake_kwargs["event_source"] == "polling"
-    assert captured_wake_kwargs["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
+    assert captured_wake_kwargs["fingerprint"] == "host:pending_topic_replies:comment-1"
 
 
 def test_cycle_summary_reports_events_pruned_claude(tmp_path, monkeypatch):
@@ -1488,7 +1504,7 @@ def test_waker_persists_woken_state_before_resume(tmp_path):
     backend = _OrderCapturingBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -1507,7 +1523,7 @@ def test_waker_persists_woken_state_before_resume(tmp_path):
     # also re-read end-of-cycle, but the snapshot proves the order: status=woken
     # was persisted BEFORE wake().
     state = backend.state_at_call[0]
-    record = state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]
+    record = state["personas"]["host"]["events"]["host:pending_topic_replies:comment-1"]
     assert record["status"] == "woken"
     assert "woken_at" in record
 
@@ -1516,7 +1532,7 @@ def test_waker_persists_woken_state_before_resume(tmp_path):
     on_disk = json.loads(state_file.read_text(encoding="utf-8"))
     assert (
         on_disk["personas"]["host"]["events"][
-            "host:pending_topic_reply:topic-1:comment-1"
+            "host:pending_topic_replies:comment-1"
         ]["status"]
         == "woken"
     )
@@ -1529,7 +1545,7 @@ def test_waker_records_inbound_event_before_resume(tmp_path):
     backend = _OrderCapturingBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -1544,8 +1560,8 @@ def test_waker_records_inbound_event_before_resume(tmp_path):
 
     assert len(client.record_calls) == 1
     record = client.record_calls[0]
-    assert record["fingerprint"] == "host:pending_topic_reply:topic-1:comment-1"
-    assert record["event_type"] == "pending_topic_reply"
+    assert record["fingerprint"] == "host:pending_topic_replies:comment-1"
+    assert record["event_type"] == "pending_topic_replies"
     assert record["source"] == "polling"
     # event_id is a UUID5 derived from (agent_id, fingerprint).
     import uuid as _uuid
@@ -1554,7 +1570,7 @@ def test_waker_records_inbound_event_before_resume(tmp_path):
     # Calling uuid5 with the same namespace+name must yield the same UUID.
     assert parsed == _uuid.uuid5(
         _uuid.UUID("00000000-0000-0000-0000-000000000001"),
-        "host-agent:host:pending_topic_reply:topic-1:comment-1",
+        "host-agent:host:pending_topic_replies:comment-1",
     )
 
 
@@ -1565,8 +1581,8 @@ def test_waker_skips_resume_when_server_says_duplicate(tmp_path):
     backend = _OrderCapturingBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
-        duplicate_fingerprints={"host:pending_topic_reply:topic-1:comment-1"},
+        todos=_host_topic_todos(),
+        duplicate_fingerprints={"host:pending_topic_replies:comment-1"},
     )
     worker = RuntimeWaker(
         client=client,
@@ -1582,7 +1598,7 @@ def test_waker_skips_resume_when_server_says_duplicate(tmp_path):
     assert backend.calls == [], "resume must be skipped when server returns duplicate"
     assert len(client.record_calls) == 1
     state = json.loads(state_file.read_text(encoding="utf-8"))
-    record = state["personas"]["host"]["events"]["host:pending_topic_reply:topic-1:comment-1"]
+    record = state["personas"]["host"]["events"]["host:pending_topic_replies:comment-1"]
     assert record["status"] == "server_skip"
     # No woken stamp — this is a duplicate claim, not our own success.
     assert "woken_at" not in record
@@ -1599,7 +1615,7 @@ def test_server_skip_uses_self_heal_ttl(tmp_path):
                 "personas": {
                     "host": {
                         "events": {
-                            "host:pending_topic_reply:topic-1:comment-1": {
+                            "host:pending_topic_replies:comment-1": {
                                 "status": "server_skip",
                                 "last_attempt_at": recent,
                             }
@@ -1613,7 +1629,7 @@ def test_server_skip_uses_self_heal_ttl(tmp_path):
     backend = FakeWakeBackend()
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"topic_id": "topic-1", "comment_id": "comment-1"}]},
+        todos=_host_topic_todos(),
     )
     worker = RuntimeWaker(
         client=client,
@@ -1632,109 +1648,62 @@ def test_server_skip_uses_self_heal_ttl(tmp_path):
     assert backend.calls == []
 
 
-def test_apply_todo_cursor_filters_old_mentions_and_advances(tmp_path):
-    """D2: cursor filter on mentions/pending_topic_replies, advance to max seen."""
+def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
+    """After heartbeat TTL, server 409 must not block resume (unfinished todos)."""
+    stale = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
     state_file = tmp_path / "runtime-waker-state.json"
-    backend = FakeWakeBackend()
-    iso = datetime.now(UTC).isoformat()
-    iso_old = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
-    iso_newer = (datetime.now(UTC) + timedelta(seconds=5)).isoformat()
-    todos_v1 = {
-        "mentions": [
-            {"id": "m-1", "created_at": iso_old, "excerpt": "old"},
-            {"id": "m-2", "created_at": iso, "excerpt": "first"},
-        ],
-        "pending_topic_replies": [
-            {"topic_id": "t-1", "comment_id": "c-1", "created_at": iso_old},
-            {"topic_id": "t-2", "comment_id": "c-2", "created_at": iso},
-        ],
-        "my_open_topics": [],
-    }
-    todos_v2 = {
-        "mentions": todos_v1["mentions"],  # unchanged on server
-        "pending_topic_replies": [
-            # Old t-1 is still in the server response — must be filtered.
-            {"topic_id": "t-1", "comment_id": "c-1", "created_at": iso_old},
-            # New t-3 with a fresher timestamp — must survive and be woken.
-            {"topic_id": "t-3", "comment_id": "c-3", "created_at": iso_newer},
-        ],
-        "my_open_topics": [],
-    }
-
-    # First cycle: no cursor yet → all items pass, cursor seeded to iso.
-    client = FakeMapClient(persona="host", todos=todos_v1)
-    worker = RuntimeWaker(
-        client=client,
-        config=RuntimeWakerConfig(
-            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
-            cooldown_seconds=60,
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "personas": {
+                    "host": {
+                        "events": {
+                            "host:my_open_experiments:exp-1": {
+                                "status": "server_skip",
+                                "last_attempt_at": stale,
+                            }
+                        }
+                    }
+                }
+            }
         ),
-        backend=backend,
+        encoding="utf-8",
     )
-    backend.calls.clear()
-    worker.run_once()
-    state = json.loads(state_file.read_text(encoding="utf-8"))
-    cursor_iso = state.get("last_seen_todo_created_at")
-    assert cursor_iso is not None
-    assert datetime.fromisoformat(cursor_iso) == datetime.fromisoformat(iso)
-
-    # Second cycle: cursor present. Old items dropped (m-1, t-1, m-2 iso
-    # equals cursor so excluded). New t-3 (iso_newer > iso) survives AND
-    # has a brand-new fingerprint so cooldown does not block it.
-    client2 = FakeMapClient(persona="host", todos=todos_v2)
-    worker2 = RuntimeWaker(
-        client=client2,
-        config=RuntimeWakerConfig(
-            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
-            cooldown_seconds=60,
-        ),
-        backend=backend,
-    )
-    backend.calls.clear()
-    worker2.run_once()
-
-    survived = [
-        c
-        for c in backend.calls
-        if "pending_topic_reply" in c["prompt"] and "· t-3" in c["prompt"]
-    ]
-    assert len(survived) == 1, "t-3 (newer than cursor) must be woken"
-    dropped = [
-        c
-        for c in backend.calls
-        if "pending_topic_reply" in c["prompt"] and "· t-1" in c["prompt"]
-    ]
-    assert dropped == [], "t-1 (older than cursor) must be filtered out"
-
-    # Cursor advances to the new max (iso_newer).
-    state = json.loads(state_file.read_text(encoding="utf-8"))
-    new_cursor = state.get("last_seen_todo_created_at")
-    assert datetime.fromisoformat(new_cursor) == datetime.fromisoformat(iso_newer)
-
-
-def test_apply_todo_cursor_starts_unfiltered_when_no_cursor_set(tmp_path):
-    """First run: no cursor yet → everything passes; cursor is seeded."""
-    state_file = tmp_path / "runtime-waker-state.json"
     backend = FakeWakeBackend()
-    iso = datetime.now(UTC).isoformat()
     client = FakeMapClient(
         persona="host",
         todos={
-            "mentions": [{"id": "m-1", "created_at": iso, "excerpt": "first"}],
-            "pending_topic_replies": [],
+            "my_open_experiments": [
+                {
+                    "id": "exp-1",
+                    "phase": "running",
+                    "current_plan_version": 1,
+                    "open_unreasonable_count": 0,
+                }
+            ]
         },
+        duplicate_fingerprints={"host:my_open_experiments:exp-1"},
     )
     worker = RuntimeWaker(
         client=client,
         config=RuntimeWakerConfig(
-            persona="host", once=True, state_file=state_file, project_root=Path.cwd(),
-            cooldown_seconds=60,
+            persona="host",
+            once=True,
+            state_file=state_file,
+            project_root=Path.cwd(),
+            heartbeat_seconds=30,
         ),
         backend=backend,
     )
 
-    worker.run_once()
+    stats = worker.run_once()
 
+    assert stats.wakes_sent == 1
+    assert len(backend.calls) == 1
     state = json.loads(state_file.read_text(encoding="utf-8"))
-    assert state["last_seen_todo_created_at"] == iso
+    record = state["personas"]["host"]["events"]["host:my_open_experiments:exp-1"]
+    assert record["status"] == "woken"
+
+
 

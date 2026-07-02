@@ -21,6 +21,7 @@ from server.domain.schemas import (
     MentionTodoRead,
     PendingReplyRead,
     PendingRoundAckTodoRead,
+    PendingAdvanceRoundTodoRead,
     PendingTopicReplyTodoRead,
     TopicActionItemTodoRead,
     TodoRead,
@@ -175,6 +176,41 @@ def list_pending_round_acks(db: Session, agent: Agent) -> list[PendingRoundAckTo
     return pending
 
 
+def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanceRoundTodoRead]:
+    """Topics the host created where all required acks are in and advance-round is due."""
+    if agent.project_id is None:
+        return []
+
+    open_topics = list(
+        db.scalars(
+            select(Topic)
+            .where(
+                Topic.creator_agent_id == agent.id,
+                Topic.project_id == agent.project_id,
+                Topic.deleted_at.is_(None),
+                Topic.archived_at.is_(None),
+                Topic.status == TopicStatus.open,
+            )
+            .order_by(Topic.updated_at.desc())
+        )
+    )
+    pending: list[PendingAdvanceRoundTodoRead] = []
+    for topic in open_topics:
+        if topic_ack_service.advance_round_ack_state(db, topic) != "ready":
+            continue
+        pending.append(
+            PendingAdvanceRoundTodoRead(
+                topic_id=topic.id,
+                topic_title=topic.title,
+                discussion_round=topic.discussion_round,
+                round_summary_count=int(topic.round_summary_count or 0),
+                advance_round_pending_since=topic.advance_round_pending_since,
+                updated_at=topic.updated_at,
+            )
+        )
+    return pending
+
+
 def _experiment_summary_with_open_unreasonable(
     db: Session,
     experiment: Experiment,
@@ -229,6 +265,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
     reviewed = exists().where(
         Review.experiment_id == Experiment.id,
         Review.reviewer_agent_id == agent.id,
+        Review.plan_version == Experiment.current_plan_version,
     )
     review_stmt = (
         select(Experiment)
@@ -318,6 +355,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
 
     pending_topic_replies = list_pending_topic_replies(db, agent)
     pending_round_acks = list_pending_round_acks(db, agent)
+    pending_advance_rounds = list_pending_advance_rounds(db, agent)
 
     action_items = [
         TopicActionItemTodoRead(
@@ -352,6 +390,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         pending_replies=pending_replies,
         pending_topic_replies=pending_topic_replies,
         pending_round_acks=pending_round_acks,
+        pending_advance_rounds=pending_advance_rounds,
         my_open_topics=my_open_topics,
         mentions=mentions,
         action_items=action_items,

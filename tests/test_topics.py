@@ -548,6 +548,11 @@ def test_ack_rejected_409(client, auth_headers, reviewer, project):
     topic = _create_topic(client, auth_headers, project)
     _participant_comment(client, reviewer["headers"], topic["id"])
     client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
+    )
+    client.post(
         f"/api/v1/topics/{topic['id']}/advance-round",
         headers=reviewer["headers"],
         json={"ack": "reject"},
@@ -560,6 +565,40 @@ def test_ack_rejected_409(client, auth_headers, reviewer, project):
     )
     assert resp.status_code == 409
     assert resp.json()["reason"] == "ack_rejected"
+
+
+def test_ack_reject_superseded_by_accept_on_revised_summary(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- v1\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "reject"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary v2\n\n### 已共识\n- v2\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert advanced.status_code == 200
+    assert advanced.json()["discussion_round"] == "round2"
 
 
 def test_ack_timeout_silence_consent(client, db_session, auth_headers, reviewer, project):

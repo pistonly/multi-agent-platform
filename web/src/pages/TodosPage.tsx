@@ -43,6 +43,8 @@ export function TodosPage() {
     data.pending_result_reviews.length === 0 &&
     data.pending_replies.length === 0 &&
     (data.pending_topic_replies?.length ?? 0) === 0 &&
+    (data.pending_round_acks?.length ?? 0) === 0 &&
+    (data.pending_advance_rounds?.length ?? 0) === 0 &&
     (data.action_items?.length ?? 0) === 0 &&
     data.my_open_topics.length === 0 &&
     data.mentions.length === 0;
@@ -133,6 +135,36 @@ export function TodosPage() {
               <span className="text-xs text-slate-500">
                 {new Date(r.created_at).toLocaleDateString()}
               </span>
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {(data.pending_round_acks?.length ?? 0) > 0 && (
+        <Section title={`Round Summary 待 ack（${data.pending_round_acks.length}）`}>
+          {data.pending_round_acks.map((r) => (
+            <Row key={`${r.topic_id}:${r.summary_comment_id ?? "pending"}`} to={`/topics/${r.topic_id}`}>
+              <div>
+                <div className="text-accent hover:underline">{r.topic_title}</div>
+                {r.summary_excerpt && (
+                  <div className="text-xs text-slate-400">{r.summary_excerpt}</div>
+                )}
+              </div>
+              <span className="text-xs text-slate-500">{r.discussion_round}</span>
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {(data.pending_advance_rounds?.length ?? 0) > 0 && (
+        <Section title={`话题待推进轮次（${data.pending_advance_rounds.length}）`}>
+          {data.pending_advance_rounds.map((r) => (
+            <Row key={r.topic_id} to={`/topics/${r.topic_id}`}>
+              <div>
+                <div className="text-accent hover:underline">{r.topic_title}</div>
+                <div className="text-xs text-slate-400">participant ack 已齐，待 host advance-round</div>
+              </div>
+              <span className="text-xs text-slate-500">{r.discussion_round}</span>
             </Row>
           ))}
         </Section>

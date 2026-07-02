@@ -49,7 +49,7 @@ map --persona host experiment lock release --id <exp-uuid>
 
 环境变量：`MAP_HOST_NO_LOCK=1` 跳过锁（仅调试）；`MAP_HOST_LOCK_DRY_RUN=1` 只打日志不阻塞。
 
-## experiment_lifecycle 各阶段
+## my_open_experiments 各阶段
 
 | phase | 你应执行的动作 |
 |-------|----------------|
@@ -60,7 +60,7 @@ map --persona host experiment lock release --id <exp-uuid>
 | `running` | 按 plan 改代码、跑测试、写 log（见 execute_experiment）；plan 全部验收通过后 `map experiment complete` 提交结果待审批 |
 | `result_review` | 等 reviewer `accept-result` 或 `reject-result`；若被驳回回到 `running`，继续返工 |
 
-收到 `experiment_lifecycle` wake 时：
+收到 `my_open_experiments` 待办 wake 时：
 
 ```bash
 map --persona host experiment status --id <id>

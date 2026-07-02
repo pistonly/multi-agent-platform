@@ -49,6 +49,9 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     assert any(r["item_id"] == unreasonable["id"] for r in agent_todos2["pending_replies"])
     reviewer_todos3 = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert any(r["item_id"] == unreasonable["id"] for r in reviewer_todos3["pending_replies"])
+    # 修订计划后应重新出现在 pending_reviews（按 current_plan_version 判定）
+    pending_v2 = next(e for e in reviewer_todos3["pending_reviews"] if e["id"] == exp["id"])
+    assert pending_v2["current_plan_version"] == 2
 
     # 发起者创建话题 → 出现在 my_open_topics
     topic = client.post(

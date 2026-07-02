@@ -63,6 +63,31 @@ def required_ack_agent_ids(db: Session, topic: Topic) -> set[uuid.UUID]:
     return required - dismissed
 
 
+def latest_ack_kind_since(
+    comments: list[TopicComment],
+    agent_id: uuid.UUID,
+    *,
+    since: datetime,
+) -> str | None:
+    """Return the agent's most recent ack kind on or after ``since``."""
+    cutoff = _as_utc(since)
+    latest_kind: str | None = None
+    latest_at: datetime | None = None
+    for comment in comments:
+        if comment.author_agent_id != agent_id:
+            continue
+        created_at = _as_utc(comment.created_at)
+        if created_at < cutoff:
+            continue
+        kind = _ack_kind(comment.body)
+        if kind is None:
+            continue
+        if latest_at is None or created_at >= latest_at:
+            latest_at = created_at
+            latest_kind = kind
+    return latest_kind
+
+
 def acknowledged_agent_ids(
     db: Session,
     topic: Topic,
@@ -70,18 +95,52 @@ def acknowledged_agent_ids(
     host_ack_ids: list[uuid.UUID],
 ) -> set[uuid.UUID]:
     acked = set(host_ack_ids)
-    for comment in _topic_comments(db, topic.id):
-        if _ack_kind(comment.body) == "accept":
-            acked.add(comment.author_agent_id)
+    cutoff = _ack_cutoff_for_topic(db, topic)
+    if cutoff is None:
+        return acked
+    comments = _topic_comments(db, topic.id)
+    for agent_id in required_ack_agent_ids(db, topic):
+        if latest_ack_kind_since(comments, agent_id, since=cutoff) == "accept":
+            acked.add(agent_id)
     return acked
 
 
 def reject_agent_ids(db: Session, topic: Topic) -> set[uuid.UUID]:
+    cutoff = _ack_cutoff_for_topic(db, topic)
+    if cutoff is None:
+        return set()
+    comments = _topic_comments(db, topic.id)
     rejected: set[uuid.UUID] = set()
-    for comment in _topic_comments(db, topic.id):
-        if _ack_kind(comment.body) == "reject":
-            rejected.add(comment.author_agent_id)
+    for agent_id in required_ack_agent_ids(db, topic):
+        if latest_ack_kind_since(comments, agent_id, since=cutoff) == "reject":
+            rejected.add(agent_id)
     return rejected
+
+
+def advance_round_ack_state(
+    db: Session,
+    topic: Topic,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Return ack gate state for the current Round Summary: none|pending|rejected|ready."""
+    if topic.archived_at is not None:
+        return "none"
+    if topic.advance_round_pending_since is None:
+        return "none"
+    if _ack_cutoff_for_topic(db, topic) is None:
+        return "none"
+    if reject_agent_ids(db, topic):
+        return "rejected"
+    required = required_ack_agent_ids(db, topic)
+    if not required:
+        return "ready"
+    acked = acknowledged_agent_ids(db, topic, host_ack_ids=[])
+    if not (required - acked):
+        return "ready"
+    if ack_timeout_elapsed(topic, now=now):
+        return "ready"
+    return "pending"
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -192,7 +251,7 @@ def agent_has_round_ack_since(
     for comment in comments:
         if comment.author_agent_id != agent_id:
             continue
-        if _as_utc(comment.created_at) <= cutoff:
+        if _as_utc(comment.created_at) < cutoff:
             continue
         if _ack_kind(comment.body) in {"accept", "reject", "dismiss"}:
             return True

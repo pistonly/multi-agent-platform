@@ -44,6 +44,8 @@ Useful environment variables:
 | `MAP_RUNTIME_BACKEND` | `claude` | Runtime backend: `claude`, `codex`, or `cursor` |
 | `MAP_RUNTIME_MAX_WAKES_PER_CYCLE` | `3` | Hard cap per cycle |
 | `MAP_RUNTIME_COOLDOWN_SECONDS` | `300` | Retry cooldown for failed events |
+| `MAP_RUNTIME_HEARTBEAT_SECONDS` | same as `MAP_RUNTIME_INTERVAL` | Re-wake interval when todos still show pending work after agent finished a wake without advancing MAP state |
+| `MAP_RUNTIME_WOKEN_COOLDOWN_SECONDS` | `1800` | Fallback self-heal TTL when heartbeat is not set (CLI/tests) |
 | `MAP_RUNTIME_FORCE` | `0` | Re-wake already seen events |
 | `MAP_RUNTIME_MODEL` | unset | Optional runtime model override |
 | `MAP_RUNTIME_CODEX_BIN` | unset | Optional Codex binary path for `codex` backend |
@@ -110,6 +112,14 @@ python3 -m cli.runtime_waker --persona host --backend cursor --once --dry-run
 
 ## Event Model
 
+Wake events are derived **only** from `GET /agents/me/todos` bucket items plus
+unread notifications. Each event's `kind` equals the todos field name (same as
+Web UI sections). Fingerprints are stable item ids:
+`{persona}:{bucket}:{item_id}`.
+
+Removed: client-side todo cursors, `hosted_topic` comment cursors,
+`open_topic_opportunity` gates, and derived experiment/topic fingerprints.
+
 The state file stores the active resumed session per persona and wake context.
 When the wake context changes, for example from one topic to another topic or
 from one experiment to another experiment, the waker clears the old session id
@@ -125,7 +135,7 @@ resume the existing session.
       "last_wake_context_key": "topic:<topic_id>",
       "last_wake_object_id": "<topic_id>",
       "events": {
-        "host:pending_topic_reply:<topic_id>:<comment_id>": {
+        "host:pending_topic_replies:<comment_id>": {
           "status": "woken",
           "last_attempt_at": "..."
         }

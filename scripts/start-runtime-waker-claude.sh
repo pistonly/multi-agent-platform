@@ -35,6 +35,8 @@ else
 fi
 MAX_WAKES="${MAP_RUNTIME_MAX_WAKES_PER_CYCLE:-3}"
 COOLDOWN="${MAP_RUNTIME_COOLDOWN_SECONDS:-300}"
+HEARTBEAT="${MAP_RUNTIME_HEARTBEAT_SECONDS:-$INTERVAL}"
+WOKEN_COOLDOWN="${MAP_RUNTIME_WOKEN_COOLDOWN_SECONDS:-1800}"
 
 if ! map --persona "$PERSONA" persona whoami >/dev/null 2>&1; then
   echo "error: map --persona $PERSONA persona whoami failed (check .map/ and MAP API)" >&2
@@ -52,6 +54,8 @@ cmd=(python3 -m cli.runtime_waker
   --runtime-home "$RUNTIME_HOME"
   --max-wakes-per-cycle "$MAX_WAKES"
   --cooldown-seconds "$COOLDOWN"
+  --heartbeat-seconds "$HEARTBEAT"
+  --woken-cooldown-seconds "$WOKEN_COOLDOWN"
 )
 
 if [[ -n "${MAP_RUNTIME_MODEL:-}" ]]; then
@@ -74,6 +78,6 @@ if [[ $# -gt 0 ]]; then
   cmd+=("$@")
 fi
 
-echo "Starting MAP runtime waker (backend=$BACKEND persona=$PERSONA interval=${INTERVAL}s state=$STATE_FILE runtime_home=$RUNTIME_HOME)" >&2
+echo "Starting MAP runtime waker (backend=$BACKEND persona=$PERSONA interval=${INTERVAL}s heartbeat=${HEARTBEAT}s state=$STATE_FILE runtime_home=$RUNTIME_HOME)" >&2
 echo "Stop with Ctrl+C" >&2
 exec "${cmd[@]}"

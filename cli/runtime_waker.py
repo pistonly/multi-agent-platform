@@ -89,6 +89,11 @@ class RuntimeWakerConfig:
     # Unlike cooldown_seconds (retry backoff), this bounds how long an agent that
     # woke but took no action can stay stuck before the waker reconsiders it.
     woken_cooldown_seconds: float = 1800.0
+    # Heartbeat interval for woken/server_skip re-wake when todos still show pending
+    # work. When set (or via start script defaulting to poll interval), the waker
+    # re-resumes the agent after this many seconds even if D6 returns 409.
+    # When None, falls back to woken_cooldown_seconds (backward compatible).
+    heartbeat_seconds: float | None = None
     # TTL sweep: drop event dedup entries that can no longer affect _should_skip_event
     # (orphaned by a derived-fingerprint change). Default on; --no-prune-events disables.
     prune_events: bool = True
@@ -100,7 +105,6 @@ class RuntimeWakerConfig:
     runtime_home: Path | None = None
     codex_bin: str | None = None
     force: bool = False
-    include_participant_open_topics: bool = True
 
 
 @dataclass
@@ -395,20 +399,32 @@ class CursorSdkWakeBackend:
 def wake_context_key(event: WakeEvent) -> str:
     """Return the MAP object context that owns a resumed runtime session."""
     payload = event.payload or {}
-    if event.kind in {"experiment_lifecycle", "pending_review"}:
+    bucket = event.kind
+    if bucket in {
+        "pending_reviews",
+        "pending_result_reviews",
+        "pending_replies",
+        "my_open_experiments",
+    }:
         return f"experiment:{event.object_id}"
-    if event.kind == "addressed_review_item":
-        experiment_id = payload.get("experiment_id")
-        if experiment_id:
-            return f"experiment:{experiment_id}"
-        return f"review_item:{event.object_id}"
-    if event.kind == "mention" and payload.get("experiment_id"):
+    if bucket == "notification":
+        target_type = str(payload.get("target_type") or "")
+        if target_type == "experiment" and payload.get("target_id"):
+            return f"experiment:{payload['target_id']}"
+        if target_type == "topic" and payload.get("target_id"):
+            return f"topic:{payload['target_id']}"
+        return f"notification:{event.object_id}"
+    if bucket == "mentions" and payload.get("experiment_id"):
         return f"experiment:{payload['experiment_id']}"
-    if event.kind in {"pending_topic_reply", "topic_lifecycle", "open_topic_opportunity", "round_ack_pending"}:
+    if bucket in {
+        "mentions",
+        "pending_topic_replies",
+        "pending_advance_rounds",
+        "pending_round_acks",
+        "my_open_topics",
+    }:
         return f"topic:{event.object_id}"
-    if event.kind == "mention" and payload.get("topic_id"):
-        return f"topic:{payload['topic_id']}"
-    return f"{event.kind}:{event.object_id}"
+    return f"{bucket}:{event.object_id}"
 
 
 def should_reset_session_for_context(
@@ -520,27 +536,17 @@ class RuntimeWaker:
         self._ensure_identity()
         stats = RuntimeWakerStats(cycles=1)
         todos = self.client.todos() or {}
-        participant_agent_id: str | None = None
-        if self.config.persona == "participant":
-            participant_agent_id = self.agent_id
-            if self.config.include_participant_open_topics:
-                todos = {**todos, "open_topics": self.client.topic_list_open()}
-        # D2: client-side created_at cursor — filter out notification-bearing
-        # todos older than the latest one we've already processed, so a long
-        # backlog never inflates the wake set. Server-side dedup (D6) plus
-        # per-fingerprint cooldowns still protect against true duplicates.
-        todos = self._apply_todo_cursor(todos)
+        notifications = self.client.notifications_unread()
         events = discover_wake_events(
             self.config.persona,
             todos,
-            include_participant_open_topics=self.config.include_participant_open_topics,
-            participant_agent_id=participant_agent_id,
+            notifications=notifications,
         )
         stats.events_seen = len(events)
 
         # Filter out skipped events first so a skip never consumes a wake slot,
         # then round-robin across event kinds. Without the round-robin, a long
-        # backlog of one kind (e.g. topic_lifecycle for several open topics) would
+        # backlog of one kind (e.g. hosted_topic for several open topics) would
         # monopolize the per-cycle wake budget and starve another kind (e.g.
         # experiment_lifecycle), so host could never approve/start experiments
         # while topics keep it busy.
@@ -582,50 +588,6 @@ class RuntimeWaker:
             )
         self.agent_id = str(me["id"])
 
-    def _apply_todo_cursor(self, todos: dict[str, Any]) -> dict[str, Any]:
-        """D2 client-side cursor over notification-bearing todo lists.
-
-        Filters ``mentions`` and ``pending_topic_replies`` to items with
-        ``created_at > last_seen_todo_created_at``. Other todo lists are not
-        cursor-filtered (they encode their own change fingerprint in the wake
-        fingerprint via plan version / comment count). Advances the cursor to
-        the max ``created_at`` seen across the full (unfiltered) lists so a
-        freshly-arrived old item is not silently lost behind a newer item with
-        a later timestamp.
-        """
-        cursor_iso = self.state.get("last_seen_todo_created_at")
-        cursor_dt = _parse_datetime(cursor_iso) if cursor_iso else None
-        max_dt = cursor_dt
-
-        def _coerce(value: Any) -> datetime | None:
-            if value is None:
-                return None
-            if isinstance(value, datetime):
-                return value if value.tzinfo else value.replace(tzinfo=UTC)
-            return _parse_datetime(str(value))
-
-        for key in ("mentions", "pending_topic_replies"):
-            rows = todos.get(key) or []
-            if not isinstance(rows, list):
-                continue
-            kept: list[dict[str, Any]] = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    kept.append(row)
-                    continue
-                ts = _coerce(row.get("created_at"))
-                if ts is not None and (max_dt is None or ts > max_dt):
-                    max_dt = ts
-                if cursor_dt is not None and ts is not None and ts <= cursor_dt:
-                    continue
-                kept.append(row)
-            todos[key] = kept
-
-        if max_dt != cursor_dt and max_dt is not None:
-            self.state["last_seen_todo_created_at"] = max_dt.isoformat()
-            self._state_dirty = True
-        return todos
-
     async def _prepare_session_for_event(self, event: WakeEvent) -> None:
         persona_state = self._persona_state(event.persona)
         context_key = wake_context_key(event)
@@ -652,15 +614,18 @@ class RuntimeWaker:
 
         # D6 server gate: record the fingerprint against the inbound_events table
         # BEFORE any resume. If another worker (or a previous waker process) has
-        # already claimed this fingerprint, the server returns 409 and we skip the
-        # resume entirely — the cross-process / cross-restart dedup guarantee.
+        # already claimed this fingerprint, the server returns 409.
+        # First local sighting → server_skip (likely another worker). Heartbeat
+        # re-eval after TTL → resume anyway so unfinished todos are not stuck.
+        prior = self._event_state(event)
+        had_prior_claim = prior.get("status") in ("woken", "server_skip")
         event_uuid = _event_uuid_for_fingerprint(self.agent_id or "", event.fingerprint)
         server_first = self.client.inbound_event_record(
             event_id=str(event_uuid),
             fingerprint=event.fingerprint,
             event_type=event.kind,
         )
-        if not server_first:
+        if not server_first and not had_prior_claim:
             self._mark_event(event, status="server_skip")
             return
 
@@ -702,6 +667,11 @@ class RuntimeWaker:
     def _agent_state(self, persona: str) -> dict[str, Any]:
         return self._persona_state(persona)
 
+    def _self_heal_ttl_seconds(self) -> float:
+        if self.config.heartbeat_seconds is not None:
+            return self.config.heartbeat_seconds
+        return self.config.woken_cooldown_seconds
+
     def _should_skip_event(self, event: WakeEvent) -> bool:
         record = self._event_state(event)
         if not record:
@@ -709,7 +679,7 @@ class RuntimeWaker:
         status = record.get("status")
         if status in ("woken", "server_skip"):
             # Successful claims (woken by us, or server_skip — D6 server gate
-            # reported another worker claimed it) use the long self-heal TTL.
+            # reported another worker claimed it) use the heartbeat / self-heal TTL.
             # Once the TTL elapses, the event is reconsidered so an agent that
             # woke but took no action is not stuck forever. Falls back to
             # last_attempt_at for state files written before woken_at existed.
@@ -720,7 +690,7 @@ class RuntimeWaker:
                 return False
             return (
                 datetime.now(UTC) - ref
-            ).total_seconds() < self.config.woken_cooldown_seconds
+            ).total_seconds() < self._self_heal_ttl_seconds()
         last_attempt = _parse_datetime(str(record.get("last_attempt_at") or ""))
         if last_attempt is None:
             return False
@@ -803,7 +773,10 @@ class RuntimeWaker:
         if not self.config.prune_events:
             return
         now = datetime.now(UTC)
-        threshold = max(self.config.cooldown_seconds, self.config.woken_cooldown_seconds)
+        threshold = max(
+            self.config.cooldown_seconds,
+            self._self_heal_ttl_seconds(),
+        )
         pruned = 0
         personas = self.state.get("personas")
         if not isinstance(personas, dict):
@@ -887,66 +860,183 @@ def _round_robin_by_kind(events: list[WakeEvent], limit: int) -> list[WakeEvent]
     return selected
 
 
+# Todo buckets mirrored from web TodosPage section order (GET /agents/me/todos).
+TODO_WAKE_BUCKETS: tuple[str, ...] = (
+    "mentions",
+    "pending_topic_replies",
+    "action_items",
+    "pending_reviews",
+    "pending_result_reviews",
+    "pending_replies",
+    "pending_round_acks",
+    "pending_advance_rounds",
+    "my_open_experiments",
+    "my_open_topics",
+)
+
+TODO_BUCKET_UI_LABELS: dict[str, str] = {
+    "mentions": "你有未处理的 @提及",
+    "pending_topic_replies": "你有话题待回复",
+    "action_items": "你有待跟进行动项",
+    "pending_reviews": "你有实验待评审",
+    "pending_result_reviews": "你有实验结果待审批",
+    "pending_replies": "你有评审待回复",
+    "pending_round_acks": "你有 Round Summary 待 ack",
+    "pending_advance_rounds": "你有话题待推进轮次（ack 已齐）",
+    "my_open_experiments": "你有进行中的实验需关注",
+    "my_open_topics": "你有进行中的话题需关注",
+    "notification": "你有未读通知",
+}
+
+
+def _todo_item_title(bucket: str, item: dict[str, Any]) -> str | None:
+    for key in ("title", "topic_title", "experiment_title", "summary"):
+        value = item.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _todo_item_stable_id(bucket: str, item: dict[str, Any]) -> str | None:
+    if bucket == "mentions":
+        return str(item.get("id") or "") or None
+    if bucket == "pending_topic_replies":
+        return str(item.get("comment_id") or "") or None
+    if bucket == "pending_replies":
+        return str(item.get("item_id") or item.get("id") or "") or None
+    if bucket == "pending_round_acks":
+        topic_id = item.get("topic_id")
+        if not topic_id:
+            return None
+        summary_id = item.get("summary_comment_id") or "pending"
+        return f"{topic_id}:{summary_id}"
+    if bucket == "pending_advance_rounds":
+        topic_id = item.get("topic_id")
+        if not topic_id:
+            return None
+        pending_since = item.get("advance_round_pending_since") or item.get("updated_at") or ""
+        return f"{topic_id}:{pending_since}"
+    if bucket == "notification":
+        return str(item.get("id") or "") or None
+    return str(item.get("id") or "") or None
+
+
+def _todo_item_object_id(bucket: str, item: dict[str, Any], *, stable_id: str) -> str:
+    if bucket in {"pending_topic_replies", "pending_round_acks", "pending_advance_rounds"}:
+        return str(item.get("topic_id") or stable_id)
+    if bucket == "action_items":
+        return str(item.get("topic_id") or item.get("id") or stable_id)
+    if bucket in {"pending_reviews", "pending_result_reviews", "my_open_experiments"}:
+        return str(item.get("id") or stable_id)
+    if bucket == "pending_replies":
+        return str(item.get("experiment_id") or stable_id)
+    if bucket == "my_open_topics":
+        return str(item.get("id") or stable_id)
+    if bucket == "mentions":
+        if item.get("topic_id"):
+            return str(item["topic_id"])
+        if item.get("experiment_id"):
+            return str(item["experiment_id"])
+    if bucket == "notification" and item.get("target_id"):
+        return str(item["target_id"])
+    return stable_id
+
+
 def discover_wake_events(
     persona: str,
     todos: dict[str, Any],
     *,
-    include_participant_open_topics: bool = True,
-    participant_agent_id: str | None = None,
+    notifications: list[dict[str, Any]] | None = None,
 ) -> list[WakeEvent]:
-    if persona == "host":
-        return _host_events(todos)
-    if persona == "participant":
-        return _participant_events(
-            todos,
-            include_open_topics=include_participant_open_topics,
-            participant_agent_id=participant_agent_id,
+    """Derive wake events directly from UI-visible todos and unread notifications."""
+    events: list[WakeEvent] = []
+    for bucket in TODO_WAKE_BUCKETS:
+        for item in todos.get(bucket) or []:
+            if not isinstance(item, dict):
+                continue
+            stable_id = _todo_item_stable_id(bucket, item)
+            if not stable_id:
+                continue
+            object_id = _todo_item_object_id(bucket, item, stable_id=stable_id)
+            events.append(
+                WakeEvent(
+                    persona=persona,
+                    kind=bucket,
+                    object_id=object_id,
+                    fingerprint=f"{persona}:{bucket}:{stable_id}",
+                    title=_todo_item_title(bucket, item),
+                    reason=f"UI todo bucket {bucket}",
+                    payload=dict(item),
+                )
+            )
+    for item in notifications or []:
+        if not isinstance(item, dict):
+            continue
+        stable_id = _todo_item_stable_id("notification", item)
+        if not stable_id:
+            continue
+        object_id = _todo_item_object_id("notification", item, stable_id=stable_id)
+        events.append(
+            WakeEvent(
+                persona=persona,
+                kind="notification",
+                object_id=object_id,
+                fingerprint=f"{persona}:notification:{stable_id}",
+                title=_todo_item_title("notification", item),
+                reason="unread in-app notification",
+                payload=dict(item),
+            )
         )
-    if persona == "reviewer":
-        return _reviewer_events(todos)
-    return _generic_events(persona, todos)
+    return events
 
 
 def build_wake_prompt(event: WakeEvent, *, project_root: Path) -> str:
-    del project_root  # wake prompts are project-agnostic; persona is on the event.
+    del project_root
     command = f"map --persona {event.persona}"
     payload = event.payload or {}
     title = event.title or payload.get("topic_title") or payload.get("title") or ""
-    header = f"MAP wake · {event.kind} · {event.object_id}"
+    label = TODO_BUCKET_UI_LABELS.get(event.kind, "你有待办需处理")
+    lines = [f"MAP wake · {event.kind} · {event.object_id}"]
     if title:
-        header = f"{header} · {title}"
-
-    lines = [header]
+        lines.append(f"title={title}")
+    lines.append(label)
+    lines.append("与 Web UI 待办/通知一致：处理完成后须让该项从 `map todos` / 通知列表消失。")
     latest_by = _wake_latest_by(event, payload)
     if latest_by:
         lines.append(f"latest_by={latest_by}")
     excerpt = _wake_excerpt(event, payload)
     if excerpt:
         lines.append(f"excerpt={excerpt}")
-
     for hint in _wake_command_hints(event, payload, command=command):
         lines.append(hint)
     return "\n".join(lines) + "\n"
 
 
 def _wake_latest_by(event: WakeEvent, payload: dict[str, Any]) -> str | None:
-    if event.kind == "open_topic_opportunity":
+    if event.kind in {"mentions", "pending_topic_replies"}:
         return (
-            payload.get("last_comment_author_name")
+            payload.get("author_name")
+            or payload.get("last_comment_author_name")
+            or payload.get("author_agent_id")
             or payload.get("last_comment_author_agent_id")
-            or None
         )
-    if event.kind in {"mention", "pending_topic_reply"}:
-        return payload.get("author_name") or payload.get("author_agent_id")
-    if event.kind == "pending_review":
+    if event.kind == "pending_reviews":
         return payload.get("creator_name")
-    if event.kind == "round_ack_pending":
+    if event.kind in {"pending_round_acks", "pending_advance_rounds"}:
         return payload.get("topic_title")
+    if event.kind == "notification":
+        return payload.get("event")
     return None
 
 
 def _wake_excerpt(event: WakeEvent, payload: dict[str, Any]) -> str | None:
-    raw = payload.get("excerpt") or payload.get("last_comment_excerpt")
+    raw = (
+        payload.get("excerpt")
+        or payload.get("summary_excerpt")
+        or payload.get("last_comment_excerpt")
+        or payload.get("summary")
+        or payload.get("content")
+    )
     if not raw:
         return None
     text = str(raw).strip().replace("\n", " ")
@@ -960,34 +1050,51 @@ def _wake_command_hints(
     event: WakeEvent, payload: dict[str, Any], *, command: str
 ) -> list[str]:
     topic_id = str(payload.get("topic_id") or event.object_id)
-    if event.kind == "mention":
-        source_id = payload.get("source_id")
-        hints = [f"→ `{command} topic show --id {topic_id}`"]
-        if source_id:
-            hints.append(f"reply_to={source_id}")
+    if event.kind == "mentions":
+        hints = [f"→ `{command} todos`"]
+        if payload.get("topic_id"):
+            hints.append(f"→ `{command} topic show --id {payload['topic_id']}`")
+        if payload.get("experiment_id"):
+            hints.append(f"→ `{command} experiment status --id {payload['experiment_id']}`")
+        if payload.get("id"):
+            hints.append(f"→ 处理后 `{command} mention dismiss --id {payload['id']}`")
         return hints
-    if event.kind == "pending_topic_reply":
+    if event.kind == "pending_topic_replies":
         comment_id = payload.get("comment_id")
         hints = [f"→ `{command} topic show --id {topic_id}`"]
         if comment_id:
             hints.append(f"reply_to={comment_id}")
         return hints
-    if event.kind == "open_topic_opportunity":
-        return [f"→ `{command} topic show --id {topic_id}`"]
-    if event.kind == "topic_lifecycle":
-        return [f"→ `{command} topic show --id {topic_id}`"]
-    if event.kind == "round_ack_pending":
+    if event.kind == "pending_advance_rounds":
+        return [
+            f"→ `{command} topic advance-round --id {topic_id}`",
+            f"→ `{command} topic show --id {topic_id}`",
+        ]
+    if event.kind == "pending_round_acks":
         return [
             f"→ `{command} topic advance-round --id {topic_id} --ack accept`",
             f"→ `{command} topic show --id {topic_id}`",
         ]
-    if event.kind == "experiment_lifecycle":
+    if event.kind == "action_items":
+        return [
+            f"→ `{command} topic show --id {topic_id}`",
+            f"→ `{command} todos`",
+        ]
+    if event.kind in {"pending_reviews", "pending_result_reviews", "my_open_experiments"}:
         return [f"→ `{command} experiment status --id {event.object_id}`"]
-    if event.kind == "pending_review":
-        return [f"→ `{command} experiment status --id {event.object_id}`"]
-    if event.kind == "addressed_review_item":
+    if event.kind == "pending_replies":
         experiment_id = payload.get("experiment_id") or event.object_id
         return [f"→ `{command} experiment status --id {experiment_id}`"]
+    if event.kind == "my_open_topics":
+        return [
+            f"→ `{command} topic show --id {topic_id}`",
+            f"→ 若无动作可 `{command} topic dismiss --id {topic_id}`（与 UI ✕ 相同）",
+        ]
+    if event.kind == "notification":
+        hints = [f"→ `{command} todos`"]
+        if payload.get("id"):
+            hints.append(f"→ 处理后 `{command} notification read --id {payload['id']}`")
+        return hints
     return [f"→ `{command} todos`"]
 
 
@@ -1012,312 +1119,6 @@ def sync_runtime_skills(*, project_root: Path, runtime_home: Path) -> None:
     for existing in target_root.iterdir():
         if existing.is_dir() and existing.name not in source_names:
             shutil.rmtree(existing)
-
-
-def _experiment_open_unreasonable_suffix(item: dict[str, Any]) -> str:
-    """Fingerprint suffix for open unreasonable count; absent field stays empty for legacy todos."""
-    if "open_unreasonable_count" not in item:
-        return ""
-    return str(int(item.get("open_unreasonable_count") or 0))
-
-
-def _host_events(todos: dict[str, Any]) -> list[WakeEvent]:
-    events: list[WakeEvent] = []
-    for item in todos.get("pending_topic_replies") or []:
-        topic_id = str(item.get("topic_id") or "")
-        comment_id = str(item.get("comment_id") or item.get("thread_root_id") or "")
-        if not topic_id or not comment_id:
-            continue
-        events.append(
-            WakeEvent(
-                persona="host",
-                kind="pending_topic_reply",
-                object_id=topic_id,
-                fingerprint=f"host:pending_topic_reply:{topic_id}:{comment_id}",
-                title=item.get("topic_title"),
-                reason="reply to a pending topic thread",
-                payload=_compact_payload(
-                    item,
-                    keys=(
-                        "topic_id",
-                        "topic_title",
-                        "comment_id",
-                        "thread_root_id",
-                        "author_name",
-                        "excerpt",
-                    ),
-                ),
-            )
-        )
-    for item in todos.get("my_open_topics") or []:
-        topic_id = str(item.get("id") or "")
-        if not topic_id:
-            continue
-        topic_key = ":".join(
-            str(item.get(key) or "")
-            for key in (
-                "discussion_round",
-                "round_summary_count",
-                "comment_count",
-                "updated_at",
-                "advance_round_pending_since",
-            )
-        ) or "open"
-        events.append(
-            WakeEvent(
-                persona="host",
-                kind="topic_lifecycle",
-                object_id=topic_id,
-                fingerprint=f"host:topic_lifecycle:{topic_id}:{topic_key}",
-                title=item.get("title"),
-                reason="check whether the hosted topic needs summary, round advance, or promotion",
-                payload=_compact_payload(
-                    item,
-                    keys=("id", "title", "discussion_round", "round_summary_count", "comment_count", "updated_at", "advance_round_pending_since"),
-                ),
-            )
-        )
-    for item in todos.get("my_open_experiments") or []:
-        experiment_id = str(item.get("id") or "")
-        if not experiment_id:
-            continue
-        phase = str(item.get("phase") or "open")
-        version = str(item.get("current_plan_version") or "")
-        open_count = _experiment_open_unreasonable_suffix(item)
-        events.append(
-            WakeEvent(
-                persona="host",
-                kind="experiment_lifecycle",
-                object_id=experiment_id,
-                fingerprint=f"host:experiment_lifecycle:{experiment_id}:{phase}:v{version}:u{open_count}",
-                title=item.get("title"),
-                reason="check whether a host-owned experiment needs lifecycle action",
-                payload=_compact_payload(
-                    item,
-                    keys=("id", "title", "phase", "current_plan_version", "open_unreasonable_count"),
-                ),
-            )
-        )
-    return events
-
-
-def _round_ack_wake_events(persona: str, todos: dict[str, Any]) -> list[WakeEvent]:
-    events: list[WakeEvent] = []
-    for item in todos.get("pending_round_acks") or []:
-        topic_id = str(item.get("topic_id") or "")
-        if not topic_id:
-            continue
-        summary_id = str(item.get("summary_comment_id") or "pending")
-        pending_since = str(item.get("advance_round_pending_since") or item.get("updated_at") or "")
-        events.append(
-            WakeEvent(
-                persona=persona,
-                kind="round_ack_pending",
-                object_id=topic_id,
-                fingerprint=f"{persona}:round_ack_pending:{topic_id}:{summary_id}:{pending_since}",
-                title=item.get("topic_title"),
-                reason="acknowledge the host Round Summary before the topic can advance",
-                payload=_compact_payload(
-                    item,
-                    keys=(
-                        "topic_id",
-                        "topic_title",
-                        "discussion_round",
-                        "round_summary_count",
-                        "summary_comment_id",
-                        "summary_excerpt",
-                        "advance_round_pending_since",
-                    ),
-                ),
-            )
-        )
-    return events
-
-
-def _participant_should_join_open_topic(
-    item: dict[str, Any],
-    *,
-    participant_agent_id: str | None,
-) -> bool:
-    """Wake participant for open topics per topic-participant skill gates."""
-    comment_count = int(item.get("comment_count") or 0)
-    if comment_count == 0:
-        return True
-
-    last_comment_id = item.get("last_comment_id")
-    last_author = item.get("last_comment_author_agent_id")
-    if not last_comment_id or last_author in (None, ""):
-        return False
-
-    discussion_round = str(item.get("discussion_round") or "round1")
-    round_summary_count = int(item.get("round_summary_count") or 0)
-    my_comment_count = int(item.get("my_comment_count") or 0)
-    if (
-        discussion_round == "round1"
-        and round_summary_count == 0
-        and my_comment_count >= 2
-    ):
-        return False
-
-    if participant_agent_id is None:
-        return True
-    return str(last_author) != participant_agent_id
-
-
-def _mention_wake_events(persona: str, todos: dict[str, Any]) -> list[WakeEvent]:
-    events: list[WakeEvent] = []
-    for item in todos.get("mentions") or []:
-        source_id = str(item.get("source_id") or item.get("id") or "")
-        if not source_id:
-            continue
-        topic_id = str(item.get("topic_id") or "")
-        experiment_id = str(item.get("experiment_id") or "")
-        if topic_id:
-            object_id = topic_id
-            fingerprint = f"{persona}:mention:{topic_id}:{source_id}"
-        elif experiment_id:
-            object_id = experiment_id
-            fingerprint = f"{persona}:mention:exp:{experiment_id}:{source_id}"
-        else:
-            continue
-        events.append(
-            WakeEvent(
-                persona=persona,
-                kind="mention",
-                object_id=object_id,
-                fingerprint=fingerprint,
-                title=item.get("topic_title") or item.get("experiment_title"),
-                reason="reply to an @mention",
-                payload=_compact_payload(
-                    item,
-                    keys=("id", "topic_id", "experiment_id", "source_id", "author_name", "excerpt"),
-                ),
-            )
-        )
-    return events
-
-
-def _participant_events(
-    todos: dict[str, Any],
-    *,
-    include_open_topics: bool,
-    participant_agent_id: str | None = None,
-) -> list[WakeEvent]:
-    events: list[WakeEvent] = []
-    events.extend(_round_ack_wake_events("participant", todos))
-    events.extend(_mention_wake_events("participant", todos))
-    if include_open_topics:
-        for item in todos.get("open_topics") or []:
-            topic_id = str(item.get("id") or "")
-            if not topic_id:
-                continue
-            if not _participant_should_join_open_topic(
-                item, participant_agent_id=participant_agent_id
-            ):
-                continue
-            last_comment_id = str(item.get("last_comment_id") or "none")
-            events.append(
-                WakeEvent(
-                    persona="participant",
-                    kind="open_topic_opportunity",
-                    object_id=topic_id,
-                    fingerprint=f"participant:open_topic:{topic_id}:{last_comment_id}",
-                    title=item.get("title"),
-                    reason="participate when the latest topic reply is not from you",
-                    payload=_compact_payload(
-                        item,
-                        keys=(
-                            "id",
-                            "title",
-                            "discussion_round",
-                            "round_summary_count",
-                            "comment_count",
-                            "my_comment_count",
-                            "last_comment_id",
-                            "last_comment_author_agent_id",
-                            "last_comment_author_name",
-                            "last_comment_excerpt",
-                        ),
-                    ),
-                )
-            )
-    return events
-
-
-def _reviewer_events(todos: dict[str, Any]) -> list[WakeEvent]:
-    events: list[WakeEvent] = []
-    events.extend(_round_ack_wake_events("reviewer", todos))
-    events.extend(_mention_wake_events("reviewer", todos))
-    for item in todos.get("pending_reviews") or []:
-        experiment_id = str(item.get("id") or "")
-        if not experiment_id:
-            continue
-        version = str(item.get("current_plan_version") or "")
-        events.append(
-            WakeEvent(
-                persona="reviewer",
-                kind="pending_review",
-                object_id=experiment_id,
-                fingerprint=f"reviewer:pending_review:{experiment_id}:v{version}",
-                title=item.get("title"),
-                reason="review a submitted experiment plan",
-                payload=_compact_payload(item, keys=("id", "title", "phase", "current_plan_version")),
-            )
-        )
-    for item in todos.get("pending_result_reviews") or []:
-        experiment_id = str(item.get("id") or "")
-        if not experiment_id:
-            continue
-        updated_at = str(item.get("updated_at") or "")
-        events.append(
-            WakeEvent(
-                persona="reviewer",
-                kind="pending_result_review",
-                object_id=experiment_id,
-                fingerprint=f"reviewer:pending_result_review:{experiment_id}:{updated_at}",
-                title=item.get("title"),
-                reason="review submitted experiment results before the experiment can be marked done",
-                payload=_compact_payload(item, keys=("id", "title", "phase", "updated_at")),
-            )
-        )
-    for item in todos.get("pending_replies") or []:
-        status = str(item.get("status") or "")
-        item_id = str(item.get("item_id") or item.get("id") or "")
-        if status != "addressed" or not item_id:
-            continue
-        events.append(
-            WakeEvent(
-                persona="reviewer",
-                kind="addressed_review_item",
-                object_id=item_id,
-                fingerprint=f"reviewer:addressed_review_item:{item_id}",
-                reason="resolve or re-check an addressed review item",
-                payload=_compact_payload(item, keys=("item_id", "id", "status", "experiment_id")),
-            )
-        )
-    return events
-
-
-def _generic_events(persona: str, todos: dict[str, Any]) -> list[WakeEvent]:
-    if any(todos.values()):
-        return [
-            WakeEvent(
-                persona=persona,
-                kind="todos_non_empty",
-                object_id=persona,
-                fingerprint=f"{persona}:todos_non_empty:{_stable_json(todos)}",
-                reason="inspect non-empty MAP todos",
-            )
-        ]
-    return []
-
-
-def _compact_payload(item: dict[str, Any], *, keys: tuple[str, ...]) -> dict[str, Any]:
-    return {key: item[key] for key in keys if key in item and item[key] not in (None, "")}
-
-
-def _stable_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _parse_datetime(value: str) -> datetime | None:
@@ -1346,6 +1147,16 @@ def run(
         min=0.0,
         help="How long a woken event stays deduped before self-heal re-evaluation.",
     ),
+    heartbeat_seconds: float | None = typer.Option(
+        None,
+        "--heartbeat-seconds",
+        min=0.0,
+        help=(
+            "Re-wake interval when todos still show pending work (woken/server_skip). "
+            "Defaults to poll --interval via start script; when unset here, uses "
+            "--woken-cooldown-seconds."
+        ),
+    ),
     state_file: Path | None = typer.Option(Path(".map/runtime-waker-state.json"), "--state-file"),
     backend: str = typer.Option(
         "claude",
@@ -1356,11 +1167,6 @@ def run(
     runtime_home: Path | None = typer.Option(None, "--runtime-home", help="Optional HOME for the runtime process."),
     codex_bin: str | None = typer.Option(None, "--codex-bin", help="Optional Codex binary path for --backend codex."),
     force: bool = typer.Option(False, "--force", help="Wake even if the event was already handled."),
-    include_participant_open_topics: bool = typer.Option(
-        True,
-        "--include-participant-open-topics/--no-participant-open-topics",
-        help="Wake participant for open topics when the latest comment is not from them.",
-    ),
     prune_events: bool = typer.Option(
         True,
         "--prune-events/--no-prune-events",
@@ -1385,6 +1191,7 @@ def run(
         max_wakes_per_cycle=max_wakes_per_cycle,
         cooldown_seconds=cooldown_seconds,
         woken_cooldown_seconds=woken_cooldown_seconds,
+        heartbeat_seconds=heartbeat_seconds,
         state_file=state_file_path,
         project_root=root,
         map_cmd=map_cmd,
@@ -1393,7 +1200,6 @@ def run(
         runtime_home=runtime_home_path,
         codex_bin=codex_bin,
         force=force,
-        include_participant_open_topics=include_participant_open_topics,
         prune_events=prune_events,
     )
     client = MapCommandClient(map_cmd=map_cmd, persona=persona, project_root=root, dry_run=dry_run)

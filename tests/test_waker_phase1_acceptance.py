@@ -258,7 +258,7 @@ def test_a3_three_way_audit_join(client, admin_headers, project, agent_token, db
     written by append_session_wake_log. All three layers share the same
     event_id UUID.
     """
-    from cli.session_wake_log import append_session_wake_log
+    from cli.session_wake_log import append_session_wake_log, resolve_session_log_path
     from server.domain.models import InboundEvent, Notification
 
     _, token = agent_token
@@ -291,13 +291,13 @@ def test_a3_three_way_audit_join(client, admin_headers, project, agent_token, db
     assert target is not None, f"no notification for new topic; got {items}"
     notification_id = target["id"]
 
-    fingerprint = f"host:pending_topic_reply:{topic['id']}:{notification_id}"
+    fingerprint = f"host:pending_topic_replies:{notification_id}"
     status = _post_inbound(
         client,
         waker_headers,
         event_id=uuid.UUID(notification_id),
         fingerprint=fingerprint,
-        event_type="pending_topic_reply",
+        event_type="pending_topic_replies",
     )
     assert status == 201
 
@@ -332,7 +332,7 @@ def test_a3_three_way_audit_join(client, admin_headers, project, agent_token, db
         f"notification↔inbound_event drift: notif.id={notif.id} vs ib.event_id={ib.event_id}"
     )
 
-    log_path = log_dir / f"{session_id}.jsonl"
+    log_path = resolve_session_log_path(log_dir, session_id, "host")
     assert log_path.is_file(), f"sessions jsonl not written at {log_path}"
     entry = json.loads(log_path.read_text(encoding="utf-8").strip().splitlines()[-1])
     assert entry["event_id"] == notification_id, (
@@ -366,7 +366,7 @@ def test_a4_p95_baseline_by_kind(tmp_path, capsys) -> None:
     """
     from cli.session_wake_log import append_session_wake_log
 
-    kinds = ["mention", "pending_review", "topic_lifecycle", "experiment_lifecycle"]
+    kinds = ["mentions", "pending_reviews", "pending_topic_replies", "my_open_experiments"]
     samples: dict[str, list[float]] = defaultdict(list)
     iterations_per_kind = 25
     for kind in kinds:
@@ -449,7 +449,7 @@ def test_a5_phase1_source_invariant(client, admin_headers, project, agent_token,
     _, token = agent_token
     agent_headers = {"Authorization": f"Bearer {token}"}
 
-    kinds = ["mention", "pending_topic_reply", "topic_lifecycle", "experiment_lifecycle"]
+    kinds = ["mentions", "pending_topic_replies", "pending_advance_rounds", "my_open_experiments"]
     for i, kind in enumerate(kinds):
         fp = f"host:{kind}:a5-obj-{i}:v1"
         event_id = uuid.uuid4()
@@ -483,7 +483,7 @@ def test_a5_phase1_source_invariant(client, admin_headers, project, agent_token,
             fingerprint=f"host:{kind}:a5-obj-{i}:v1",
         )
 
-    jsonl_files = list(log_dir.glob("sess-a5-*.jsonl"))
+    jsonl_files = list(log_dir.glob("*sess-a5-*.jsonl"))
     assert len(jsonl_files) == len(kinds)
     for path in jsonl_files:
         for line in path.read_text(encoding="utf-8").splitlines():

@@ -301,6 +301,26 @@ export interface PendingTopicReplyTodo {
   created_at: string;
 }
 
+export interface PendingRoundAckTodo {
+  topic_id: string;
+  topic_title: string;
+  discussion_round: TopicDiscussionRound;
+  round_summary_count: number;
+  summary_comment_id: string | null;
+  summary_excerpt: string | null;
+  advance_round_pending_since: string | null;
+  updated_at: string;
+}
+
+export interface PendingAdvanceRoundTodo {
+  topic_id: string;
+  topic_title: string;
+  discussion_round: TopicDiscussionRound;
+  round_summary_count: number;
+  advance_round_pending_since: string | null;
+  updated_at: string;
+}
+
 export interface TopicActionItemTodo {
   id: string;
   decision_id: string;
@@ -322,6 +342,8 @@ export interface TodoRead {
   pending_result_reviews: ExperimentSummary[];
   pending_replies: PendingReply[];
   pending_topic_replies: PendingTopicReplyTodo[];
+  pending_round_acks: PendingRoundAckTodo[];
+  pending_advance_rounds: PendingAdvanceRoundTodo[];
   my_open_topics: TopicSummary[];
   mentions: MentionTodo[];
   action_items: TopicActionItemTodo[];

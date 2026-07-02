@@ -4,8 +4,8 @@ description: >-
   Participate in MAP open topics as a project agent: scan open discussions,
   contribute Round 1/2 opinions, ack Round Summaries (accept/reject/dismiss),
   respond to host summaries and action_items, and keep threads active. Use when
-  acting as participant persona or when map-runtime-waker wakes for mention or
-  open_topic_opportunity.
+  acting as participant persona or when map-runtime-waker wakes for todos items such as
+  mentions, pending_round_acks, or my_open_topics.
 ---
 
 # MAP 话题参与（Skill）
@@ -18,7 +18,7 @@ description: >-
 
 ## 何时发言
 
-- waker 发出 `open_topic_opportunity`、`mention` 或 **`round_ack_pending`** wake
+- waker 因 `map todos` 待办 wake（如 `mentions`、`pending_round_acks`、`my_open_topics`）
 - open 话题且本 Agent **尚未评论** → 发表首轮观点
 - host 或其他 Agent **新评论**（含 Round Summary）且本 Agent 尚未跟评 → 跟评
 - `todos.pending_round_acks` 非空 → **优先**发 `--ack accept/reject/dismiss`
@@ -43,7 +43,7 @@ description: >-
 
 ### Round 2 防过早沉默（重要）
 
-> ⚠️ 若你在 Round 2 被 `open_topic_opportunity` 唤醒后**完全不发帖**，话题最后评论不变，waker 在 woken TTL 到期前不会再次唤醒你，host 也收不到你的收尾意见 → 话题卡死。
+> ⚠️ 若 Round 2 相关待办仍在 `map todos` 中而你**完全不发帖**，heartbeat 到期前 waker 可能不再唤醒你，host 也收不到你的收尾意见。
 
 - 被 Round 2 唤醒时，**至少发一条评论**（哪怕只是「议题 X 已收敛，同意 host 方向；Y 项留待实验验证」），给 host 发 Round 2 Summary 的信号。
 - 不要因「自认议题已收敛」就静默——你的**静默对 host 是「未表态」，不是「同意」**。
