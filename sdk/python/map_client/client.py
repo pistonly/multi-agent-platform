@@ -11,6 +11,7 @@ from map_client.exceptions import MAPHTTPError
 from map_types import (
     AgentCreateResponse,
     AgentRead,
+    AgentRole,
     AuditLogRead,
     CommentAnchorType,
     CommentCreate,
@@ -153,6 +154,20 @@ class MAPClient:
             return 0
 
     # --- agents ---
+
+    def list_agents(
+        self,
+        *,
+        project_id: uuid.UUID | None = None,
+        role: AgentRole | None = None,
+    ) -> list[AgentRead]:
+        params: dict[str, str] = {}
+        if project_id is not None:
+            params["project_id"] = str(project_id)
+        if role is not None:
+            params["role"] = role.value
+        data = self._json("GET", "/agents", params=params)
+        return [AgentRead.model_validate(item) for item in data]
 
     def register_agent(
         self,

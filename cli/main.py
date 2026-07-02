@@ -161,6 +161,73 @@ def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: 
     return client.resolve_project_id(project, project_key=key)
 
 
+def _resolve_creator_agent_id(
+    client: MAPClient,
+    project_id: uuid.UUID,
+    creator: str | None,
+    creator_agent_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    """Resolve --creator (name or UUID) and --creator-agent-id into a single creator_agent_id.
+
+    - Neither set → None (no filter).
+    - Both set with same value → that value (alias use).
+    - Both set with different values → error.
+    - --creator is a valid UUID → pass through (skip /agents lookup).
+    - --creator is a name → look up via list_agents(project_id); exact match within current
+      project, ignoring admin rows. 0 hits → error + list available names;
+      >1 hits → error (project-internal name collision).
+    """
+    if not creator:
+        return creator_agent_id
+    try:
+        creator_uuid = uuid.UUID(creator)
+    except ValueError:
+        creator_uuid = None
+    if creator_uuid is not None:
+        if creator_agent_id is not None and creator_agent_id != creator_uuid:
+            typer.echo(
+                "Error: --creator and --creator-agent-id resolve to different UUIDs.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        return creator_uuid
+    if creator_agent_id is not None:
+        typer.echo(
+            "Error: --creator is a name but --creator-agent-id was also passed; "
+            "pass one or the other.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    agents = client.list_agents(project_id=project_id)
+    matches = [
+        a
+        for a in agents
+        if a.role.value != "admin" and a.project_id == project_id and a.name == creator
+    ]
+    if len(matches) == 0:
+        available = sorted(
+            a.name for a in agents if a.role.value != "admin" and a.project_id == project_id
+        )
+        available_hint = (
+            f" Available agent_name in this project: {', '.join(available)}."
+            if available
+            else " No project-bound agents found in this project."
+        )
+        typer.echo(
+            f"Error: agent_name '{creator}' not found in current project.{available_hint}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        typer.echo(
+            f"Error: agent_name '{creator}' matches {len(matches)} agents in current project; "
+            "name is ambiguous. Pass --creator-agent-id <UUID> instead.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return matches[0].id
+
+
 def _load_topic_resolve_payload(path: Path) -> TopicResolve:
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() in {".yaml", ".yml"}:
@@ -768,7 +835,17 @@ def topic_list(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     status: str | None = typer.Option(None, "--status"),
-    creator_agent_id: uuid.UUID | None = typer.Option(None, "--creator-agent-id"),
+    creator: str | None = typer.Option(
+        None,
+        "--creator",
+        help="Filter by topic creator. Accepts agent_name (current project) or agent_id UUID; "
+        "alias for --creator-agent-id.",
+    ),
+    creator_agent_id: uuid.UUID | None = typer.Option(
+        None,
+        "--creator-agent-id",
+        help="Filter by creator agent_id UUID. Use --creator for name-or-id shorthand.",
+    ),
     q: str | None = typer.Option(None, "--q"),
     page: int = typer.Option(1, "--page", min=1),
     page_size: int = typer.Option(100, "--page-size", min=1, max=100),
@@ -779,10 +856,11 @@ def topic_list(
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
         st = TopicStatus(status) if status else None
+        resolved_creator_id = _resolve_creator_agent_id(c, pid, creator, creator_agent_id)
         return c.list_topics(
             pid,
             status=st,
-            creator_agent_id=creator_agent_id,
+            creator_agent_id=resolved_creator_id,
             q=q,
             page=page,
             page_size=page_size,
