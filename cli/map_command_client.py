@@ -52,8 +52,16 @@ class MapCommandClient:
     def todos(self) -> dict[str, Any]:
         return self._run(["todos"])
 
-    def notifications_unread(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        data = self._run(["notification", "list", "--unread-only", "--limit", str(limit)])
+    def notifications_unread(
+        self,
+        *,
+        limit: int = 50,
+        category: str | None = "wakeable",
+    ) -> list[dict[str, Any]]:
+        args = ["notification", "list", "--unread-only", "--limit", str(limit)]
+        if category is not None:
+            args.extend(["--category", category])
+        data = self._run(args)
         if not isinstance(data, dict):
             return []
         items = data.get("items")
@@ -86,6 +94,36 @@ class MapCommandClient:
             yaml.safe_dump(payload, fh, allow_unicode=True, sort_keys=False)
             fh.flush()
             return self._run(["topic", "resolve", "--id", topic_id, "--file", fh.name])
+
+    def action_complete(self, action_item_id: str) -> dict[str, Any] | None:
+        return self._run(["action", "complete", "--id", action_item_id])
+
+    def action_cancel(
+        self,
+        action_item_id: str,
+        *,
+        reason: str,
+        category: str | None = None,
+    ) -> dict[str, Any] | None:
+        args = ["action", "cancel", "--id", action_item_id, "--reason", reason]
+        if category is not None:
+            args.extend(["--category", category])
+        return self._run(args)
+
+    def action_link(self, action_item_id: str, experiment_id: str) -> dict[str, Any] | None:
+        return self._run([
+            "action", "link",
+            "--id", action_item_id,
+            "--experiment-id", experiment_id,
+        ])
+
+    def action_mark_wake_sent(self, action_item_id: str) -> dict[str, Any] | None:
+        """Bump wake_count + stamp last_woken_at + audit (experiment B / I4)."""
+        return self._run(["action", "mark-wake-sent", "--id", action_item_id])
+
+    def action_mark_stale(self, action_item_id: str) -> dict[str, Any] | None:
+        """Stamp stale_at + write the action_item.stale audit (experiment B / I4)."""
+        return self._run(["action", "mark-stale", "--id", action_item_id])
 
     def experiment_create(
         self,

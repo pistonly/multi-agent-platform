@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from server.domain.models import Agent, Comment, Mention, MentionSourceType, Notification, Topic, TopicComment
+from server.domain.models import Agent, Comment, Mention, MentionSourceType, Topic, TopicComment
 from server.services import notification_service
 
 MENTION_PATTERN = re.compile(r"@([a-zA-Z][a-zA-Z0-9_-]*)")
@@ -61,9 +61,11 @@ def notify_unresolved_mentions(
     if not unresolved:
         return
     labels = ", ".join(f"@{name}" for name in unresolved)
-    notification = Notification(
-        recipient_agent_id=author.id,
+    notification_service.enqueue_for_agents(
+        db,
+        recipient_agent_ids=[author.id],
         project_id=project_id,
+        actor_id=author.id,
         event="mention.unresolved",
         summary=(
             f"评论中的 {labels} 未匹配到 MAP Agent（{context_label}）。"
@@ -71,19 +73,12 @@ def notify_unresolved_mentions(
         ),
         target_type=target_type,
         target_id=target_id,
-        payload_json={
+        payload={
             **payload,
             "unresolved_mentions": unresolved,
             "hint": "Run `map persona list` and @ the exact agent_name field.",
         },
-    )
-    db.add(notification)
-    db.commit()
-    db.refresh(notification)
-    notification_service._emit_created(
-        [author.id],
-        [notification.id],
-        event="mention.unresolved",
+        exclude_actor=False,
     )
 
 

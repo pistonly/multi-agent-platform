@@ -214,6 +214,11 @@ def test_resolve_topic_requires_host_or_admin(client, auth_headers, reviewer, ad
 
 
 def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, reviewer, project):
+    # A1 resolve 二次约束：旧 resolve 是「delete + reinsert」，等价于删除重建，无 done
+    # 写入路径。新语义：
+    #   - payload 中带 id 且命中旧项 → 字段更新，status 保留
+    #   - payload 中不带旧 id → 旧项若 open 自动 close 成 done（写 audit）
+    #   - payload 中无 id 的新项 → 插入，status=open
     topic = _create_topic(client, auth_headers, project)
     first = client.post(
         f"/api/v1/topics/{topic['id']}/resolve",
@@ -227,6 +232,7 @@ def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, r
     decision_id = first.json()["id"]
     old_action_id = first.json()["action_items"][0]["id"]
 
+    # 重跑 resolve，旧 id 不在新 payload → 应自动 done（写 audit），新项以 open 插入
     second = client.post(
         f"/api/v1/topics/{topic['id']}/resolve",
         headers=auth_headers,
@@ -238,8 +244,68 @@ def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, r
     assert second.status_code == 200
     assert second.json()["id"] == decision_id
     assert second.json()["decision"] == "第二版结论"
-    assert second.json()["action_items"][0]["id"] != old_action_id
-    assert second.json()["action_items"][0]["title"] == "新行动项"
+    items_by_id = {item["id"]: item for item in second.json()["action_items"]}
+    assert items_by_id[old_action_id]["status"] == "done"  # 二次约束触发 close
+    new_action_ids = [i for i in items_by_id if i != old_action_id]
+    assert len(new_action_ids) == 1
+    assert items_by_id[new_action_ids[0]]["title"] == "新行动项"
+    assert items_by_id[new_action_ids[0]]["status"] == "open"
+
+    # 同一 resolve payload 再跑一次 → 旧项已 done，不再写 audit（幂等）
+    audit_logs = client.get(
+        "/api/v1/audit",
+        headers=auth_headers,
+        params={"target_type": "topic_action_item", "target_id": old_action_id},
+    )
+    completed_events = [
+        log for log in audit_logs.json() if log["action"] == "action_item.completed"
+    ]
+    assert len(completed_events) == 1
+
+
+def test_topic_resolve_upsert_preserves_status_and_updates_fields(client, auth_headers, admin_headers, reviewer, project):
+    """Resolve 时 payload 带 id → upsert：字段更新但 status 不会被 reset。"""
+    topic = _create_topic(client, auth_headers, project)
+    first = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "v1",
+            "action_items": [
+                {"title": "原标题", "owner_agent_id": reviewer["id"], "category": "implementation"}
+            ],
+        },
+    )
+    action_id = first.json()["action_items"][0]["id"]
+
+    completed = client.post(
+        f"/api/v1/action-items/{action_id}/complete",
+        headers=admin_headers,
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "done"
+
+    # Re-resolve 带相同 id 但新 title → 字段更新，status 仍是 done
+    second = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "v2",
+            "action_items": [
+                {
+                    "id": action_id,
+                    "title": "新标题（手动 done 后不可被 resolve 覆盖）",
+                    "owner_agent_id": reviewer["id"],
+                    "category": "decision",
+                }
+            ],
+        },
+    )
+    assert second.status_code == 200
+    items = {i["id"]: i for i in second.json()["action_items"]}
+    assert items[action_id]["status"] == "done"
+    assert items[action_id]["title"] == "新标题（手动 done 后不可被 resolve 覆盖）"
+    assert items[action_id]["category"] == "decision"
 
 
 def test_experiment_linked_to_topic(client, auth_headers, project):

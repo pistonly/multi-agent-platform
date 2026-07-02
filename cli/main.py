@@ -756,10 +756,20 @@ app.add_typer(notification_app, name="notification")
 @notification_app.command("list")
 def notification_list(
     unread_only: bool = typer.Option(False, "--unread-only"),
+    category: str | None = typer.Option(None, "--category", help="wakeable|digest|all"),
+    target_type: str | None = typer.Option(None, "--target-type"),
     limit: int = typer.Option(50, "--limit"),
     offset: int = typer.Option(0, "--offset"),
 ) -> None:
-    _run(lambda c: c.list_notifications(unread_only=unread_only, limit=limit, offset=offset))
+    _run(
+        lambda c: c.list_notifications(
+            unread_only=unread_only,
+            category=category,
+            target_type=target_type,
+            limit=limit,
+            offset=offset,
+        )
+    )
 
 
 @notification_app.command("read")
@@ -1077,6 +1087,86 @@ def action_list(
             status=status_filter,
             limit=limit,
         )
+
+    _run(action)
+
+
+@action_app.command("complete")
+def action_complete(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to mark done."),
+) -> None:
+    """Close an action item as done (open -> done)."""
+
+    def action(c: MAPClient):
+        return c.complete_action_item(action_item_id)
+
+    _run(action)
+
+
+@action_app.command("cancel")
+def action_cancel(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to cancel."),
+    reason: str = typer.Option(..., "--reason", help="Cancellation reason (length-validated by category)."),
+    category: str | None = typer.Option(
+        None,
+        "--category",
+        help="implementation | decision | unspecified (default). Affects reason length threshold.",
+    ),
+) -> None:
+    """Close an action item as cancelled (open -> cancelled)."""
+
+    from map_types.enums import ActionItemCategory
+    from map_types.schemas import ActionItemCancel
+
+    def action(c: MAPClient):
+        cat = ActionItemCategory(category) if category else None
+        payload = ActionItemCancel(reason=reason, category=cat)
+        return c.cancel_action_item(action_item_id, payload)
+
+    _run(action)
+
+
+@action_app.command("link")
+def action_link(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to link."),
+    experiment_id: uuid.UUID = typer.Option(
+        ...,
+        "--experiment-id",
+        help="Experiment UUID to attach to the action item (must share project).",
+    ),
+) -> None:
+    """Attach an experiment to an open action item so future experiment
+    ``done`` cascades the action item automatically."""
+
+    def action(c: MAPClient):
+        return c.link_action_item(action_item_id, experiment_id)
+
+    _run(action)
+
+
+@action_app.command("mark-wake-sent")
+def action_mark_wake_sent(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to wake."),
+) -> None:
+    """Bump wake_count + stamp last_woken_at + write ``action_item.wake_sent``
+    audit row. Used by the runtime-waker CLI to advance the three-stage
+    escalation timeline (experiment B / I4). Owner or admin only."""
+
+    def action(c: MAPClient):
+        return c.mark_wake_sent(action_item_id)
+
+    _run(action)
+
+
+@action_app.command("mark-stale")
+def action_mark_stale(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to mark stale."),
+) -> None:
+    """Stamp stale_at + write the ``action_item.stale`` audit row after the
+    4th unanswered wake. Admin only (system escalation, experiment B / I4)."""
+
+    def action(c: MAPClient):
+        return c.mark_stale(action_item_id)
 
     _run(action)
 

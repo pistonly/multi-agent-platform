@@ -6,12 +6,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from map_types.enums import (
+    ActionItemCategory,
     AgentRole,
     CommentAnchorType,
     ExperimentPhase,
     FeedbackCategory,
     FeedbackStatus,
     InboundEventSource,
+    NotificationCategory,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -314,6 +316,41 @@ class TopicActionItemCreate(BaseModel):
     owner_agent_id: uuid.UUID | None = None
     due_at: datetime | None = None
     linked_experiment_id: uuid.UUID | None = None
+    category: ActionItemCategory | None = None
+    # Optional id enables resolve-time upsert. Service layer preserves status when id
+    # matches an existing item; new ids are inserted as open. None means "always insert".
+    id: uuid.UUID | None = None
+
+
+# Minimum reason length enforced per-category; mirrors server-side validation so the
+# CLI and API stay consistent (A1 acceptance A1-3 + A1-4).
+_CANCEL_REASON_MIN_LENGTH: dict[ActionItemCategory | None, int] = {
+    None: 8,
+    ActionItemCategory.unspecified: 8,
+    ActionItemCategory.implementation: 8,
+    ActionItemCategory.decision: 16,
+}
+
+
+def _cancel_reason_min_length(category: ActionItemCategory | None) -> int:
+    return _CANCEL_REASON_MIN_LENGTH.get(category, 8)
+
+
+class ActionItemCancel(BaseModel):
+    """Body of ``POST /api/v1/action-items/{id}/cancel`` and ``map action cancel``."""
+
+    reason: str = Field(min_length=1)
+    category: ActionItemCategory | None = None
+
+    @model_validator(mode="after")
+    def validate_reason_length(self) -> "ActionItemCancel":
+        threshold = _cancel_reason_min_length(self.category)
+        if len(self.reason.strip()) < threshold:
+            raise ValueError(
+                f"reason too short: {len(self.reason.strip())} < {threshold} "
+                f"(category={self.category.value if self.category else 'unspecified'})"
+            )
+        return self
 
 
 class TopicResolve(BaseModel):
@@ -353,6 +390,17 @@ class TopicActionItemRead(BaseModel):
     status: TopicActionItemStatus
     due_at: datetime | None = None
     linked_experiment_id: uuid.UUID | None = None
+    category: ActionItemCategory | None = None
+    cancel_reason: str | None = None
+    suggested_linked_experiment_id: uuid.UUID | None = None
+    suggested_linked_experiment_title: str | None = None
+    # Wake / stale escalation fields (experiment B, plan §2 §3). Surfaced so
+    # the runtime-waker can run should_wake_action_item() against the same
+    # payload it gets from the todos endpoint, avoiding a second fetch.
+    wake_count: int = 0
+    first_open_at: datetime | None = None
+    last_woken_at: datetime | None = None
+    stale_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -503,6 +551,13 @@ class TopicActionItemTodoRead(BaseModel):
     status: TopicActionItemStatus
     due_at: datetime | None = None
     linked_experiment_id: uuid.UUID | None = None
+    # Wake / stale escalation fields (experiment B). The runtime-waker
+    # applies should_wake_action_item() directly to this payload — see
+    # cli/runtime_waker.py scan_pending_action_items() for the caller.
+    wake_count: int = 0
+    first_open_at: datetime | None = None
+    last_woken_at: datetime | None = None
+    stale_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -532,8 +587,15 @@ class NotificationRead(ORMModel):
     target_type: str
     target_id: uuid.UUID | None
     payload_json: dict | None
+    category: NotificationCategory = NotificationCategory.digest
+    group_key: str | None = None
+    wake_version: int = 1
+    event_count: int = 1
+    first_event_at: datetime | None = None
+    last_event_at: datetime | None = None
     read_at: datetime | None
     created_at: datetime
+    updated_at: datetime | None = None
 
 
 class NotificationListRead(BaseModel):
@@ -637,6 +699,55 @@ class AuditLogRead(ORMModel):
     summary: str | None
     payload_json: dict | None
     created_at: datetime
+
+
+# --- Action Item audit payloads (B I2: waker escalation 三段式) ---
+
+
+ACTION_ITEM_WAKE_SENT = "action_item.wake_sent"
+ACTION_ITEM_STALE = "action_item.stale"
+
+
+class ActionItemWakeSentPayload(BaseModel):
+    """Payload of ``action_item.wake_sent`` audit event.
+
+    Fired by ``runtime-waker.scan_pending_action_items`` whenever ``should_wake_action_item``
+    decides to wake the assignee (T+24h / T+72h / every 7d up to 4 times). Pairs with the
+    ``action_item.stale`` event but is a distinct, lower-severity audit signal.
+    """
+
+    action_item_id: uuid.UUID
+    owner_agent_id: uuid.UUID
+    topic_id: uuid.UUID
+    decision_id: uuid.UUID | None = None
+    linked_experiment_id: uuid.UUID | None = None
+    wake_count: int
+    last_woken_at: datetime
+    first_open_at: datetime
+    elapsed_since_first_open_seconds: int
+    triggered_by: str = "waker.scan_pending_action_items"
+
+
+class ActionItemStalePayload(BaseModel):
+    """Payload of ``action_item.stale`` audit event.
+
+    Fired after the 4th unanswered wake at the next 7d boundary. Pairs with admin
+    notification + creator audit-only mark; the runtime-waker stops waking the
+    assignee once ``stale_at`` is set. The event itself is independent of any
+    state transition (unlike ``action_item.completed`` / ``action_item.cancelled``):
+    it is a diagnostic signal that the open item has not progressed.
+    """
+
+    action_item_id: uuid.UUID
+    owner_agent_id: uuid.UUID
+    topic_id: uuid.UUID
+    decision_id: uuid.UUID | None = None
+    linked_experiment_id: uuid.UUID | None = None
+    last_woken_at: datetime | None
+    wake_count: int
+    stale_after_attempt: int
+    admin_notified: bool
+    creator_audit_only: bool
 
 
 # --- Platform Feedback ---

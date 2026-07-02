@@ -54,9 +54,22 @@ class TopicActionItemStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
+class ActionItemCategory(str, enum.Enum):
+    """Drives the cancel-reason minimum-length threshold (see ActionItemCancel)."""
+
+    implementation = "implementation"
+    decision = "decision"
+    unspecified = "unspecified"
+
+
 class MentionSourceType(str, enum.Enum):
     experiment_comment = "experiment_comment"
     topic_comment = "topic_comment"
+
+
+class NotificationCategory(str, enum.Enum):
+    wakeable = "wakeable"
+    digest = "digest"
 
 
 class FeedbackCategory(str, enum.Enum):

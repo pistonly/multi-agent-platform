@@ -366,3 +366,60 @@ def test_wake_notification_helper_skips_unassigned_items(db_session):
     # No assertions on DB side — helper should be a no-op for unassigned.
     result = notify_owner_action_item_wake(db_session, action_item=fake_item)
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# I6 / B-8: creator (regular agent, NOT admin) is audit-only on stale
+# ---------------------------------------------------------------------------
+
+
+def test_non_admin_creator_does_not_receive_stale_notification(
+    client, db_session, auth_headers, admin_headers, project
+):
+    """Stronger form of B-8: when the topic creator is a regular agent
+    (not an admin), they must NOT receive the stale notification. The audit
+    log is their only channel — they can find the event via
+    ``GET /api/v1/audit`` (B-11).
+
+    Earlier ``test_creator_does_not_receive_stale_notification`` covers the
+    case where the creator happens to be an admin (the admin path fires
+    once for them, not via a creator-specific channel). This case is the
+    sharper guardrail: if a future refactor adds a creator-only channel,
+    this test must keep failing.
+    """
+    creator_id = uuid.UUID(_owner_id_from_auth(client, auth_headers))  # auth = creator
+    admin_id = _admin_id_from_headers(client, admin_headers)
+
+    # The topic is created via auth_headers (regular agent = creator).
+    # Owner of the action_item is also auth_headers — separate the two
+    # concerns by giving the action_item a different owner.
+    other_owner_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        params={"name": "other-owner", "role": "agent", "project_key": project["project_key"]},
+    )
+    assert other_owner_resp.status_code == 201
+    other_owner_id = uuid.UUID(other_owner_resp.json()["id"])
+
+    topic = _create_topic(client, auth_headers, project)  # auth = creator
+    item = _resolve_with_action_item(
+        client, admin_headers, topic["id"], str(other_owner_id)
+    )
+
+    client.post(
+        f"/api/v1/action-items/{item['id']}/mark-wake-sent",
+        headers=admin_headers,
+    )
+    resp = client.post(
+        f"/api/v1/action-items/{item['id']}/mark-stale",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+
+    creator_events = _events_for(db_session, creator_id)
+    assert "action_item.stale" not in creator_events, (
+        f"non-admin creator must NOT receive stale notification, got {creator_events}"
+    )
+    # Sanity: admin did receive it (the only channel).
+    admin_events = _events_for(db_session, admin_id)
+    assert "action_item.stale" in admin_events

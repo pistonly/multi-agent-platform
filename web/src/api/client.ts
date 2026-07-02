@@ -439,6 +439,8 @@ export async function dismissAllMentions(): Promise<{ dismissed: number }> {
 
 export async function fetchNotifications(params?: {
   unread_only?: boolean;
+  category?: "wakeable" | "digest" | "all";
+  target_type?: string;
   limit?: number;
   offset?: number;
 }): Promise<NotificationList> {

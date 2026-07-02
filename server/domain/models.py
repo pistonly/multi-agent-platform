@@ -12,6 +12,7 @@ from map_types.enums import (
     FeedbackStatus,
     InboundEventSource,
     MentionSourceType,
+    NotificationCategory,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -230,6 +231,12 @@ class TopicActionItem(Base):
     linked_experiment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("experiments.id"), nullable=True, index=True
     )
+    category: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wake_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    last_woken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -382,8 +389,23 @@ class Notification(Base):
     target_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    category: Mapped[NotificationCategory] = mapped_column(
+        Enum(NotificationCategory),
+        default=NotificationCategory.digest,
+        server_default=NotificationCategory.digest.value,
+        nullable=False,
+        index=True,
+    )
+    group_key: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    wake_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    first_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     recipient: Mapped["Agent"] = relationship()
 

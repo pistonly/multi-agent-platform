@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from server.api.deps import get_current_agent, get_optional_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, AgentRole, Project
+from map_types.enums import NotificationCategory
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
@@ -173,15 +174,41 @@ def dismiss_all_my_mentions(
 @agents_router.get("/me/notifications", response_model=NotificationListRead)
 def list_my_notifications(
     unread_only: bool = Query(default=False),
+    category: NotificationCategory | str | None = Query(default=None),
+    target_type: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     agent: Agent = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ) -> NotificationListRead:
+    normalized_category: NotificationCategory | None
+    if category is None or category == "all":
+        normalized_category = None
+    elif isinstance(category, NotificationCategory):
+        normalized_category = category
+    else:
+        try:
+            normalized_category = NotificationCategory(category)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="category must be wakeable, digest, or all",
+            ) from exc
     items, total = notification_service.list_for_agent(
-        db, agent, unread_only=unread_only, limit=limit, offset=offset
+        db,
+        agent,
+        unread_only=unread_only,
+        category=normalized_category,
+        target_type=target_type,
+        limit=limit,
+        offset=offset,
     )
-    unread_count = notification_service.count_unread(db, agent)
+    unread_count = notification_service.count_unread(
+        db,
+        agent,
+        category=normalized_category,
+        target_type=target_type,
+    )
     return NotificationListRead(
         items=[NotificationRead.model_validate(n) for n in items],
         total=total,
@@ -234,5 +261,3 @@ def record_my_inbound_event(
         status="recorded",
         event=InboundEventRead.model_validate(event),
     )
-
-

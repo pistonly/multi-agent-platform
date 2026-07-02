@@ -765,6 +765,68 @@ def test_participant_empty_todos_has_no_events():
     assert events == []
 
 
+def test_discover_wakeable_notification_uses_wake_version():
+    events = discover_wake_events(
+        "host",
+        {},
+        notifications=[
+            {
+                "id": "notif-1",
+                "category": "wakeable",
+                "wake_version": 3,
+                "event": "system.runtime_attention",
+                "summary": "needs attention",
+                "target_type": "topic",
+                "target_id": "topic-1",
+            },
+            {
+                "id": "notif-2",
+                "category": "digest",
+                "wake_version": 1,
+                "event": "topic.comment.created",
+                "summary": "digest only",
+                "target_type": "topic",
+                "target_id": "topic-2",
+            },
+        ],
+    )
+
+    assert len(events) == 1
+    assert events[0].kind == "notification"
+    assert events[0].object_id == "topic-1"
+    assert events[0].fingerprint == "host:notification:notif-1:3"
+
+
+def test_discover_skips_wakeable_notification_when_todo_already_covers_object():
+    events = discover_wake_events(
+        "host",
+        {
+            "pending_replies": [
+                {
+                    "item_id": "review-item-1",
+                    "experiment_id": "exp-1",
+                    "status": "addressed",
+                }
+            ]
+        },
+        notifications=[
+            {
+                "id": "notif-1",
+                "category": "wakeable",
+                "wake_version": 1,
+                "event": "review_item.status_changed",
+                "summary": "review item addressed",
+                "target_type": "review_item",
+                "target_id": "review-item-1",
+                "payload_json": {"experiment_id": "exp-1", "item_id": "review-item-1"},
+            }
+        ],
+    )
+
+    assert [event.kind for event in events] == ["pending_replies"]
+    assert events[0].fingerprint == "host:pending_replies:review-item-1"
+
+
 def test_participant_my_open_topics_wake():
     events = discover_wake_events(
         "participant",
@@ -1934,6 +1996,4 @@ def test_persona_inflight_skips_other_event_after_successful_wake(tmp_path):
     assert second.wakes_sent == 0
     assert second.wake_skips == 2
     assert len(backend.calls) == 1  # only A was ever woken; B was not
-
-
 

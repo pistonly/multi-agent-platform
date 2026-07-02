@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from server.api.router import (
+    action_items_router,
     agents_router,
     audit_router,
     experiments_router,
@@ -15,6 +16,7 @@ from server.api.router import (
     webhooks_router,
 )
 from server.config import get_settings
+from server.db.session import init_db
 from server.services.errors import (
     ConflictError,
     ForbiddenError,
@@ -56,6 +58,7 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    init_db()
     app = FastAPI(title="Multi-Agent Platform", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -74,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks_router, prefix=prefix)
     app.include_router(audit_router, prefix=prefix)
     app.include_router(feedback_router, prefix=prefix)
+    app.include_router(action_items_router, prefix=prefix)
 
     register_domain_exception_handlers(app)
 

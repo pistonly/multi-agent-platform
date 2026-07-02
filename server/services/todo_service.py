@@ -369,6 +369,10 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
             status=item.status,
             due_at=item.due_at,
             linked_experiment_id=item.linked_experiment_id,
+            wake_count=item.wake_count,
+            first_open_at=item.first_open_at,
+            last_woken_at=item.last_woken_at,
+            stale_at=item.stale_at,
             created_at=item.created_at,
             updated_at=item.updated_at,
         )

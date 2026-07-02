@@ -9,6 +9,7 @@ import httpx
 from map_client.config import load_config
 from map_client.exceptions import MAPHTTPError
 from map_types import (
+    ActionItemCancel,
     AgentCreateResponse,
     AgentRead,
     AgentRole,
@@ -32,6 +33,7 @@ from map_types import (
     GlobalStatusRead,
     InboundEventCreate,
     InboundEventRecordResult,
+    NotificationCategory,
     PlanRevise,
     PlanVersionRead,
     ProjectCreate,
@@ -259,6 +261,53 @@ class MAPClient:
             params["status"] = status.value
         data = self._json("GET", f"/projects/{project_id}/action-items", params=params)
         return [TopicActionItemRead.model_validate(item) for item in data]
+
+    def complete_action_item(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        data = self._json("POST", f"/action-items/{action_item_id}/complete")
+        return TopicActionItemRead.model_validate(data)
+
+    def cancel_action_item(
+        self,
+        action_item_id: uuid.UUID,
+        payload: ActionItemCancel,
+    ) -> TopicActionItemRead:
+        data = self._json(
+            "POST",
+            f"/action-items/{action_item_id}/cancel",
+            json=payload.model_dump(exclude_none=True),
+        )
+        return TopicActionItemRead.model_validate(data)
+
+    def link_action_item(
+        self,
+        action_item_id: uuid.UUID,
+        experiment_id: uuid.UUID,
+    ) -> TopicActionItemRead:
+        data = self._json(
+            "POST",
+            f"/action-items/{action_item_id}/link",
+            params={"experiment_id": str(experiment_id)},
+        )
+        return TopicActionItemRead.model_validate(data)
+
+    def mark_wake_sent(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        """Bump ``wake_count`` + stamp ``last_woken_at`` + audit row.
+
+        Experiment B / I4 — called by the runtime-waker CLI process when
+        ``should_wake_action_item`` returns ``'wake'``. Owner or admin only.
+        """
+        data = self._json("POST", f"/action-items/{action_item_id}/mark-wake-sent")
+        return TopicActionItemRead.model_validate(data)
+
+    def mark_stale(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        """Stamp ``stale_at`` + write the ``action_item.stale`` audit row.
+
+        Experiment B / I4 — called by the runtime-waker CLI process when
+        ``should_wake_action_item`` returns ``'stale'`` (4th unanswered wake).
+        Admin only.
+        """
+        data = self._json("POST", f"/action-items/{action_item_id}/mark-stale")
+        return TopicActionItemRead.model_validate(data)
 
     def revise_project_status(
         self,
@@ -628,13 +677,20 @@ class MAPClient:
         self,
         *,
         unread_only: bool = False,
+        category: NotificationCategory | str | None = None,
+        target_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> NotificationListRead:
+        params: dict[str, Any] = {"unread_only": unread_only, "limit": limit, "offset": offset}
+        if category is not None:
+            params["category"] = category.value if isinstance(category, NotificationCategory) else category
+        if target_type is not None:
+            params["target_type"] = target_type
         data = self._json(
             "GET",
             "/agents/me/notifications",
-            params={"unread_only": unread_only, "limit": limit, "offset": offset},
+            params=params,
         )
         return NotificationListRead.model_validate(data)
 

@@ -1,5 +1,6 @@
 """Aggregate API routers for backward compatibility."""
 
+from server.api.action_items import action_items_router
 from server.api.agents import agents_router
 from server.api.audit import audit_router
 from server.api.experiments import experiments_router
@@ -11,6 +12,7 @@ from server.api.topics import topics_router
 from server.api.webhooks import webhooks_router
 
 __all__ = [
+    "action_items_router",
     "notifications_router",
     "router",
     "agents_router",

@@ -21,7 +21,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
-from server.services import action_item_service, audit_service, mention_service, notification_service, topic_ack_service
+from server.services import action_item_service, audit_service, notification_service, topic_ack_service
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 from server.services.permissions import is_admin
 from server.services.project_service import get_project

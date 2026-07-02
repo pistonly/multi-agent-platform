@@ -101,13 +101,23 @@ def build_server(
     @mcp.tool()
     def list_notifications(
         unread_only: bool = False,
+        category: str | None = None,
+        target_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
         token: Token = None,
     ) -> dict[str, Any]:
         """List in-app notifications for the current agent (paginated, optional unread filter)."""
         with resolver.use(token) as (c, _ctx):
-            return dump(c.list_notifications(unread_only=unread_only, limit=limit, offset=offset))
+            return dump(
+                c.list_notifications(
+                    unread_only=unread_only,
+                    category=category,
+                    target_type=target_type,
+                    limit=limit,
+                    offset=offset,
+                )
+            )
 
     @mcp.tool()
     def mark_notification_read(notification_id: str, token: Token = None) -> dict[str, Any]:

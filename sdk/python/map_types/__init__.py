@@ -1,12 +1,14 @@
 """Shared API types for MAP server, SDK, and MCP."""
 
 from map_types.enums import (
+    ActionItemCategory,
     AgentRole,
     CommentAnchorType,
     ExperimentPhase,
     FeedbackCategory,
     FeedbackStatus,
     InboundEventSource,
+    NotificationCategory,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -14,6 +16,7 @@ from map_types.enums import (
     TopicStatus,
 )
 from map_types.schemas import (
+    ActionItemCancel,
     AgentCreateResponse,
     AgentRead,
     AuditLogRead,
@@ -76,12 +79,14 @@ from map_types.schemas import (
 )
 
 __all__ = [
+    "ActionItemCancel",
     "AgentRole",
     "CommentAnchorType",
     "ExperimentPhase",
     "FeedbackCategory",
     "FeedbackStatus",
     "InboundEventSource",
+    "NotificationCategory",
     "ReviewItemKind",
     "ReviewItemStatus",
     "TopicActionItemStatus",

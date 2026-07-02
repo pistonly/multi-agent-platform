@@ -64,3 +64,69 @@ def test_actor_does_not_receive_own_notification(client, auth_headers, project):
     # creator should not be notified for their own experiment.created
     for item in res.json()["items"]:
         assert item["event"] != "experiment.created" or item["summary"] != "创建实验「Self notify」"
+
+
+def test_notifications_default_to_digest_and_filter_by_category(client, auth_headers, reviewer, project):
+    reviewer_headers = reviewer["headers"]
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "Category filter", "plan": {"content_md": "# p"}},
+    ).json()
+    client.post(f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers)
+
+    all_res = client.get("/api/v1/agents/me/notifications", headers=reviewer_headers)
+    assert all_res.status_code == 200
+    digest_items = [n for n in all_res.json()["items"] if n["event"] == "experiment.phase_changed"]
+    assert digest_items
+    assert digest_items[0]["category"] == "digest"
+    assert digest_items[0]["wake_version"] == 1
+    assert digest_items[0]["event_count"] >= 1
+
+    digest_res = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"category": "digest", "unread_only": True},
+    )
+    assert any(n["event"] == "experiment.phase_changed" for n in digest_res.json()["items"])
+
+    wakeable_res = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"category": "wakeable", "unread_only": True},
+    )
+    assert not any(n["event"] == "experiment.phase_changed" for n in wakeable_res.json()["items"])
+
+    invalid = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"category": "urgent"},
+    )
+    assert invalid.status_code == 422
+
+
+def test_digest_notifications_are_aggregated_by_object(client, auth_headers, reviewer, project):
+    reviewer_headers = reviewer["headers"]
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "Aggregate digest", "plan": {"content_md": "# p"}},
+    ).json()
+
+    client.post(f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers)
+    client.post(f"/api/v1/experiments/{exp['id']}/withdraw", headers=auth_headers)
+    client.post(f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers)
+
+    data = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"category": "digest"},
+    ).json()
+    rows = [
+        n
+        for n in data["items"]
+        if n["event"] == "experiment.phase_changed" and n["target_id"] == exp["id"]
+    ]
+    assert len(rows) == 1
+    assert rows[0]["event_count"] == 2
+    assert rows[0]["category"] == "digest"
