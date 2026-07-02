@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from cli.session_wake_log import (
+    append_session_event,
     append_session_wake_log,
     log_now,
     resolve_session_log_path,
@@ -121,3 +122,29 @@ def test_append_session_wake_log_defaults_event_source_to_polling(tmp_path: Path
     assert entry["event_source"] == "polling"
     assert entry["event_id"] is None
     assert entry["fingerprint"] is None
+
+
+def test_append_session_event_writes_live_event_line(tmp_path: Path, monkeypatch) -> None:
+    fixed = datetime(2026, 7, 2, 11, 30, 45, tzinfo=ZoneInfo("Asia/Shanghai"))
+    monkeypatch.setattr("cli.session_wake_log.log_now", lambda: fixed)
+
+    # Parent dir does not exist yet — append_session_event must create it.
+    log_path = tmp_path / "sub" / "session.jsonl"
+    append_session_event(
+        log_path=log_path,
+        persona="host",
+        integration="waker",
+        event="tool_use",
+        summary="Bash: map todos",
+        event_id="22222222-2222-2222-2222-222222222222",
+        fingerprint="host:pending_topic_replies:c1",
+    )
+    assert log_path.is_file()
+    entry = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert entry["event"] == "tool_use"
+    assert entry["summary"] == "Bash: map todos"
+    assert entry["persona"] == "host"
+    assert entry["integration"] == "waker"
+    assert entry["ts"] == "2026-07-02T11:30:45+08:00"
+    assert entry["event_id"] == "22222222-2222-2222-2222-222222222222"
+    assert entry["fingerprint"] == "host:pending_topic_replies:c1"

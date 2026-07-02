@@ -168,11 +168,21 @@ file under `.map/runtime-waker-sessions/`. New sessions use a sortable filename:
 `Asia/Shanghai`; override with `MAP_LOG_TIMEZONE`). Resume wakes append to the
 same file. Legacy plain `<session_id>.jsonl` files are still read if present.
 
-Every `PersonaAgentClient` wake records:
+Each `PersonaAgentClient` wake writes a **real-time event stream** to that file
+— one JSONL line per event, in order:
+
+`wake` → (`text` | `tool_use` | `tool_result`)* → `result`
+
+so an agent stuck mid-turn (e.g. running a long test) is visible from the
+timestamp of the last event. Event lines are summary-level (`tool_use` →
+`Bash: pytest tests/ -q`; `tool_result` → `ok: 45 passed`), not full tool I/O
+— full content stays in Claude's own session jsonl. The terminal `result` line
+keeps the wake-summary fields used by the A3 audit join:
 
 - full user `prompt`
 - first 200 characters of assistant text (`response_preview`)
 - `status`, `persona`, `integration`, timestamp
+- `event_id` / `event_source` / `fingerprint` (A3 join keys)
 
 Disable with `MAP_SESSION_WAKE_LOG=0`. Override directory with
 `MAP_SESSION_WAKE_LOG_DIR`. Override log timestamp timezone with

@@ -16,7 +16,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
-from cli.session_wake_log import DEFAULT_SESSION_LOG_DIR, append_session_wake_log
+from cli.session_wake_log import (
+    DEFAULT_SESSION_LOG_DIR,
+    append_session_event,
+    append_session_wake_log,
+    resolve_session_log_path,
+    text_summary,
+    tool_result_summary,
+    tool_use_summary,
+)
 
 logger = logging.getLogger("map.agent_client")
 
@@ -120,9 +128,32 @@ class PersonaAgentClient:
             await self.connect()
         assert self._client is not None
 
-        from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+        from claude_agent_sdk import (
+            AssistantMessage,
+            ResultMessage,
+            TextBlock,
+            ToolResultBlock,
+            ToolUseBlock,
+            UserMessage,
+        )
 
         resume_session_id = self.state.get("claude_session_id")
+        # Resolve the session log path up front so every event of this wake
+        # (wake/text/tool_use/tool_result/result) lands in one file, even when
+        # the real session_id only arrives with the ResultMessage. A long
+        # running turn is then observable live — a stuck agent shows up as the
+        # last event ts going stale.
+        pre_sid = resume_session_id or f"new-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}"
+        log_path = resolve_session_log_path(self._resolve_session_log_dir(), pre_sid, self.persona)
+        self._log_event(
+            log_path,
+            event="wake",
+            summary=text_summary(prompt),
+            event_id=event_id,
+            event_source=event_source,
+            fingerprint=fingerprint,
+        )
+
         await self._client.query(prompt)
         result: ResultMessage | None = None
         response_parts: list[str] = []
@@ -133,6 +164,52 @@ class PersonaAgentClient:
                         response_parts.append(block.text)
                         if on_event is not None:
                             on_event({"type": "text", "content": block.text})
+                        self._log_event(
+                            log_path,
+                            event="text",
+                            summary=text_summary(block.text),
+                            event_id=event_id,
+                            event_source=event_source,
+                            fingerprint=fingerprint,
+                        )
+                    elif isinstance(block, ToolUseBlock):
+                        if on_event is not None:
+                            on_event(
+                                {
+                                    "type": "tool_use",
+                                    "name": block.name,
+                                    "content": tool_use_summary(block.name, block.input),
+                                }
+                            )
+                        self._log_event(
+                            log_path,
+                            event="tool_use",
+                            summary=tool_use_summary(block.name, block.input),
+                            event_id=event_id,
+                            event_source=event_source,
+                            fingerprint=fingerprint,
+                        )
+            elif isinstance(msg, UserMessage):
+                # UserMessage.content may be a plain str; only scan block lists.
+                if isinstance(msg.content, list):
+                    for block in msg.content:
+                        if isinstance(block, ToolResultBlock):
+                            if on_event is not None:
+                                on_event(
+                                    {
+                                        "type": "tool_result",
+                                        "is_error": bool(block.is_error),
+                                        "content": tool_result_summary(block.content, block.is_error),
+                                    }
+                                )
+                            self._log_event(
+                                log_path,
+                                event="tool_result",
+                                summary=tool_result_summary(block.content, block.is_error),
+                                event_id=event_id,
+                                event_source=event_source,
+                                fingerprint=fingerprint,
+                            )
             elif isinstance(msg, ResultMessage):
                 result = msg
                 if on_event is not None:
@@ -162,6 +239,9 @@ class PersonaAgentClient:
 
         response_text = "".join(response_parts)
         log_session_id = self._wake_log_session_id(result, resume_session_id)
+        # Result summary goes into the same file as the live events above; keep
+        # the A3-audit field set by routing through append_session_wake_log with
+        # the pre-resolved log_path.
         self._append_wake_session_log(
             session_id=log_session_id,
             prompt=prompt,
@@ -170,6 +250,7 @@ class PersonaAgentClient:
             event_id=event_id,
             event_source=event_source,
             fingerprint=fingerprint,
+            log_path=log_path,
         )
         return status
 
@@ -230,6 +311,37 @@ class PersonaAgentClient:
             return str(resume_session_id)
         return f"unknown-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
 
+    def _log_event(
+        self,
+        log_path: Path,
+        *,
+        event: str,
+        summary: str,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
+    ) -> None:
+        if os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return
+        try:
+            append_session_event(
+                log_path=log_path,
+                persona=self.persona,
+                integration=self.integration,
+                event=event,
+                summary=summary,
+                event_id=event_id,
+                event_source=event_source,
+                fingerprint=fingerprint,
+            )
+        except OSError as exc:
+            logger.warning("[%s] session event log write failed: %s", self.persona, exc)
+
     def _append_wake_session_log(
         self,
         *,
@@ -240,6 +352,7 @@ class PersonaAgentClient:
         event_id: str | None = None,
         event_source: str = "polling",
         fingerprint: str | None = None,
+        log_path: Path | None = None,
     ) -> None:
         if os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
             "0",
@@ -260,6 +373,7 @@ class PersonaAgentClient:
                 event_id=event_id,
                 event_source=event_source,
                 fingerprint=fingerprint,
+                log_path=log_path,
             )
         except OSError as exc:
             logger.warning("[%s] session wake log write failed: %s", self.persona, exc)
