@@ -56,8 +56,7 @@ On remind, the agent should:
 
 ## When to use which waker
 
-- **simple-waker**: local dogfood, fewer moving parts, agent-driven batching
-- **runtime-waker**: production SSE latency, per-item audit (`inbound_event`),
-  action_item escalation hooks
+- **simple-waker** (default via `./scripts/start-all-wakers.sh`): local dogfood, fewer moving parts, agent-driven batching
+- **runtime-waker** (legacy): `MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` or `./scripts/start-all-wakers-legacy.sh` — SSE latency, per-item `inbound_event` audit, action_item escalation hooks
 
 Both can coexist during migration; use separate state files per persona.

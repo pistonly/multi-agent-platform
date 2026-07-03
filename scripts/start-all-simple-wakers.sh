@@ -5,14 +5,14 @@
 #   ./scripts/start-all-simple-wakers.sh
 #   ./scripts/start-all-simple-wakers.sh --once --dry-run
 #
-# Logs: .map/simple-waker-logs/{host,participant,reviewer}.log
+# Logs: .map/waker-logs/{host,participant,reviewer}.log (or MAP_SIMPLE_WAKER_LOG_DIR)
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-LOG_DIR="${MAP_SIMPLE_WAKER_LOG_DIR:-.map/simple-waker-logs}"
+LOG_DIR="${MAP_SIMPLE_WAKER_LOG_DIR:-${MAP_WAKER_LOG_DIR:-.map/waker-logs}}"
 mkdir -p "$LOG_DIR"
 
 pids=()
