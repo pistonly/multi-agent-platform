@@ -8,17 +8,27 @@ description: >-
 
 # MAP Runtime Waker（调度壳）
 
-被 **map-runtime-waker** 守护进程唤醒时读本文。**CLI 规则、业务细节不在此重复**——以 [map-project-collab](../map-project-collab/SKILL.md) 与 persona Skill 为唯一行为源。
+被 **map-runtime-waker** 或 **map-simple-waker** 守护进程唤醒/提醒时读本文。**CLI 规则、业务细节不在此重复**——以 [map-project-collab](../map-project-collab/SKILL.md) 与 persona Skill 为唯一行为源。
 
 手动协作（用户在 Cursor 发指令）**不需要**读本文，直接用 `map-project-collab` + persona Skill。
 
-## 每次 wake 的顺序
+## 两种 waker 模式
+
+| 模式 | 启动脚本 | Agent 推进粒度 |
+|------|----------|----------------|
+| **runtime-waker**（默认生产） | `./scripts/start-all-wakers.sh` | 一步一 wake：一次只推进当前 kind 对应的一项 |
+| **simple-waker**（简化版） | `./scripts/start-all-simple-wakers.sh` | 批量：一次提醒内处理所有当前待办，直到 `todos` 清空或明确 blocker |
+
+**simple-waker** 下忽略 wake hint 里的单项 `kind`，以 `map todos` 全量为准自主排序与批处理。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
+
+## 每次 wake / 提醒 的顺序
 
 1. [map-project-collab](../map-project-collab/SKILL.md) — persona、CLI 硬性规则
 2. 下表 persona Skill — 具体怎么做
 3. `map --persona <persona> persona whoami` → `map --persona <persona> todos`
-4. **必须**按 wake hint 的 `kind`（= Web UI 待办分区名）处理对应项
-5. 做**一步**可验证推进；**必须**让该项从 `map todos` 或通知列表消失后再收尾
+4. **runtime-waker**：按 wake hint 的 `kind` 处理对应一项，做一步可验证推进
+5. **simple-waker**：处理所有当前待办（可批量），以 `todos` 为空或每项有明确处置为准
+6. **必须**让已处理项从 `map todos` 或通知列表消失后再收尾
 
 ## 核心规则（与 Web UI 一致）
 
@@ -26,7 +36,8 @@ description: >-
 |------|------|
 | todos 即真相 | waker 只根据 `GET /agents/me/todos` + 未读通知 wake；**kind 名 = todos 字段名** |
 | 清理 = 与 UI 相同 | 处理完成后调用与 UI 等价的 API（见下表）；**禁止**凭 session 记忆判断「已处理」 |
-| 一步一 wake | 一次 wake 只推进当前 todo 项的下一步 |
+| 一步一 wake | 仅 **runtime-waker**：一次 wake 只推进当前 todo 项的下一步 |
+| 批量提醒 | 仅 **simple-waker**：一次提醒可处理多项；收尾前再跑 `todos` 验证 |
 | skip ≠ 执行中 | `wake_skips` 表示 heartbeat/TTL 内已 wake 过（去重），不是后台在跑 |
 | heartbeat | 待办项仍在 API 中时，TTL 到期后会重 wake（自愈） |
 
@@ -54,7 +65,8 @@ description: >-
 
 ## 部署
 
-`./scripts/start-all-wakers.sh` · 后端与凭证见 [MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)
+- runtime-waker：`./scripts/start-all-wakers.sh` · [MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)
+- simple-waker：`./scripts/start-all-simple-wakers.sh` · [MAP-SIMPLE-WAKER.md](../../../docs/MAP-SIMPLE-WAKER.md)
 
 ## 触发方式（v0.8 起 SSE 长连为主路径）
 
