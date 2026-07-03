@@ -232,6 +232,8 @@ runtime-waker 内部的 `MapCommandClient.notifications_unread()` 改为：
 map --persona <name> notification list --category wakeable --unread-only
 ```
 
+> **实现**：v0.9 采用 `WAKEABLE_NOTIFICATION_EVENTS` 显式白名单替代 feature flag 运行时开关。等价语义：`category=digest` 默认值 = flag off；白名单内事件走 wakeable = flag 显式开启；不引入 schema/config 双源。详见 §3.1「实现：白名单等价于 feature flag」段。
+
 ---
 
 ## 7. runtime-waker 需求

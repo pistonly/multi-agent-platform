@@ -69,6 +69,8 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 | M27 | v0.8 runtime-waker 标准路径、systemd 部署、ack 门禁、SSE acceptance |
 | M28 | waker Phase 1 基础设施（inbound_event / fingerprint 主闸+二闸 / 审计 join） |
 | M29 | waker TTL sweep + CLI topic list `--creator` |
+| M30A | 通知分类（`category` wakeable/digest）+ `fingerprint_version` v1/v2 + `group_key` + `event_count` + 时间戳链 + API/SDK/CLI/Web 全链路 `category` 过滤参数 |
+| M31 | waker 降噪接线：runtime_waker 只消费 `category=wakeable`；SSE 帧 payload 带 category/wake_version/fingerprint_version；v1 fingerprint 走 `inbound_events.rejection_count` 路径（waker 不 resume、audit 保留） |
 
 ## 技术栈
 
@@ -85,13 +87,15 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 
 ## 下一步（建议）
 
-1. **M30A+M31 实验验收**（实验 `3d46e2bb`：通知分类 + waker 降噪接线；I1+I2 完成，待 I3 文档 + I4 dogfood + I5 文档收口）
+1. **M30A+M31 实验验收完成**（实验 `3d46e2bb`：通知分类 + waker 降噪接线；I1–I5 全过，提交 reviewer 审批）
    - v0.9 采用 `WAKEABLE_NOTIFICATION_EVENTS` 显式白名单作为 feature flag 等价（默认 `digest` + 显式 wakeable 允许列表），不引入运行时配置开关
-2. **Phase 2 SSE 叠加实验**（话题 `cfd1578e` action_item：SSE 长连 + lifecycle publish + 重连补偿；Phase 1 前置已满足）
-3. 关闭 creator filter action_item（实验 `c572a725` 已 done，待 `topic resolve` 同步）
-4. 删除 legacy host bridge / runner 脚本（单独 issue）
-5. v0.9 Codex 探针；修复 pytest 模块名冲突；SSE B 模块闭包检查
-6. CI 持续：pytest + vitest + alembic upgrade
+   - 端到端 dogfood 阶段发现并修复：(a) prod DB `notifications.fingerprint_version` 列缺失（working-tree checkpoint 手动 ALTER 后 alembic `_has_column` 守卫跳过 → 已补 ALTER + 索引）；(b) Web `types.ts` Notification 缺字段（plan I4 §风险段声称已加但实际未加 → 已补 + tsc 通过）
+2. **M32 对象级聚合（另起话题）**（话题 `d0df651c` action_item：group_key schema 精细化 + 「同一对象」边界条件 + 与 SSE 帧 payload 兼容方案；M30A+M31 done 后发起）
+3. **Phase 2 SSE 叠加实验**（话题 `cfd1578e` action_item：SSE 长连 + lifecycle publish + 重连补偿；Phase 1 前置已满足）
+4. 关闭 creator filter action_item（实验 `c572a725` 已 done，待 `topic resolve` 同步）
+5. 删除 legacy host bridge / runner 脚本（单独 issue）
+6. v0.9 Codex 探针；修复 pytest 模块名冲突；SSE B 模块闭包检查；v1 `rejection_count` 监控阈值观察（M30A+M31 后续观察项）
+7. CI 持续：pytest + vitest + alembic upgrade
 
 ## 关键文档
 
