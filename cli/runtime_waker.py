@@ -1129,6 +1129,18 @@ class RuntimeWaker:
         event_source: str = WAKE_SOURCE_POLLING,
         stats: RuntimeWakerStats | None = None,
     ) -> None:
+        # Self-heal TTL gate (Phase 2 plan §D3/D4 / §A4): the polling path
+        # filters via _should_skip_event at _run_once_async; SSE / replay paths
+        # enter here directly and need the event-cooldown guard so reconnect
+        # replays don't re-wake an event we just woke. We use _event_in_cooldown
+        # (NOT _should_skip_event) because SSE/replay must NOT apply the
+        # persona-level single-flight guard — that would suppress distinct
+        # fingerprints piled up during disconnect (breaks A2 漏事件率 = 0).
+        # --force bypasses (matches polling semantics).
+        if not self.config.force and self._event_in_cooldown(event):
+            if stats is not None:
+                stats.wake_skips += 1
+            return
         # D4 client-side rate limit (Phase 2): skip the resume attempt when the
         # same fingerprint was woken within the configured window. The
         # server-side UNIQUE gate (D6) still handles cross-process dedup; this
@@ -1506,6 +1518,21 @@ class RuntimeWaker:
                 < self.config.persona_inflight_seconds
             ):
                 return True
+        return self._event_in_cooldown(event)
+
+    def _event_in_cooldown(self, event: WakeEvent) -> bool:
+        """Per-event cooldown check shared by polling + SSE/replay paths.
+
+        Returns True if the event was woken / server-skip'd within the
+        self-heal TTL window, or if its last attempt is still within
+        ``cooldown_seconds``. Unlike ``_should_skip_event`` this does NOT
+        apply persona-level single-flight, so SSE/replay paths can wake
+        distinct fingerprints that happen to share a persona with a
+        recently-woken event (regression guard for A2 漏事件率 = 0).
+
+        Phase 2 plan §D4 补漏豁免 + §A4 重复唤醒率 < 0.1% both rely on this
+        fingerprint-scoped check.
+        """
         record = self._event_state(event)
         if not record:
             return False
