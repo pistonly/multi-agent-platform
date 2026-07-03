@@ -103,6 +103,17 @@ Event
 - 已由 todos 表达的行动项的旁路提醒
 - 仅供浏览的系统消息
 
+#### 实现：白名单等价于 feature flag
+
+v0.9 采用 **`WAKEABLE_NOTIFICATION_EVENTS` 显式白名单** 作为 feature flag 等价机制：
+
+- `NotificationCategory.digest` 是 schema 默认值 → 等价于「feature flag off」（不触发 waker）
+- 仅白名单内的事件走 `wakeable` → 等价于「feature flag 显式开启」
+- 不启用 `system.runtime_attention`（schema 占位）→ 等价于「feature flag 不引入新 wakeable 入口」
+
+新增 wakeable 事件必须显式加入白名单并经过代码评审，避免 schema 与 runtime config 双源漂移。
+本方案取代了原 plan 中提到的运行时配置开关。
+
 ---
 
 ## 4. 事件策略表
@@ -333,6 +344,7 @@ v0.9 不做：
 - `notifications.updated_at`
 - API / SDK / CLI 过滤参数
 - 分类策略集中到 `notification_service`
+- 通过 `WAKEABLE_NOTIFICATION_EVENTS` 白名单替代显式 feature flag 开关（等价机制，默认 digest + 显式 wakeable 允许列表）
 
 ### M31 — waker 降噪接线
 

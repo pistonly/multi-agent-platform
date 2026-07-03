@@ -85,11 +85,13 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 
 ## 下一步（建议）
 
-1. **Phase 2 SSE 叠加实验**（话题 `cfd1578e` action_item：SSE 长连 + lifecycle publish + 重连补偿；Phase 1 前置已满足）
-2. 关闭 creator filter action_item（实验 `c572a725` 已 done，待 `topic resolve` 同步）
-3. 删除 legacy host bridge / runner 脚本（单独 issue）
-4. v0.9 Codex 探针；修复 pytest 模块名冲突；SSE B 模块闭包检查
-5. CI 持续：pytest + vitest + alembic upgrade
+1. **M30A+M31 实验验收**（实验 `3d46e2bb`：通知分类 + waker 降噪接线；I1+I2 完成，待 I3 文档 + I4 dogfood + I5 文档收口）
+   - v0.9 采用 `WAKEABLE_NOTIFICATION_EVENTS` 显式白名单作为 feature flag 等价（默认 `digest` + 显式 wakeable 允许列表），不引入运行时配置开关
+2. **Phase 2 SSE 叠加实验**（话题 `cfd1578e` action_item：SSE 长连 + lifecycle publish + 重连补偿；Phase 1 前置已满足）
+3. 关闭 creator filter action_item（实验 `c572a725` 已 done，待 `topic resolve` 同步）
+4. 删除 legacy host bridge / runner 脚本（单独 issue）
+5. v0.9 Codex 探针；修复 pytest 模块名冲突；SSE B 模块闭包检查
+6. CI 持续：pytest + vitest + alembic upgrade
 
 ## 关键文档
 

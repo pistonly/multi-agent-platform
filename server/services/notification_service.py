@@ -21,6 +21,16 @@ PERSONA_AGENT_NAMES: dict[str, str] = {
     "reviewer": "multi-agents-platform-reviewer",
 }
 
+"""Wakeable 事件显式白名单——v0.9 用以替代显式 runtime feature flag。
+
+等价性论证（与 topic d0df651c resolve decision 一致）：
+- ``NotificationCategory.digest`` 是 schema 默认值，等价于「feature flag off」（不触发 waker）
+- 仅本集合显式列出的事件走 ``wakeable``，等价于「feature flag 显式开启」
+- 不启用 ``system.runtime_attention``（schema 占位），等价于「feature flag 不引入新 wakeable 入口」
+
+新增 wakeable 事件必须在此集合内显式声明并经过代码评审，避免 schema/runtime config 双源漂移。
+"""
+
 WAKEABLE_NOTIFICATION_EVENTS: set[str] = {
     "experiment.lifecycle.withdrawn",
     "experiment.lifecycle.cancelled",
