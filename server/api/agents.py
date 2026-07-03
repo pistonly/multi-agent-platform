@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -233,10 +233,10 @@ def mark_all_notifications_read(
 @agents_router.post(
     "/me/inbound-events",
     response_model=InboundEventRecordResult,
-    status_code=status.HTTP_201_CREATED,
 )
 def record_my_inbound_event(
     payload: InboundEventCreate,
+    response: Response,
     agent: Agent = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ) -> InboundEventRecordResult:
@@ -245,6 +245,12 @@ def record_my_inbound_event(
     enforces A1 (replay rejection) and A2 (concurrent claim) across processes
     and restarts. A replay returns 409 Conflict — waker treats that as
     "already woken" and skips resume.
+
+    v0.9 (M30A/M31 I2): legacy v1 fingerprints (``inbound:<event_id>``) return
+    200 OK with ``status="rejected_v1"`` and the bumped ``rejection_count`` so
+    the audit row is preserved but the waker is told to skip resume. We do NOT
+    map this to 409 because v1 is a known-legacy shape (not a cross-process
+    race) and a 409 would invite retry loops.
     """
     event, result_status = inbound_event_service.record_inbound_event(
         db, agent, payload
@@ -257,6 +263,16 @@ def record_my_inbound_event(
                 "treating as already woken (D6 server gate)"
             ),
         )
+    if result_status == "rejected_v1":
+        # Legacy fingerprint: row persisted (or upserted) with rejection_count
+        # bumped. Use 200 instead of 201 to signal "we accepted the record but
+        # you should NOT proceed with the resume".
+        response.status_code = status.HTTP_200_OK
+        return InboundEventRecordResult(
+            status="rejected_v1",
+            event=InboundEventRead.model_validate(event),
+        )
+    response.status_code = status.HTTP_201_CREATED
     return InboundEventRecordResult(
         status="recorded",
         event=InboundEventRead.model_validate(event),

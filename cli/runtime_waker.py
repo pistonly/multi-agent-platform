@@ -354,6 +354,24 @@ def _event_uuid_for_fingerprint(agent_id: str, fingerprint: str) -> uuid.UUID:
     return uuid.uuid5(_EVENT_UUID_NAMESPACE, f"{agent_id}:{fingerprint}")
 
 
+def _is_legacy_v1_fingerprint(fingerprint: str) -> bool:
+    """Return True for pre-v0.9 ``inbound:<event_id>`` fingerprints.
+
+    Mirrors :func:`server.services.notification_service.is_legacy_v1_fingerprint`
+    so the runtime-waker can short-circuit BEFORE paying for the resume
+    pipeline. The server's D6 gate still treats it via the
+    ``InboundEvent.rejection_count`` path (see M30A/M31 I2) — this is purely a
+    client-side early-exit.
+
+    We deliberately duplicate the ``startswith("inbound:")`` rule instead of
+    importing :mod:`server.services.notification_service` to avoid pulling the
+    full server module graph into the CLI runtime. v0.9 fingerprints are
+    namespace-prefixed (``{persona}:notification:...`` or
+    ``{persona}:{todo_bucket}:...``) so they never start with ``inbound:``.
+    """
+    return fingerprint.startswith("inbound:")
+
+
 def wake_skill_paths(project_root: Path, persona: str) -> list[Path]:
     """Skill files to inject on Codex wake (missing files are skipped)."""
     chain = WAKE_SKILL_CHAIN.get(persona, ("map-runtime-waker", "map-project-collab"))
@@ -1167,6 +1185,24 @@ class RuntimeWaker:
         prior = self._event_state(event)
         had_prior_claim = prior.get("status") in ("woken", "server_skip")
         event_uuid = _event_uuid_for_fingerprint(self.agent_id or "", event.fingerprint)
+        # v0.9 (M30A/M31 I2): legacy v1 fingerprints (``inbound:<event_id>``)
+        # are routed to a separate server path that bumps ``rejection_count``
+        # and returns 200 with ``status="rejected_v1"``. The waker MUST NOT
+        # resume on these — they were never resumable to begin with — but the
+        # audit row is preserved. Local pre-check avoids paying for a resume
+        # pipeline that will be discarded immediately.
+        if _is_legacy_v1_fingerprint(event.fingerprint):
+            self.client.inbound_event_record(
+                event_id=str(event_uuid),
+                fingerprint=event.fingerprint,
+                event_type=event.kind,
+                source=event_source,
+            )
+            typer.echo(
+                f"[wake:skip] v1 fingerprint rejected (rejection_count audit only): {event.fingerprint}"
+            )
+            self._mark_event(event, status="v1_rejected")
+            return
         server_first = self.client.inbound_event_record(
             event_id=str(event_uuid),
             fingerprint=event.fingerprint,

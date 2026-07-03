@@ -634,6 +634,7 @@ class InboundEventRead(ORMModel):
     payload: dict | None
     received_at: datetime
     acked_at: datetime | None
+    rejection_count: int = 0
 
 
 class InboundEventRecordResult(BaseModel):
@@ -642,9 +643,13 @@ class InboundEventRecordResult(BaseModel):
     ``status="recorded"`` → first time, waker may proceed.
     ``status="duplicate"`` → fingerprint already existed; treat as already woken
     (Phase 1 server gate; see plan D6).
+    ``status="rejected_v1"`` → legacy v1 fingerprint (``inbound:<event_id>``);
+    inbound_event row is persisted (or upserted) with ``rejection_count`` bumped
+    so the audit table still records the sighting, but the waker MUST NOT
+    resume — see plan I2 / M30A acceptance #4.
     """
 
-    status: Literal["recorded", "duplicate"]
+    status: Literal["recorded", "duplicate", "rejected_v1"]
     event: InboundEventRead
 
 
