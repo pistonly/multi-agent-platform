@@ -371,6 +371,7 @@ export interface Notification {
   event_count: number;
   first_event_at: string | null;
   last_event_at: string | null;
+  fingerprint_version: "v1" | "v2";
   read_at: string | null;
   created_at: string;
   updated_at: string | null;
