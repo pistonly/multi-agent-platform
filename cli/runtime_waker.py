@@ -475,6 +475,14 @@ class RuntimeWakerStats:
     sse_disconnects: int = 0
     sse_backoff_seconds_total: float = 0.0
     sse_last_disconnect_reason: str | None = None
+    # Phase 2 I5-A3: empty-polling accounting. ``polling_cycles_empty`` counts
+    # steady-state cycles where ``events_seen == 0`` (the SSE long-poll is the
+    # primary path; the polling 兜底 finds nothing to wake).
+    # ``polling_cycles_recovery_excluded`` counts cycles that fell inside an
+    # SSE reconnect window — these are excluded from the empty-ratio
+    # denominator per plan §A3 (双档受控流量 + 边界分段).
+    polling_cycles_empty: int = 0
+    polling_cycles_recovery_excluded: int = 0
 
     def add(self, other: "RuntimeWakerStats") -> None:
         self.cycles += other.cycles
@@ -498,6 +506,10 @@ class RuntimeWakerStats:
         self.sse_disconnects += other.sse_disconnects
         self.sse_backoff_seconds_total += other.sse_backoff_seconds_total
         self.sse_last_disconnect_reason = other.sse_last_disconnect_reason or self.sse_last_disconnect_reason
+        # Phase 2 I5-A3: aggregate empty/recovery-excluded cycle counters so
+        # run_forever totals survive across iterations.
+        self.polling_cycles_empty += other.polling_cycles_empty
+        self.polling_cycles_recovery_excluded += other.polling_cycles_recovery_excluded
 
 
 class WakeBackend(Protocol):
@@ -836,6 +848,12 @@ class RuntimeWaker:
         # Bounded by sse_recent_resume_window_seconds; pruned in
         # _run_once_async + after each SSE replay. Survives only this process.
         self._recent_resume_attempts: dict[str, datetime] = {}
+        # Phase 2 I5-A3: SSE recovery window marker. Set by the SSE loop while
+        # it is reconnecting + replaying missed events (between
+        # ``sse_disconnects += 1`` and the next ``_sse_replay_unread`` return),
+        # read by ``_run_once_async`` to mark polling cycles as
+        # ``recovery_excluded`` so they don't penalize the empty-polling ratio.
+        self._sse_recovery_in_progress: bool = False
         if backend is not None:
             self.backend = backend
         elif self.config.backend == "claude":
@@ -961,6 +979,12 @@ class RuntimeWaker:
     async def _run_once_async(self) -> RuntimeWakerStats:
         self._ensure_identity()
         stats = RuntimeWakerStats(cycles=1)
+        # Phase 2 I5-A3: if SSE is in its reconnect+replay window, mark this
+        # polling cycle as ``recovery_excluded`` (it ran as the fallback while
+        # the primary path was down). The cycle still completes normally —
+        # just not counted in the empty-ratio denominator.
+        if self._sse_recovery_in_progress:
+            stats.polling_cycles_recovery_excluded = 1
         todos = self.client.todos() or {}
         notifications = self.client.notifications_unread()
         events = discover_wake_events(
@@ -969,6 +993,10 @@ class RuntimeWaker:
             notifications=notifications,
         )
         stats.events_seen = len(events)
+        # Phase 2 I5-A3: count empty steady-state cycles. SSE recovery cycles
+        # are tagged separately above and not double-counted here.
+        if not self._sse_recovery_in_progress and len(events) == 0:
+            stats.polling_cycles_empty = 1
 
         # Filter out skipped events first so a skip never consumes a wake slot,
         # then round-robin across event kinds. Without the round-robin, a long
@@ -1259,10 +1287,17 @@ class RuntimeWaker:
                         stats.sse_connect_successes += 1
                         consecutive_failures = 0
                         await self._sse_replay_unread(stats)
+                        # Phase 2 I5-A3: reconnect succeeded and replay is done.
+                        # Polling 兜底 is no longer in the recovery window.
+                        self._sse_recovery_in_progress = False
                         await self._sse_consume_stream(response, stats, stop)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 — SSE loop must not die
+                    # Phase 2 I5-A3: mark the polling-兜底 as in-SSE-recovery so
+                    # any concurrent ``_run_once_async`` cycle tags itself
+                    # ``recovery_excluded``. Cleared below after replay returns.
+                    self._sse_recovery_in_progress = True
                     consecutive_failures += 1
                     stats.sse_disconnects += 1
                     stats.sse_last_disconnect_reason = repr(exc)[:200]
