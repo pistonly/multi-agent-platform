@@ -72,6 +72,21 @@ class NotificationCategory(str, enum.Enum):
     digest = "digest"
 
 
+class NotificationFingerprintVersion(str, enum.Enum):
+    """Marker for which fingerprint dialect a Notification row carries.
+
+    v0.9 (this version) marks every freshly-written notification with ``v2`` so
+    the runtime-waker can reject legacy ``v1`` fingerprints (``inbound:<event_id>``)
+    at the ingest gate and record ``rejection_count`` instead of resuming. The
+    version lives on the Notification row itself — classification does not look
+    at it, but the audit / three-layer join does (see PRD §5.1 + topic
+    d0df651c Round 1 Summary).
+    """
+
+    v1 = "v1"
+    v2 = "v2"
+
+
 class FeedbackCategory(str, enum.Enum):
     bug = "bug"
     suggestion = "suggestion"

@@ -13,6 +13,7 @@ from map_types.enums import (
     InboundEventSource,
     MentionSourceType,
     NotificationCategory,
+    NotificationFingerprintVersion,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -398,6 +399,13 @@ class Notification(Base):
     )
     group_key: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
     wake_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    fingerprint_version: Mapped[NotificationFingerprintVersion] = mapped_column(
+        Enum(NotificationFingerprintVersion),
+        default=NotificationFingerprintVersion.v2,
+        server_default=NotificationFingerprintVersion.v2.value,
+        nullable=False,
+        index=True,
+    )
     event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
     first_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

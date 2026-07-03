@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole, Notification, TopicActionItem
-from map_types.enums import NotificationCategory
+from map_types.enums import NotificationCategory, NotificationFingerprintVersion
 from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
 
@@ -28,6 +28,8 @@ WAKEABLE_NOTIFICATION_EVENTS: set[str] = {
     "system.runtime_attention",
     "topic.lifecycle.closed",
     "topic.lifecycle.reopened",
+    "action_item.wake_sent",
+    "action_item.stale",
 }
 
 
@@ -36,14 +38,43 @@ def _emit_created(
     notification_ids: list[uuid.UUID],
     *,
     event: str,
+    categories: list[NotificationCategory] | None = None,
+    wake_versions: list[int] | None = None,
+    fingerprint_versions: list[NotificationFingerprintVersion] | None = None,
 ) -> None:
-    for recipient_id, notification_id in zip(recipient_ids, notification_ids, strict=True):
+    """Publish ``notification.created`` SSE frames for wakeable notifications.
+
+    v0.9 PRD §7.2: the waker drops digest notifications at the SSE frame layer,
+    so digest rows must NOT trigger a publish here. ``enqueue_for_agents`` and
+    ``enqueue_from_event`` pre-filter the recipient list to wakeable rows
+    before calling us; ``categories`` is kept parallel so SSE subscribers can
+    see which category they received without a second round-trip.
+    """
+    if categories is None:
+        categories = [NotificationCategory.wakeable] * len(notification_ids)
+    if wake_versions is None:
+        wake_versions = [1] * len(notification_ids)
+    if fingerprint_versions is None:
+        fingerprint_versions = [NotificationFingerprintVersion.v2] * len(notification_ids)
+    for recipient_id, notification_id, category, wake_version, fp_version in zip(
+        recipient_ids,
+        notification_ids,
+        categories,
+        wake_versions,
+        fingerprint_versions,
+        strict=True,
+    ):
+        if category != NotificationCategory.wakeable:
+            continue
         notification_stream.publish(
             recipient_id,
             {
                 "type": "notification.created",
                 "event": event,
                 "notification_id": str(notification_id),
+                "category": category.value,
+                "wake_version": wake_version,
+                "fingerprint_version": fp_version.value,
             },
         )
 
@@ -65,12 +96,48 @@ def _resolve_persona_agent_ids(
     return [agent.id for agent in rows]
 
 
-def _event_category(event: str, *, wakeable: bool | None = None) -> NotificationCategory:
+def classify(event: str, *, wakeable: bool | None = None) -> NotificationCategory:
+    """Single public entry point for category decisions.
+
+    Per topic d0df651c Round 1 (1b) hard rule: API route / waker / Web MUST NOT
+    carry any category decision logic — every notification row's ``category``
+    value must come through this function. The explicit ``wakeable`` kwarg is
+    reserved for the wakeable-only ``action_item.*`` / ``system.runtime_attention``
+    paths where the caller has authoritative knowledge (see
+    ``notify_owner_action_item_wake`` etc.).
+    """
     if wakeable is not None:
         return NotificationCategory.wakeable if wakeable else NotificationCategory.digest
     if event in WAKEABLE_NOTIFICATION_EVENTS:
         return NotificationCategory.wakeable
     return NotificationCategory.digest
+
+
+def _event_category(event: str, *, wakeable: bool | None = None) -> NotificationCategory:
+    """Backwards-compat alias; delegates to :func:`classify`."""
+    return classify(event, wakeable=wakeable)
+
+
+def v2_fingerprint(persona: str, notification_id: uuid.UUID, wake_version: int) -> str:
+    """Build the canonical v2 fingerprint for a notification wake.
+
+    Format from topic d0df651c Round 1 §2: ``{persona}:notification:{notification_id}:{wake_version}``.
+    The waker's resume gate relies on this exact shape; v1 fingerprints
+    (``inbound:<event_id>``) are rejected and counted via
+    ``InboundEvent.rejection_count`` (see M30A acceptance §4).
+    """
+    return f"{persona}:notification:{notification_id}:{wake_version}"
+
+
+def is_legacy_v1_fingerprint(fingerprint: str) -> bool:
+    """Return True if ``fingerprint`` uses the pre-v0.9 ``inbound:<event_id>``
+    shape so the host's resume endpoint can route it to the v1 rejection
+    counter instead of resuming a session.
+
+    v0.9 fingerprints are namespace-prefixed (``{persona}:notification:...``
+    or ``{persona}:{todo_bucket}:...``) so they never start with ``inbound:``.
+    """
+    return fingerprint.startswith("inbound:")
 
 
 def _group_target(
@@ -144,20 +211,40 @@ def _upsert_notification(
         .limit(1)
     )
     if existing is not None:
+        previous_wake_version = existing.wake_version or 1
+        previous_fingerprint_version = existing.fingerprint_version
         existing.event = event
         existing.summary = summary
         existing.target_type = target_type
         existing.target_id = target_id
         existing.payload_json = payload
         existing.category = category
-        existing.read_at = None
         existing.event_count = (existing.event_count or 1) + 1
         existing.last_event_at = now
         existing.updated_at = now
         if existing.first_event_at is None:
             existing.first_event_at = existing.created_at
+        # v0.9 acceptance #3 + #4: wake_version monotonic + read_at bound to
+        # the same flush. Both fields are assigned before db.flush() so a
+        # single SQL UPDATE ships both columns. Same for digest: the read_at
+        # reset is what drives unread_count+1, but digest must NOT bump
+        # wake_version (it would push a new fingerprint that the waker would
+        # then re-wake — digest is non-actionable by definition).
         if category == NotificationCategory.wakeable:
-            existing.wake_version = (existing.wake_version or 1) + 1
+            existing.wake_version = previous_wake_version + 1
+            existing.read_at = None
+        else:
+            existing.read_at = None
+        # Preserve fingerprint_version on upsert: a legacy v1 row stays v1 so
+        # the waker's rejection_count path can keep counting it; fresh v2 rows
+        # never downgrade.
+        if previous_fingerprint_version is not None:
+            existing.fingerprint_version = previous_fingerprint_version
+        # Invariant: wake_version is strictly monotonic. Caught here so a
+        # future refactor cannot silently violate it.
+        assert existing.wake_version >= previous_wake_version, (
+            f"wake_version went backwards: {previous_wake_version} -> {existing.wake_version}"
+        )
         db.flush()
         return existing
 
@@ -172,6 +259,7 @@ def _upsert_notification(
         category=category,
         group_key=group_key,
         wake_version=1,
+        fingerprint_version=NotificationFingerprintVersion.v2,
         event_count=1,
         first_event_at=now,
         last_event_at=now,
@@ -266,7 +354,10 @@ def enqueue_from_event(
 
     notification_ids: list[uuid.UUID] = []
     recipient_ids: list[uuid.UUID] = []
-    category = _event_category(event, wakeable=wakeable)
+    categories: list[NotificationCategory] = []
+    wake_versions: list[int] = []
+    fingerprint_versions: list[NotificationFingerprintVersion] = []
+    category = classify(event, wakeable=wakeable)
     for recipient in recipients:
         notification = _upsert_notification(
             db,
@@ -281,9 +372,19 @@ def enqueue_from_event(
         )
         notification_ids.append(notification.id)
         recipient_ids.append(recipient.id)
+        categories.append(notification.category)
+        wake_versions.append(notification.wake_version)
+        fingerprint_versions.append(notification.fingerprint_version)
     db.commit()
     if notification_ids:
-        _emit_created(recipient_ids, notification_ids, event=event)
+        _emit_created(
+            recipient_ids,
+            notification_ids,
+            event=event,
+            categories=categories,
+            wake_versions=wake_versions,
+            fingerprint_versions=fingerprint_versions,
+        )
     return notification_ids
 
 
@@ -344,7 +445,10 @@ def enqueue_for_agents(
     """Write in-app notifications for specific agents (e.g. @mentions)."""
     notification_ids: list[uuid.UUID] = []
     recipient_ids: list[uuid.UUID] = []
-    category = _event_category(event, wakeable=wakeable)
+    categories: list[NotificationCategory] = []
+    wake_versions: list[int] = []
+    fingerprint_versions: list[NotificationFingerprintVersion] = []
+    category = classify(event, wakeable=wakeable)
     for recipient_id in recipient_agent_ids:
         if exclude_actor and recipient_id == actor_id:
             continue
@@ -361,9 +465,19 @@ def enqueue_for_agents(
         )
         notification_ids.append(notification.id)
         recipient_ids.append(recipient_id)
+        categories.append(notification.category)
+        wake_versions.append(notification.wake_version)
+        fingerprint_versions.append(notification.fingerprint_version)
     if notification_ids:
         db.commit()
-        _emit_created(recipient_ids, notification_ids, event=event)
+        _emit_created(
+            recipient_ids,
+            notification_ids,
+            event=event,
+            categories=categories,
+            wake_versions=wake_versions,
+            fingerprint_versions=fingerprint_versions,
+        )
     return notification_ids
 
 

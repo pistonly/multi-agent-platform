@@ -14,6 +14,7 @@ from map_types.enums import (
     FeedbackStatus,
     InboundEventSource,
     NotificationCategory,
+    NotificationFingerprintVersion,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -590,6 +591,7 @@ class NotificationRead(ORMModel):
     category: NotificationCategory = NotificationCategory.digest
     group_key: str | None = None
     wake_version: int = 1
+    fingerprint_version: NotificationFingerprintVersion = NotificationFingerprintVersion.v2
     event_count: int = 1
     first_event_at: datetime | None = None
     last_event_at: datetime | None = None
