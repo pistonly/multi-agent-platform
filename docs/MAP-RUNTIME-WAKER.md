@@ -333,3 +333,65 @@ Unit 模板：`scripts/systemd/map-wakers.service`（`ExecStart` 指向 `scripts
 开发机无 systemd 或权限不足时 install 脚本返回非零并打印 stderr，**不会** sudo 重试。
 
 验收：`pytest tests/test_systemd_install.py`
+
+## Phase 2 SSE overlay rollout checklist (v0.8)
+
+Phase 2 实验 `41687a01-3992-471b-b415-8ad80f732f80` 已完成；A1a / A1b / A1总 / A2 / A3 / A4 / A5 / A6 / A7 全部通过 reviewer 红线。完整 baseline 见 `.map/generated-plans/phase2-p95-baseline.json`。
+
+### 验收摘要（reviewer 红线 vs 实测）
+
+| 红线 | 出处 | 实测 | 余量 |
+|------|------|------|------|
+| SSE 帧传输 < 1s（A1a 硬门槛） | reviewer 红线 | mean 0.5ms, p95 0.5ms, max 0.5ms | 2000× |
+| `mention` 端到端 P95 < 5s | reviewer 立场 `bf3f263d` + 共识 7 | 2105.2ms（20 trials）| 58% |
+| `pending_review` 端到端 P95 < 10s | 同上 | 2105.0ms | 79% |
+| `topic_lifecycle` 端到端 P95 < 30s | 同上 | 2105.1ms | 93% |
+| 漏事件率 = 0（A2） | reviewer 红线 | 3/3 + 10/10 + 30/30 三档全部补漏 | n/a |
+| 空轮询比例稳态期 ≥ 95%（A3） | reviewer 红线 | 档 b 100% / 档 a 90%（受控流量段不套红线）| 满足 |
+| 重复唤醒率 < 0.1%（A4） | reviewer 红线 | 5 场景全 ≤ 1 wake | 满足 |
+| 幂等写成功率 100%（A5） | reviewer 红线 | 7 场景全 ≤ 1 wake；server UNIQUE 409 路径 0 wake | 满足 |
+| 审计三段 join（A6） | Phase 1 继承 | SSE 路径 3-way join 通过 + Phase 1 5 case 无回归 | 满足 |
+| sessions jsonl `event_source` ⊆ {polling, sse, replay} 且 ≥ 2 种（A7） | reviewer 红线 | 三值全部覆盖 + replay 必填 | 满足 |
+
+### 上线 checklist
+
+在生产 / 准生产环境启用 SSE 主路径前，按此清单逐项验证：
+
+| 步骤 | 命令 / 操作 | 通过判据 |
+|------|------------|---------|
+| 1. 拉取 Phase 2 commits | `git log --oneline aa49785 -- 12` | HEAD 含 `580713c` (Phase 2 源码) + `aa49785` (A6+A7 测试) 等 |
+| 2. 跑回归 | `pytest tests/test_waker_phase1_acceptance.py tests/test_waker_phase2_*.py -q` | 全部 111 测试绿 |
+| 3. 跑 lint | `ruff check cli/runtime_waker.py tests/test_waker_phase2_*.py` | clean |
+| 4. dry-run 启动 waker | `./scripts/start-all-wakers.sh --dry-run` | 三 persona 都正确 `_sse_consume_stream` 启动 + polling 兜底在 |
+| 5. 注入合成 notification 验证 SSE 主路径 | `curl -X POST http://localhost:8001/api/v1/topics/<id>/comments` 触发 host notification | 5s 内收到 wake（mention < 5s 红线） |
+| 6. 验证 D3 重连补偿 | kill docker API → 30s 内恢复 | sessions jsonl 出现 `event_source="replay"`，无 wake 丢失 |
+| 7. 验证兜底轮询保留 | `MAP_RUNTIME_SSE_ENABLED=0 ./scripts/start-all-wakers.sh` | polling 主路径仍工作（escape hatch） |
+| 8. 监控基线 | 检查 `.map/runtime-waker-state-*.json` 中 `sse_events_received` / `sse_reconnect_total` / `sse_replay_runs` | 24h 后无异常堆积 |
+| 9. 回滚预案 | `MAP_RUNTIME_SSE_ENABLED=0` 环境变量回退到纯轮询 | 立即生效，无需改代码 |
+
+### 关键数字与口径说明
+
+- **A1 拆分纪律**（回应 U5）：`A1总 = A1a_SSE + A1b_waker_overhead + A1b_CLI_startup`。本机实测 SSE 帧 ~0.5ms，waker overhead 2.1ms，Claude CLI 启动 ~2.1s。三段独立测量，瓶颈归属清晰。
+- **Phase 1 P95 baseline ≠ Phase 2 P95 baseline**：Phase 1 测的是 `inbound_event` UNIQUE 主闸 DB write 时间（~0.85ms）；Phase 2 测的是端到端 notification → wake_resume 时间（~2.1s）。两者口径不同，无法直接比较。
+- **A1b 无准入门槛**：warm-pool 优化归 v0.8 backlog；当前 2.1s 已让 A1 总 P95 落在 reviewer 红线 7–42% 利用率区间。
+- **D4 补漏豁免机制**：仅 `event_source="replay"` 路径豁免 60s 客户端限速；服务端 `inbound_event.UNIQUE(fingerprint)` 主闸仍生效防跨进程重投。
+- **D3 重连退避**：1s → 2s → 4s → 8s → 16s → 30s（上限）+ jitter；退避状态持久化到 `.map/runtime-waker-state-*.json`，进程重启不丢位置。
+
+### 已知边界 / v0.8 backlog
+
+| 项 | 描述 | 优先级 |
+|----|------|--------|
+| Warm-pool 复用 Claude session | 把 A1b 从 ~2.1s 降到 ~500ms | P1（reviewer 提及） |
+| `inbound_event` 表 TTL / 分区 | Phase 2 SSE 触发更频繁，按 D1 写入 `source="sse"` 会比 Phase 1 多 ~10× | P2 |
+| 真 e2e triple（真 SSE + 真 backend）| 当前 A1总用 stub backend 校准到 A1b Test 1 实测值；docker harness 内可加真链路验证 | P3 |
+| Cursor backend 非 dry-run 实跑 | 仍需 `CURSOR_API_KEY` | P3 |
+
+### Reviewer 提请评审项
+
+I6 提交后，reviewer 应在 result_review 阶段确认：
+
+1. **A1 红线出处可追溯**（U1 回应）：plan v2 §A1总 + §硬性约束显式声明红线 = reviewer 立场 `bf3f263d` + Round 1 Summary `3f9d80cd` 共识 7。
+2. **D4 补漏豁免无滥用**（U2 回应）：仅 `event_source="replay"` 路径豁免；服务端 UNIQUE 主闸不受影响（见 A5 测试 3/4）。
+3. **A3 双档 + 边界分段**（U3 + U4 回应）：档 b 100% / 档 a 90%（受控段不套红线）；recovery 期不计分母；三段报表启动 / 稳态 / 恢复期 / post-recovery 完整。
+4. **A1 拆分 A1a + A1b**（U5 回应）：A1a 传输硬门槛 < 1s 通过；A1b CLI 启动 ~2.1s 观测项无门槛（warm-pool 优化归 v0.8）。
+5. **B 实验未 commit 代码的根因**（reviewer process bug）：见 I2+I3 source commit log §风险与告知；本次实验 commit 节奏与 B 不同，但 result_review 时需 reviewer 知悉。
