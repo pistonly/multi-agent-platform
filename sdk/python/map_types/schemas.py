@@ -211,6 +211,8 @@ class ExperimentSummaryRead(ORMModel):
     lock_skip_count: int = 0
     # Populated for todos / waker fingerprints; defaults to 0 on list endpoints.
     open_unreasonable_count: int = 0
+    log_count: int = 0
+    latest_log_summary: str | None = None
 
 
 class ExperimentDetailRead(ExperimentSummaryRead):
@@ -472,6 +474,49 @@ class TopicRead(TopicSummaryRead):
     experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     comments: list[TopicCommentTreeNode] = Field(default_factory=list)
     decision: TopicDecisionRead | None = None
+
+
+class TopicProgressCommentRead(ORMModel):
+    id: uuid.UUID
+    author_agent_id: uuid.UUID
+    author_name: str | None = None
+    parent_comment_id: uuid.UUID | None
+    body: str
+    excerpt: str
+    created_at: datetime
+
+
+class TopicWorkItemRead(BaseModel):
+    kind: str
+    priority: str
+    topic_id: uuid.UUID
+    topic_title: str
+    source_comment_id: uuid.UUID | None = None
+    thread_root_id: uuid.UUID | None = None
+    required_agent_id: uuid.UUID
+    reason: str
+    idempotency_key: str
+    clear_action: str
+    excerpt: str
+    created_at: datetime
+    discussion_round: str | None = None
+
+
+class TopicProgressItemRead(BaseModel):
+    topic_id: uuid.UUID
+    topic_title: str
+    discussion_round: TopicDiscussionRound
+    last_comment_author_agent_id: uuid.UUID
+    last_comment_author_name: str | None = None
+    my_last_comment_id: uuid.UUID | None = None
+    new_comments: list[TopicProgressCommentRead] = Field(default_factory=list)
+    new_comment_count: int = 0
+    work_items: list[TopicWorkItemRead] = Field(default_factory=list)
+
+
+class TopicProgressListRead(BaseModel):
+    items: list[TopicProgressItemRead] = Field(default_factory=list)
+    total: int = 0
 
 
 class PendingReplyRead(BaseModel):

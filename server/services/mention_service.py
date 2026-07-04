@@ -380,14 +380,77 @@ def auto_dismiss_mentions_in_container(
     return result.rowcount or 0
 
 
+def _is_reply_in_thread_to(
+    comment: TopicComment | Comment,
+    source: TopicComment | Comment,
+    by_id: dict[uuid.UUID, TopicComment | Comment],
+) -> bool:
+    """True when ``comment`` is a descendant reply to ``source`` in the same thread."""
+    cur: TopicComment | Comment | None = comment
+    while cur is not None and cur.parent_comment_id is not None:
+        if cur.parent_comment_id == source.id:
+            return True
+        cur = by_id.get(cur.parent_comment_id)
+    return False
+
+
+def _agent_replied_after_mention(
+    db: Session,
+    *,
+    mention: Mention,
+    agent_id: uuid.UUID,
+) -> bool:
+    """True when ``agent_id`` posted in the same container after the mention source."""
+    if mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
+        comments = list(
+            db.scalars(
+                select(TopicComment)
+                .where(TopicComment.topic_id == mention.topic_id)
+                .order_by(TopicComment.created_at.asc(), TopicComment.id.asc())
+            )
+        )
+    elif (
+        mention.source_type == MentionSourceType.experiment_comment
+        and mention.experiment_id is not None
+    ):
+        comments = list(
+            db.scalars(
+                select(Comment)
+                .where(Comment.experiment_id == mention.experiment_id)
+                .order_by(Comment.created_at.asc(), Comment.id.asc())
+            )
+        )
+    else:
+        return False
+
+    by_id = {comment.id: comment for comment in comments}
+    source = by_id.get(mention.source_id)
+    if source is None:
+        return False
+
+    for comment in comments:
+        if comment.author_agent_id != agent_id:
+            continue
+        if comment.id == mention.source_id:
+            continue
+        if comment.created_at > source.created_at:
+            return True
+        if comment.created_at < source.created_at:
+            continue
+        if _is_reply_in_thread_to(comment, source, by_id):
+            return True
+    return False
+
+
 def reconcile_mentions_after_participation(db: Session, agent_id: uuid.UUID) -> int:
     """Dismiss stale open mentions when the agent already replied in the container.
 
     Covers historical rows that pre-date container-level auto-dismiss, and any
     comments that slipped through without triggering a dismiss write.
-    """
-    from sqlalchemy import func
 
+    Only counts participation **after** the mention source comment in container order —
+    prior comments in the same topic/experiment must not dismiss a newer @mention.
+    """
     open_mentions = list(
         db.scalars(
             select(Mention).where(
@@ -402,32 +465,7 @@ def reconcile_mentions_after_participation(db: Session, agent_id: uuid.UUID) -> 
     now = datetime.now(timezone.utc)
     to_dismiss: list[uuid.UUID] = []
     for mention in open_mentions:
-        if mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
-            replied = db.scalar(
-                select(func.count())
-                .select_from(TopicComment)
-                .where(
-                    TopicComment.topic_id == mention.topic_id,
-                    TopicComment.author_agent_id == agent_id,
-                    TopicComment.id != mention.source_id,
-                )
-            )
-        elif (
-            mention.source_type == MentionSourceType.experiment_comment
-            and mention.experiment_id is not None
-        ):
-            replied = db.scalar(
-                select(func.count())
-                .select_from(Comment)
-                .where(
-                    Comment.experiment_id == mention.experiment_id,
-                    Comment.author_agent_id == agent_id,
-                    Comment.id != mention.source_id,
-                )
-            )
-        else:
-            replied = 0
-        if replied:
+        if _agent_replied_after_mention(db, mention=mention, agent_id=agent_id):
             to_dismiss.append(mention.id)
 
     if not to_dismiss:

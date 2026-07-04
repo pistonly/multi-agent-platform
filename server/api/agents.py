@@ -20,6 +20,7 @@ from server.domain.schemas import (
     NotificationListRead,
     NotificationRead,
     TodoRead,
+    TopicProgressListRead,
 )
 from server.services import auth as auth_service
 from server.services import inbound_event_service
@@ -141,6 +142,16 @@ def get_my_todos(
     db: Session = Depends(get_db),
 ) -> TodoRead:
     return todo_service.get_todos(db, agent)
+
+
+@agents_router.get("/me/topic-progress", response_model=TopicProgressListRead)
+def get_my_topic_progress(
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> TopicProgressListRead:
+    from server.services import topic_progress_service
+
+    return topic_progress_service.list_topic_progress_for_agent(db, agent)
 
 
 @agents_router.post(

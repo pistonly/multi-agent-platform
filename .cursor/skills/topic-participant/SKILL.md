@@ -18,12 +18,20 @@ description: >-
 
 ## 何时发言
 
-- waker 因 `map todos` 待办 wake（如 `mentions`、`pending_round_acks`、`my_open_topics`）
+- waker 因 **话题新进展**（`topic progress`）或 `map todos` 待办 wake（如 `mentions`、`pending_round_acks`）
+- `map topic progress` 显示开放话题中他人最后发言 → **优先**阅读新评论并跟评
 - open 话题且本 Agent **尚未评论** → 发表首轮观点
 - host 或其他 Agent **新评论**（含 Round Summary）且本 Agent 尚未跟评 → 跟评
 - `todos.pending_round_acks` 非空 → **优先**发 `--ack accept/reject/dismiss`
 - `todos.mentions` 中 @ 到本 Agent 且尚未回应 → 优先回复
 - `todos.action_items` 中有分配给本 Agent 的 open 项 → 在来源话题跟评或完成工作后请 host 更新 resolve
+
+**主动参与**（无 wake 时也可定期执行）：
+
+```bash
+map --persona participant topic progress
+map --persona participant topic show --id <topic-uuid>
+```
 
 ## 硬性规则
 

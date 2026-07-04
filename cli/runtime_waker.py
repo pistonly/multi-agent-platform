@@ -1797,7 +1797,25 @@ def _todo_item_title(bucket: str, item: dict[str, Any]) -> str | None:
     return None
 
 
+def _my_open_experiment_wake_stable_id(item: dict[str, Any]) -> str | None:
+    """Derive waker fingerprint suffix for a my_open_experiments row.
+
+    Includes phase + plan version + open unreasonable + log count so approve/start
+    and each execution log produce distinct wakes (running with log_count=0 is visible).
+    """
+    exp_id = str(item.get("id") or "") or None
+    if not exp_id:
+        return None
+    phase = str(item.get("phase") or "")
+    plan_v = int(item.get("current_plan_version") or 0)
+    open_u = int(item.get("open_unreasonable_count") or 0)
+    log_n = int(item.get("log_count") or 0)
+    return f"{exp_id}:{phase}:pv{plan_v}:ou{open_u}:lc{log_n}"
+
+
 def _todo_item_stable_id(bucket: str, item: dict[str, Any]) -> str | None:
+    if bucket == "my_open_experiments":
+        return _my_open_experiment_wake_stable_id(item)
     if bucket == "mentions":
         return str(item.get("id") or "") or None
     if bucket == "pending_topic_replies":

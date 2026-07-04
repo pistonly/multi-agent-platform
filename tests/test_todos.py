@@ -11,8 +11,9 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert any(e["id"] == exp["id"] for e in reviewer_todos["pending_reviews"])
 
-    # 发起者应看到自己的进行中实验
+    # 发起者应看到自己的进行中实验，但不应出现在 pending_reviews（评审是 reviewer 义务）
     agent_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert not any(e["id"] == exp["id"] for e in agent_todos["pending_reviews"])
     assert any(e["id"] == exp["id"] for e in agent_todos["my_open_experiments"])
     creator_exp = next(e for e in agent_todos["my_open_experiments"] if e["id"] == exp["id"])
     assert creator_exp["open_unreasonable_count"] == 0
@@ -77,6 +78,13 @@ def test_pending_result_reviews(client, auth_headers, reviewer, project):
     )
     client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
     client.post(f"/api/v1/experiments/{exp_id}/start", headers=auth_headers)
+
+    running_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    running_exp = next(e for e in running_todos["my_open_experiments"] if e["id"] == exp_id)
+    assert running_exp["phase"] == "running"
+    assert running_exp["log_count"] == 0
+    assert running_exp["latest_log_summary"] is None
+
     client.post(
         f"/api/v1/experiments/{exp_id}/complete",
         headers=auth_headers,
@@ -232,6 +240,39 @@ def test_pending_topic_replies(client, auth_headers, reviewer, project):
     )
     todos4 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
     assert not any(p["topic_id"] == other_topic["id"] for p in todos4["pending_topic_replies"])
+
+
+def test_pending_topic_replies_host_opens_participant_replies_in_thread(
+    client, auth_headers, reviewer, project
+):
+    """Host opening comment must not satisfy reply obligation for later participant replies."""
+    host_headers = auth_headers
+    participant_headers = reviewer["headers"]
+
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=host_headers,
+        json={"title": "主持开场后楼中楼待回复"},
+    ).json()
+    opening = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=host_headers,
+        json={"body": "host Round 1 开场"},
+    ).json()
+    participant_reply = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=participant_headers,
+        json={"body": "participant 跟评", "parent_id": opening["id"]},
+    ).json()
+
+    todos = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert len(todos["pending_topic_replies"]) == 1
+    assert todos["pending_topic_replies"][0]["comment_id"] == participant_reply["id"]
+
+    progress = client.get("/api/v1/agents/me/topic-progress", headers=host_headers).json()
+    assert progress["total"] == 1
+    work_items = progress["items"][0].get("work_items") or []
+    assert any(w["kind"] == "pending_topic_reply" for w in work_items)
 
 
 def test_thread_root_id_helper():

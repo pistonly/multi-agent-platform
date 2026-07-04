@@ -159,7 +159,7 @@ def test_discover_host_events_from_todos():
         "my_open_experiments",
     ]
     assert events[0].fingerprint == "host:pending_topic_replies:comment-new"
-    assert events[1].fingerprint == "host:my_open_experiments:exp-1"
+    assert events[1].fingerprint == "host:my_open_experiments:exp-1:review:pv2:ou0:lc0"
 
 
 def test_host_events_pending_advance_rounds():
@@ -212,12 +212,13 @@ def test_my_open_experiments_fingerprint_includes_open_unreasonable_count():
                     "phase": "review",
                     "current_plan_version": 1,
                     "open_unreasonable_count": 9,
+                    "log_count": 0,
                 }
             ],
         },
     )
     assert len(events) == 1
-    assert events[0].fingerprint == "host:my_open_experiments:exp-1"
+    assert events[0].fingerprint == "host:my_open_experiments:exp-1:review:pv1:ou9:lc0"
 
 
 def test_my_open_experiments_fingerprint_zero_open_count_is_explicit():
@@ -231,11 +232,44 @@ def test_my_open_experiments_fingerprint_zero_open_count_is_explicit():
                     "phase": "review",
                     "current_plan_version": 1,
                     "open_unreasonable_count": 0,
+                    "log_count": 0,
                 }
             ],
         },
     )
-    assert events[0].fingerprint == "host:my_open_experiments:exp-1"
+    assert events[0].fingerprint == "host:my_open_experiments:exp-1:review:pv1:ou0:lc0"
+
+
+def test_my_open_experiments_fingerprint_running_log_count_changes_wake():
+    idle = discover_wake_events(
+        "host",
+        {
+            "my_open_experiments": [
+                {
+                    "id": "exp-1",
+                    "phase": "running",
+                    "current_plan_version": 2,
+                    "open_unreasonable_count": 0,
+                    "log_count": 0,
+                }
+            ],
+        },
+    )
+    progressed = discover_wake_events(
+        "host",
+        {
+            "my_open_experiments": [
+                {
+                    "id": "exp-1",
+                    "phase": "running",
+                    "current_plan_version": 2,
+                    "open_unreasonable_count": 0,
+                    "log_count": 1,
+                }
+            ],
+        },
+    )
+    assert idle[0].fingerprint != progressed[0].fingerprint
 
 
 def test_discover_reviewer_and_participant_events():
@@ -1714,6 +1748,7 @@ def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
     """After heartbeat TTL, server 409 must not block resume (unfinished todos)."""
     stale = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
     state_file = tmp_path / "runtime-waker-state.json"
+    running_fp = "host:my_open_experiments:exp-1:running:pv1:ou0:lc0"
     state_file.write_text(
         json.dumps(
             {
@@ -1721,7 +1756,7 @@ def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
                 "personas": {
                     "host": {
                         "events": {
-                            "host:my_open_experiments:exp-1": {
+                            running_fp: {
                                 "status": "server_skip",
                                 "last_attempt_at": stale,
                             }
@@ -1742,10 +1777,11 @@ def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
                     "phase": "running",
                     "current_plan_version": 1,
                     "open_unreasonable_count": 0,
+                    "log_count": 0,
                 }
             ]
         },
-        duplicate_fingerprints={"host:my_open_experiments:exp-1"},
+        duplicate_fingerprints={running_fp},
     )
     worker = RuntimeWaker(
         client=client,
@@ -1764,7 +1800,7 @@ def test_server_skip_heartbeat_resumes_after_ttl(tmp_path):
     assert stats.wakes_sent == 1
     assert len(backend.calls) == 1
     state = json.loads(state_file.read_text(encoding="utf-8"))
-    record = state["personas"]["host"]["events"]["host:my_open_experiments:exp-1"]
+    record = state["personas"]["host"]["events"][running_fp]
     assert record["status"] == "woken"
 
 

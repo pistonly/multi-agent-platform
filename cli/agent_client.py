@@ -143,7 +143,7 @@ class PersonaAgentClient:
         # the real session_id only arrives with the ResultMessage. A long
         # running turn is then observable live — a stuck agent shows up as the
         # last event ts going stale.
-        pre_sid = resume_session_id or f"new-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}"
+        pre_sid = resume_session_id or f"new-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}"
         log_path = resolve_session_log_path(self._resolve_session_log_dir(), pre_sid, self.persona)
         self._log_event(
             log_path,

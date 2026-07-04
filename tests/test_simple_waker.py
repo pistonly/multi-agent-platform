@@ -48,9 +48,56 @@ def test_summarize_pending_work_counts_buckets_and_notifications() -> None:
     notifications = [{"id": "n1"}]
     summary = summarize_pending_work(todos, notifications=notifications)
     assert summary.has_work is True
-    assert summary.total_items == 4
-    assert summary.buckets[0].kind == "pending_topic_replies"
-    assert summary.buckets[0].count == 2
+    assert summary.total_items == 3
+    assert summary.todo_buckets[0].kind == "pending_topic_replies"
+    assert summary.todo_buckets[0].count == 2
+
+
+def test_summarize_pending_work_ignores_my_open_topics_alone() -> None:
+    summary = summarize_pending_work({"my_open_topics": [{"id": "t1"}]})
+    assert summary.has_work is False
+    assert summary.total_items == 0
+
+
+def test_build_wake_context_topic_progress_triggers_wake() -> None:
+    from cli.simple_waker import build_wake_context, build_remind_prompt
+
+    context = build_wake_context(
+        topic_progress_data={
+            "items": [
+                {
+                    "topic_id": "t1",
+                    "topic_title": "Dogfood",
+                    "discussion_round": "round2",
+                    "last_comment_author_name": "multi-agents-platform-host",
+                    "new_comment_count": 1,
+                    "new_comments": [
+                        {
+                            "author_name": "multi-agents-platform-host",
+                            "excerpt": "Round 2 kickoff",
+                        }
+                    ],
+                }
+            ],
+            "total": 1,
+        },
+        todos={},
+    )
+    assert context.has_work is True
+    prompt = build_remind_prompt("participant", context)
+    assert "话题新进展" in prompt
+    assert "Dogfood" in prompt
+    assert "topic progress" in prompt
+
+
+def test_build_wake_context_host_caught_up_when_no_progress_and_no_todos() -> None:
+    from cli.simple_waker import build_wake_context
+
+    context = build_wake_context(
+        topic_progress_data={"items": [], "total": 0},
+        todos={"my_open_topics": [{"id": "t1"}]},
+    )
+    assert context.has_work is False
 
 
 def test_summarize_pending_work_idle_when_empty() -> None:
@@ -115,7 +162,7 @@ def test_build_remind_prompt_lists_buckets() -> None:
     assert "MAP 协作提醒 · host" in prompt
     assert "pending_topic_replies: 1" in prompt
     assert "notification: 1" in prompt
-    assert "可批量处理" in prompt
+    assert "topic progress" in prompt
 
 
 def test_next_sleep_seconds_active_vs_idle() -> None:
@@ -131,6 +178,7 @@ def test_run_once_dry_run_does_not_wake_backend(tmp_path: Path) -> None:
         persona="host",
         todos={"pending_topic_replies": [{"comment_id": "c1", "topic_id": "t1"}]},
     )
+    client.topic_progress = lambda: {"items": [], "total": 0}  # type: ignore[method-assign]
     backend = MagicMock()
     backend.wake_async = AsyncMock()
     config = SimpleWakerConfig(
@@ -149,8 +197,21 @@ def test_run_once_dry_run_does_not_wake_backend(tmp_path: Path) -> None:
 def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     client = FakeMapClient(
         persona="host",
-        todos={"pending_topic_replies": [{"comment_id": "c1", "topic_id": "t1"}]},
+        todos={},
     )
+    client.topic_progress = lambda: {  # type: ignore[method-assign]
+        "items": [
+            {
+                "topic_id": "t1",
+                "topic_title": "T",
+                "discussion_round": "round2",
+                "last_comment_author_name": "participant",
+                "new_comment_count": 1,
+                "new_comments": [{"author_name": "participant", "excerpt": "hi"}],
+            }
+        ],
+        "total": 1,
+    }
     backend = MagicMock()
     backend.wake_async = AsyncMock(return_value=MagicMock(session_id="sess-1", skipped=False))
     backend.connect = AsyncMock()
@@ -165,4 +226,4 @@ def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     assert stats.reminds_sent == 1
     backend.wake_async.assert_awaited_once()
     prompt = backend.wake_async.await_args.kwargs["prompt"]
-    assert "MAP 协作提醒" in prompt
+    assert "话题新进展" in prompt

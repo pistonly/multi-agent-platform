@@ -127,6 +127,19 @@ map --persona host project status revise \
 ```bash
 map topic list --status open
 map topic show --id <topic-uuid>
+map topic progress   # 开放话题中「最后一条评论不是自己」的项；含你上次发言后的新评论
+```
+
+**`topic progress`**（各 persona 主动参与开放话题时用）：
+
+- 平台从 **`topic_work_items_for_agent`** 计算 per-agent 待办，再投影为 `topic-progress`。
+- 每项含 `work_items[]`（`kind` + `priority: obligation | contextual`）及兼容字段 `new_comments[]`。
+- **`map todos`** 的话题 obligation 分区（`pending_topic_replies` / `pending_round_acks` / `mentions`）应与 work items 等价（同一 `idempotency_key`）。
+- host 用此发现需回复的 thread；participant/reviewer 用此发现 Round 新内容或未读变更。
+
+```bash
+map --persona host topic progress
+map --persona participant topic progress
 ```
 
 ## 话题（host）

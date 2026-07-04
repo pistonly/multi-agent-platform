@@ -1,11 +1,12 @@
 import uuid
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from server.domain.models import (
     Agent,
     Experiment,
+    ExperimentLog,
     ExperimentPhase,
     Review,
     ReviewItem,
@@ -57,73 +58,51 @@ def thread_root_id(comment_id: uuid.UUID, by_id: dict[uuid.UUID, TopicComment]) 
     return current.id
 
 
-def _host_replied_in_thread(
-    thread_root: uuid.UUID,
+def _host_replied_after(
+    comment: TopicComment,
     host_comment_ids: set[uuid.UUID],
     by_id: dict[uuid.UUID, TopicComment],
+    *,
+    comment_order: list[uuid.UUID] | None = None,
 ) -> bool:
-    return any(thread_root_id(cid, by_id) == thread_root for cid in host_comment_ids)
+    """True when the host has posted in the same thread after ``comment``.
+
+    Uses chronological comment order (``created_at`` asc, stable tie-break) so a
+    host reply clears the whole thread without treating an earlier host opener as
+    a reply to later participant messages. Same-second timestamps rely on list
+    order rather than strict ``created_at > cutoff``.
+    """
+    root = thread_root_id(comment.id, by_id)
+    if comment_order is None:
+        comment_order = sorted(
+            by_id.keys(),
+            key=lambda cid: (by_id[cid].created_at, str(cid)),
+        )
+    try:
+        comment_pos = comment_order.index(comment.id)
+    except ValueError:
+        return False
+    for cid in host_comment_ids:
+        if thread_root_id(cid, by_id) != root:
+            continue
+        try:
+            host_pos = comment_order.index(cid)
+        except ValueError:
+            continue
+        if host_pos > comment_pos:
+            return True
+    return False
 
 
 def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicReplyTodoRead]:
-    open_topics = list(
-        db.scalars(
-            select(Topic)
-            .where(
-                Topic.creator_agent_id == agent.id,
-                Topic.deleted_at.is_(None),
-                Topic.archived_at.is_(None),
-                Topic.status == TopicStatus.open,
-            )
-            .order_by(Topic.updated_at.desc())
-        )
-    )
-    if not open_topics:
-        return []
+    from server.services import topic_work_item_service as work_items
 
-    topic_by_id = {t.id: t for t in open_topics}
-    topic_ids = list(topic_by_id.keys())
-    comments = list(
-        db.scalars(
-            select(TopicComment)
-            .where(TopicComment.topic_id.in_(topic_ids))
-            .options(joinedload(TopicComment.author))
-            .order_by(TopicComment.created_at.asc())
-        )
-    )
-
-    comments_by_topic: dict[uuid.UUID, list[TopicComment]] = {}
-    for comment in comments:
-        comments_by_topic.setdefault(comment.topic_id, []).append(comment)
-
-    pending: list[PendingTopicReplyTodoRead] = []
-    for topic_id, topic_comments in comments_by_topic.items():
-        topic = topic_by_id[topic_id]
-        by_id = {c.id: c for c in topic_comments}
-        host_comment_ids = {c.id for c in topic_comments if c.author_agent_id == agent.id}
-
-        for comment in topic_comments:
-            if comment.author_agent_id == agent.id:
-                continue
-            root = thread_root_id(comment.id, by_id)
-            if _host_replied_in_thread(root, host_comment_ids, by_id):
-                continue
-            pending.append(
-                PendingTopicReplyTodoRead(
-                    topic_id=topic.id,
-                    topic_title=topic.title,
-                    comment_id=comment.id,
-                    parent_comment_id=comment.parent_comment_id,
-                    thread_root_id=root,
-                    author_agent_id=comment.author_agent_id,
-                    author_name=comment.author.name if comment.author else None,
-                    excerpt=_excerpt(comment.body),
-                    created_at=comment.created_at,
-                )
-            )
-
-    pending.sort(key=lambda p: p.created_at, reverse=True)
-    return pending
+    items = [
+        item
+        for item in work_items.topic_work_items_for_agent(db, agent)
+        if item.kind == "pending_topic_reply"
+    ]
+    return work_items.pending_topic_replies_from_work_items(db, items)
 
 
 def list_pending_round_acks(db: Session, agent: Agent) -> list[PendingRoundAckTodoRead]:
@@ -215,13 +194,26 @@ def _experiment_summary_with_open_unreasonable(
     db: Session,
     experiment: Experiment,
 ) -> ExperimentSummaryRead:
+    from server.services.log_service import get_latest_log
     from server.services.review_service import count_open_unreasonable_for_experiment
+
+    log_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ExperimentLog)
+            .where(ExperimentLog.experiment_id == experiment.id)
+        )
+        or 0
+    )
+    latest = get_latest_log(db, experiment.id)
 
     return ExperimentSummaryRead.model_validate(experiment).model_copy(
         update={
             "open_unreasonable_count": count_open_unreasonable_for_experiment(
                 db, experiment.id
             ),
+            "log_count": log_count,
+            "latest_log_summary": latest.summary if latest else None,
         }
     )
 
@@ -272,6 +264,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         .where(
             Experiment.deleted_at.is_(None),
             Experiment.phase == ExperimentPhase.review,
+            Experiment.creator_agent_id != agent.id,
             ~reviewed,
         )
         .order_by(Experiment.updated_at.desc())

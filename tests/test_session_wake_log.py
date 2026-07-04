@@ -46,6 +46,15 @@ def test_resolve_session_log_path_reuses_existing_file(tmp_path: Path) -> None:
     assert second == first
 
 
+def test_resolve_session_log_path_does_not_reuse_other_persona(tmp_path: Path) -> None:
+    """Same provisional session id across personas must not share one log file."""
+    host_path = resolve_session_log_path(tmp_path, "new-20260703T075815", "host")
+    host_path.write_text("{}\n", encoding="utf-8")
+    participant_path = resolve_session_log_path(tmp_path, "new-20260703T075815", "participant")
+    assert participant_path != host_path
+    assert participant_path.name.endswith("_participant_new-20260703T075815.jsonl")
+
+
 def test_resolve_session_log_path_reuses_legacy_filename(tmp_path: Path) -> None:
     legacy = tmp_path / "sid-1.jsonl"
     legacy.write_text("{}\n", encoding="utf-8")

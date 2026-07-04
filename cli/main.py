@@ -944,6 +944,12 @@ def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.get_topic(topic_id))
 
 
+@topic_app.command("progress")
+def topic_progress() -> None:
+    """Open topics where the latest comment is not yours; includes new comments since your last post."""
+    _run(lambda c: c.get_topic_progress())
+
+
 @topic_app.command("resolve")
 def topic_resolve(
     topic_id: uuid.UUID = typer.Option(..., "--id"),
@@ -1003,6 +1009,12 @@ def topic_close(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 @topic_app.command("reopen")
 def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.reopen_topic(topic_id))
+
+
+@topic_app.command("dismiss")
+def topic_dismiss(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    """Hide an open topic from host todos until new activity (same as Web UI ✕)."""
+    _run(lambda c: c.dismiss_topic(topic_id))
 
 
 @topic_app.command(

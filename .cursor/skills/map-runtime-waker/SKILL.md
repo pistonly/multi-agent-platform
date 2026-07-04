@@ -16,30 +16,42 @@ description: >-
 
 | 模式 | 启动脚本 | Agent 推进粒度 |
 |------|----------|----------------|
-| **runtime-waker**（默认生产） | `./scripts/start-all-wakers.sh` | 一步一 wake：一次只推进当前 kind 对应的一项 |
-| **simple-waker**（简化版） | `./scripts/start-all-simple-wakers.sh` | 批量：一次提醒内处理所有当前待办，直到 `todos` 清空或明确 blocker |
+| **simple-waker**（默认） | `./scripts/start-all-wakers.sh` | 批量：轮询 **topic progress** + 可执行 todos；remind 内带新评论摘要 |
+| **runtime-waker**（legacy） | `MAP_USE_LEGACY_WAKER=1` 或 `./scripts/start-all-wakers-legacy.sh` | 一步一 wake：一次只推进当前 kind 对应的一项 |
 
-**simple-waker** 下忽略 wake hint 里的单项 `kind`，以 `map todos` 全量为准自主排序与批处理。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
+**simple-waker** 主信号为 `GET /agents/me/topic-progress`（开放话题中最后评论非己 + 你上次发言后的新内容）。`my_open_topics` ** alone 不触发** remind。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
 
 ## 每次 wake / 提醒 的顺序
 
 1. [map-project-collab](../map-project-collab/SKILL.md) — persona、CLI 硬性规则
 2. 下表 persona Skill — 具体怎么做
-3. `map --persona <persona> persona whoami` → `map --persona <persona> todos`
-4. **runtime-waker**：按 wake hint 的 `kind` 处理对应一项，做一步可验证推进
-5. **simple-waker**：处理所有当前待办（可批量），以 `todos` 为空或每项有明确处置为准
-6. **必须**让已处理项从 `map todos` 或通知列表消失后再收尾
+3. `map --persona <persona> persona whoami` → **`map --persona <persona> topic progress`** → `map --persona <persona> todos`
+4. **simple-waker**：按 remind 中的话题新进展与 todos **主动参与**开放话题；host 负责回复 thread 与推进轮次
+5. **runtime-waker**：按 wake hint 的 `kind` 处理对应一项，做一步可验证推进
+6. **必须**让已处理项从 `topic progress` / `map todos` 或通知列表消失后再收尾
 
 ## 核心规则（与 Web UI 一致）
 
 | 规则 | 说明 |
 |------|------|
-| todos 即真相 | waker 只根据 `GET /agents/me/todos` + 未读通知 wake；**kind 名 = todos 字段名** |
+| topic progress 即话题真相 | 平台计算「最后评论非己 + 你上次发言后的新评论」；各 persona **主动** `map topic progress` 参与 |
+| todos 即待办真相 | waker 另轮询 `GET /agents/me/todos` + 未读通知；**kind 名 = todos 字段名** |
 | 清理 = 与 UI 相同 | 处理完成后调用与 UI 等价的 API（见下表）；**禁止**凭 session 记忆判断「已处理」 |
 | 一步一 wake | 仅 **runtime-waker**：一次 wake 只推进当前 todo 项的下一步 |
-| 批量提醒 | 仅 **simple-waker**：一次提醒可处理多项；收尾前再跑 `todos` 验证 |
+| 批量提醒 | 仅 **simple-waker**：一次提醒可处理多项；收尾前再跑 `topic progress` + `todos` 验证 |
+| `my_open_topics` alone | 被动清单，**不**单独触发 simple-waker；话题活动看 **topic progress** |
 | skip ≠ 执行中 | `wake_skips` 表示 heartbeat/TTL 内已 wake 过（去重），不是后台在跑 |
 | heartbeat | 待办项仍在 API 中时，TTL 到期后会重 wake（自愈） |
+
+## reviewer 评审优先（跨视图调度）
+
+reviewer 的核心义务是实验评审（`pending_reviews` / `pending_result_reviews`）。为避免话题 remind 打断深度评审，simple-waker **调度层**遵守：
+
+- reviewer 存在任一 `pending_review` / `pending_result_review` 时，话题域 **contextual** work item（如 `unread_change`）**不触发 remind**；
+- 话题域 **obligation** item（`@mention`、`pending_round_ack` 等）**仍可 remind**——硬义务不被静音；
+- 此为 waker **调度层**消费规则，**不**进 work item schema；schema 的 `priority: obligation | contextual` 二分保持不变。
+
+> 来源：实验 `73001496`（topic work items 统一源与 reviewer 过滤）P4；随 P4 落地生效。
 
 ## kind → 清理方式 → Skill
 

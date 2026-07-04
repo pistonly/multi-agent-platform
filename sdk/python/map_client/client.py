@@ -55,6 +55,7 @@ from map_types import (
     TopicCommentTreeNode,
     TopicCreate,
     TopicDecisionRead,
+    TopicProgressListRead,
     TopicRead,
     TopicResolve,
     TopicStatus,
@@ -639,6 +640,9 @@ class MAPClient:
     def reopen_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
         return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/reopen"))
 
+    def dismiss_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
+        return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/dismiss"))
+
     def create_topic_comment(
         self,
         topic_id: uuid.UUID,
@@ -662,6 +666,9 @@ class MAPClient:
 
     def get_todos(self) -> TodoRead:
         return TodoRead.model_validate(self._json("GET", "/agents/me/todos"))
+
+    def get_topic_progress(self) -> TopicProgressListRead:
+        return TopicProgressListRead.model_validate(self._json("GET", "/agents/me/topic-progress"))
 
     def dismiss_mention(self, mention_id: uuid.UUID) -> DismissMentionResultRead:
         data = self._json("POST", f"/agents/me/mentions/{mention_id}/dismiss")

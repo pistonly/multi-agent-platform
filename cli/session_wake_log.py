@@ -35,14 +35,19 @@ def safe_session_log_name(session_id: str) -> str:
 def resolve_session_log_path(log_dir: Path, session_id: str, persona: str) -> Path:
     """Resolve the JSONL path for a session (reuse existing file across resume wakes)."""
     safe_id = safe_session_log_name(session_id)
-    stamped = sorted(log_dir.glob(f"*_{safe_id}.jsonl"), key=lambda path: path.stat().st_mtime)
+    safe_persona = safe_session_log_name(persona)
+    # Persona must be part of the lookup — multiple wakers can share the same
+    # provisional ``new-YYYYMMDDTHHMMSS`` id when they wake in the same second.
+    stamped = sorted(
+        log_dir.glob(f"*_{safe_persona}_{safe_id}.jsonl"),
+        key=lambda path: path.stat().st_mtime,
+    )
     if stamped:
         return stamped[-1]
     legacy = log_dir / f"{safe_id}.jsonl"
     if legacy.exists():
         return legacy
     ts = log_now().strftime("%Y%m%d-%H%M%S")
-    safe_persona = safe_session_log_name(persona)
     return log_dir / f"{ts}_{safe_persona}_{safe_id}.jsonl"
 
 

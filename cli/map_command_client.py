@@ -52,6 +52,9 @@ class MapCommandClient:
     def todos(self) -> dict[str, Any]:
         return self._run(["todos"])
 
+    def topic_progress(self) -> dict[str, Any]:
+        return self._run(["topic", "progress"])
+
     def notifications_unread(
         self,
         *,
@@ -304,6 +307,7 @@ def _is_write_command(args: list[str]) -> bool:
         ["topic", "create"],
         ["topic", "close"],
         ["topic", "reopen"],
+        ["topic", "dismiss"],
         ["topic", "advance-round"],
         ["topic", "resolve"],
         ["experiment", "create"],

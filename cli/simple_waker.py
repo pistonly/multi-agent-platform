@@ -1,15 +1,13 @@
-"""Thin MAP waker: poll todos, remind agent on a fixed cadence while work exists.
+"""Thin MAP waker: poll topic progress + actionable todos, remind agent when there is new work.
 
-Unlike ``cli.runtime_waker``, this module does not derive per-item fingerprints,
-SSE routing, inbound_event dedup, or one-item-per-wake scheduling. A single
-long-lived runtime session per persona receives a unified reminder whenever
-``map todos`` or unread notifications show pending work.
+Waker logic stays minimal: the platform computes per-agent topic unread activity
+(``GET /agents/me/topic-progress``); agents use ``map topic progress`` in Skills.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +27,21 @@ from cli.worker_cycle_log import log_cycle_summary
 
 APP = typer.Typer(add_completion=False)
 
+# Passive inventory — not used alone to wake (topic activity uses topic-progress).
+SIMPLE_WAKER_PASSIVE_BUCKETS: frozenset[str] = frozenset({"my_open_topics"})
+
+_EXCERPT_IN_PROMPT = 280
+
+
+@dataclass(frozen=True)
+class TopicProgressEntry:
+    topic_id: str
+    topic_title: str
+    discussion_round: str
+    last_comment_author_name: str | None
+    new_comment_count: int
+    new_comments: tuple[dict[str, Any], ...]
+
 
 @dataclass(frozen=True)
 class PendingBucket:
@@ -38,13 +51,22 @@ class PendingBucket:
 
 
 @dataclass(frozen=True)
-class PendingWorkSummary:
-    buckets: tuple[PendingBucket, ...]
-    notification_count: int
+class WakeContext:
+    topic_progress: tuple[TopicProgressEntry, ...] = ()
+    todo_buckets: tuple[PendingBucket, ...] = ()
+    notification_count: int = 0
+
+    @property
+    def topic_update_count(self) -> int:
+        return len(self.topic_progress)
+
+    @property
+    def todo_item_count(self) -> int:
+        return sum(bucket.count for bucket in self.todo_buckets)
 
     @property
     def total_items(self) -> int:
-        return sum(bucket.count for bucket in self.buckets) + self.notification_count
+        return self.topic_update_count + self.todo_item_count + self.notification_count
 
     @property
     def has_work(self) -> bool:
@@ -89,13 +111,44 @@ class SimpleWakerStats:
         self.dry_run_actions += other.dry_run_actions
 
 
-def summarize_pending_work(
-    todos: dict[str, Any],
-    *,
-    notifications: list[dict[str, Any]] | None = None,
-) -> PendingWorkSummary:
+def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntry, ...]:
+    if not isinstance(data, dict):
+        return ()
+    items = data.get("items") or []
+    if not isinstance(items, list):
+        return ()
+    entries: list[TopicProgressEntry] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        topic_id = raw.get("topic_id")
+        if not topic_id:
+            continue
+        new_comments = raw.get("new_comments") or []
+        if not isinstance(new_comments, list):
+            new_comments = []
+        entries.append(
+            TopicProgressEntry(
+                topic_id=str(topic_id),
+                topic_title=str(raw.get("topic_title") or ""),
+                discussion_round=str(raw.get("discussion_round") or ""),
+                last_comment_author_name=(
+                    str(raw["last_comment_author_name"])
+                    if raw.get("last_comment_author_name")
+                    else None
+                ),
+                new_comment_count=int(raw.get("new_comment_count") or len(new_comments)),
+                new_comments=tuple(c for c in new_comments if isinstance(c, dict)),
+            )
+        )
+    return tuple(entries)
+
+
+def summarize_actionable_todos(todos: dict[str, Any]) -> tuple[PendingBucket, ...]:
     buckets: list[PendingBucket] = []
     for kind in TODO_WAKE_BUCKETS:
+        if kind in SIMPLE_WAKER_PASSIVE_BUCKETS:
+            continue
         items = todos.get(kind) or []
         if not isinstance(items, list):
             continue
@@ -109,19 +162,65 @@ def summarize_pending_work(
                 label=TODO_BUCKET_UI_LABELS.get(kind, kind),
             )
         )
-    notification_count = len(notifications or [])
-    return PendingWorkSummary(buckets=tuple(buckets), notification_count=notification_count)
+    return tuple(buckets)
+
+
+def build_wake_context(
+    *,
+    topic_progress_data: dict[str, Any] | None,
+    todos: dict[str, Any],
+    notifications: list[dict[str, Any]] | None = None,
+    persona: str | None = None,
+) -> WakeContext:
+    filtered_progress = _filter_topic_progress_for_persona(
+        persona,
+        topic_progress_data,
+        todos,
+    )
+    return WakeContext(
+        topic_progress=parse_topic_progress(filtered_progress),
+        todo_buckets=summarize_actionable_todos(todos),
+        notification_count=len(notifications or []),
+    )
+
+
+def _filter_topic_progress_for_persona(
+    persona: str | None,
+    topic_progress_data: dict[str, Any] | None,
+    todos: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Reviewer with experiment review todos: suppress contextual-only topic progress."""
+    if persona != "reviewer":
+        return topic_progress_data
+    if not (todos.get("pending_reviews") or todos.get("pending_result_reviews")):
+        return topic_progress_data
+    if not isinstance(topic_progress_data, dict):
+        return topic_progress_data
+    items = topic_progress_data.get("items") or []
+    if not isinstance(items, list):
+        return topic_progress_data
+    filtered: list[dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        work_items = raw.get("work_items") or []
+        if not isinstance(work_items, list) or not work_items:
+            filtered.append(raw)
+            continue
+        if any(isinstance(wi, dict) and wi.get("priority") == "obligation" for wi in work_items):
+            filtered.append(raw)
+    return {**topic_progress_data, "items": filtered, "total": len(filtered)}
 
 
 def should_send_remind(
-    summary: PendingWorkSummary,
+    context: WakeContext,
     *,
     now: datetime,
     last_remind_at: datetime | None,
     inflight: bool,
     min_remind_seconds: float,
 ) -> tuple[bool, str | None]:
-    if not summary.has_work:
+    if not context.has_work:
         return False, "idle"
     if inflight:
         return False, "busy"
@@ -132,33 +231,59 @@ def should_send_remind(
     return True, None
 
 
-def build_remind_prompt(persona: str, summary: PendingWorkSummary) -> str:
+def _clip(text: str, limit: int = _EXCERPT_IN_PROMPT) -> str:
+    cleaned = " ".join(text.split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1] + "…"
+
+
+def build_remind_prompt(persona: str, context: WakeContext) -> str:
     command = f"map --persona {persona}"
     lines = [
         f"MAP 协作提醒 · {persona}",
         "",
-        "请检查 MAP 平台当前待办并自主处理：",
-        "1. 先读 map-runtime-waker、map-project-collab 与 persona Skill",
-        f"2. `{command} persona whoami` → `{command} todos`",
-        "3. 可批量处理相关待办；以 `map todos` 为空或每项有明确处置为准",
-        "4. 禁止凭 session 记忆跳过待办；清理方式与 Web UI 相同",
+        "平台检测到新进展。请先读 map-runtime-waker、map-project-collab 与 persona Skill，然后：",
+        f"1. `{command} persona whoami`",
+        f"2. `{command} topic progress` — 查看各开放话题中你上次发言后的新评论",
+        f"3. `{command} todos` — 实验/评审/mention 等待办",
+        "4. 主动参与开放话题；host 负责回复 thread 与推进轮次",
         "",
-        "当前待办概览：",
     ]
-    for bucket in summary.buckets:
-        lines.append(f"- {bucket.kind}: {bucket.count}（{bucket.label}）")
-    if summary.notification_count:
-        lines.append(
-            f"- notification: {summary.notification_count}"
-            f"（{TODO_BUCKET_UI_LABELS['notification']}）"
-        )
-    if not summary.buckets and summary.notification_count:
-        lines.append("- 仅有未读通知，请先 `todos` 再按通知类型处理")
+
+    if context.topic_progress:
+        lines.append("## 话题新进展")
+        for entry in context.topic_progress:
+            who = entry.last_comment_author_name or "他人"
+            lines.append(
+                f"- **{entry.topic_title}** (`{entry.topic_id}`) "
+                f"· {entry.discussion_round} · 最新来自 {who} · +{entry.new_comment_count} 条"
+            )
+            for comment in entry.new_comments[:3]:
+                author = comment.get("author_name") or comment.get("author_agent_id") or "?"
+                excerpt = comment.get("excerpt") or comment.get("body") or ""
+                lines.append(f"  - @{author}: {_clip(str(excerpt))}")
+            if len(entry.new_comments) > 3:
+                lines.append(f"  - … 另有 {len(entry.new_comments) - 3} 条，请 `topic show --id {entry.topic_id}`")
+        lines.append("")
+
+    if context.todo_buckets or context.notification_count:
+        lines.append("## 其他待办")
+        for bucket in context.todo_buckets:
+            lines.append(f"- {bucket.kind}: {bucket.count}（{bucket.label}）")
+        if context.notification_count:
+            lines.append(
+                f"- notification: {context.notification_count}"
+                f"（{TODO_BUCKET_UI_LABELS['notification']}）"
+            )
+        lines.append("")
+
+    lines.append(f"详情：`{command} topic progress` · `{command} todos`")
     return "\n".join(lines) + "\n"
 
 
-def next_sleep_seconds(summary: PendingWorkSummary, config: SimpleWakerConfig) -> float:
-    return config.active_interval if summary.has_work else config.idle_interval
+def next_sleep_seconds(context: WakeContext, config: SimpleWakerConfig) -> float:
+    return config.active_interval if context.has_work else config.idle_interval
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -169,6 +294,16 @@ def _parse_datetime(value: str | None) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+# Backward-compatible aliases for tests
+PendingWorkSummary = WakeContext
+summarize_pending_work = lambda todos, notifications=None: build_wake_context(  # noqa: E731
+    topic_progress_data={"items": []},
+    todos=todos,
+    notifications=notifications,
+    persona=None,
+)
 
 
 class SimpleWaker:
@@ -236,10 +371,16 @@ class SimpleWaker:
     async def _run_once_async(self) -> tuple[SimpleWakerStats, float]:
         self._ensure_identity()
         stats = SimpleWakerStats(cycles=1)
+        topic_progress_data = self.client.topic_progress() or {}
         todos = self.client.todos() or {}
         notifications = self.client.notifications_unread()
-        summary = summarize_pending_work(todos, notifications=notifications)
-        if summary.has_work:
+        context = build_wake_context(
+            topic_progress_data=topic_progress_data,
+            todos=todos,
+            notifications=notifications,
+            persona=self.config.persona,
+        )
+        if context.has_work:
             stats.polls_with_work = 1
         else:
             stats.polls_idle = 1
@@ -248,7 +389,7 @@ class SimpleWaker:
         last_remind_at = _parse_datetime(persona_state.get("last_remind_at"))
         now = datetime.now(UTC)
         should_remind, skip_reason = should_send_remind(
-            summary,
+            context,
             now=now,
             last_remind_at=last_remind_at,
             inflight=self._inflight,
@@ -260,21 +401,25 @@ class SimpleWaker:
             elif skip_reason == "cooldown":
                 stats.remind_skips_cooldown = 1
             self._save_state_if_needed()
-            return stats, next_sleep_seconds(summary, self.config)
+            return stats, next_sleep_seconds(context, self.config)
 
-        prompt = build_remind_prompt(self.config.persona, summary)
+        prompt = build_remind_prompt(self.config.persona, context)
         if self.config.dry_run:
-            typer.echo(f"[dry-run] would remind persona={self.config.persona} work={summary.total_items}")
+            typer.echo(
+                f"[dry-run] would remind persona={self.config.persona} "
+                f"topics={context.topic_update_count} todos={context.todo_item_count}"
+            )
             typer.echo(prompt.rstrip())
             stats.dry_run_actions = 1
             self._save_state_if_needed()
-            return stats, next_sleep_seconds(summary, self.config)
+            return stats, next_sleep_seconds(context, self.config)
 
         self._inflight = True
         try:
             await self.backend.wake_async(prompt=prompt, event_source="simple-waker")
             persona_state["last_remind_at"] = now.isoformat()
-            persona_state["last_remind_work_count"] = summary.total_items
+            persona_state["last_remind_work_count"] = context.total_items
+            persona_state["last_remind_topic_count"] = context.topic_update_count
             self._state_dirty = True
             stats.reminds_sent = 1
         except WorkerError as exc:
@@ -286,7 +431,7 @@ class SimpleWaker:
         finally:
             self._inflight = False
             self._save_state_if_needed(force=True)
-        return stats, next_sleep_seconds(summary, self.config)
+        return stats, next_sleep_seconds(context, self.config)
 
     def _ensure_identity(self) -> None:
         me = self.client.whoami()
@@ -305,6 +450,8 @@ class SimpleWaker:
     def _save_state_if_needed(self, *, force: bool = False) -> None:
         if not force and not self._state_dirty:
             return
+        from cli.bridge_state import save_bridge_state
+
         save_bridge_state(self.config.state_file, self.state)
         self._state_dirty = False
 
@@ -318,13 +465,13 @@ def run(
         30.0,
         "--active-interval",
         min=5.0,
-        help="Poll/remind cadence while todos or notifications are pending.",
+        help="Poll/remind cadence while work exists.",
     ),
     idle_interval: float = typer.Option(
         300.0,
         "--idle-interval",
         min=30.0,
-        help="Poll cadence when there is no pending work.",
+        help="Poll cadence when idle.",
     ),
     min_remind_seconds: float = typer.Option(
         30.0,
