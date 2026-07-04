@@ -236,13 +236,54 @@ def list_mentions_for_agent(
     return list(db.scalars(stmt))
 
 
+def _apply_mention_dismiss_cascade(
+    db: Session,
+    *,
+    actor_agent_id: uuid.UUID,
+    mentions: list[Mention],
+    now: datetime | None = None,
+) -> int:
+    """Dismiss mentions, cascade-read matching notifications, write audit rows."""
+    from server.services import audit_service, notification_service
+
+    if not mentions:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    touched: list[Mention] = []
+    for mention in mentions:
+        if mention.dismissed_at is not None:
+            continue
+        mention.dismissed_at = now
+        touched.append(mention)
+        audit_service._log_no_commit(
+            db,
+            action="mention.dismiss",
+            target_type="mention",
+            agent_id=actor_agent_id,
+            project_id=mention.project_id,
+            target_id=mention.id,
+            summary="Mention dismissed",
+            payload={
+                "mention_id": str(mention.id),
+                "source_comment_id": str(mention.source_id),
+                "actor_agent_id": str(actor_agent_id),
+            },
+        )
+    if not touched:
+        return 0
+    notification_service.mark_agent_mentioned_notifications_read_no_commit(
+        db, mentions=touched, now=now
+    )
+    return len(touched)
+
+
 def dismiss_mention(db: Session, *, agent: Agent, mention_id: uuid.UUID) -> Mention | None:
     """Mark a mention as dismissed for the mentioned agent. Idempotent."""
     mention = db.get(Mention, mention_id)
     if mention is None or mention.mentioned_agent_id != agent.id:
         return None
     if mention.dismissed_at is None:
-        mention.dismissed_at = datetime.now(timezone.utc)
+        _apply_mention_dismiss_cascade(db, actor_agent_id=agent.id, mentions=[mention])
         db.commit()
         db.refresh(mention)
     return mention
@@ -250,17 +291,18 @@ def dismiss_mention(db: Session, *, agent: Agent, mention_id: uuid.UUID) -> Ment
 
 def dismiss_all_for_agent(db: Session, agent: Agent) -> int:
     """Dismiss every open mention addressed to this agent. Returns rows touched."""
-    now = datetime.now(timezone.utc)
-    result = db.execute(
-        update(Mention)
-        .where(
-            Mention.mentioned_agent_id == agent.id,
-            Mention.dismissed_at.is_(None),
+    mentions = list(
+        db.scalars(
+            select(Mention).where(
+                Mention.mentioned_agent_id == agent.id,
+                Mention.dismissed_at.is_(None),
+            )
         )
-        .values(dismissed_at=now)
     )
-    db.commit()
-    return result.rowcount or 0
+    count = _apply_mention_dismiss_cascade(db, actor_agent_id=agent.id, mentions=mentions)
+    if count:
+        db.commit()
+    return count
 
 
 def _experiment_thread_comment_ids(
@@ -382,56 +424,19 @@ def dismiss_mentions_answered_by_participation(
         return 0
 
     open_mentions = list(db.scalars(select(Mention).where(*filters)))
-    to_dismiss = [
-        mention.id
+    to_dismiss_objs = [
+        mention
         for mention in open_mentions
         if _agent_replied_after_mention(db, mention=mention, agent_id=agent_id)
     ]
-    if not to_dismiss:
+    if not to_dismiss_objs:
         return 0
-    now = datetime.now(timezone.utc)
-    db.execute(update(Mention).where(Mention.id.in_(to_dismiss)).values(dismissed_at=now))
-    if commit:
+    count = _apply_mention_dismiss_cascade(
+        db, actor_agent_id=agent_id, mentions=to_dismiss_objs
+    )
+    if commit and count:
         db.commit()
-    return len(to_dismiss)
-
-
-def auto_dismiss_mentions_in_container(
-    db: Session,
-    *,
-    author: Agent,
-    topic_id: uuid.UUID | None,
-    experiment_id: uuid.UUID | None,
-) -> int:
-    """Dismiss all open mentions for ``author`` inside one topic or experiment.
-
-    Once the mentioned agent posts any comment in the container, treat earlier
-    @mentions there as seen — even if the reply started a new top-level thread.
-    """
-    now = datetime.now(timezone.utc)
-    filters = [
-        Mention.mentioned_agent_id == author.id,
-        Mention.dismissed_at.is_(None),
-    ]
-    if topic_id is not None:
-        filters.extend(
-            [
-                Mention.topic_id == topic_id,
-                Mention.source_type == MentionSourceType.topic_comment,
-            ]
-        )
-    elif experiment_id is not None:
-        filters.extend(
-            [
-                Mention.experiment_id == experiment_id,
-                Mention.source_type == MentionSourceType.experiment_comment,
-            ]
-        )
-    else:
-        return 0
-    result = db.execute(update(Mention).where(*filters).values(dismissed_at=now))
-    db.commit()
-    return result.rowcount or 0
+    return count
 
 
 def _is_reply_in_thread_to(
@@ -570,17 +575,19 @@ def auto_dismiss_mentions_for_author_in_thread(
         return 0
     if not thread_ids:
         return 0
-    now = datetime.now(timezone.utc)
-    result = db.execute(
-        update(Mention)
-        .where(
-            Mention.mentioned_agent_id == new_comment_author.id,
-            Mention.source_type == source_type,
-            Mention.source_id.in_(thread_ids),
-            Mention.dismissed_at.is_(None),
+    mentions = list(
+        db.scalars(
+            select(Mention).where(
+                Mention.mentioned_agent_id == new_comment_author.id,
+                Mention.source_type == source_type,
+                Mention.source_id.in_(thread_ids),
+                Mention.dismissed_at.is_(None),
+            )
         )
-        .values(dismissed_at=now)
     )
-    if commit:
+    count = _apply_mention_dismiss_cascade(
+        db, actor_agent_id=new_comment_author.id, mentions=mentions
+    )
+    if commit and count:
         db.commit()
-    return result.rowcount or 0
+    return count

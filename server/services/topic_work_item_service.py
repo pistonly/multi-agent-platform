@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from server.domain.models import Agent, Mention, MentionSourceType, Topic, TopicComment, TopicStatus
 from server.domain.schemas import (
+    MentionTodoRead,
+    PendingRoundAckTodoRead,
     PendingTopicReplyTodoRead,
     TopicProgressCommentRead,
     TopicProgressItemRead,
@@ -339,6 +341,84 @@ def pending_topic_replies_from_work_items(
         )
     rows.sort(key=lambda p: p.created_at, reverse=True)
     return rows
+
+
+def pending_round_acks_from_work_items(
+    db: Session,
+    items: list[TopicWorkItem],
+) -> list[PendingRoundAckTodoRead]:
+    ack_items = [item for item in items if item.kind == "round_ack"]
+    if not ack_items:
+        return []
+    topic_ids = {item.topic_id for item in ack_items}
+    topics = {
+        t.id: t
+        for t in db.scalars(select(Topic).where(Topic.id.in_(topic_ids)))
+    }
+    rows: list[PendingRoundAckTodoRead] = []
+    for item in ack_items:
+        topic = topics.get(item.topic_id)
+        if topic is None:
+            continue
+        rows.append(
+            PendingRoundAckTodoRead(
+                topic_id=item.topic_id,
+                topic_title=item.topic_title,
+                discussion_round=topic.discussion_round,
+                round_summary_count=int(topic.round_summary_count or 0),
+                summary_comment_id=item.source_comment_id,
+                summary_excerpt=item.excerpt or None,
+                advance_round_pending_since=topic.advance_round_pending_since,
+                updated_at=topic.updated_at,
+            )
+        )
+    rows.sort(key=lambda p: p.updated_at, reverse=True)
+    return rows
+
+
+def mentions_from_work_items(
+    db: Session,
+    agent_id: uuid.UUID,
+    items: list[TopicWorkItem],
+) -> list[MentionTodoRead]:
+    mention_ids: list[uuid.UUID] = []
+    for item in items:
+        if item.kind != "mention":
+            continue
+        prefix = "mention:"
+        if not item.idempotency_key.startswith(prefix):
+            continue
+        mention_ids.append(uuid.UUID(item.idempotency_key[len(prefix) :]))
+    if not mention_ids:
+        return []
+    mentions = list(
+        db.scalars(
+            select(Mention).where(
+                Mention.id.in_(mention_ids),
+                Mention.mentioned_agent_id == agent_id,
+                Mention.dismissed_at.is_(None),
+            )
+        )
+    )
+    author_ids = {m.author_agent_id for m in mentions}
+    author_names = _agent_names_by_ids(db, author_ids)
+    return [
+        MentionTodoRead(
+            id=m.id,
+            mentioned_agent_id=m.mentioned_agent_id,
+            author_agent_id=m.author_agent_id,
+            author_name=author_names.get(m.author_agent_id),
+            source_type=m.source_type.value,
+            source_id=m.source_id,
+            project_id=m.project_id,
+            experiment_id=m.experiment_id,
+            topic_id=m.topic_id,
+            excerpt=m.excerpt,
+            created_at=m.created_at,
+            dismissed_at=m.dismissed_at,
+        )
+        for m in mentions
+    ]
 
 
 def topic_progress_item_from_work_items(

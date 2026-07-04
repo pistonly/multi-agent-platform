@@ -106,53 +106,15 @@ def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicRe
 
 
 def list_pending_round_acks(db: Session, agent: Agent) -> list[PendingRoundAckTodoRead]:
-    """Topics where this agent commented but has not acked the latest Round Summary."""
-    if agent.project_id is None:
-        return []
+    """Round summaries awaiting this agent's ack — projected from topic work items."""
+    from server.services import topic_work_item_service as work_items
 
-    open_topics = list(
-        db.scalars(
-            select(Topic)
-            .where(
-                Topic.project_id == agent.project_id,
-                Topic.deleted_at.is_(None),
-                Topic.archived_at.is_(None),
-                Topic.status == TopicStatus.open,
-            )
-            .order_by(Topic.updated_at.desc())
-        )
-    )
-    pending: list[PendingRoundAckTodoRead] = []
-    for topic in open_topics:
-        if not topic_ack_service.agent_needs_round_ack(db, topic, agent.id):
-            continue
-        comments = list(
-            db.scalars(
-                select(TopicComment)
-                .where(TopicComment.topic_id == topic.id)
-                .order_by(TopicComment.created_at.asc())
-            )
-        )
-        summary = topic_ack_service.latest_host_round_summary_comment(
-            comments,
-            host_agent_id=topic.creator_agent_id,
-        )
-        excerpt = None
-        if summary is not None:
-            excerpt = _excerpt(summary.body)
-        pending.append(
-            PendingRoundAckTodoRead(
-                topic_id=topic.id,
-                topic_title=topic.title,
-                discussion_round=topic.discussion_round,
-                round_summary_count=int(topic.round_summary_count or 0),
-                summary_comment_id=summary.id if summary is not None else None,
-                summary_excerpt=excerpt,
-                advance_round_pending_since=topic.advance_round_pending_since,
-                updated_at=topic.updated_at,
-            )
-        )
-    return pending
+    items = [
+        item
+        for item in work_items.topic_work_items_for_agent(db, agent)
+        if item.kind == "round_ack"
+    ]
+    return work_items.pending_round_acks_from_work_items(db, items)
 
 
 def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanceRoundTodoRead]:
@@ -321,32 +283,39 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         for item in db.scalars(reply_stmt)
     ]
 
-    mention_rows = mention_service.list_mentions_for_agent(db, agent.id)
-    author_ids = {m.author_agent_id for m in mention_rows}
-    authors = {
-        a.id: a.name
-        for a in db.scalars(select(Agent).where(Agent.id.in_(author_ids))).all()
-    } if author_ids else {}
-    mentions = [
-        MentionTodoRead(
-            id=m.id,
-            mentioned_agent_id=m.mentioned_agent_id,
-            author_agent_id=m.author_agent_id,
-            author_name=authors.get(m.author_agent_id),
-            source_type=m.source_type.value,
-            source_id=m.source_id,
-            project_id=m.project_id,
-            experiment_id=m.experiment_id,
-            topic_id=m.topic_id,
-            excerpt=m.excerpt,
-            created_at=m.created_at,
-            dismissed_at=m.dismissed_at,
-        )
-        for m in mention_rows
-        if not mention_service.agent_replied_after_mention(
-            db, mention=m, agent_id=agent.id
-        )
+    from server.services import topic_work_item_service as work_items
+
+    mention_work_items = [
+        item
+        for item in work_items.obligation_items_for_agent(db, agent)
+        if item.kind == "mention"
     ]
+    mentions = work_items.mentions_from_work_items(db, agent.id, mention_work_items)
+    topic_mention_ids = {m.id for m in mentions}
+    for m in mention_service.list_mentions_for_agent(db, agent.id):
+        if m.id in topic_mention_ids:
+            continue
+        if m.experiment_id is None:
+            continue
+        if mention_service.agent_replied_after_mention(db, mention=m, agent_id=agent.id):
+            continue
+        author_name = db.scalar(select(Agent.name).where(Agent.id == m.author_agent_id))
+        mentions.append(
+            MentionTodoRead(
+                id=m.id,
+                mentioned_agent_id=m.mentioned_agent_id,
+                author_agent_id=m.author_agent_id,
+                author_name=author_name,
+                source_type=m.source_type.value,
+                source_id=m.source_id,
+                project_id=m.project_id,
+                experiment_id=m.experiment_id,
+                topic_id=m.topic_id,
+                excerpt=m.excerpt,
+                created_at=m.created_at,
+                dismissed_at=m.dismissed_at,
+            )
+        )
 
     pending_topic_replies = list_pending_topic_replies(db, agent)
     pending_round_acks = list_pending_round_acks(db, agent)

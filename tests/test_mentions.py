@@ -401,3 +401,106 @@ def test_stale_mention_filtered_in_todos_without_read_write(
     assert todos["mentions"] == []
     db_session.refresh(mention)
     assert mention.dismissed_at is None
+
+
+def test_mention_read_notification_does_not_clear_obligation(
+    client, auth_headers, reviewer, project
+):
+    """Reading agent.mentioned notification must not dismiss mention obligation (T2 PR2 c)."""
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "read-notif-only", "description": "d"},
+    ).json()
+    tid = topic["id"]
+    client.post(
+        f"/api/v1/topics/{tid}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent please review"},
+    )
+
+    reviewer_headers = reviewer["headers"]
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert len(todos["mentions"]) == 1
+    progress_before = client.get(
+        "/api/v1/agents/me/topic-progress", headers=reviewer_headers
+    ).json()
+    mention_work_before = [
+        w
+        for item in progress_before.get("items", [])
+        for w in item.get("work_items", [])
+        if w.get("kind") == "mention" and w.get("priority") == "obligation"
+    ]
+    assert len(mention_work_before) == 1
+
+    notifs = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"unread_only": True},
+    ).json()
+    mentioned = [
+        n for n in notifs["items"] if n["event"] == "agent.mentioned" and n.get("read_at") is None
+    ]
+    assert len(mentioned) >= 1
+    notif_id = mentioned[0]["id"]
+
+    read_resp = client.post(
+        f"/api/v1/notifications/{notif_id}/read",
+        headers=reviewer_headers,
+    )
+    assert read_resp.status_code == 200
+
+    todos_after = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert len(todos_after["mentions"]) == 1
+    progress_after = client.get(
+        "/api/v1/agents/me/topic-progress", headers=reviewer_headers
+    ).json()
+    mention_work_after = [
+        w
+        for item in progress_after.get("items", [])
+        for w in item.get("work_items", [])
+        if w.get("kind") == "mention" and w.get("priority") == "obligation"
+    ]
+    assert len(mention_work_after) == 1
+
+
+def test_dismiss_mention_cascades_notification_read(
+    client, auth_headers, reviewer, project
+):
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "dismiss-cascade", "description": "d"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent cascade test"},
+    )
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    mention_id = todos["mentions"][0]["id"]
+
+    notifs_before = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"unread_only": True, "limit": 50},
+    ).json()
+    assert any(n["event"] == "agent.mentioned" for n in notifs_before["items"])
+
+    client.post(
+        f"/api/v1/agents/me/mentions/{mention_id}/dismiss",
+        headers=reviewer_headers,
+    )
+
+    todos_after = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert todos_after["mentions"] == []
+    notifs_after = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer_headers,
+        params={"unread_only": True, "limit": 50},
+    ).json()
+    assert not any(
+        n["event"] == "agent.mentioned" and n.get("read_at") is None
+        for n in notifs_after["items"]
+    )

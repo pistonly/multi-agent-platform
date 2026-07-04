@@ -543,6 +543,38 @@ def count_unread(
     )
 
 
+def mark_agent_mentioned_notifications_read_no_commit(
+    db: Session,
+    *,
+    mentions: list,
+    now: datetime | None = None,
+) -> int:
+    """Mark ``agent.mentioned`` notifications read when their mention is dismissed."""
+    from server.domain.models import Mention
+
+    if not mentions:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    touched = 0
+    for mention in mentions:
+        if not isinstance(mention, Mention):
+            continue
+        rows = list(
+            db.scalars(
+                select(Notification).where(
+                    Notification.recipient_agent_id == mention.mentioned_agent_id,
+                    Notification.event == "agent.mentioned",
+                    Notification.read_at.is_(None),
+                    Notification.target_id == mention.source_id,
+                )
+            )
+        )
+        for row in rows:
+            row.read_at = now
+            touched += 1
+    return touched
+
+
 def mark_read(db: Session, agent: Agent, notification_id: uuid.UUID) -> Notification:
     notification = db.get(Notification, notification_id)
     if notification is None:
