@@ -10,8 +10,14 @@ from server.services.project_service import get_experiment
 
 
 def _validate_log_phase(phase: ExperimentPhase) -> None:
-    if phase not in (ExperimentPhase.running, ExperimentPhase.done):
-        raise StateTransitionError("Logs can only be added when experiment is running or done")
+    if phase not in (
+        ExperimentPhase.running,
+        ExperimentPhase.result_review,
+        ExperimentPhase.done,
+    ):
+        raise StateTransitionError(
+            "Logs can only be added when experiment is running, pending result review, or done"
+        )
 
 
 def append_log(

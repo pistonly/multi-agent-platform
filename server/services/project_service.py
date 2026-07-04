@@ -31,6 +31,7 @@ _ACTIVE_TOPIC_EXPERIMENT_PHASES = (
     ExperimentPhase.review,
     ExperimentPhase.approved,
     ExperimentPhase.running,
+    ExperimentPhase.result_review,
 )
 
 
@@ -143,6 +144,7 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
         ExperimentPhase.review,
         ExperimentPhase.approved,
         ExperimentPhase.running,
+        ExperimentPhase.result_review,
     )
     active_map: dict[uuid.UUID, list[ExperimentSummaryRead]] = {pid: [] for pid in project_ids}
     active_stmt = (
@@ -395,12 +397,18 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         topic_id=experiment.topic_id,
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
+        archived_at=experiment.archived_at,
         current_plan=current_plan,
         plan_version_count=plan_version_count,
         open_unreasonable_count=count_open_unreasonable_for_experiment(db, experiment.id),
         review_count=review_count,
         log_count=log_count,
         latest_log_summary=latest.summary if latest else None,
+        lock_holder_experiment_id=experiment.lock_holder_experiment_id,
+        lock_acquired_at=experiment.lock_acquired_at,
+        lock_ttl_seconds=experiment.lock_ttl_seconds,
+        next_attempt_at=experiment.next_attempt_at,
+        lock_skip_count=int(experiment.lock_skip_count or 0),
     )
 
 

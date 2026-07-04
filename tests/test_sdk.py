@@ -9,9 +9,11 @@ from server.domain.models import ExperimentPhase
 from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
+    ExperimentResultDecision,
     PlanInput,
     ReviewCreate,
 )
+from map_types.schemas import TopicActionItemCreate, TopicResolve
 
 
 def test_sdk_project_and_experiment(map_client: MAPClient, project: dict):
@@ -59,9 +61,15 @@ def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: 
     map_client.approve_experiment(exp.id)
     map_client.start_experiment(exp.id)
 
-    done = map_client.complete_experiment(
+    submitted = map_client.complete_experiment(
         exp.id,
         ExperimentComplete(summary="done", content_md="result"),
+    )
+    assert submitted.phase == ExperimentPhase.result_review
+
+    done = reviewer_client.accept_experiment_result(
+        exp.id,
+        ExperimentResultDecision(summary="accepted", content_md="result approved"),
     )
     assert done.phase == ExperimentPhase.done
 
@@ -188,6 +196,12 @@ def test_sdk_notifications(map_client: MAPClient, client: TestClient, project: d
     assert inbox.total >= 1
     notif = next(n for n in inbox.items if n.event == "experiment.phase_changed")
     assert notif.read_at is None
+    assert notif.category.value == "digest"
+
+    digest = reviewer_client.list_notifications(category="digest", unread_only=True)
+    assert any(n.id == notif.id for n in digest.items)
+    wakeable = reviewer_client.list_notifications(category="wakeable", unread_only=True)
+    assert all(n.id != notif.id for n in wakeable.items)
 
     read = reviewer_client.mark_notification_read(notif.id)
     assert read.read_at is not None
@@ -217,3 +231,70 @@ def test_sdk_list_experiments_page(map_client: MAPClient, project: dict):
     assert total >= 2
     assert len(items) == 1
     assert items[0].title.startswith("SDK page")
+
+
+# ---------------------------------------------------------------------------
+# Experiment B / I7: SDK round-trip for action_item wake schema extensions
+# ---------------------------------------------------------------------------
+
+
+def test_sdk_action_item_wake_fields_round_trip(
+    map_client: MAPClient, project: dict
+):
+    """I7: ``list_project_action_items`` round-trips the wake tracking fields
+    added in I1/I4 (plan §7) so the CLI ``action list`` output and any SDK
+    consumer can read them without going through the audit log.
+
+    Drives: create topic → resolve with action_item → ``list_project_action_items``
+    → assert each wake field is present and parseable.
+    """
+    from server.domain.schemas import TopicCreate
+    from map_types.enums import TopicActionItemStatus
+
+    project_id = uuid.UUID(project["id"])
+    me = map_client.get_me()
+    topic = map_client.create_topic(project_id, TopicCreate(title="wake schema round-trip"))
+    decision = map_client.resolve_topic(
+        topic.id,
+        TopicResolve(
+            decision="schema round-trip",
+            action_items=[TopicActionItemCreate(title="wake schema", owner_agent_id=me.id)],
+        ),
+    )
+    items = map_client.list_project_action_items(project_id, status=TopicActionItemStatus.open)
+    matched = [i for i in items if i.id == decision.action_items[0].id]
+    assert len(matched) == 1, f"expected action_item in listing, got {items}"
+    item = matched[0]
+    for field in ("wake_count", "first_open_at", "last_woken_at", "stale_at"):
+        assert hasattr(item, field), f"missing {field} on TopicActionItemRead"
+    # Newly-created items default to wake_count=0 + null timestamps until I5 fires.
+    assert item.wake_count == 0
+    assert item.last_woken_at is None
+    assert item.stale_at is None
+    # first_open_at is stamped at creation time by I3 (per the I1 contract
+    # that ``topic_service`` populates it on new rows).
+    assert item.first_open_at is not None
+
+
+def test_sdk_action_item_mark_wake_sent_round_trip(
+    map_client: MAPClient, project: dict
+):
+    """I7: the I4 ``mark_wake_sent`` SDK method round-trips the wake_count
+    bump + last_woken_at stamp back through ``TopicActionItemRead``."""
+    from server.domain.schemas import TopicCreate
+
+    project_id = uuid.UUID(project["id"])
+    me = map_client.get_me()
+    topic = map_client.create_topic(project_id, TopicCreate(title="mark-wake-sent round-trip"))
+    decision = map_client.resolve_topic(
+        topic.id,
+        TopicResolve(
+            decision="mark-wake-sent round-trip",
+            action_items=[TopicActionItemCreate(title="wake", owner_agent_id=me.id)],
+        ),
+    )
+    item_id = decision.action_items[0].id
+    bumped = map_client.mark_wake_sent(item_id)
+    assert bumped.wake_count == 1
+    assert bumped.last_woken_at is not None
+    assert bumped.stale_at is None

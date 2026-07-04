@@ -18,6 +18,8 @@ AGENT_TOOLS = {
     "cancel_experiment",
     "start_experiment",
     "complete_experiment",
+    "accept_experiment_result",
+    "reject_experiment_result",
     "list_plans",
     "get_plan",
     "revise_plan",

@@ -47,6 +47,7 @@ htmlcov/
 !.env.example
 .mcp.json
 .cursor/*
+.trae
 !.cursor/skills/
 !.cursor/skills/**
 
@@ -55,8 +56,17 @@ htmlcov/
 .map/host-bridge-state.json
 .map/participant-bridge-state.json
 .map/reviewer-bridge-state.json
+.map/runtime-waker-state.json
+.map/runtime-waker-state-*.json
+.map/runtime-waker-*-state.json
+.map/runtime-waker-sessions/
+.map/claude-runtime-home/
+.map/claude-runtime-home-*/
+.map/codex-runtime-home/
 .map/bridge-logs/
+.map/waker-logs/
 .map/generated-reviews/
+.map/.claude-env
 
 # Local data
 data/

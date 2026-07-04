@@ -2,6 +2,54 @@
 
 本仓库通过 [Multi-Agent Platform (MAP)](./README.md) 管理话题、实验与多 Agent 协作。
 
+## 项目目的（必读）
+
+MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skill 后，Agent 就能按 persona 通过 `map` CLI 使用 MAP，完成话题讨论、实验评审、项目状态同步、结论沉淀与行动项跟进。
+
+产品主功能是 **Skill 指导 Agent 使用 MAP 协作**：Skill 负责行为流程与判断规则，MAP 平台负责状态、权限、审计、话题、实验、结论和行动项等持久化协作对象。开发优先级应围绕 SDK/CLI、`.map/` persona、Skill onboarding、文档和端到端协作闭环展开。
+
+多 persona 自动推进是附带功能：**`runtime-waker`**（`./scripts/start-all-wakers.sh`）负责发现待办、唤醒 Agent Runtime，并保持短提示与幂等；**本仓库已停用 `cli/host_worker` bridge**（`start-host-bridge*.sh` 勿再使用）。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
+
+## Agent 自动推进（runtime-waker）原则
+
+**Web UI 待办页 + 未读通知 = waker 的唯一触发源。** 不在 waker 里维护第二套业务规则（如评论游标、自定义 kind）。
+
+### 职责边界
+
+| 组件 | 做什么 | 不做什么 |
+|------|--------|----------|
+| **runtime-waker** | 轮询 `map todos` 与未读通知 → 去重 → 短 prompt 唤醒 Runtime | 不写 MAP、不跑实验、不替 Agent 做业务判断 |
+| **Skill** | 定义被唤醒后**怎么做**（topic-host / experiment-host 等） | 不替代平台状态机 |
+| **被唤醒的 Agent** | `whoami` → `todos` → **处理当前 wake 对应的一项** → 写回 MAP | 不凭 session 记忆跳过待办 |
+
+被唤醒时 Agent **必须先读** [.cursor/skills/map-runtime-waker/SKILL.md](.cursor/skills/map-runtime-waker/SKILL.md)，再读 persona Skill 与 [map-project-collab](.cursor/skills/map-project-collab/SKILL.md)。
+
+### 触发与 kind
+
+- waker 发现的每一项待办，其 **`kind` 等于 `map todos` 的字段名**（与 Web 待办分区同名），例如 `pending_topic_replies`、`pending_round_acks`、`my_open_experiments`。
+- 另有 `notification` kind，对应未读应用内通知。
+- fingerprint 为 `{persona}:{kind}:{item_id}`；**待办从 API 消失后不再 wake**（heartbeat 仅在项仍存在时自愈重试）。
+
+### 被唤醒后 Agent 必须遵守
+
+1. **todos 即真相**：每次 wake 后执行 `map --persona <name> todos`，以 API 返回为准，禁止把「上次看过 / pending 队列曾为空」当成无事可做。
+2. **一步一 wake**：一次 wake 只推进**当前 kind 对应的一项**的下一步（回复一条、ack 一次、advance-round 一次等）。
+3. **清理 = 与 UI 相同**：处理完成后须让该项从待办或通知列表消失——不是 waker 本地标记「已读」：
+   - `@mentions` → `map mention dismiss --id <uuid>`
+   - 未读通知 → `map notification read --id <uuid>`
+   - `pending_topic_replies` → 回复 thread（服务端重算后消失）
+   - `pending_advance_rounds` → `map topic advance-round --id <uuid>`
+   - `pending_round_acks` → `map topic advance-round --id <uuid> --ack accept|reject|dismiss`
+   - `my_open_topics` 且无动作 → `map topic dismiss --id <uuid>`（与 UI ✕ 相同）
+   - 实验/评审类 → 完成对应 lifecycle 动作（见 experiment-host / experiment-reviewer Skill）
+4. **skip ≠ 执行中**：日志里 `wake_skips` 表示 TTL 内已 wake 过（去重），不代表后台仍在跑任务。
+
+### 开发与调试注意
+
+- 改 waker 行为时优先改 **`get_todos` / Web 待办展示**，保持 UI 与 waker 一致；详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
+- 部署：`./scripts/start-all-wakers.sh`；日志 `.map/waker-logs/`；本地 state `.map/runtime-waker-state-*.json`（session + 去重，**不含**业务游标）。
+- 改 waker 代码或 Skill 后需**重启 waker**；改 API todos 字段后需**重启 API 容器**。
+
 ## Agent 身份（必读）
 
 **本仓库统一使用 `.map/` 目录中的 persona + `map` CLI。** Cursor MCP（`map-agent` / `map-admin`）曾用于验证，**不如 Skill 方便**；后续将**停用 MCP 访问 MAP**，请勿再依赖。
@@ -58,9 +106,26 @@ map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."
 map --persona host experiment create --title "..." --plan-file ./plan.md --topic-id <uuid>
 map --persona host todos
+map --persona host topic progress   # work items 投影；与 todos 话题 obligation 分区同源
+map --persona host topic dismiss --id <uuid>   # 与 UI ✕ 相同，双视图同时消失
+map --persona host todo clear --key my_open_topics:<topic-uuid>   # explicit_only 分区清理路由
+map --persona host experiment complete --id <uuid> --summary "提交结果" --file ./log.md      # running -> result_review
+map --persona reviewer experiment logs --id <uuid>
+map --persona reviewer experiment accept-result --id <uuid> --summary "通过" --file ./review.md
+map --persona reviewer experiment reject-result --id <uuid> --summary "驳回" --file ./review.md
+
+# v0.7 P3：归档 / 反归档（薄包装 PATCH /topics/{id} archived）
+# 归档话题 = 列表默认隐藏，show 仍可见，反归档恢复（archive ≠ delete）
+map --persona host topic archive --id <uuid>          # 归档
+map --persona host topic archive --id <uuid> --undo   # 反归档（--unarchive 同义）
+map --persona host experiment archive --id <uuid>     # 归档实验
+map --persona host experiment archive --id <uuid> --undo
 ```
 
 ## 服务地址（Docker override）
 
 - API: http://localhost:8001
 - Web: http://localhost:3000
+
+# 回答语言
+总是使用中文来回答

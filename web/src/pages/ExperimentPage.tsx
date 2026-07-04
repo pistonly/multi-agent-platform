@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
+  acceptExperimentResult,
   approveExperiment,
   cancelExperiment,
   completeExperiment,
   createComment,
   fetchExperimentBundle,
+  rejectExperimentResult,
   startExperiment,
   submitForReview,
   updateExperiment,
@@ -16,16 +18,22 @@ import { CommentTree, DisputeSection } from "../components/CommentTree";
 import { LogPanel } from "../components/LogPanel";
 import { PlanPanel } from "../components/PlanPanel";
 import { getUnreasonableItems, ReviewSummary } from "../components/ReviewSummary";
+import { AgentMentionInput } from "../components/AgentMentionInput";
 import { PhaseBadge, PhaseStepper } from "../components/PhaseStepper";
 import { useAuth } from "../context/AuthContext";
+import { useCommentAnchor } from "../hooks/useCommentAnchor";
+import { parseCommentAnchor } from "../utils/commentAnchor";
 
 export function ExperimentPage() {
   const { experimentId } = useParams<{ experimentId: string }>();
+  const location = useLocation();
   const { agent } = useAuth();
   const queryClient = useQueryClient();
   const [planVersion, setPlanVersion] = useState<number | null>(null);
   const [completeSummary, setCompleteSummary] = useState("");
   const [completeBody, setCompleteBody] = useState("");
+  const [resultReviewSummary, setResultReviewSummary] = useState("");
+  const [resultReviewBody, setResultReviewBody] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [generalComment, setGeneralComment] = useState("");
@@ -60,6 +68,16 @@ export function ExperimentPage() {
           return completeExperiment(experimentId, {
             summary: completeSummary,
             content_md: completeBody,
+          });
+        case "accept-result":
+          return acceptExperimentResult(experimentId, {
+            summary: resultReviewSummary,
+            content_md: resultReviewBody,
+          });
+        case "reject-result":
+          return rejectExperimentResult(experimentId, {
+            summary: resultReviewSummary,
+            content_md: resultReviewBody,
           });
       }
     },
@@ -102,6 +120,19 @@ export function ExperimentPage() {
     },
   });
 
+  const anchorCommentId = useMemo(
+    () => parseCommentAnchor(location.search, location.hash),
+    [location.search, location.hash],
+  );
+  // Hooks must run unconditionally on every render, so we always invoke the
+  // anchor hook and only consume `highlightedId` once the bundle is ready.
+  // The bundle fetch is asynchronous, so we re-trigger via `comments.length`
+  // once the comment tree first mounts.
+  const { highlightedId } = useCommentAnchor(
+    anchorCommentId,
+    bundleQuery.data?.comments.length,
+  );
+
   if (bundleQuery.isLoading) return <p className="text-slate-400">加载实验…</p>;
   if (bundleQuery.error || !bundleQuery.data) {
     return <p className="text-red-400">实验不存在或加载失败</p>;
@@ -111,9 +142,11 @@ export function ExperimentPage() {
   const version = planVersion ?? experiment.current_plan_version;
   const selectedPlan = plans.find((p) => p.version === version) ?? experiment.current_plan;
   const unreasonable = getUnreasonableItems(reviews);
-  const canAppendLog = experiment.phase === "running" || experiment.phase === "done";
+  const canAppendLog =
+    experiment.phase === "running" || experiment.phase === "result_review" || experiment.phase === "done";
   const isTerminal = experiment.phase === "done" || experiment.phase === "cancelled";
   const isCreator = !!agent && agent.id === experiment.creator_agent_id;
+  const canReviewResult = !!agent && (agent.id !== experiment.creator_agent_id || agent.role === "admin");
 
   return (
     <div className="space-y-6">
@@ -229,7 +262,39 @@ export function ExperimentPage() {
                 disabled={!completeSummary || !completeBody}
                 onClick={() => phaseMutation.mutate("complete")}
               >
-                完成实验
+                提交结果审批
+              </button>
+            </div>
+          )}
+          {experiment.phase === "result_review" && canReviewResult && (
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
+              <input
+                className="rounded border border-surface-border bg-surface px-2 py-1 text-sm"
+                placeholder="审批摘要"
+                value={resultReviewSummary}
+                onChange={(e) => setResultReviewSummary(e.target.value)}
+              />
+              <textarea
+                className="min-h-[60px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm"
+                placeholder="审批意见 (Markdown)"
+                value={resultReviewBody}
+                onChange={(e) => setResultReviewBody(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!resultReviewSummary || !resultReviewBody}
+                onClick={() => phaseMutation.mutate("accept-result")}
+              >
+                通过结果
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!resultReviewSummary || !resultReviewBody}
+                onClick={() => phaseMutation.mutate("reject-result")}
+              >
+                驳回返工
               </button>
             </div>
           )}
@@ -262,18 +327,26 @@ export function ExperimentPage() {
           experimentId={experimentId!}
           items={unreasonable}
           comments={comments}
+          anchorCommentId={anchorCommentId}
+          highlightedId={highlightedId}
           onUpdated={invalidate}
         />
         <div className="mt-6 border-t border-surface-border pt-4">
           <h3 className="mb-2 text-sm font-medium text-slate-400">其他讨论</h3>
-          <CommentTree nodes={comments} experimentId={experimentId!} onUpdated={invalidate} />
+          <CommentTree
+            nodes={comments}
+            experimentId={experimentId!}
+            anchorCommentId={anchorCommentId}
+            highlightedId={highlightedId}
+            onUpdated={invalidate}
+          />
           {selectedPlan ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <input
+              <AgentMentionInput
                 className="flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                placeholder="添加讨论…"
+                placeholder="添加讨论… 输入 @ 触发 agent 候选"
                 value={generalComment}
-                onChange={(e) => setGeneralComment(e.target.value)}
+                onValueChange={setGeneralComment}
               />
               <button
                 type="button"

@@ -3,6 +3,7 @@ export type ExperimentPhase =
   | "review"
   | "approved"
   | "running"
+  | "result_review"
   | "done"
   | "cancelled";
 
@@ -193,6 +194,7 @@ export interface TopicSummary {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  dismissed_at: string | null;
 }
 
 export interface TopicComment {
@@ -284,6 +286,7 @@ export interface MentionTodo {
   topic_id: string | null;
   excerpt: string;
   created_at: string;
+  dismissed_at: string | null;
 }
 
 export interface PendingTopicReplyTodo {
@@ -298,6 +301,26 @@ export interface PendingTopicReplyTodo {
   created_at: string;
 }
 
+export interface PendingRoundAckTodo {
+  topic_id: string;
+  topic_title: string;
+  discussion_round: TopicDiscussionRound;
+  round_summary_count: number;
+  summary_comment_id: string | null;
+  summary_excerpt: string | null;
+  advance_round_pending_since: string | null;
+  updated_at: string;
+}
+
+export interface PendingAdvanceRoundTodo {
+  topic_id: string;
+  topic_title: string;
+  discussion_round: TopicDiscussionRound;
+  round_summary_count: number;
+  advance_round_pending_since: string | null;
+  updated_at: string;
+}
+
 export interface TopicActionItemTodo {
   id: string;
   decision_id: string;
@@ -309,6 +332,13 @@ export interface TopicActionItemTodo {
   status: TopicActionItemStatus;
   due_at: string | null;
   linked_experiment_id: string | null;
+  // Wake / stale escalation fields (experiment B). Server returns these on
+  // every todo row; runtime-waker also consumes them via the SDK schema.
+  // Mirror `sdk/python/map_types/schemas.py::TopicActionItemTodoRead`.
+  wake_count: number;
+  first_open_at: string | null;
+  last_woken_at: string | null;
+  stale_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -316,8 +346,11 @@ export interface TopicActionItemTodo {
 export interface TodoRead {
   my_open_experiments: ExperimentSummary[];
   pending_reviews: ExperimentSummary[];
+  pending_result_reviews: ExperimentSummary[];
   pending_replies: PendingReply[];
   pending_topic_replies: PendingTopicReplyTodo[];
+  pending_round_acks: PendingRoundAckTodo[];
+  pending_advance_rounds: PendingAdvanceRoundTodo[];
   my_open_topics: TopicSummary[];
   mentions: MentionTodo[];
   action_items: TopicActionItemTodo[];
@@ -332,8 +365,16 @@ export interface Notification {
   target_type: string;
   target_id: string | null;
   payload_json: Record<string, unknown> | null;
+  category: "wakeable" | "digest";
+  group_key: string | null;
+  wake_version: number;
+  event_count: number;
+  first_event_at: string | null;
+  last_event_at: string | null;
+  fingerprint_version: "v1" | "v2";
   read_at: string | null;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface NotificationList {
@@ -346,4 +387,33 @@ export interface NotificationStreamEvent {
   type: "notification.created";
   event: string;
   notification_id: string;
+}
+
+export type FeedbackCategory = "bug" | "suggestion" | "question" | "other";
+export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
+
+export interface PlatformFeedback {
+  id: string;
+  author_agent_id: string;
+  author_name: string | null;
+  project_id: string | null;
+  body: string;
+  category: FeedbackCategory | null;
+  status: FeedbackStatus;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface FeedbackCreatePayload {
+  body: string;
+  project_id?: string | null;
+  category?: FeedbackCategory | null;
+}
+
+export interface FeedbackUpdatePayload {
+  status?: FeedbackStatus;
+  category?: FeedbackCategory | null;
+  archived?: boolean;
 }

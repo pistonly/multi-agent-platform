@@ -150,7 +150,9 @@ stateDiagram-v2
     review --> approved: all_items_resolved
     review --> draft: withdraw
     approved --> running: start
-    running --> done: submit_log
+    running --> result_review: submit_result_log
+    result_review --> done: accept_result
+    result_review --> running: reject_result
     draft --> cancelled: cancel
     review --> cancelled: cancel
     approved --> cancelled: cancel
@@ -264,7 +266,9 @@ Base URL: `/api/v1`
 | POST | `/experiments/{id}/submit-review` | draft → review |
 | POST | `/experiments/{id}/approve` | review → approved（校验争议） |
 | POST | `/experiments/{id}/start` | approved → running |
-| POST | `/experiments/{id}/complete` | running → done（需 body 含日志） |
+| POST | `/experiments/{id}/complete` | running → result_review（提交结果日志待审批） |
+| POST | `/experiments/{id}/accept-result` | result_review → done（审批通过） |
+| POST | `/experiments/{id}/reject-result` | result_review → running（驳回返工） |
 | POST | `/experiments/{id}/cancel` | → cancelled |
 
 ### 5.3 计划
@@ -406,7 +410,7 @@ CLI 命令名前缀：`map`（Multi-Agent Platform）
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ [阶段条] draft → review → approved → running → done        │
+│ [阶段条] draft → review → approved → running → result_review → done │
 ├──────────────────────────────┬─────────────────────────────┤
 │ 计划 v{N}        [修订] [历史] │ 评审摘要                     │
 │ (Markdown 渲染)               │ ✓ 合理项 x3                  │

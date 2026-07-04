@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -183,27 +184,54 @@ Output **one** JSON object only.
 
 
 def _extract_json(text: str) -> dict:
+    """Extract the top-level JSON object from agent output.
+
+    Robust against leading/trailing thinking traces that bundled Claude
+    Code CLI 2.1.191+ emits into TextBlock.text alongside the response,
+    and against nested dict/array values inside the outer payload
+    (e.g. `action_items: [{...}]`) — the outer object is selected, not
+    a nested one.
+    """
     stripped = text.strip()
+    if not stripped:
+        raise ValueError("Empty agent output")
+
+    decoder = json.JSONDecoder()
+
     try:
         parsed = json.loads(stripped)
-        if isinstance(parsed, dict):
+        if isinstance(parsed, dict) and parsed:
             return parsed
     except json.JSONDecodeError:
         pass
 
-    match = JSON_BLOCK_RE.search(stripped)
-    if match:
-        parsed = json.loads(match.group(1))
-        if isinstance(parsed, dict):
-            return parsed
+    fence_re = re.compile(r"```(?:json)?\s*([\s\S]+?)\s*```", re.IGNORECASE)
+    fence_blocks = [m.group(1).strip() for m in fence_re.finditer(stripped)]
+    for block in reversed(fence_blocks):
+        if not block.startswith("{"):
+            continue
+        try:
+            obj, _end = decoder.raw_decode(block)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj:
+            return obj
 
-    # Last resort: first {...} span
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start >= 0 and end > start:
-        parsed = json.loads(stripped[start : end + 1])
-        if isinstance(parsed, dict):
-            return parsed
+    best = None
+    for i in range(len(stripped) - 1, -1, -1):
+        if stripped[i] != "{":
+            continue
+        try:
+            obj, end = decoder.raw_decode(stripped, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj:
+            if end == len(stripped):
+                return obj
+            if best is None:
+                best = obj
+    if best is not None:
+        return best
 
     raise ValueError("Could not parse JSON from agent output")
 
@@ -237,8 +265,7 @@ def main() -> None:
     model = _resolve_env("CURSOR_MODEL", default="composer-2.5") or "composer-2.5"
 
     try:
-        result = Agent.prompt(
-            prompt,
+        agent = Agent.create(
             AgentOptions(
                 api_key=api_key,
                 model=model,
@@ -251,6 +278,29 @@ def main() -> None:
     except CursorAgentError as exc:
         print(f"Cursor startup failed: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    try:
+        run = agent.send(prompt)
+        for ev in run.events():
+            ev_type = type(ev).__name__
+            ev_data = getattr(ev, "__dict__", None) or str(ev)
+            print(
+                json.dumps(
+                    {
+                        "ts": datetime.now(UTC).isoformat(),
+                        "kind": "sdk_stream_event",
+                        "event_type": ev_type,
+                        "data": ev_data,
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+        result = run.wait()
+    finally:
+        agent.close()
 
     if result.status == "error":
         print(f"Cursor run failed: {getattr(result, 'id', 'unknown')}", file=sys.stderr)

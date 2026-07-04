@@ -1,10 +1,12 @@
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
-from server.api.common import emit, http_error
+from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, ExperimentPhase
@@ -18,6 +20,7 @@ from server.domain.schemas import (
     ExperimentBundleRead,
     ExperimentLogCreate,
     ExperimentLogRead,
+    ExperimentResultDecision,
     ExperimentSummaryRead,
     ExperimentUpdate,
     PlanRevise,
@@ -27,10 +30,9 @@ from server.domain.schemas import (
     ReviewItemUpdate,
     ReviewRead,
 )
-from server.services import comment_service, log_service, phase_service, plan_service, review_service
+from server.services import comment_service, log_service, lock_service, notification_service, phase_service, plan_service, review_service
 from server.services import permissions as perm
 from server.services import project_service as svc
-from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 
 experiments_router = APIRouter(tags=["experiments"], dependencies=[Depends(bind_background_tasks)])
 
@@ -46,13 +48,10 @@ def create_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
-        perm.ensure_project_access(agent, resolved_project_id)
-        warnings = svc.create_experiment_warnings(db, resolved_project_id, payload.topic_id)
-        experiment = svc.create_experiment(db, resolved_project_id, agent.id, payload)
-    except (NotFoundError, ForbiddenError, ConflictError) as exc:
-        raise http_error(exc) from exc
+    resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
+    perm.ensure_project_access(agent, resolved_project_id)
+    warnings = svc.create_experiment_warnings(db, resolved_project_id, payload.topic_id)
+    experiment = svc.create_experiment(db, resolved_project_id, agent.id, payload)
     emit(
         db,
         agent,
@@ -80,21 +79,18 @@ def list_experiments(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentSummaryRead]:
-    try:
-        resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
-        perm.ensure_project_access(agent, resolved_project_id)
-        experiments, total = svc.list_experiments(
-            db,
-            resolved_project_id,
-            phase=phase,
-            creator_agent_id=creator_agent_id,
-            q=q,
-            page=page,
-            page_size=page_size,
-            include_archived=include_archived,
-        )
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
+    perm.ensure_project_access(agent, resolved_project_id)
+    experiments, total = svc.list_experiments(
+        db,
+        resolved_project_id,
+        phase=phase,
+        creator_agent_id=creator_agent_id,
+        q=q,
+        page=page,
+        page_size=page_size,
+        include_archived=include_archived,
+    )
     response.headers["X-Total-Count"] = str(total)
     return [ExperimentSummaryRead.model_validate(e) for e in experiments]
 
@@ -105,11 +101,8 @@ def get_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentDetailRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        return svc.get_experiment_detail(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    return svc.get_experiment_detail(db, experiment_id)
 
 
 @experiments_router.get("/experiments/{experiment_id}/bundle", response_model=ExperimentBundleRead)
@@ -118,11 +111,8 @@ def get_experiment_bundle(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentBundleRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        return svc.get_experiment_bundle(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    return svc.get_experiment_bundle(db, experiment_id)
 
 
 @experiments_router.patch("/experiments/{experiment_id}", response_model=ExperimentSummaryRead)
@@ -132,11 +122,8 @@ def update_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        experiment = svc.update_experiment(db, experiment_id, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    experiment = svc.update_experiment(db, experiment_id, payload)
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -146,12 +133,8 @@ def delete_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> None:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        svc.soft_delete_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
-
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    svc.soft_delete_experiment(db, experiment_id)
 
 
 # --- M2: phase transitions ---
@@ -163,12 +146,9 @@ def submit_for_review(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.submit_for_review(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.submit_for_review(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -189,12 +169,9 @@ def approve_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.approve_experiment(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.approve_experiment(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -215,12 +192,21 @@ def withdraw_from_review(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.withdraw_from_review(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.withdraw_from_review(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
+    # Phase 2 D2: kind-directed SSE so the waker can map to ``experiment_lifecycle``.
+    notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        actor_id=agent.id,
+        personas=["host", "reviewer"],
+        event="experiment.lifecycle.withdrawn",
+        summary=f"实验已撤回评审（{experiment.title}）",
+        target_type="experiment",
+        target_id=experiment.id,
+        payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
+    )
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -230,12 +216,21 @@ def cancel_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.cancel_experiment(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.cancel_experiment(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
+    # Phase 2 D2: kind-directed SSE so the waker can map to ``experiment_lifecycle``.
+    notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        actor_id=agent.id,
+        personas=["host", "reviewer"],
+        event="experiment.lifecycle.cancelled",
+        summary=f"实验已取消（{experiment.title}）",
+        target_type="experiment",
+        target_id=experiment.id,
+        payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
+    )
     return ExperimentSummaryRead.model_validate(experiment)
 
 
@@ -248,11 +243,8 @@ def list_plans(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[PlanVersionRead]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        plans = plan_service.list_plans(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    plans = plan_service.list_plans(db, experiment_id)
     return [PlanVersionRead.model_validate(p) for p in plans]
 
 
@@ -263,11 +255,8 @@ def get_plan_version(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> PlanVersionRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        plan = plan_service.get_plan_version(db, experiment_id, version)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    plan = plan_service.get_plan_version(db, experiment_id, version)
     return PlanVersionRead.model_validate(plan)
 
 
@@ -282,11 +271,8 @@ def revise_plan(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> PlanVersionRead:
-    try:
-        experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-        plan = plan_service.revise_plan(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    plan = plan_service.revise_plan(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -315,11 +301,8 @@ def create_review(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ReviewRead:
-    try:
-        experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-        review = review_service.create_review(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError, ConflictError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    review = review_service.create_review(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -340,11 +323,8 @@ def list_reviews(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ReviewRead]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        reviews = review_service.list_reviews(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    reviews = review_service.list_reviews(db, experiment_id)
     return [review_service.review_to_read(r) for r in reviews]
 
 
@@ -355,11 +335,27 @@ def update_review_item(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ReviewItemRead:
-    try:
-        perm.ensure_review_item_access(db, agent, item_id)
-        item = review_service.update_review_item(db, item_id, agent, payload)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_review_item_access(db, agent, item_id)
+    item = review_service.update_review_item(db, item_id, agent, payload)
+    # Phase 2 D2: kind-directed SSE for the addressed/responded/rebutted
+    # transition so the waker can map to ``addressed_review_item``.
+    experiment = svc.get_experiment(db, item.review.experiment_id)
+    notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        actor_id=agent.id,
+        personas=["host"],
+        event="review_item.status_changed",
+        summary=f"评审项状态变为 {item.status.value if item.status else 'updated'}（{experiment.title}）",
+        target_type="review_item",
+        target_id=item.id,
+        payload={
+            "experiment_id": str(experiment.id),
+            "review_id": str(item.review_id),
+            "item_id": str(item.id),
+            "status": item.status.value if item.status else None,
+        },
+    )
     return ReviewItemRead.model_validate(item)
 
 
@@ -377,11 +373,8 @@ def create_comment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> CommentRead:
-    try:
-        experiment = perm.ensure_experiment_access(db, agent, experiment_id)
-        comment = comment_service.create_comment(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    comment, unresolved = comment_service.create_comment(db, experiment_id, agent, payload)
     emit(
         db,
         agent,
@@ -393,7 +386,7 @@ def create_comment(
         event="comment.created",
         event_payload={"experiment_id": str(experiment_id), "comment_id": str(comment.id)},
     )
-    return comment_service.comment_read(db, comment)
+    return comment_service.comment_read(db, comment, unresolved_mentions=unresolved)
 
 
 @experiments_router.get("/experiments/{experiment_id}/comments")
@@ -403,15 +396,11 @@ def list_comments(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[CommentRead] | list[CommentTreeNode]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        comments = comment_service.list_comments(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    comments = comment_service.list_comments(db, experiment_id)
     if tree:
         return comment_service.build_comment_tree(db, comments)
     return comment_service.comments_to_read(db, comments)
-
 
 
 # --- M3: execution ---
@@ -423,12 +412,9 @@ def start_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.start_experiment(db, experiment_id, agent)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.start_experiment(db, experiment_id, agent)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -450,12 +436,9 @@ def complete_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        phase_service.complete_experiment(db, experiment_id, agent, payload)
-        experiment = svc.get_experiment(db, experiment_id)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.complete_experiment(db, experiment_id, agent, payload)
+    experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
         agent,
@@ -463,7 +446,55 @@ def complete_experiment(
         target_type="experiment",
         target_id=experiment_id,
         project_id=experiment.project_id,
-        summary=f"完成实验（{experiment.title}）",
+        summary=f"提交实验结果待审批（{experiment.title}）",
+        event="experiment.phase_changed",
+        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
+    )
+    return ExperimentSummaryRead.model_validate(experiment)
+
+
+@experiments_router.post("/experiments/{experiment_id}/accept-result", response_model=ExperimentSummaryRead)
+def accept_experiment_result(
+    experiment_id: uuid.UUID,
+    payload: ExperimentResultDecision,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentSummaryRead:
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.accept_result(db, experiment_id, agent, payload)
+    experiment = svc.get_experiment(db, experiment_id)
+    emit(
+        db,
+        agent,
+        action="experiment.phase_changed",
+        target_type="experiment",
+        target_id=experiment_id,
+        project_id=experiment.project_id,
+        summary=f"审批通过实验结果（{experiment.title}）",
+        event="experiment.phase_changed",
+        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
+    )
+    return ExperimentSummaryRead.model_validate(experiment)
+
+
+@experiments_router.post("/experiments/{experiment_id}/reject-result", response_model=ExperimentSummaryRead)
+def reject_experiment_result(
+    experiment_id: uuid.UUID,
+    payload: ExperimentResultDecision,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentSummaryRead:
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    phase_service.reject_result(db, experiment_id, agent, payload)
+    experiment = svc.get_experiment(db, experiment_id)
+    emit(
+        db,
+        agent,
+        action="experiment.phase_changed",
+        target_type="experiment",
+        target_id=experiment_id,
+        project_id=experiment.project_id,
+        summary=f"驳回实验结果（{experiment.title}）",
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
@@ -481,11 +512,8 @@ def create_log(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLogRead:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        log = log_service.create_log(db, experiment_id, agent, payload)
-    except (NotFoundError, ForbiddenError, StateTransitionError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    log = log_service.create_log(db, experiment_id, agent, payload)
     return ExperimentLogRead.model_validate(log)
 
 
@@ -495,11 +523,113 @@ def list_logs(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentLogRead]:
-    try:
-        perm.ensure_experiment_access(db, agent, experiment_id)
-        logs = log_service.list_logs(db, experiment_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    logs = log_service.list_logs(db, experiment_id)
     return [ExperimentLogRead.model_validate(log) for log in logs]
 
 
+# --- Experiment execution lock (CP-3) -------------------------------------
+
+
+class ExperimentLockAcquirePayload(BaseModel):
+    ttl_seconds: int = Field(default=lock_service.DEFAULT_LOCK_TTL_SECONDS, ge=1)
+
+
+class ExperimentLockForceReleasePayload(BaseModel):
+    reason: str = Field(min_length=1, max_length=512)
+
+
+class ExperimentLockSkipPayload(BaseModel):
+    next_attempt_at: datetime
+
+
+class ExperimentLockRead(BaseModel):
+    experiment_id: uuid.UUID
+    project_id: uuid.UUID
+    holder: uuid.UUID | None
+    acquired_at: datetime | None
+    ttl_seconds: int | None
+    next_attempt_at: datetime | None
+    skip_count: int
+
+    @classmethod
+    def from_result(cls, result) -> "ExperimentLockRead":
+        return cls(
+            experiment_id=result.experiment_id,
+            project_id=result.project_id,
+            holder=result.holder,
+            acquired_at=result.acquired_at,
+            ttl_seconds=result.ttl_seconds,
+            next_attempt_at=result.next_attempt_at,
+            skip_count=result.skip_count,
+        )
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/acquire",
+    response_model=ExperimentLockRead,
+)
+def acquire_experiment_lock_endpoint(
+    experiment_id: uuid.UUID,
+    payload: ExperimentLockAcquirePayload,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    result = lock_service.acquire_experiment_lock(
+        db,
+        experiment_id,
+        agent,
+        ttl_seconds=payload.ttl_seconds,
+    )
+    return ExperimentLockRead.from_result(result)
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/release",
+    response_model=ExperimentLockRead,
+)
+def release_experiment_lock_endpoint(
+    experiment_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    result = lock_service.release_experiment_lock(db, experiment_id, agent)
+    return ExperimentLockRead.from_result(result)
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/force-release",
+    response_model=ExperimentLockRead,
+)
+def force_release_experiment_lock_endpoint(
+    experiment_id: uuid.UUID,
+    payload: ExperimentLockForceReleasePayload,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    result = lock_service.force_release_experiment_lock(
+        db,
+        experiment_id,
+        agent,
+        reason=payload.reason,
+    )
+    return ExperimentLockRead.from_result(result)
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/lock/skip",
+    response_model=ExperimentLockRead,
+)
+def record_experiment_lock_skip_endpoint(
+    experiment_id: uuid.UUID,
+    payload: ExperimentLockSkipPayload,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockRead:
+    result = lock_service.record_experiment_lock_skip(
+        db,
+        experiment_id,
+        agent,
+        next_attempt_at=payload.next_attempt_at,
+    )
+    return ExperimentLockRead.from_result(result)

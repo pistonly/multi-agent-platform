@@ -13,6 +13,9 @@ from server.domain.state_machine import (
 def test_phase_transitions():
     validate_phase_transition(ExperimentPhase.draft, ExperimentPhase.review)
     validate_phase_transition(ExperimentPhase.review, ExperimentPhase.approved)
+    validate_phase_transition(ExperimentPhase.running, ExperimentPhase.result_review)
+    validate_phase_transition(ExperimentPhase.result_review, ExperimentPhase.done)
+    validate_phase_transition(ExperimentPhase.result_review, ExperimentPhase.running)
     with pytest.raises(Exception):
         validate_phase_transition(ExperimentPhase.draft, ExperimentPhase.approved)
 

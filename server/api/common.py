@@ -8,19 +8,6 @@ from server.domain.models import Agent
 from server.services import audit_service, notification_service, webhook_service
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError, UnauthorizedError
 
-def http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, NotFoundError):
-        return HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
-    if isinstance(exc, UnauthorizedError):
-        return HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc))
-    if isinstance(exc, ForbiddenError):
-        return HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc))
-    if isinstance(exc, ConflictError):
-        return HTTPException(status.HTTP_409_CONFLICT, detail=str(exc))
-    if isinstance(exc, StateTransitionError):
-        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    raise exc
-
 
 def emit(
     db: Session,

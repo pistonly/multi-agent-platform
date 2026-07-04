@@ -1,0 +1,202 @@
+{
+  "phase": "phase2-sse-overlay",
+  "experiment_id": "41687a01-3992-471b-b415-8ad80f732f80",
+  "captured_at": "2026-07-03T01:50:00+00:00",
+  "note": "Phase 2 SSE overlay end-to-end baseline. Reviewer redline 硬门槛来自 reviewer 立场 bf3f263d + Round 1 Summary 3f9d80cd 共识 7。Phase 1 baseline (jsonl-append-only, P95≈0.85ms for mentions) 不同口径，仅作 informational 对照。",
+  "iterations_per_kind": 20,
+  "scope_diff_vs_phase1": "Phase 1 = inbound_event UNIQUE gate DB write only。Phase 2 = notification.created_at → SSE transmission → _wake_event → backend.wake_async → CLI startup resume，包含 Claude Code CLI 启动瓶颈（~2.1s 实测）",
+
+  "redline_by_kind": {
+    "mention": {"p95_ms": 5000, "source": "reviewer 立场 bf3f263d + Round 1 Summary 3f9d80cd 共识 7"},
+    "pending_review": {"p95_ms": 10000, "source": "同上"},
+    "topic_lifecycle": {"p95_ms": 30000, "source": "同上"}
+  },
+
+  "a1a_sse_transmission": {
+    "metric": "SSE 帧传输延迟 (notification.publish → waker._sse_consume_stream 接收)",
+    "trials": 5,
+    "mean_ms": 0.5,
+    "p95_ms": 0.5,
+    "max_ms": 0.5,
+    "hard_redline_ms": 1000,
+    "test_file": "tests/test_waker_phase2_e2e_a1a.py"
+  },
+
+  "a1b_cli_backend_observational": {
+    "metric": "Claude Code CLI wake 延迟 (A1b 观测基线，无门槛)",
+    "cli_cold_start_ms": 2087,
+    "cli_warm_median_ms": 2072,
+    "cli_warm_min_ms": 2046,
+    "waker_overhead_ms": 2.1,
+    "total_a1b_ms": 2100,
+    "warm_pool_target_ms": 500,
+    "warm_pool_avoid_threshold_ms": 5000,
+    "test_file": "tests/test_waker_phase2_e2e_a1b.py"
+  },
+
+  "a1_total_p95_by_kind": {
+    "metric": "端到端 P95 by kind (notification.created_at → _wake_event resume 返回)",
+    "pending_mention_reply": {
+      "trials": 20,
+      "p95_ms": 2105.2,
+      "median_ms": 2104.0,
+      "min_ms": 2102.3,
+      "max_ms": 2107.7,
+      "redline_ms": 5000,
+      "redline_utilization_pct": 42
+    },
+    "pending_review": {
+      "trials": 20,
+      "p95_ms": 2105.0,
+      "median_ms": 2104.2,
+      "min_ms": 2103.2,
+      "max_ms": 2109.6,
+      "redline_ms": 10000,
+      "redline_utilization_pct": 21
+    },
+    "topic_lifecycle": {
+      "trials": 20,
+      "p95_ms": 2105.1,
+      "median_ms": 2104.2,
+      "min_ms": 2101.6,
+      "max_ms": 2131.9,
+      "redline_ms": 30000,
+      "redline_utilization_pct": 7
+    },
+    "composition_breakdown_ms": {
+      "a1a_sse": 0.5,
+      "a1b_waker_overhead": 2.1,
+      "a1b_cli_startup": 2100,
+      "total": 2102.6
+    },
+    "test_file": "tests/test_waker_phase2_e2e_a1_total.py"
+  },
+
+  "a2_replay_miss_rate": {
+    "metric": "SSE 断连后补漏的漏事件率",
+    "hard_redline": 0,
+    "windows": [
+      {"label": "30s", "events_n": 3, "wakes": 3, "source": "replay"},
+      {"label": "5min", "events_n": 10, "wakes": 10, "source": "replay"},
+      {"label": "30min", "events_n": 30, "wakes": 30, "source": "replay"}
+    ],
+    "source_distinguishable": {
+      "replay": 3,
+      "sse": 3,
+      "polling": 1
+    },
+    "full_disconnect_cycle_wakes": 5,
+    "test_file": "tests/test_waker_phase2_e2e_a2.py"
+  },
+
+  "a3_empty_polling_ratio": {
+    "metric": "空轮询比例（双档 + 边界分段）",
+    "hard_redline": "稳态期 ≥ 95%",
+    "baseline_b_idle": {
+      "cycles": 100,
+      "empty": 100,
+      "recovery_excluded": 0,
+      "empty_ratio_pct": 100
+    },
+    "baseline_a_controlled_N10": {
+      "cycles": 100,
+      "empty": 90,
+      "events_seen": 10,
+      "empty_ratio_pct": 90,
+      "note": "受控流量档 a 不直接套 95% 红线；断言语义：间隔周期必空 + 注入周期必 wake"
+    },
+    "three_segment_report": {
+      "startup_0_10min": {"cycles": 10, "empty": 10, "recovery": 0, "in_denominator": false},
+      "steady_10_60min": {"cycles": 70, "empty": 70, "recovery": 0, "empty_ratio_pct": 100, "in_denominator": true, "meets_redline": true},
+      "sse_recovery_window": {"cycles": 10, "empty": 0, "recovery": 10, "in_denominator": false},
+      "post_recovery": {"cycles": 10, "empty": 10, "recovery": 0}
+    },
+    "test_file": "tests/test_waker_phase2_e2e_a3.py"
+  },
+
+  "a4_duplicate_wake_rate": {
+    "metric": "重复唤醒率（同 fingerprint）",
+    "hard_redline_pct": 0.1,
+    "measured_pct": 0.0,
+    "scenarios": [
+      {"label": "SSE storm 1000 same fp", "expected_wakes_max": 1, "gate": "D4 + TTL"},
+      {"label": "SSE then replay same fp", "expected_wakes": 1, "gate": "TTL (replay bypasses D4)"},
+      {"label": "Replay flood 50 same fp", "expected_wakes": 1, "gate": "TTL"},
+      {"label": "Mixed SSE+replay+polling same fp", "expected_wakes": 1, "gate": "TTL + polling"},
+      {"label": "5 distinct fp via replay (A2 regression guard)", "expected_wakes": 5}
+    ],
+    "test_file": "tests/test_waker_phase2_e2e_a4.py"
+  },
+
+  "a5_idempotency": {
+    "metric": "幂等写成功率 (client-side pipeline + server UNIQUE 集成)",
+    "hard_redline": "100% (同 fingerprint 实际 wake ≤ 1)",
+    "scenarios": [
+      {"label": "SSE storm 100 same fp", "expected_wakes_max": 1, "gate": "D4 + TTL + server UNIQUE"},
+      {"label": "Replay 50 same fp", "expected_wakes": 1, "gate": "TTL + server UNIQUE"},
+      {"label": "Server rejects first call (SSE)", "expected_wakes": 0, "gate": "server UNIQUE 409"},
+      {"label": "Server rejects first call (replay)", "expected_wakes": 0, "gate": "TTL × 4 + server UNIQUE × 1"},
+      {"label": "Server accepts first then SSE flood 100 same fp", "expected_wakes": 1, "gate": "D4 + TTL"},
+      {"label": "Cross-source mix same fp (SSE→replay→polling)", "expected_wakes": 1, "gate": "TTL + polling"},
+      {"label": "5 distinct fp via replay (A2 regression guard)", "expected_wakes": 5}
+    ],
+    "server_side_assertion_in_acceptance": "tests/test_waker_phase2_acceptance.py:test_a5_replay_rejection_holds_across_sources (server 100+50 replay)",
+    "test_file": "tests/test_waker_phase2_e2e_a5.py"
+  },
+
+  "a6_three_way_audit_join": {
+    "metric": "审计三段可 join",
+    "scenarios": [
+      {"label": "SSE-path 3-way (notification.id == inbound_event.event_id == sessions_jsonl.event_id)", "test": "test_a6_sse_path_three_way_audit_join"},
+      {"label": "Phase 1 I3 三段 join (regression)", "test_file": "tests/test_waker_phase1_acceptance.py (5 cases)"}
+    ],
+    "test_file": "tests/test_waker_phase2_e2e_a6_a7.py"
+  },
+
+  "a7_sessions_jsonl_event_source": {
+    "metric": "sessions jsonl event_source 字段值集合",
+    "allowed_values": ["polling", "sse", "replay"],
+    "min_distinct_kinds": 2,
+    "measured_distinct_kinds": 3,
+    "replay_must_be_filled_for_backfill_events": true,
+    "test_file": "tests/test_waker_phase2_e2e_a6_a7.py"
+  },
+
+  "test_summary": {
+    "phase2_test_files_added": [
+      "tests/test_waker_phase2_i1.py (7 tests, I1 lifecycle publish)",
+      "tests/test_waker_phase2_i2_i3.py (42 tests, SSE main path + D3 + D4)",
+      "tests/test_waker_phase2_acceptance.py (7 tests, A4/A5/A6/A7 server side)",
+      "tests/test_waker_phase2_sse_consumer.py (8 tests, SSE consumer e2e)",
+      "tests/test_waker_phase2_e2e_a1a.py (3 tests, A1a SSE transmission)",
+      "tests/test_waker_phase2_e2e_a1b.py (3 tests, A1b CLI baseline)",
+      "tests/test_waker_phase2_e2e_a1_total.py (4 tests, A1总 P95 by kind)",
+      "tests/test_waker_phase2_e2e_a2.py (6 tests, A2 disconnect + replay)",
+      "tests/test_waker_phase2_e2e_a3.py (7 tests, A3 empty polling)",
+      "tests/test_waker_phase2_e2e_a4.py (6 tests, A4 duplicate wake)",
+      "tests/test_waker_phase2_e2e_a5.py (8 tests, A5 idempotency)",
+      "tests/test_waker_phase2_e2e_a6_a7.py (4 tests, A6 + A7)"
+    ],
+    "phase2_total_new_tests": 105,
+    "phase1_regression_tests": 6,
+    "total_tests_at_completion": 111,
+    "all_tests_pass": true,
+    "lint_clean": true
+  },
+
+  "informational_comparison_phase1": {
+    "phase1_p95_seconds_by_kind": {
+      "mentions": 0.000854,
+      "pending_reviews": 0.000580,
+      "pending_topic_replies": 0.000481,
+      "my_open_experiments": 0.000393
+    },
+    "phase2_p95_seconds_by_kind": {
+      "mention": 2.105,
+      "pending_review": 2.105,
+      "topic_lifecycle": 2.105
+    },
+    "scope_diff": "Phase 1 baseline measures inbound_event UNIQUE gate DB write only。Phase 2 baseline measures full end-to-end wake including Claude Code CLI startup (~2.1s)。Phase 1 cannot detect SSE/wake latency; Phase 2 cannot compare jsonl-append-only overhead. Different scopes, both informational.",
+    "reviewer_redline_status": "Phase 2 hard redlines (mention < 5s / pending_review < 10s / topic_lifecycle < 30s) all satisfied with 7–42% utilization. Phase 1 baseline has no end-to-end redline to compare against."
+  }
+}

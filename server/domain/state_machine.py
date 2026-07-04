@@ -39,7 +39,12 @@ def validate_phase_transition(current: ExperimentPhase, target: ExperimentPhase)
             ExperimentPhase.cancelled,
         },
         ExperimentPhase.approved: {ExperimentPhase.running, ExperimentPhase.cancelled},
-        ExperimentPhase.running: {ExperimentPhase.done, ExperimentPhase.cancelled},
+        ExperimentPhase.running: {ExperimentPhase.result_review, ExperimentPhase.cancelled},
+        ExperimentPhase.result_review: {
+            ExperimentPhase.done,
+            ExperimentPhase.running,
+            ExperimentPhase.cancelled,
+        },
         ExperimentPhase.done: set(),
         ExperimentPhase.cancelled: set(),
     }

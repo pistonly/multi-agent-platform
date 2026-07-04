@@ -20,6 +20,7 @@ from map_types import (
     ExperimentCreate,
     ExperimentLogCreate,
     ExperimentPhase,
+    ExperimentResultDecision,
     PlanInput,
     PlanRevise,
     ProjectStatusRevise,
@@ -47,7 +48,8 @@ Typical workflow:
 2. create_experiment with a plan (optionally submit_for_review; topic_id only if you are the topic host)
 3. create_review with reasonable and unreasonable items (often a second MCP connection / reviewer token)
 4. revise_plan or create_comment to address disputes; update_review_item to resolve items
-5. approve_experiment → start_experiment → complete_experiment with execution log
+5. approve_experiment → start_experiment → complete_experiment to submit results for review
+6. a different reviewer/admin calls accept_experiment_result or reject_experiment_result
 
 Admin-only tools (create_project, list_projects, etc.) require an admin token on the connection.
 
@@ -99,13 +101,23 @@ def build_server(
     @mcp.tool()
     def list_notifications(
         unread_only: bool = False,
+        category: str | None = None,
+        target_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
         token: Token = None,
     ) -> dict[str, Any]:
         """List in-app notifications for the current agent (paginated, optional unread filter)."""
         with resolver.use(token) as (c, _ctx):
-            return dump(c.list_notifications(unread_only=unread_only, limit=limit, offset=offset))
+            return dump(
+                c.list_notifications(
+                    unread_only=unread_only,
+                    category=category,
+                    target_type=target_type,
+                    limit=limit,
+                    offset=offset,
+                )
+            )
 
     @mcp.tool()
     def mark_notification_read(notification_id: str, token: Token = None) -> dict[str, Any]:
@@ -324,10 +336,36 @@ def build_server(
         metadata: dict[str, Any] | None = None,
         token: Token = None,
     ) -> dict[str, Any]:
-        """Complete a running experiment and attach an execution log."""
+        """Submit running experiment results for review and attach an execution log."""
         with resolver.use(token) as (c, _ctx):
             payload = ExperimentComplete(summary=summary, content_md=content_md, metadata=metadata)
             return dump(c.complete_experiment(parse_uuid(experiment_id, "experiment_id"), payload))
+
+    @mcp.tool()
+    def accept_experiment_result(
+        experiment_id: str,
+        summary: str,
+        content_md: str,
+        metadata: dict[str, Any] | None = None,
+        token: Token = None,
+    ) -> dict[str, Any]:
+        """Approve submitted experiment results (result_review → done). Must be a different agent or admin."""
+        with resolver.use(token) as (c, _ctx):
+            payload = ExperimentResultDecision(summary=summary, content_md=content_md, metadata=metadata)
+            return dump(c.accept_experiment_result(parse_uuid(experiment_id, "experiment_id"), payload))
+
+    @mcp.tool()
+    def reject_experiment_result(
+        experiment_id: str,
+        summary: str,
+        content_md: str,
+        metadata: dict[str, Any] | None = None,
+        token: Token = None,
+    ) -> dict[str, Any]:
+        """Reject submitted experiment results and return the experiment to running for rework."""
+        with resolver.use(token) as (c, _ctx):
+            payload = ExperimentResultDecision(summary=summary, content_md=content_md, metadata=metadata)
+            return dump(c.reject_experiment_result(parse_uuid(experiment_id, "experiment_id"), payload))
 
     @mcp.tool()
     def list_plans(experiment_id: str, token: Token = None) -> list[dict[str, Any]]:

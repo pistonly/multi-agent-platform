@@ -15,6 +15,7 @@ from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
     ExperimentLogCreate,
+    ExperimentResultDecision,
     PlanInput,
     PlanRevise,
     ProjectStatusRevise,
@@ -23,13 +24,15 @@ from server.domain.schemas import (
     TopicResolve,
 )
 
-app = typer.Typer(name="map", help="Multi-Agent Platform CLI")
+app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
 project_app = typer.Typer(help="Project commands")
-experiment_app = typer.Typer(help="Experiment commands")
+experiment_app = typer.Typer(help="Experiment commands", rich_markup_mode=None)
 persona_app = typer.Typer(help="Persona / identity commands")
+runtime_app = typer.Typer(help="Agent runtime session commands")
 app.add_typer(project_app, name="project")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(persona_app, name="persona")
+app.add_typer(runtime_app, name="runtime")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None}
@@ -120,6 +123,14 @@ def _run(action) -> None:
         raise typer.Exit(1) from exc
 
 
+def _require_option_uuid(value: uuid.UUID | None, *, option: str = "--id") -> uuid.UUID:
+    """Typer 0.16 + nested subcommands do not enforce required UUID options."""
+    if value is None:
+        typer.echo(f"Error: Missing option '{option}'.", err=True)
+        raise typer.Exit(2)
+    return value
+
+
 def _require_map_dir(project_root: Path | None = None) -> Path:
     """Require `.map/config.yaml`; exit with bootstrap hint if missing."""
     root = project_root or _cli_options.get("project_root")
@@ -150,6 +161,73 @@ def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: 
         pass
     key = project_key or cfg_key
     return client.resolve_project_id(project, project_key=key)
+
+
+def _resolve_creator_agent_id(
+    client: MAPClient,
+    project_id: uuid.UUID,
+    creator: str | None,
+    creator_agent_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    """Resolve --creator (name or UUID) and --creator-agent-id into a single creator_agent_id.
+
+    - Neither set → None (no filter).
+    - Both set with same value → that value (alias use).
+    - Both set with different values → error.
+    - --creator is a valid UUID → pass through (skip /agents lookup).
+    - --creator is a name → look up via list_agents(project_id); exact match within current
+      project, ignoring admin rows. 0 hits → error + list available names;
+      >1 hits → error (project-internal name collision).
+    """
+    if not creator:
+        return creator_agent_id
+    try:
+        creator_uuid = uuid.UUID(creator)
+    except ValueError:
+        creator_uuid = None
+    if creator_uuid is not None:
+        if creator_agent_id is not None and creator_agent_id != creator_uuid:
+            typer.echo(
+                "Error: --creator and --creator-agent-id resolve to different UUIDs.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        return creator_uuid
+    if creator_agent_id is not None:
+        typer.echo(
+            "Error: --creator is a name but --creator-agent-id was also passed; "
+            "pass one or the other.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    agents = client.list_agents(project_id=project_id)
+    matches = [
+        a
+        for a in agents
+        if a.role.value != "admin" and a.project_id == project_id and a.name == creator
+    ]
+    if len(matches) == 0:
+        available = sorted(
+            a.name for a in agents if a.role.value != "admin" and a.project_id == project_id
+        )
+        available_hint = (
+            f" Available agent_name in this project: {', '.join(available)}."
+            if available
+            else " No project-bound agents found in this project."
+        )
+        typer.echo(
+            f"Error: agent_name '{creator}' not found in current project.{available_hint}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        typer.echo(
+            f"Error: agent_name '{creator}' matches {len(matches)} agents in current project; "
+            "name is ambiguous. Pass --creator-agent-id <UUID> instead.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return matches[0].id
 
 
 def _load_topic_resolve_payload(path: Path) -> TopicResolve:
@@ -435,6 +513,42 @@ def experiment_complete(
     _run(lambda c: c.complete_experiment(experiment_id, payload))
 
 
+@experiment_app.command("accept-result")
+def experiment_accept_result(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    summary: str = typer.Option(..., "--summary"),
+    log_file: Path = typer.Option(..., "--file"),
+    metadata_file: Path | None = typer.Option(None, "--metadata"),
+) -> None:
+    metadata = None
+    if metadata_file:
+        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    payload = ExperimentResultDecision(
+        summary=summary,
+        content_md=log_file.read_text(encoding="utf-8"),
+        metadata=metadata,
+    )
+    _run(lambda c: c.accept_experiment_result(experiment_id, payload))
+
+
+@experiment_app.command("reject-result")
+def experiment_reject_result(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    summary: str = typer.Option(..., "--summary"),
+    log_file: Path = typer.Option(..., "--file"),
+    metadata_file: Path | None = typer.Option(None, "--metadata"),
+) -> None:
+    metadata = None
+    if metadata_file:
+        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    payload = ExperimentResultDecision(
+        summary=summary,
+        content_md=log_file.read_text(encoding="utf-8"),
+        metadata=metadata,
+    )
+    _run(lambda c: c.reject_experiment_result(experiment_id, payload))
+
+
 @experiment_app.command("log")
 def experiment_log(
     experiment_id: uuid.UUID = typer.Option(..., "--id"),
@@ -453,9 +567,115 @@ def experiment_log(
     _run(lambda c: c.create_log(experiment_id, payload))
 
 
+@experiment_app.command("logs")
+def experiment_logs(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.list_logs(experiment_id))
+
+
 @experiment_app.command("status")
 def experiment_status(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.get_experiment(experiment_id))
+
+
+@experiment_app.command("show")
+def experiment_show(
+    experiment_id: uuid.UUID | None = typer.Option(None, "--id", help="Experiment UUID."),
+) -> None:
+    """Show one experiment (including archived) by UUID."""
+    experiment_id = _require_option_uuid(experiment_id)
+    _run(lambda c: c.get_experiment(experiment_id))
+
+
+@experiment_app.command(
+    "archive",
+    epilog="Use --undo or --unarchive to restore an archived experiment.",
+)
+def experiment_archive(
+    experiment_id: uuid.UUID | None = typer.Option(None, "--id", help="Experiment UUID."),
+    undo: bool = typer.Option(
+        False,
+        "--undo",
+        help="Unarchive instead of archive. Equivalent to --unarchive.",
+    ),
+    unarchive: bool = typer.Option(
+        False,
+        "--unarchive",
+        help="Alias of --undo: unarchive instead of archive.",
+    ),
+) -> None:
+    """Archive (or unarchive) an experiment.
+
+    Thin wrapper around ``PATCH /experiments/{id}`` with ``archived=true``
+    (or ``false`` when ``--undo``/``--unarchive`` is set). Archive hides the
+    experiment from ``experiment list`` by default but ``experiment show``
+    still returns it including ``archived_at``. Archive is reversible —
+    re-run with ``--undo`` to restore.
+
+    Examples:
+
+        # Archive
+        map --persona host experiment archive --id <uuid>
+
+        # Unarchive (two equivalent spellings)
+        map --persona host experiment archive --id <uuid> --undo
+        map --persona host experiment archive --id <uuid> --unarchive
+    """
+    experiment_id = _require_option_uuid(experiment_id)
+    from server.domain.schemas import ExperimentUpdate
+
+    payload = ExperimentUpdate(archived=not (undo or unarchive))
+    object_kind = "experiment"
+
+    def action(c: MAPClient):
+        try:
+            return c.update_experiment(experiment_id, payload)
+        except MAPHTTPError as exc:
+            if exc.status_code == 404:
+                typer.echo(
+                    f"Error: {object_kind} {experiment_id} not found",
+                    err=True,
+                )
+                raise typer.Exit(1) from exc
+            raise
+
+    _run(action)
+
+
+# --- execution lock (CP-3) ------------------------------------------------
+
+
+lock_app = typer.Typer(help="Experiment execution lock commands (per-project).")
+experiment_app.add_typer(lock_app, name="lock")
+
+
+@lock_app.command("acquire")
+def experiment_lock_acquire(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    ttl: int = typer.Option(1800, "--ttl", min=1, help="Lock TTL in seconds."),
+) -> None:
+    _run(lambda c: c.acquire_experiment_lock(experiment_id, ttl_seconds=ttl))
+
+
+@lock_app.command("release")
+def experiment_lock_release(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    _run(lambda c: c.release_experiment_lock(experiment_id))
+
+
+@lock_app.command("force-release")
+def experiment_lock_force_release(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    reason: str = typer.Option(..., "--reason"),
+    actor: str | None = typer.Option(None, "--actor"),
+) -> None:
+    _run(lambda c: c.force_release_experiment_lock(experiment_id, reason=reason, actor=actor))
+
+
+@lock_app.command("skip")
+def experiment_lock_skip(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    next_attempt_at: str = typer.Option(..., "--next-attempt-at"),
+) -> None:
+    _run(lambda c: c.record_experiment_lock_skip(experiment_id, next_attempt_at=next_attempt_at))
 
 
 review_app = typer.Typer(help="Review commands")
@@ -536,10 +756,20 @@ app.add_typer(notification_app, name="notification")
 @notification_app.command("list")
 def notification_list(
     unread_only: bool = typer.Option(False, "--unread-only"),
+    category: str | None = typer.Option(None, "--category", help="wakeable|digest|all"),
+    target_type: str | None = typer.Option(None, "--target-type"),
     limit: int = typer.Option(50, "--limit"),
     offset: int = typer.Option(0, "--offset"),
 ) -> None:
-    _run(lambda c: c.list_notifications(unread_only=unread_only, limit=limit, offset=offset))
+    _run(
+        lambda c: c.list_notifications(
+            unread_only=unread_only,
+            category=category,
+            target_type=target_type,
+            limit=limit,
+            offset=offset,
+        )
+    )
 
 
 @notification_app.command("read")
@@ -550,6 +780,63 @@ def notification_read(notification_id: uuid.UUID = typer.Option(..., "--id")) ->
 @notification_app.command("read-all")
 def notification_read_all() -> None:
     _run(lambda c: c.mark_all_notifications_read())
+
+
+inbound_event_app = typer.Typer(help="Runtime-waker inbound event commands (D6 server gate)")
+app.add_typer(inbound_event_app, name="inbound-event")
+
+
+@inbound_event_app.command("record")
+def inbound_event_record(
+    event_id: uuid.UUID = typer.Option(..., "--event-id", help="Upstream notification id (UUID)."),
+    fingerprint: str = typer.Option(
+        ..., "--fingerprint", help="Dedup key (server enforces UNIQUE per agent)."
+    ),
+    event_type: str = typer.Option(
+        ..., "--event-type", help="Logical event type (e.g. mention, pending_review, topic_lifecycle)."
+    ),
+    source: str = typer.Option(
+        "polling", "--source", help="polling|sse|replay (Phase 1 = polling)."
+    ),
+    payload_file: Path | None = typer.Option(
+        None, "--payload-file", help="Optional JSON file with extra payload fields."
+    ),
+) -> None:
+    """Record that the caller is about to act on ``event_id``.
+
+    Thin wrapper for ``POST /agents/me/inbound-events``. On 409 the CLI exits
+    with a non-zero status and prints the server detail — the waker treats
+    409 as "already woken" and skips resume.
+    """
+    from map_types.enums import InboundEventSource
+    from server.domain.schemas import InboundEventCreate
+
+    extra_payload: dict | None = None
+    if payload_file is not None:
+        import json
+
+        extra_payload = json.loads(payload_file.read_text(encoding="utf-8"))
+    payload = InboundEventCreate(
+        event_id=event_id,
+        event_type=event_type,
+        source=InboundEventSource(source),
+        fingerprint=fingerprint,
+        payload=extra_payload,
+    )
+
+    def action(c: MAPClient):
+        try:
+            return c.record_inbound_event(payload)
+        except MAPHTTPError as exc:
+            if exc.status_code == 409:
+                typer.echo(
+                    f"inbound-event duplicate (409): {exc.detail}",
+                    err=True,
+                )
+                raise typer.Exit(2) from exc
+            raise
+
+    _run(action)
 
 
 @app.command("status")
@@ -570,8 +857,68 @@ def project_or_global_status(
     _run(action)
 
 
-topic_app = typer.Typer(help="Topic commands")
+topic_app = typer.Typer(help="Topic commands", rich_markup_mode=None)
 app.add_typer(topic_app, name="topic")
+
+mention_app = typer.Typer(help="Mention todo commands")
+app.add_typer(mention_app, name="mention")
+
+
+@mention_app.command("dismiss")
+def mention_dismiss(
+    mention_id: uuid.UUID = typer.Option(..., "--id", help="Mention UUID from `map todos`."),
+) -> None:
+    """Dismiss one @mention for the current persona (removes it from `map todos`).
+
+    Idempotent: dismissing an already-dismissed mention returns the same result.
+    """
+    _run(lambda c: c.dismiss_mention(mention_id))
+
+
+@mention_app.command("dismiss-all")
+def mention_dismiss_all() -> None:
+    """Dismiss all open @mentions for the current persona."""
+    _run(lambda c: c.dismiss_all_mentions())
+
+
+@mention_app.command("reconcile-stale")
+def mention_reconcile_stale() -> None:
+    """Admin stub: offline stale mention reconciliation (T1 D5 MVP — not implemented)."""
+    typer.echo(
+        "mention reconcile-stale: stub only — stale mentions are filtered in "
+        "topic-progress/todos projection; use write-path dismiss on comment."
+    )
+
+
+todo_app = typer.Typer(help="Todo partition clear routing (explicit_only buckets)")
+app.add_typer(todo_app, name="todo")
+
+
+@todo_app.command("clear")
+def todo_clear(
+    key: str = typer.Option(..., "--key", help="Work-item idempotency_key or partition id"),
+) -> None:
+    """Route explicit_only todo partitions to the canonical clear CLI (T1 D7)."""
+    if key.startswith("notification:"):
+        notification_id = uuid.UUID(key.split(":", 1)[1])
+        _run(lambda c: c.mark_notification_read(notification_id))
+        return
+    if key.startswith("action_item:"):
+        item_id = uuid.UUID(key.split(":", 1)[1])
+        _run(lambda c: c.complete_action_item(item_id))
+        return
+    if key.startswith("my_open_topics:") or key.startswith("topic:"):
+        topic_id = uuid.UUID(key.rsplit(":", 1)[-1])
+        _run(lambda c: c.dismiss_topic(topic_id))
+        return
+    if key.startswith("unread_change:"):
+        topic_id = uuid.UUID(key.split(":", 2)[1])
+        _run(lambda c: c.mark_topic_read(topic_id))
+        return
+    raise typer.BadParameter(
+        f"unsupported todo clear key {key!r}; explicit_only: notification, action_item, "
+        "my_open_topics, unread_change"
+    )
 
 
 @topic_app.command("create")
@@ -597,7 +944,17 @@ def topic_list(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     status: str | None = typer.Option(None, "--status"),
-    creator_agent_id: uuid.UUID | None = typer.Option(None, "--creator-agent-id"),
+    creator: str | None = typer.Option(
+        None,
+        "--creator",
+        help="Filter by topic creator. Accepts agent_name (current project) or agent_id UUID; "
+        "alias for --creator-agent-id.",
+    ),
+    creator_agent_id: uuid.UUID | None = typer.Option(
+        None,
+        "--creator-agent-id",
+        help="Filter by creator agent_id UUID. Use --creator for name-or-id shorthand.",
+    ),
     q: str | None = typer.Option(None, "--q"),
     page: int = typer.Option(1, "--page", min=1),
     page_size: int = typer.Option(100, "--page-size", min=1, max=100),
@@ -608,10 +965,11 @@ def topic_list(
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
         st = TopicStatus(status) if status else None
+        resolved_creator_id = _resolve_creator_agent_id(c, pid, creator, creator_agent_id)
         return c.list_topics(
             pid,
             status=st,
-            creator_agent_id=creator_agent_id,
+            creator_agent_id=resolved_creator_id,
             q=q,
             page=page,
             page_size=page_size,
@@ -624,6 +982,12 @@ def topic_list(
 @topic_app.command("show")
 def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.get_topic(topic_id))
+
+
+@topic_app.command("progress")
+def topic_progress() -> None:
+    """Open topics where the latest comment is not yours; includes new comments since your last post."""
+    _run(lambda c: c.get_topic_progress())
 
 
 @topic_app.command("resolve")
@@ -643,8 +1007,25 @@ def topic_advance_round(
         "--increment-summary/--no-increment-summary",
         help="Increment round_summary_count before advancing.",
     ),
+    ack_ids: str | None = typer.Option(
+        None,
+        "--ack-ids",
+        help="Host: comma-separated participant agent UUIDs already acknowledged.",
+    ),
+    ack: str | None = typer.Option(
+        None,
+        "--ack",
+        help="Participant: accept, reject, or dismiss acknowledgement for the current round.",
+    ),
 ) -> None:
-    payload = TopicAdvanceRound(increment_summary=increment_summary)
+    acknowledged_by: list[uuid.UUID] = []
+    if ack_ids:
+        acknowledged_by = [uuid.UUID(item.strip()) for item in ack_ids.split(",") if item.strip()]
+    payload = TopicAdvanceRound(
+        increment_summary=increment_summary,
+        acknowledged_by=acknowledged_by,
+        ack=ack,  # type: ignore[arg-type]
+    )
     _run(lambda c: c.advance_topic_round(topic_id, payload))
 
 
@@ -668,6 +1049,73 @@ def topic_close(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 @topic_app.command("reopen")
 def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.reopen_topic(topic_id))
+
+
+@topic_app.command("dismiss")
+def topic_dismiss(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    """Hide an open topic from host todos until new activity (same as Web UI ✕)."""
+    _run(lambda c: c.dismiss_topic(topic_id))
+
+
+@topic_app.command("read")
+def topic_read(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    """Mark all comments in a topic as read (advances per-agent comment_seq cursor)."""
+    _run(lambda c: c.mark_topic_read(topic_id))
+
+
+@topic_app.command(
+    "archive",
+    epilog="Use --undo or --unarchive to restore an archived topic.",
+)
+def topic_archive(
+    topic_id: uuid.UUID | None = typer.Option(None, "--id", help="Topic UUID."),
+    undo: bool = typer.Option(
+        False,
+        "--undo",
+        help="Unarchive instead of archive. Equivalent to --unarchive.",
+    ),
+    unarchive: bool = typer.Option(
+        False,
+        "--unarchive",
+        help="Alias of --undo: unarchive instead of archive.",
+    ),
+) -> None:
+    """Archive (or unarchive) a topic.
+
+    Thin wrapper around ``PATCH /topics/{id}`` with ``archived=true`` (or
+    ``false`` when ``--undo``/``--unarchive`` is set). Archive hides the topic
+    from ``topic list`` by default but ``topic show`` still returns it
+    including ``archived_at``. Archive is reversible — re-run with ``--undo``
+    to restore.
+
+    Examples:
+
+        # Archive
+        map --persona host topic archive --id <uuid>
+
+        # Unarchive (two equivalent spellings)
+        map --persona host topic archive --id <uuid> --undo
+        map --persona host topic archive --id <uuid> --unarchive
+    """
+    topic_id = _require_option_uuid(topic_id)
+    from server.domain.schemas import TopicUpdate
+
+    payload = TopicUpdate(archived=not (undo or unarchive))
+    object_kind = "topic"
+
+    def action(c: MAPClient):
+        try:
+            return c.update_topic(topic_id, payload)
+        except MAPHTTPError as exc:
+            if exc.status_code == 404:
+                typer.echo(
+                    f"Error: {object_kind} {topic_id} not found",
+                    err=True,
+                )
+                raise typer.Exit(1) from exc
+            raise
+
+    _run(action)
 
 
 action_app = typer.Typer(help="Topic action item commands")
@@ -701,6 +1149,249 @@ def action_list(
     _run(action)
 
 
+@action_app.command("complete")
+def action_complete(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to mark done."),
+) -> None:
+    """Close an action item as done (open -> done)."""
+
+    def action(c: MAPClient):
+        return c.complete_action_item(action_item_id)
+
+    _run(action)
+
+
+@action_app.command("cancel")
+def action_cancel(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to cancel."),
+    reason: str = typer.Option(..., "--reason", help="Cancellation reason (length-validated by category)."),
+    category: str | None = typer.Option(
+        None,
+        "--category",
+        help="implementation | decision | unspecified (default). Affects reason length threshold.",
+    ),
+) -> None:
+    """Close an action item as cancelled (open -> cancelled)."""
+
+    from map_types.enums import ActionItemCategory
+    from map_types.schemas import ActionItemCancel
+
+    def action(c: MAPClient):
+        cat = ActionItemCategory(category) if category else None
+        payload = ActionItemCancel(reason=reason, category=cat)
+        return c.cancel_action_item(action_item_id, payload)
+
+    _run(action)
+
+
+@action_app.command("link")
+def action_link(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to link."),
+    experiment_id: uuid.UUID = typer.Option(
+        ...,
+        "--experiment-id",
+        help="Experiment UUID to attach to the action item (must share project).",
+    ),
+) -> None:
+    """Attach an experiment to an open action item so future experiment
+    ``done`` cascades the action item automatically."""
+
+    def action(c: MAPClient):
+        return c.link_action_item(action_item_id, experiment_id)
+
+    _run(action)
+
+
+@action_app.command("mark-wake-sent")
+def action_mark_wake_sent(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to wake."),
+) -> None:
+    """Bump wake_count + stamp last_woken_at + write ``action_item.wake_sent``
+    audit row. Used by the runtime-waker CLI to advance the three-stage
+    escalation timeline (experiment B / I4). Owner or admin only."""
+
+    def action(c: MAPClient):
+        return c.mark_wake_sent(action_item_id)
+
+    _run(action)
+
+
+@action_app.command("mark-stale")
+def action_mark_stale(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to mark stale."),
+) -> None:
+    """Stamp stale_at + write the ``action_item.stale`` audit row after the
+    4th unanswered wake. Admin only (system escalation, experiment B / I4)."""
+
+    def action(c: MAPClient):
+        return c.mark_stale(action_item_id)
+
+    _run(action)
+
+
+@runtime_app.command("chat")
+def runtime_chat(
+    persona: str = typer.Option(
+        "host",
+        "--persona",
+        "-p",
+        help="Persona whose runtime session to resume (default: host)",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="Repo root containing .map/ (default: search upward from cwd)",
+    ),
+    state_file: Path | None = typer.Option(
+        None,
+        "--state-file",
+        help="Runtime waker state file (default: .map/runtime-waker-state-<persona>.json)",
+    ),
+    runtime_home: Path | None = typer.Option(
+        None,
+        "--runtime-home",
+        help="Claude runtime HOME (default: .map/claude-runtime-home-<persona>)",
+    ),
+    session_id: str | None = typer.Option(
+        None,
+        "--session-id",
+        help="Resume a specific Claude session id (default: read from state file)",
+    ),
+    prompt: str | None = typer.Option(
+        None,
+        "--prompt",
+        help="Send one prompt before entering interactive REPL",
+    ),
+    new_session: bool = typer.Option(
+        False,
+        "--new-session",
+        help="Start a fresh Claude session instead of resuming state",
+    ),
+    ignore_waker: bool = typer.Option(
+        False,
+        "--ignore-waker",
+        help="Allow chat while map-runtime-waker is running (may conflict)",
+    ),
+    model: str | None = typer.Option(None, "--model", help="Optional Claude model override"),
+) -> None:
+    """Resume a persona runtime session and chat interactively from the terminal."""
+    from cli.runtime_chat import run_runtime_chat
+
+    run_runtime_chat(
+        persona=persona,
+        project_root=project_root or _cli_options.get("project_root"),
+        state_file=state_file,
+        runtime_home=runtime_home,
+        session_id=session_id,
+        new_session=new_session,
+        initial_prompt=prompt,
+        ignore_waker=ignore_waker,
+        model=model,
+    )
+
+
+@runtime_app.command("status")
+def runtime_status(
+    persona: str = typer.Option(
+        "host",
+        "--persona",
+        "-p",
+        help="Persona to inspect (default: host)",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="Repo root containing .map/ (default: search upward from cwd)",
+    ),
+    state_file: Path | None = typer.Option(
+        None,
+        "--state-file",
+        help="Runtime waker state file (default: .map/runtime-waker-state-<persona>.json)",
+    ),
+) -> None:
+    """Show resumable session id and whether runtime waker is running."""
+    from cli.runtime_chat import dump_runtime_chat_status
+
+    _print_json(
+        dump_runtime_chat_status(
+            persona=persona,
+            project_root=project_root or _cli_options.get("project_root"),
+            state_file=state_file,
+        )
+    )
+
+
+feedback_app = typer.Typer(help="Platform feedback inbox commands")
+app.add_typer(feedback_app, name="feedback")
+
+
+@feedback_app.command("submit")
+def feedback_submit(
+    body: str = typer.Option(..., "--body", help="Feedback text (free-form)"),
+    category: str | None = typer.Option(
+        None, "--category", help="bug|suggestion|question|other (optional, admin triage hint)"
+    ),
+    project: uuid.UUID | None = typer.Option(
+        None, "--project", help="Source project context (optional)"
+    ),
+) -> None:
+    from map_types.enums import FeedbackCategory
+    from server.domain.schemas import PlatformFeedbackCreate
+
+    payload = PlatformFeedbackCreate(
+        body=body,
+        project_id=project,
+        category=FeedbackCategory(category) if category else None,
+    )
+    _run(lambda c: c.submit_feedback(payload))
+
+
+@feedback_app.command("list")
+def feedback_list(
+    status: str | None = typer.Option(None, "--status"),
+    category: str | None = typer.Option(None, "--category"),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    page: int = typer.Option(1, "--page", min=1),
+    page_size: int = typer.Option(50, "--page-size", min=1, max=200),
+    include_archived: bool = typer.Option(False, "--include-archived"),
+) -> None:
+    from map_types.enums import FeedbackCategory, FeedbackStatus
+
+    def action(c: MAPClient):
+        items, total = c.list_feedback_page(
+            status=FeedbackStatus(status) if status else None,
+            category=FeedbackCategory(category) if category else None,
+            project_id=project,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+        return {"items": items, "total": total}
+
+    _run(action)
+
+
+@feedback_app.command("get")
+def feedback_get(feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID")) -> None:
+    _run(lambda c: c.get_feedback(feedback_id))
+
+
+@feedback_app.command("update")
+def feedback_update(
+    feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID"),
+    status: str | None = typer.Option(None, "--status"),
+    category: str | None = typer.Option(None, "--category"),
+    archived: bool | None = typer.Option(None, "--archived/--no-archived"),
+) -> None:
+    from map_types.enums import FeedbackCategory, FeedbackStatus
+    from server.domain.schemas import PlatformFeedbackUpdate
+
+    payload = PlatformFeedbackUpdate(
+        status=FeedbackStatus(status) if status else None,
+        category=FeedbackCategory(category) if category else None,
+        archived=archived,
+    )
+    _run(lambda c: c.update_feedback(feedback_id, payload))
 def main() -> None:
     app()
 

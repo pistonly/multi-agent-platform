@@ -89,6 +89,48 @@ def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
     assert experiments[0]["id"] == experiment["id"]
 
 
+def test_cli_complete_submits_result_review(runner, patched_cli, project, tmp_path: Path):
+    plan_file = tmp_path / "plan.md"
+    plan_file.write_text("## CLI plan", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "create",
+            "--title",
+            "CLI结果审批",
+            "--plan-file",
+            str(plan_file),
+            "--submit-for-review",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    experiment = yaml.safe_load(result.output)
+    exp_id = experiment["id"]
+
+    client = cli_main.MAPClient.from_env(transport=cli_main._transport)
+    try:
+        client.create_review(exp_id, cli_main.ReviewCreate(reasonable_items=["OK"]))
+        client.approve_experiment(exp_id)
+        client.start_experiment(exp_id)
+    finally:
+        client.close()
+
+    log_file = tmp_path / "result.md"
+    log_file.write_text("结果内容", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["experiment", "complete", "--id", exp_id, "--summary", "提交结果", "--file", str(log_file)],
+    )
+    assert result.exit_code == 0, result.output
+    assert yaml.safe_load(result.output)["phase"] == "result_review"
+
+    result = runner.invoke(app, ["experiment", "logs", "--id", exp_id])
+    assert result.exit_code == 0, result.output
+    logs = yaml.safe_load(result.output)
+    assert logs[-1]["summary"] == "提交结果"
+
+
 def test_cli_topic_flow(runner, patched_cli, project):
     result = runner.invoke(app, ["topic", "create", "--title", "CLI话题", "--description", "desc"])
     assert result.exit_code == 0, result.output

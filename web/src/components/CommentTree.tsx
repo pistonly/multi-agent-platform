@@ -1,19 +1,32 @@
 import { useState } from "react";
 import type { CommentTreeNode, ReviewItem } from "../api/types";
 import { createComment, updateReviewItem } from "../api/client";
+import { commentDomId } from "../utils/commentAnchor";
 import { MarkdownBody } from "./MarkdownBody";
+import { AgentBadge } from "./AgentBadge";
+import { AgentMentionInput } from "./AgentMentionInput";
 
 interface CommentNodeProps {
   node: CommentTreeNode;
   depth?: number;
   experimentId: string;
+  anchorCommentId?: string | null;
+  highlightedId?: string | null;
   onUpdated: () => void;
 }
 
-function CommentNode({ node, depth = 0, experimentId, onUpdated }: CommentNodeProps) {
+function CommentNode({
+  node,
+  depth = 0,
+  experimentId,
+  anchorCommentId = null,
+  highlightedId = null,
+  onUpdated,
+}: CommentNodeProps) {
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [loading, setLoading] = useState(false);
+  const isAnchor = anchorCommentId === node.id || highlightedId === node.id;
 
   async function handleReply() {
     const body = replyText.trim();
@@ -35,9 +48,22 @@ function CommentNode({ node, depth = 0, experimentId, onUpdated }: CommentNodePr
   }
 
   return (
-    <div style={{ marginLeft: depth * 16 }} className="border-l border-surface-border pl-3">
-      <div className="mb-1 text-xs text-slate-500">
-        {new Date(node.created_at).toLocaleString()} · {node.author_name ?? `${node.author_agent_id.slice(0, 8)}…`}
+    <div
+      id={commentDomId(node.id)}
+      data-comment-id={node.id}
+      style={{ marginLeft: depth * 16 }}
+      className={`border-l pl-3 transition-colors ${
+        isAnchor ? "comment-anchor-highlight border-amber-400/80" : "border-surface-border"
+      }`}
+    >
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span>{new Date(node.created_at).toLocaleString()}</span>
+        <span>·</span>
+        <AgentBadge
+          agentId={node.author_agent_id}
+          fallbackName={node.author_name}
+          compact
+        />
       </div>
       <div className="mb-2">
         <MarkdownBody content={node.body} />
@@ -51,11 +77,11 @@ function CommentNode({ node, depth = 0, experimentId, onUpdated }: CommentNodePr
       </button>
       {showReply ? (
         <div className="mb-3 flex flex-wrap gap-2">
-          <input
+          <AgentMentionInput
             className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-            placeholder="写下回复…"
+            placeholder="写下回复… 输入 @ 触发 agent 候选"
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
+            onValueChange={setReplyText}
           />
           <button
             type="button"
@@ -84,6 +110,8 @@ function CommentNode({ node, depth = 0, experimentId, onUpdated }: CommentNodePr
           node={child}
           depth={depth + 1}
           experimentId={experimentId}
+          anchorCommentId={anchorCommentId}
+          highlightedId={highlightedId}
           onUpdated={onUpdated}
         />
       ))}
@@ -95,10 +123,19 @@ interface DisputeSectionProps {
   experimentId: string;
   items: ReviewItem[];
   comments: CommentTreeNode[];
+  anchorCommentId?: string | null;
+  highlightedId?: string | null;
   onUpdated: () => void;
 }
 
-export function DisputeSection({ experimentId, items, comments, onUpdated }: DisputeSectionProps) {
+export function DisputeSection({
+  experimentId,
+  items,
+  comments,
+  anchorCommentId = null,
+  highlightedId = null,
+  onUpdated,
+}: DisputeSectionProps) {
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -143,15 +180,24 @@ export function DisputeSection({ experimentId, items, comments, onUpdated }: Dis
           <div className="mb-2 font-medium text-red-200">{item.content}</div>
           <div className="mb-3 space-y-2">
             {commentsForItem(item.id).map((c) => (
-              <CommentNode key={c.id} node={c} experimentId={experimentId} onUpdated={onUpdated} />
+              <CommentNode
+                key={c.id}
+                node={c}
+                experimentId={experimentId}
+                anchorCommentId={anchorCommentId}
+                highlightedId={highlightedId}
+                onUpdated={onUpdated}
+              />
             ))}
           </div>
           <div className="flex flex-wrap gap-2">
-            <input
+            <AgentMentionInput
               className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm"
-              placeholder="添加评论…"
+              placeholder="添加评论… 输入 @ 触发 agent 候选"
               value={replyText[item.id] ?? ""}
-              onChange={(e) => setReplyText((prev) => ({ ...prev, [item.id]: e.target.value }))}
+              onValueChange={(next) =>
+                setReplyText((prev) => ({ ...prev, [item.id]: next }))
+              }
             />
             <button
               type="button"
@@ -191,16 +237,25 @@ export function DisputeSection({ experimentId, items, comments, onUpdated }: Dis
 interface CommentTreeProps {
   nodes: CommentTreeNode[];
   experimentId: string;
+  anchorCommentId?: string | null;
+  highlightedId?: string | null;
   onUpdated: () => void;
 }
 
-export function CommentTree({ nodes, experimentId, onUpdated }: CommentTreeProps) {
+export function CommentTree({ nodes, experimentId, anchorCommentId = null, highlightedId = null, onUpdated }: CommentTreeProps) {
   const roots = nodes.filter((n) => n.anchor_type !== "review_item");
   if (roots.length === 0) return null;
   return (
     <div className="space-y-3">
       {roots.map((node) => (
-        <CommentNode key={node.id} node={node} experimentId={experimentId} onUpdated={onUpdated} />
+        <CommentNode
+          key={node.id}
+          node={node}
+          experimentId={experimentId}
+          anchorCommentId={anchorCommentId}
+          highlightedId={highlightedId}
+          onUpdated={onUpdated}
+        />
       ))}
     </div>
   );

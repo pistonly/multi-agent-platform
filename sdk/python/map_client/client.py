@@ -9,22 +9,31 @@ import httpx
 from map_client.config import load_config
 from map_client.exceptions import MAPHTTPError
 from map_types import (
+    ActionItemCancel,
     AgentCreateResponse,
     AgentRead,
+    AgentRole,
     AuditLogRead,
     CommentAnchorType,
     CommentCreate,
     CommentRead,
     CommentTreeNode,
+    DismissAllMentionsResultRead,
+    DismissMentionResultRead,
     ExperimentComplete,
     ExperimentCreate,
     ExperimentDetailRead,
     ExperimentBundleRead,
     ExperimentLogCreate,
     ExperimentLogRead,
+    ExperimentResultDecision,
     ExperimentPhase,
     ExperimentSummaryRead,
+    ExperimentUpdate,
     GlobalStatusRead,
+    InboundEventCreate,
+    InboundEventRecordResult,
+    NotificationCategory,
     PlanRevise,
     PlanVersionRead,
     ProjectCreate,
@@ -46,7 +55,9 @@ from map_types import (
     TopicCommentTreeNode,
     TopicCreate,
     TopicDecisionRead,
+    TopicProgressListRead,
     TopicRead,
+    TopicReadCursorRead,
     TopicResolve,
     TopicStatus,
     TopicSummaryRead,
@@ -58,6 +69,11 @@ from map_types import (
     WebhookCreateResponse,
     WebhookDeliveryRead,
     WebhookRead,
+    FeedbackCategory,
+    FeedbackStatus,
+    PlatformFeedbackCreate,
+    PlatformFeedbackRead,
+    PlatformFeedbackUpdate,
 )
 
 
@@ -144,6 +160,20 @@ class MAPClient:
             return 0
 
     # --- agents ---
+
+    def list_agents(
+        self,
+        *,
+        project_id: uuid.UUID | None = None,
+        role: AgentRole | None = None,
+    ) -> list[AgentRead]:
+        params: dict[str, str] = {}
+        if project_id is not None:
+            params["project_id"] = str(project_id)
+        if role is not None:
+            params["role"] = role.value
+        data = self._json("GET", "/agents", params=params)
+        return [AgentRead.model_validate(item) for item in data]
 
     def register_agent(
         self,
@@ -233,6 +263,53 @@ class MAPClient:
             params["status"] = status.value
         data = self._json("GET", f"/projects/{project_id}/action-items", params=params)
         return [TopicActionItemRead.model_validate(item) for item in data]
+
+    def complete_action_item(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        data = self._json("POST", f"/action-items/{action_item_id}/complete")
+        return TopicActionItemRead.model_validate(data)
+
+    def cancel_action_item(
+        self,
+        action_item_id: uuid.UUID,
+        payload: ActionItemCancel,
+    ) -> TopicActionItemRead:
+        data = self._json(
+            "POST",
+            f"/action-items/{action_item_id}/cancel",
+            json=payload.model_dump(exclude_none=True),
+        )
+        return TopicActionItemRead.model_validate(data)
+
+    def link_action_item(
+        self,
+        action_item_id: uuid.UUID,
+        experiment_id: uuid.UUID,
+    ) -> TopicActionItemRead:
+        data = self._json(
+            "POST",
+            f"/action-items/{action_item_id}/link",
+            params={"experiment_id": str(experiment_id)},
+        )
+        return TopicActionItemRead.model_validate(data)
+
+    def mark_wake_sent(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        """Bump ``wake_count`` + stamp ``last_woken_at`` + audit row.
+
+        Experiment B / I4 — called by the runtime-waker CLI process when
+        ``should_wake_action_item`` returns ``'wake'``. Owner or admin only.
+        """
+        data = self._json("POST", f"/action-items/{action_item_id}/mark-wake-sent")
+        return TopicActionItemRead.model_validate(data)
+
+    def mark_stale(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        """Stamp ``stale_at`` + write the ``action_item.stale`` audit row.
+
+        Experiment B / I4 — called by the runtime-waker CLI process when
+        ``should_wake_action_item`` returns ``'stale'`` (4th unanswered wake).
+        Admin only.
+        """
+        data = self._json("POST", f"/action-items/{action_item_id}/mark-stale")
+        return TopicActionItemRead.model_validate(data)
 
     def revise_project_status(
         self,
@@ -346,6 +423,72 @@ class MAPClient:
             json=payload.model_dump(),
         )
         return ExperimentSummaryRead.model_validate(data)
+
+    def accept_experiment_result(
+        self,
+        experiment_id: uuid.UUID,
+        payload: ExperimentResultDecision,
+    ) -> ExperimentSummaryRead:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/accept-result",
+            json=payload.model_dump(),
+        )
+        return ExperimentSummaryRead.model_validate(data)
+
+    def reject_experiment_result(
+        self,
+        experiment_id: uuid.UUID,
+        payload: ExperimentResultDecision,
+    ) -> ExperimentSummaryRead:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/reject-result",
+            json=payload.model_dump(),
+        )
+        return ExperimentSummaryRead.model_validate(data)
+
+    # --- execution lock (CP-3) ---
+
+    def acquire_experiment_lock(
+        self, experiment_id: uuid.UUID, *, ttl_seconds: int
+    ) -> dict[str, Any]:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/lock/acquire",
+            json={"ttl_seconds": ttl_seconds},
+        )
+        return data or {}
+
+    def release_experiment_lock(self, experiment_id: uuid.UUID) -> dict[str, Any]:
+        data = self._json("POST", f"/experiments/{experiment_id}/lock/release")
+        return data or {}
+
+    def force_release_experiment_lock(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        reason: str,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"reason": reason}
+        if actor:
+            payload["actor"] = actor
+        data = self._json("POST", f"/experiments/{experiment_id}/lock/force-release", json=payload)
+        return data or {}
+
+    def record_experiment_lock_skip(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        next_attempt_at: str,
+    ) -> dict[str, Any]:
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/lock/skip",
+            json={"next_attempt_at": next_attempt_at},
+        )
+        return data or {}
 
     # --- plans ---
 
@@ -471,13 +614,23 @@ class MAPClient:
         return TopicDecisionRead.model_validate(data)
 
     def advance_topic_round(self, topic_id: uuid.UUID, payload: TopicAdvanceRound | None = None) -> TopicSummaryRead:
-        body = (payload or TopicAdvanceRound()).model_dump()
+        body = (payload or TopicAdvanceRound()).model_dump(mode="json")
         data = self._json("POST", f"/topics/{topic_id}/advance-round", json=body)
         return TopicSummaryRead.model_validate(data)
 
     def update_topic(self, topic_id: uuid.UUID, payload: TopicUpdate) -> TopicSummaryRead:
         data = self._json("PATCH", f"/topics/{topic_id}", json=payload.model_dump(exclude_unset=True))
         return TopicSummaryRead.model_validate(data)
+
+    def update_experiment(
+        self, experiment_id: uuid.UUID, payload: ExperimentUpdate
+    ) -> ExperimentSummaryRead:
+        data = self._json(
+            "PATCH",
+            f"/experiments/{experiment_id}",
+            json=payload.model_dump(exclude_unset=True),
+        )
+        return ExperimentSummaryRead.model_validate(data)
 
     def delete_topic(self, topic_id: uuid.UUID) -> None:
         self._request("DELETE", f"/topics/{topic_id}")
@@ -487,6 +640,13 @@ class MAPClient:
 
     def reopen_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
         return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/reopen"))
+
+    def dismiss_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
+        return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/dismiss"))
+
+    def mark_topic_read(self, topic_id: uuid.UUID) -> TopicReadCursorRead:
+        data = self._json("POST", f"/agents/me/topics/{topic_id}/read")
+        return TopicReadCursorRead.model_validate(data)
 
     def create_topic_comment(
         self,
@@ -512,19 +672,37 @@ class MAPClient:
     def get_todos(self) -> TodoRead:
         return TodoRead.model_validate(self._json("GET", "/agents/me/todos"))
 
+    def get_topic_progress(self) -> TopicProgressListRead:
+        return TopicProgressListRead.model_validate(self._json("GET", "/agents/me/topic-progress"))
+
+    def dismiss_mention(self, mention_id: uuid.UUID) -> DismissMentionResultRead:
+        data = self._json("POST", f"/agents/me/mentions/{mention_id}/dismiss")
+        return DismissMentionResultRead.model_validate(data)
+
+    def dismiss_all_mentions(self) -> DismissAllMentionsResultRead:
+        data = self._json("POST", "/agents/me/mentions/dismiss-all")
+        return DismissAllMentionsResultRead.model_validate(data)
+
     # --- notifications ---
 
     def list_notifications(
         self,
         *,
         unread_only: bool = False,
+        category: NotificationCategory | str | None = None,
+        target_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> NotificationListRead:
+        params: dict[str, Any] = {"unread_only": unread_only, "limit": limit, "offset": offset}
+        if category is not None:
+            params["category"] = category.value if isinstance(category, NotificationCategory) else category
+        if target_type is not None:
+            params["target_type"] = target_type
         data = self._json(
             "GET",
             "/agents/me/notifications",
-            params={"unread_only": unread_only, "limit": limit, "offset": offset},
+            params=params,
         )
         return NotificationListRead.model_validate(data)
 
@@ -534,6 +712,25 @@ class MAPClient:
 
     def mark_all_notifications_read(self) -> dict[str, int]:
         return self._json("POST", "/agents/me/notifications/read-all")
+
+    # --- inbound events (runtime-waker dedup gate; D6) ---
+
+    def record_inbound_event(
+        self,
+        payload: InboundEventCreate,
+    ) -> InboundEventRecordResult:
+        """Record that the caller is about to act on ``event_id``.
+
+        Raises :class:`MAPHTTPError` with ``status_code == 409`` when the
+        fingerprint already exists (server gate). Callers should treat 409 as
+        "already woken" and skip the resume step (see plan D6 / A1 / A2).
+        """
+        data = self._json(
+            "POST",
+            "/agents/me/inbound-events",
+            json=payload.model_dump(mode="json"),
+        )
+        return InboundEventRecordResult.model_validate(data)
 
     # --- webhooks (admin) ---
 
@@ -574,6 +771,74 @@ class MAPClient:
         params = {"project_id": str(project_id)} if project_id else None
         return GlobalStatusRead.model_validate(self._json("GET", "/status", params=params))
 
+    # --- feedback ---
+
+    def submit_feedback(self, payload: PlatformFeedbackCreate) -> PlatformFeedbackRead:
+        data = self._json("POST", "/feedback", json=payload.model_dump(mode="json"))
+        return PlatformFeedbackRead.model_validate(data)
+
+    def list_feedback(
+        self,
+        *,
+        status: FeedbackStatus | None = None,
+        category: FeedbackCategory | None = None,
+        project_id: uuid.UUID | None = None,
+        page: int = 1,
+        page_size: int = 50,
+        include_archived: bool = False,
+    ) -> list[PlatformFeedbackRead]:
+        data, _total = self.list_feedback_page(
+            status=status,
+            category=category,
+            project_id=project_id,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+        return data
+
+    def list_feedback_page(
+        self,
+        *,
+        status: FeedbackStatus | None = None,
+        category: FeedbackCategory | None = None,
+        project_id: uuid.UUID | None = None,
+        page: int = 1,
+        page_size: int = 50,
+        include_archived: bool = False,
+    ) -> tuple[list[PlatformFeedbackRead], int]:
+        params: dict[str, Any] = {
+            "page": page,
+            "page_size": page_size,
+            "include_archived": include_archived,
+        }
+        if status is not None:
+            params["status"] = status.value
+        if category is not None:
+            params["category"] = category.value
+        if project_id is not None:
+            params["project_id"] = str(project_id)
+        response = self._request("GET", "/feedback", params=params)
+        data = response.json()
+        return (
+            [PlatformFeedbackRead.model_validate(item) for item in data],
+            self._total_count(response),
+        )
+
+    def get_feedback(self, feedback_id: uuid.UUID) -> PlatformFeedbackRead:
+        data = self._json("GET", f"/feedback/{feedback_id}")
+        return PlatformFeedbackRead.model_validate(data)
+
+    def update_feedback(
+        self, feedback_id: uuid.UUID, payload: PlatformFeedbackUpdate
+    ) -> PlatformFeedbackRead:
+        data = self._json(
+            "PATCH",
+            f"/feedback/{feedback_id}",
+            json=payload.model_dump(exclude_unset=True, mode="json"),
+        )
+        return PlatformFeedbackRead.model_validate(data)
+
 
 # Re-export types useful for SDK consumers
 __all__ = [
@@ -583,6 +848,7 @@ __all__ = [
     "ReviewItemStatus",
     "ExperimentCreate",
     "ExperimentComplete",
+    "ExperimentResultDecision",
     "ExperimentLogCreate",
     "PlanRevise",
     "ReviewCreate",

@@ -66,6 +66,32 @@ def test_only_topic_host_or_admin_can_advance_round(client, auth_headers, review
     assert allowed.json()["discussion_round"] == "round2"
 
 
+def test_topic_list_includes_last_comment_author(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    listing = client.get(f"/api/v1/projects/{project['id']}/topics", headers=auth_headers)
+    assert listing.json()[0]["last_comment_author_agent_id"] is None
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "host 开场"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer["headers"],
+        json={"body": "reviewer 插话"},
+    )
+
+    listing = client.get(f"/api/v1/projects/{project['id']}/topics", headers=auth_headers)
+    row = next(item for item in listing.json() if item["id"] == topic["id"])
+    assert row["last_comment_author_agent_id"] == reviewer["id"]
+    assert row["comment_count"] == 2
+    assert row["last_comment_id"] is not None
+    assert row["last_comment_author_name"] == "reviewer-agent"
+    assert row["last_comment_excerpt"] == "reviewer 插话"
+    assert row["my_comment_count"] == 1
+
+
 def test_topic_status_filter_and_transitions(client, auth_headers, project):
     t1 = _create_topic(client, auth_headers, project)
     _create_topic(client, auth_headers, project, title="第二个")
@@ -188,6 +214,11 @@ def test_resolve_topic_requires_host_or_admin(client, auth_headers, reviewer, ad
 
 
 def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, reviewer, project):
+    # A1 resolve 二次约束：旧 resolve 是「delete + reinsert」，等价于删除重建，无 done
+    # 写入路径。新语义：
+    #   - payload 中带 id 且命中旧项 → 字段更新，status 保留
+    #   - payload 中不带旧 id → 旧项若 open 自动 close 成 done（写 audit）
+    #   - payload 中无 id 的新项 → 插入，status=open
     topic = _create_topic(client, auth_headers, project)
     first = client.post(
         f"/api/v1/topics/{topic['id']}/resolve",
@@ -201,6 +232,7 @@ def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, r
     decision_id = first.json()["id"]
     old_action_id = first.json()["action_items"][0]["id"]
 
+    # 重跑 resolve，旧 id 不在新 payload → 应自动 done（写 audit），新项以 open 插入
     second = client.post(
         f"/api/v1/topics/{topic['id']}/resolve",
         headers=auth_headers,
@@ -212,8 +244,68 @@ def test_topic_resolve_upserts_and_replaces_action_items(client, auth_headers, r
     assert second.status_code == 200
     assert second.json()["id"] == decision_id
     assert second.json()["decision"] == "第二版结论"
-    assert second.json()["action_items"][0]["id"] != old_action_id
-    assert second.json()["action_items"][0]["title"] == "新行动项"
+    items_by_id = {item["id"]: item for item in second.json()["action_items"]}
+    assert items_by_id[old_action_id]["status"] == "done"  # 二次约束触发 close
+    new_action_ids = [i for i in items_by_id if i != old_action_id]
+    assert len(new_action_ids) == 1
+    assert items_by_id[new_action_ids[0]]["title"] == "新行动项"
+    assert items_by_id[new_action_ids[0]]["status"] == "open"
+
+    # 同一 resolve payload 再跑一次 → 旧项已 done，不再写 audit（幂等）
+    audit_logs = client.get(
+        "/api/v1/audit",
+        headers=auth_headers,
+        params={"target_type": "topic_action_item", "target_id": old_action_id},
+    )
+    completed_events = [
+        log for log in audit_logs.json() if log["action"] == "action_item.completed"
+    ]
+    assert len(completed_events) == 1
+
+
+def test_topic_resolve_upsert_preserves_status_and_updates_fields(client, auth_headers, admin_headers, reviewer, project):
+    """Resolve 时 payload 带 id → upsert：字段更新但 status 不会被 reset。"""
+    topic = _create_topic(client, auth_headers, project)
+    first = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "v1",
+            "action_items": [
+                {"title": "原标题", "owner_agent_id": reviewer["id"], "category": "implementation"}
+            ],
+        },
+    )
+    action_id = first.json()["action_items"][0]["id"]
+
+    completed = client.post(
+        f"/api/v1/action-items/{action_id}/complete",
+        headers=admin_headers,
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "done"
+
+    # Re-resolve 带相同 id 但新 title → 字段更新，status 仍是 done
+    second = client.post(
+        f"/api/v1/topics/{topic['id']}/resolve",
+        headers=auth_headers,
+        json={
+            "decision": "v2",
+            "action_items": [
+                {
+                    "id": action_id,
+                    "title": "新标题（手动 done 后不可被 resolve 覆盖）",
+                    "owner_agent_id": reviewer["id"],
+                    "category": "decision",
+                }
+            ],
+        },
+    )
+    assert second.status_code == 200
+    items = {i["id"]: i for i in second.json()["action_items"]}
+    assert items[action_id]["status"] == "done"
+    assert items[action_id]["title"] == "新标题（手动 done 后不可被 resolve 覆盖）"
+    assert items[action_id]["category"] == "decision"
 
 
 def test_experiment_linked_to_topic(client, auth_headers, project):
@@ -445,3 +537,222 @@ def test_experiment_archive_allows_new_active_on_topic(client, auth_headers, pro
         json={"title": "第二个", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
     )
     assert second.status_code == 201, second.text
+
+
+def _participant_comment(client, headers, topic_id: str, body: str = "participant opinion"):
+    return client.post(
+        f"/api/v1/topics/{topic_id}/comments",
+        headers=headers,
+        json={"body": body},
+    )
+
+
+def test_host_only_topic_advance(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["discussion_round"] == "round2"
+
+
+def test_advance_round_ack_dynamic(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    assert _participant_comment(client, reviewer["headers"], topic["id"]).status_code == 201
+
+    pending = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert pending.status_code == 409
+    assert pending.json()["reason"] == "ack_pending"
+
+    ack = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+    assert ack.status_code == 200
+
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert advanced.status_code == 200
+    assert advanced.json()["discussion_round"] == "round2"
+
+
+def test_round_summary_comment_sets_pending_ack_and_todos(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    assert _participant_comment(client, reviewer["headers"], topic["id"]).status_code == 201
+
+    summary = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- 混合方案\n"},
+    )
+    assert summary.status_code == 201, summary.text
+
+    detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+    assert detail.json()["advance_round_pending_since"] is not None
+
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert len(reviewer_todos["pending_round_acks"]) == 1
+    assert reviewer_todos["pending_round_acks"][0]["topic_id"] == topic["id"]
+    assert reviewer_todos["pending_round_acks"][0]["summary_comment_id"] == summary.json()["id"]
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+    reviewer_todos_after = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert reviewer_todos_after["pending_round_acks"] == []
+
+
+def test_ack_rejected_409(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "reject"},
+    )
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "ack_rejected"
+
+
+def test_ack_reject_superseded_by_accept_on_revised_summary(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- v1\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "reject"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary v2\n\n### 已共识\n- v2\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert advanced.status_code == 200
+    assert advanced.json()["discussion_round"] == "round2"
+
+
+def test_ack_timeout_silence_consent(client, db_session, auth_headers, reviewer, project):
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    from server.domain.models import Topic
+
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+
+    pending = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert pending.status_code == 409
+
+    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row.advance_round_pending_since = datetime.now(UTC) - timedelta(hours=25)
+    db_session.commit()
+
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert advanced.status_code == 200
+
+
+def test_ack_set_excludes_dismissed(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "dismiss"},
+    )
+
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["discussion_round"] == "round2"
+
+
+def test_ack_set_excludes_archived_topic(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+    archived = client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "archived_topic"
+
+
+def test_dismiss_after_advance_init(client, auth_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    _participant_comment(client, reviewer["headers"], topic["id"])
+
+    pending = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert pending.status_code == 409
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "dismiss"},
+    )
+
+    advanced = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert advanced.status_code == 200
+
+
+def test_archived_topic_advance_rejected(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "archived_topic"
+

@@ -1,22 +1,45 @@
+"""MAP reviewer bridge — single backend: in-process Claude SDK client with session resume.
+
+After v0.7 P4 the reviewer bridge holds one ``ClaudeSDKClient`` for the
+lifetime of the bridge process; ``claude_session_id`` is persisted in the
+bridge state file so the next restart resumes the same Claude session via
+``ClaudeAgentOptions(resume=...)``.
+
+Claude decides what to do (review pending experiments, resolve addressed
+items, etc.) by invoking skills from ``.cursor/skills/`` after consulting
+``map --persona reviewer todos`` itself. The bridge only provides a brief
+wake-up prompt per cycle.
+"""
+
 from __future__ import annotations
 
+import asyncio
 import json
-import shlex
-import subprocess
-import tempfile
-import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import typer
 import yaml
 
-from cli.host_worker import MapCommandClient, WorkerError
+from cli.agent_client import PersonaAgentClient, make_wakeup_prompt
+from cli.bridge_state import load_bridge_state, save_bridge_state
+from cli.host_worker_types import WorkerError
+from cli.map_command_client import MapCommandClient
+from cli.worker_cycle_log import log_cycle_summary
 
-DEFAULT_REASONABLE = ["实验计划结构完整，目标与步骤可辨识。"]
-DEFAULT_UNREASONABLE = ["建议补充更具体的验收标准与可观测结果。"]
+VALID_AGENT_BACKENDS: tuple[str, ...] = ("claude-agent",)
+
+REVIEWER_CYCLE_SUMMARY_FIELDS = [
+    "cycles",
+    "reviews_created",
+    "items_resolved",
+    "dry_run_actions",
+    "runner_invocations",
+    "runner_skips",
+    "runner_errors",
+    "pending_seen",
+]
 
 
 class ReviewerMapClient(MapCommandClient):
@@ -36,13 +59,8 @@ class ReviewerWorkerConfig:
     once: bool = False
     max_cycles: int | None = None
     dry_run: bool = False
-    max_reviews_per_cycle: int = 1
-    agent_runner: str | None = None
-    runner_timeout: float = 180.0
     state_file: Path | None = Path(".map/reviewer-bridge-state.json")
-    review_dir: Path | None = Path(".map/generated-reviews")
-    auto_resolve_reviews: bool = True
-    max_resolves_per_cycle: int = 3
+    agent_backend: str = "claude-agent"
 
 
 @dataclass
@@ -64,304 +82,137 @@ class ReviewerWorker:
     agent_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
     _state_dirty: bool = False
+    _injected_agent_client: PersonaAgentClient | None = None
 
-    def __post_init__(self) -> None:
-        if not self.state:
-            self.state = _load_state(self.config.state_file)
+    def __init__(
+        self,
+        client: ReviewerMapClient,
+        config: ReviewerWorkerConfig | None = None,
+        *,
+        agent_client: PersonaAgentClient | None = None,
+    ) -> None:
+        self.client = client
+        self.config = config or ReviewerWorkerConfig()
+        if self.config.agent_backend not in VALID_AGENT_BACKENDS:
+            raise WorkerError(
+                f"Unknown agent_backend={self.config.agent_backend!r}; expected one of {VALID_AGENT_BACKENDS}"
+            )
+        self.agent_id = None
+        self.state = _load_state(self.config.state_file)
+        self._state_dirty = False
+        self._injected_agent_client = agent_client
 
     def run_forever(self) -> ReviewerWorkerStats:
-        total = ReviewerWorkerStats()
-        while True:
-            stats = self.run_once()
-            total.cycles += stats.cycles
-            total.reviews_created += stats.reviews_created
-            total.items_resolved += stats.items_resolved
-            total.dry_run_actions += stats.dry_run_actions
-            total.runner_invocations += stats.runner_invocations
-            total.runner_skips += stats.runner_skips
-            total.runner_errors += stats.runner_errors
-            total.pending_seen += stats.pending_seen
+        return asyncio.run(self._run_forever_async())
 
-            if self.config.once:
-                break
-            if self.config.max_cycles is not None and total.cycles >= self.config.max_cycles:
-                break
-            time.sleep(self.config.interval)
-        return total
+    async def _run_forever_async(self) -> ReviewerWorkerStats:
+        agent_client = await self._ensure_agent_client()
+        try:
+            total = ReviewerWorkerStats()
+            while True:
+                stats = await self._run_once_claude_agent(agent_client)
+                total.cycles += stats.cycles
+                total.reviews_created += stats.reviews_created
+                total.items_resolved += stats.items_resolved
+                total.dry_run_actions += stats.dry_run_actions
+                total.runner_invocations += stats.runner_invocations
+                total.runner_skips += stats.runner_skips
+                total.runner_errors += stats.runner_errors
+                total.pending_seen += stats.pending_seen
+                log_cycle_summary("reviewer", total, fields=REVIEWER_CYCLE_SUMMARY_FIELDS)
 
-    def run_once(self) -> ReviewerWorkerStats:
+                if self.config.once:
+                    break
+                if self.config.max_cycles is not None and total.cycles >= self.config.max_cycles:
+                    break
+                await asyncio.sleep(self.config.interval)
+            return total
+        finally:
+            await agent_client.disconnect()
+
+    async def _ensure_agent_client(self) -> PersonaAgentClient:
+        client = self._injected_agent_client
+        if client is None:
+            client = PersonaAgentClient(
+                persona="reviewer",
+                state=self.state,
+                save_state_fn=lambda: self._save_state_if_needed(force=True),
+                project_root=self._git_repo() or Path.cwd(),
+            )
+            self._injected_agent_client = client
+        await client.connect()
+        return client
+
+    async def _run_once_claude_agent(
+        self, agent_client: PersonaAgentClient
+    ) -> ReviewerWorkerStats:
+        """One polling cycle: brief wake-up, agent handles all actions itself."""
         self._ensure_identity()
         stats = ReviewerWorkerStats(cycles=1)
         todos = self.client.todos() or {}
-        pending = list(todos.get("pending_reviews") or [])
-        stats.pending_seen = len(pending)
+        prompt = make_wakeup_prompt("reviewer", todos)
+        on_event = lambda event: self._log_agent_event(event)  # noqa: E731
+        try:
+            status = await agent_client.wake_up(prompt, on_event=on_event)
+        except Exception as exc:  # noqa: BLE001
+            self._log_json({"action": "agent_wakeup_error"}, error=str(exc))
+            stats.runner_errors += 1
+            return stats
 
-        limit = max(1, self.config.max_reviews_per_cycle)
-        for item in pending[:limit]:
-            experiment_id = str(item.get("id") or "")
-            if not experiment_id:
-                continue
-            plan_version = int(item.get("current_plan_version") or 0)
-            trigger_id = f"{experiment_id}:v{plan_version}"
-            if self._already_handled(experiment_id, trigger_id):
-                stats.runner_skips += 1
-                continue
-
-            detail = self.client.experiment_status(experiment_id)
-            if str(detail.get("phase")) != "review":
-                continue
-
-            if self.config.agent_runner:
-                self._handle_with_runner(experiment_id, trigger_id, detail, stats)
-            else:
-                self._handle_with_template(experiment_id, trigger_id, detail, stats)
-
-        if self.config.auto_resolve_reviews:
-            self._resolve_pending_replies(todos, stats)
-
-        self._save_state_if_needed()
+        self._log_json(
+            {"action": "agent_wakeup_done"},
+            status=status,
+            session_id=agent_client.state.get("claude_session_id"),
+        )
+        stats.runner_invocations += 1
         return stats
 
-    def _resolve_pending_replies(self, todos: dict[str, Any], stats: ReviewerWorkerStats) -> None:
-        limit = max(1, self.config.max_resolves_per_cycle)
-        resolved = 0
-        for item in todos.get("pending_replies") or []:
-            if resolved >= limit:
-                break
-            if str(item.get("status") or "") != "addressed":
-                continue
-            item_id = str(item.get("item_id") or "")
-            if not item_id:
-                continue
-            if self._item_resolve_seen(item_id):
-                stats.runner_skips += 1
-                continue
-            if self.config.dry_run:
-                typer.echo(f"[dry-run] would resolve review-item={item_id}")
-                stats.dry_run_actions += 1
-                resolved += 1
-                continue
-            self.client.review_resolve_item(item_id)
-            stats.items_resolved += 1
-            self._mark_item_resolved(item_id)
-            resolved += 1
-
-    def _item_resolve_seen(self, item_id: str) -> bool:
-        items = self.state.setdefault("resolved_items", {})
-        if not isinstance(items, dict):
-            return False
-        return items.get(item_id) is not None
-
-    def _mark_item_resolved(self, item_id: str) -> None:
-        items = self.state.setdefault("resolved_items", {})
-        if not isinstance(items, dict):
-            items = {}
-            self.state["resolved_items"] = items
-        items[item_id] = {"last_action_at": datetime.now(UTC).isoformat()}
-        self._state_dirty = True
+    def _log_agent_event(self, event: dict[str, Any]) -> None:
+        self._log_json({"action": "agent_event"}, **event)
 
     def _ensure_identity(self) -> None:
         if self.agent_id is not None:
             return
         me = self.client.whoami()
         if not me or not me.get("id"):
-            raise WorkerError("Could not resolve reviewer identity; run `map --persona reviewer persona whoami`")
+            raise WorkerError(
+                "Could not resolve reviewer identity; run `map --persona reviewer persona whoami`"
+            )
         self.agent_id = str(me["id"])
 
-    def _already_handled(self, experiment_id: str, trigger_id: str) -> bool:
-        experiments = self.state.setdefault("experiments", {})
-        if not isinstance(experiments, dict):
-            return False
-        exp_state = experiments.get(experiment_id) or {}
-        return exp_state.get("last_handled_trigger_id") == trigger_id
-
-    def _handle_with_template(
-        self,
-        experiment_id: str,
-        trigger_id: str,
-        detail: dict[str, Any],
-        stats: ReviewerWorkerStats,
-    ) -> None:
-        payload = {
-            "reasonable_items": list(DEFAULT_REASONABLE),
-            "unreasonable_items": list(DEFAULT_UNREASONABLE),
-        }
-        self._submit_review(experiment_id, trigger_id, detail, payload, stats)
-
-    def _handle_with_runner(
-        self,
-        experiment_id: str,
-        trigger_id: str,
-        detail: dict[str, Any],
-        stats: ReviewerWorkerStats,
-    ) -> None:
-        plan = detail.get("current_plan") or {}
-        request = {
-            "action": "review_experiment",
-            "experiment_id": experiment_id,
-            "dry_run": self.config.dry_run,
-            "context": {
-                "experiment": {
-                    "id": detail.get("id"),
-                    "title": detail.get("title"),
-                    "phase": detail.get("phase"),
-                    "current_plan_version": detail.get("current_plan_version"),
-                    "topic_id": detail.get("topic_id"),
-                },
-                "plan_md": plan.get("content_md") or "",
-                "idempotency_key": trigger_id,
-            },
-        }
-        status, result = self._invoke_runner(request, experiment_id=experiment_id)
-        stats.runner_invocations += 1
-        if status == "error":
-            stats.runner_errors += 1
-            return
-        if status == "skip":
-            stats.runner_skips += 1
-            self._mark_handled(experiment_id, trigger_id)
-            return
-
-        reasonable = result.get("reasonable_items")
-        unreasonable = result.get("unreasonable_items")
-        if not isinstance(reasonable, list) or not isinstance(unreasonable, list):
-            stats.runner_errors += 1
-            self._log_event("review_experiment", experiment_id, status="runner_invalid_items")
-            return
-
-        payload = {
-            "reasonable_items": [str(x) for x in reasonable],
-            "unreasonable_items": [str(x) for x in unreasonable],
-        }
-        self._submit_review(experiment_id, trigger_id, detail, payload, stats)
-
-    def _submit_review(
-        self,
-        experiment_id: str,
-        trigger_id: str,
-        detail: dict[str, Any],
-        payload: dict[str, list[str]],
-        stats: ReviewerWorkerStats,
-    ) -> None:
-        title = detail.get("title") or experiment_id
-        if self.config.dry_run:
-            typer.echo(
-                f"[dry-run] would review experiment={experiment_id} title={title}\n"
-                f"{yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)}"
-            )
-            stats.dry_run_actions += 1
-            return
-
-        review_file = self._write_review_file(experiment_id, payload)
-        self.client.review_add(experiment_id, review_file)
-        stats.reviews_created += 1
-        self._mark_handled(experiment_id, trigger_id)
-
-    def _write_review_file(self, experiment_id: str, payload: dict[str, list[str]]) -> Path:
-        review_dir = self.config.review_dir
-        if review_dir is not None:
-            review_dir.mkdir(parents=True, exist_ok=True)
-            path = review_dir / f"experiment-{experiment_id}-review.yaml"
-            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-            return path
-
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".yaml", delete=False) as fh:
-            fh.write(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
-            fh.flush()
-            return Path(fh.name)
-
-    def _invoke_runner(self, request: dict[str, Any], *, experiment_id: str) -> tuple[str, dict[str, Any]]:
-        if not self.config.agent_runner:
-            raise WorkerError("agent_runner is not configured")
-        cmd = shlex.split(self.config.agent_runner)
-        payload = json.dumps(request, ensure_ascii=False, separators=(",", ":")) + "\n"
-        try:
-            result = subprocess.run(
-                cmd,
-                input=payload,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=self.config.runner_timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            self._log_event("review_experiment", experiment_id, status="runner_timeout")
-            return "error", {}
-
-        if result.returncode == 2:
-            self._log_event("review_experiment", experiment_id, status="runner_skip", stderr=result.stderr.strip())
-            return "skip", {}
-        if result.returncode != 0:
-            self._log_event(
-                "review_experiment",
-                experiment_id,
-                status="runner_error",
-                exit_code=result.returncode,
-                stderr=result.stderr.strip(),
-            )
-            return "error", {}
-
-        try:
-            parsed = json.loads(result.stdout.strip())
-        except json.JSONDecodeError:
-            self._log_event("review_experiment", experiment_id, status="runner_invalid_json")
-            return "error", {}
-        if not isinstance(parsed, dict):
-            return "error", {}
-        return "ok", parsed
-
-    def _mark_handled(self, experiment_id: str, trigger_id: str) -> None:
+    def _save_state_if_needed(self, *, force: bool = False) -> None:
         if self.config.dry_run:
             return
-        experiments = self.state.setdefault("experiments", {})
-        if not isinstance(experiments, dict):
-            experiments = {}
-            self.state["experiments"] = experiments
-        experiments[experiment_id] = {
-            "last_handled_trigger_id": trigger_id,
-            "last_action_at": datetime.now(UTC).isoformat(),
-        }
-        self._state_dirty = True
-
-    def _save_state_if_needed(self) -> None:
-        if self.config.dry_run or not self._state_dirty:
+        if not force and not self._state_dirty:
             return
         _save_state(self.config.state_file, self.state)
         self._state_dirty = False
 
-    def _log_event(self, action: str, experiment_id: str, **fields: Any) -> None:
+    def _log_json(self, base: dict[str, Any], **fields: Any) -> None:
         event = {
-            "action": action,
-            "experiment_id": experiment_id,
+            **base,
             "dry_run": self.config.dry_run,
             **{key: value for key, value in fields.items() if value not in (None, "")},
         }
-        typer.echo(json.dumps(event, ensure_ascii=False, sort_keys=True), err=True)
+        typer.echo(json.dumps(event, ensure_ascii=True, sort_keys=True), err=True)
+
+    def _git_repo(self) -> Path | None:
+        if isinstance(self.client, MapCommandClient) and self.client.project_root is not None:
+            return self.client.project_root
+        return Path.cwd()
 
 
 def _load_state(path: Path | None) -> dict[str, Any]:
-    if path is None or not path.exists():
-        return {"schema_version": 1, "experiments": {}}
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise WorkerError(f"Invalid reviewer bridge state file: {path}") from exc
-    if not isinstance(state, dict):
-        raise WorkerError(f"Invalid reviewer bridge state file: {path}")
-    state.setdefault("schema_version", 1)
-    state.setdefault("experiments", {})
-    state.setdefault("resolved_items", {})
-    return state
+    return load_bridge_state(
+        path,
+        bridge_name="reviewer",
+        default_collections=("experiments", "resolved_items"),
+        validate_schema=False,
+    )
 
 
 def _save_state(path: Path | None, state: dict[str, Any]) -> None:
-    if path is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
+    save_bridge_state(path, state)
 
 
 def run(
@@ -372,22 +223,22 @@ def run(
     once: bool = typer.Option(False, "--once"),
     max_cycles: int | None = typer.Option(None, "--max-cycles", min=1),
     dry_run: bool = typer.Option(False, "--dry-run"),
-    max_reviews_per_cycle: int = typer.Option(1, "--max-reviews-per-cycle", min=1),
-    agent_runner: str | None = typer.Option(None, "--agent-runner"),
-    runner_timeout: float = typer.Option(180.0, "--runner-timeout", min=1.0),
-    state_file: Path | None = typer.Option(Path(".map/reviewer-bridge-state.json"), "--state-file"),
-    review_dir: Path | None = typer.Option(Path(".map/generated-reviews"), "--review-dir"),
+    state_file: Path | None = typer.Option(
+        Path(".map/reviewer-bridge-state.json"), "--state-file"
+    ),
+    agent_backend: str = typer.Option(
+        "claude-agent",
+        "--agent-backend",
+        help="Agent backend. Only 'claude-agent' is supported.",
+    ),
 ) -> None:
     config = ReviewerWorkerConfig(
         interval=interval,
         once=once,
         max_cycles=max_cycles,
         dry_run=dry_run,
-        max_reviews_per_cycle=max_reviews_per_cycle,
-        agent_runner=agent_runner,
-        runner_timeout=runner_timeout,
         state_file=state_file,
-        review_dir=review_dir,
+        agent_backend=agent_backend,
     )
     client = ReviewerMapClient(
         map_cmd=map_cmd,

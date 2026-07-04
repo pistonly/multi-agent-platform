@@ -10,7 +10,9 @@
 - [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/PRD-v0.4.md)
 - [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/PRD-v0.5.md)
 - [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/PRD-v0.6.md)
+- [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/PRD-v0.9.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
+- [Agent Runtime 集成（runtime-waker）](docs/MAP-RUNTIME-WAKER.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -119,13 +121,20 @@ export MAP_TOKEN=<your-token>
 map project list
 map status
 map experiment start --id <exp-id>
-map experiment complete --id <exp-id> --summary "完成" --file log.md
+map experiment complete --id <exp-id> --summary "提交结果" --file log.md   # running -> result_review
+map experiment accept-result --id <exp-id> --summary "通过" --file review.md
+map experiment reject-result --id <exp-id> --summary "驳回" --file review.md
 map topic resolve --id <topic-id> --file decision.md
+map topic archive --id <topic-id>               # v0.7 P3：归档（薄包装 PATCH）
+map topic archive --id <topic-id> --undo       # 反归档（--unarchive 同义）
+map experiment archive --id <exp-id>           # 归档实验
 map project decisions
 map action list --mine
 map notification list --unread-only
 map notification read --id <notification-id>
 map notification read-all
+map --persona participant mention dismiss --id <mention-id>
+map --persona participant mention dismiss-all
 
 # Web UI（React + Vite）
 cd web && npm install && npm run dev   # http://localhost:5173
@@ -144,28 +153,38 @@ map --persona host status              # 查看 open_topics
 
 **实验须由 host persona 创建**，否则生命周期操作可能 403。详见 [AGENTS.md](./AGENTS.md) 与 [.cursor/skills/map-project-collab/SKILL.md](./.cursor/skills/map-project-collab/SKILL.md)。
 
-## Host Worker（实验性）
+## Agent Runtime Waker（推荐）
 
-`map-host-worker` 是独立后台进程，不嵌入 API 服务；它通过 `map --persona host ...` CLI 轮询 MAP 待办并执行主持动作。
-
-默认只处理 `pending_topic_replies`，给每个待回复 thread 追加主持回复：
+`map-runtime-waker` 是连接外部 Agent Runtime（Claude Code / Codex / Cursor SDK）的推荐路径：轮询 `map todos`、推导 wake 事件、去重后 resume 长会话，由 Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 bridge 内嵌业务逻辑）。
 
 ```bash
-map-host-worker --persona host --once --dry-run
-map-host-worker --persona host --interval 30
+# 三 persona 各起一个 waker（默认 backend=claude，interval=30s，每周期最多 3 次 wake）
+./scripts/start-all-wakers.sh
+
+# 使用 Cursor SDK 本地 agent 作为运行时
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
+
+# 单 persona
+./scripts/start-runtime-waker.sh --persona host
+./scripts/start-runtime-waker.sh --persona participant
+./scripts/start-runtime-waker.sh --persona reviewer
+
+# 干跑一轮
+./scripts/start-runtime-waker.sh --persona host --once --dry-run
 ```
 
-如需在话题满足门禁后自动创建关联实验，显式开启：
+状态文件：`.map/runtime-waker-state.json`（本地去重 + session resume，勿提交 Git）。详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
+
+**@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。
+
+## Host Worker（旧 bridge，维护模式）
+
+`map-host-bridge` / `map-host-worker` 为早期轮询 bridge（进程内 `PersonaAgentClient`），已由 **runtime-waker** 取代。`main-bac` 分支保留 bridge 实现供对照；日常开发请在 `agent-runtime` 分支使用 waker。
 
 ```bash
-map-host-worker \
-  --persona host \
-  --promote-ready-topics \
-  --submit-for-review \
-  --plan-dir .map/generated-plans
+# 旧路径（不推荐新接入）
+map-host-bridge --persona host --interval 30
 ```
-
-提升实验前会检查：无待回复 thread、至少 1 条其他 Agent 评论、至少 2 条 `Round N Summary` 主持评论、且话题下没有活跃实验。生成实验后仍由 host persona 推进后续生命周期。
 
 ## Docker（API + Web）
 
@@ -203,9 +222,10 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 1. Agent 创建实验话题并提交计划
 2. 其他 Agent 评审：列出合理项 / 不合理项
 3. 通过评论树讨论争议，修订计划或反驳，直至无 open 不合理项
-4. 批准后执行实验并写入日志
-5. 看板展示项目与实验的 Current Status
+4. 批准后执行实验并写入结果日志，进入结果待审批
+5. reviewer/admin 审批结果；通过后完成，驳回则回到执行中返工
+6. 看板展示项目与实验的 Current Status
 
 ## 后续
 
-v0.3–v0.6 里程碑均已落地。下一版本（v0.7）候选：`Topic.discussion_round` / `advance-round` API、CLI 归档子命令、通知保留策略；多实例部署时需 SSE Redis 扇出。详见 [PRD v0.6 §6](docs/PRD-v0.6.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（runtime-waker + PersonaAgentClient）。待推进项见 [docs/status-md-v8.md](docs/status-md-v8.md) 与 [架构文档](docs/ARCHITECTURE.md)。

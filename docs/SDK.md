@@ -78,18 +78,22 @@ with MAPClient.from_env() as client:
 | `create_experiment` | `POST /projects/{id}/experiments` |
 | `get_experiment` | `GET /experiments/{id}` |
 | `get_experiment_bundle` | `GET /experiments/{id}/bundle` |
+| `update_experiment` | `PATCH /experiments/{id}`（v0.7 P3，用于 archive） |
 | `submit_for_review` | `POST /experiments/{id}/submit-review` |
 | `create_review` | `POST /experiments/{id}/reviews` |
 | `revise_plan` | `POST /experiments/{id}/plans` |
 | `update_review_item` | `PATCH /review-items/{id}` |
 | `approve_experiment` | `POST /experiments/{id}/approve` |
 | `start_experiment` | `POST /experiments/{id}/start` |
-| `complete_experiment` | `POST /experiments/{id}/complete` |
+| `complete_experiment` | `POST /experiments/{id}/complete`（提交结果待审批） |
+| `accept_experiment_result` | `POST /experiments/{id}/accept-result` |
+| `reject_experiment_result` | `POST /experiments/{id}/reject-result` |
 | `create_log` | `POST /experiments/{id}/logs` |
 | `get_todos` | `GET /agents/me/todos`（含 `pending_topic_replies`、`mentions` 等分区） |
 | `list_notifications` | `GET /agents/me/notifications` |
 | `mark_notification_read` | `POST /notifications/{id}/read` |
 | `mark_all_notifications_read` | `POST /agents/me/notifications/read-all` |
+| `update_topic` | `PATCH /topics/{id}`（v0.7 P3，用于 archive） |
 | `list_comments(tree=True)` | `GET /experiments/{id}/comments?tree=true` |
 | `get_global_status` | `GET /status` |
 

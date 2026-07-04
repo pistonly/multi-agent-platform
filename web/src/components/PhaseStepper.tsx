@@ -1,12 +1,13 @@
 import type { ExperimentPhase } from "../api/types";
 
-const PHASES: ExperimentPhase[] = ["draft", "review", "approved", "running", "done"];
+const PHASES: ExperimentPhase[] = ["draft", "review", "approved", "running", "result_review", "done"];
 
 const LABELS: Record<ExperimentPhase, string> = {
   draft: "草稿",
   review: "评审",
   approved: "已批准",
   running: "执行中",
+  result_review: "结果待审批",
   done: "完成",
   cancelled: "已取消",
 };
@@ -16,6 +17,7 @@ const COLORS: Record<ExperimentPhase, string> = {
   review: "bg-amber-600/80 text-amber-50",
   approved: "bg-emerald-700/80 text-emerald-50",
   running: "bg-blue-600/80 text-blue-50",
+  result_review: "bg-violet-700/80 text-violet-50",
   done: "bg-slate-500 text-slate-100",
   cancelled: "bg-red-900/60 text-red-100",
 };

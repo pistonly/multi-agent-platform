@@ -15,6 +15,7 @@ from server.domain.models import (
     Review,
     ReviewItem,
     Topic,
+    TopicActionItem,
     TopicComment,
 )
 from server.services.errors import ForbiddenError, NotFoundError, UnauthorizedError
@@ -104,6 +105,11 @@ def ensure_audit_target_access(
         if version is None:
             raise NotFoundError("Project status version not found")
         ensure_project_access(agent, version.project_id)
+    elif target_type == "topic_action_item":
+        item = db.get(TopicActionItem, target_id)
+        if item is None:
+            raise NotFoundError("Action item not found")
+        ensure_project_access(agent, item.project_id)
     else:
         raise NotFoundError(f"Unknown audit target type: {target_type}")
 

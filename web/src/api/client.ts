@@ -1,6 +1,7 @@
 import axios, { type AxiosError } from "axios";
 import type {
   Agent,
+  AgentRole,
   CommentTreeNode,
   ExperimentBundle,
   ExperimentCreatePayload,
@@ -26,6 +27,11 @@ import type {
   TopicSummary,
   NotificationList,
   NotificationStreamEvent,
+  PlatformFeedback,
+  FeedbackCreatePayload,
+  FeedbackUpdatePayload,
+  FeedbackCategory,
+  FeedbackStatus,
 } from "./types";
 
 export interface PaginatedResult<T> {
@@ -89,6 +95,22 @@ export function setAuthToken(token: string | null) {
 
 export async function getMe(): Promise<Agent> {
   const { data } = await api.get<Agent>("/agents/me");
+  return data;
+}
+
+export interface FetchAgentsOptions {
+  role?: AgentRole;
+  projectId?: string;
+}
+
+export async function fetchAgents(opts: FetchAgentsOptions = {}): Promise<Agent[]> {
+  const { role, projectId } = opts;
+  const { data } = await api.get<Agent[]>("/agents", {
+    params: {
+      ...(role ? { role } : {}),
+      ...(projectId ? { project_id: projectId } : {}),
+    },
+  });
   return data;
 }
 
@@ -239,6 +261,22 @@ export async function completeExperiment(
   return data;
 }
 
+export async function acceptExperimentResult(
+  experimentId: string,
+  body: { summary: string; content_md: string; metadata?: Record<string, unknown> }
+): Promise<ExperimentSummary> {
+  const { data } = await api.post<ExperimentSummary>(`/experiments/${experimentId}/accept-result`, body);
+  return data;
+}
+
+export async function rejectExperimentResult(
+  experimentId: string,
+  body: { summary: string; content_md: string; metadata?: Record<string, unknown> }
+): Promise<ExperimentSummary> {
+  const { data } = await api.post<ExperimentSummary>(`/experiments/${experimentId}/reject-result`, body);
+  return data;
+}
+
 export async function updateReviewItem(itemId: string, status: string): Promise<void> {
   await api.patch(`/review-items/${itemId}`, { status });
 }
@@ -369,6 +407,11 @@ export async function reopenTopic(topicId: string): Promise<TopicSummary> {
   return data;
 }
 
+export async function dismissTopic(topicId: string): Promise<TopicSummary> {
+  const { data } = await api.post<TopicSummary>(`/topics/${topicId}/dismiss`);
+  return data;
+}
+
 export async function createTopicComment(
   topicId: string,
   payload: { body: string; parent_id?: string }
@@ -383,8 +426,21 @@ export async function fetchTodos(): Promise<TodoRead> {
   return data;
 }
 
+export async function dismissMention(mentionId: string): Promise<void> {
+  await api.post(`/agents/me/mentions/${mentionId}/dismiss`);
+}
+
+export async function dismissAllMentions(): Promise<{ dismissed: number }> {
+  const { data } = await api.post<{ dismissed: number }>(
+    "/agents/me/mentions/dismiss-all",
+  );
+  return data;
+}
+
 export async function fetchNotifications(params?: {
   unread_only?: boolean;
+  category?: "wakeable" | "digest" | "all";
+  target_type?: string;
   limit?: number;
   offset?: number;
 }): Promise<NotificationList> {
@@ -446,5 +502,47 @@ export async function markNotificationRead(notificationId: string): Promise<void
 
 export async function markAllNotificationsRead(): Promise<{ marked: number }> {
   const { data } = await api.post<{ marked: number }>("/agents/me/notifications/read-all");
+  return data;
+}
+
+export interface FetchFeedbacksOptions {
+  status?: FeedbackStatus;
+  category?: FeedbackCategory;
+  projectId?: string;
+  page?: number;
+  pageSize?: number;
+  includeArchived?: boolean;
+}
+
+export async function fetchFeedbacks(
+  opts: FetchFeedbacksOptions = {}
+): Promise<PaginatedResult<PlatformFeedback>> {
+  const { status, category, projectId, page = 1, pageSize = 50, includeArchived = false } = opts;
+  const response = await api.get<PlatformFeedback[]>("/feedback", {
+    params: {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+      ...(projectId ? { project_id: projectId } : {}),
+      page,
+      page_size: pageSize,
+      include_archived: includeArchived,
+    },
+  });
+  return {
+    items: response.data,
+    total: parseTotalCount(response.headers as Record<string, unknown>),
+  };
+}
+
+export async function submitFeedback(payload: FeedbackCreatePayload): Promise<PlatformFeedback> {
+  const { data } = await api.post<PlatformFeedback>("/feedback", payload);
+  return data;
+}
+
+export async function updateFeedback(
+  feedbackId: string,
+  payload: FeedbackUpdatePayload
+): Promise<PlatformFeedback> {
+  const { data } = await api.patch<PlatformFeedback>(`/feedback/${feedbackId}`, payload);
   return data;
 }

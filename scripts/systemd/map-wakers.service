@@ -1,0 +1,15 @@
+[Unit]
+Description=MAP runtime wakers (host, participant, reviewer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_ROOT@
+ExecStart=@PROJECT_ROOT@/scripts/start-all-wakers.sh
+Restart=on-failure
+RestartSec=15
+Environment=MAP_RUNTIME_INTERVAL=30
+
+[Install]
+WantedBy=multi-user.target

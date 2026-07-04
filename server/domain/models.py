@@ -8,7 +8,12 @@ from map_types.enums import (
     AgentRole,
     CommentAnchorType,
     ExperimentPhase,
+    FeedbackCategory,
+    FeedbackStatus,
+    InboundEventSource,
     MentionSourceType,
+    NotificationCategory,
+    NotificationFingerprintVersion,
     ReviewItemKind,
     ReviewItemStatus,
     TopicActionItemStatus,
@@ -73,7 +78,7 @@ class Agent(Base):
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="author")
 
 
-_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL = "('draft','review','approved','running')"
+_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL = "('draft','review','approved','running','result_review')"
 _ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE = (
     f"topic_id IS NOT NULL AND deleted_at IS NULL AND archived_at IS NULL "
     f"AND phase IN {_ACTIVE_TOPIC_EXPERIMENT_PHASES_SQL}"
@@ -119,6 +124,13 @@ class Experiment(Base):
     comments: Mapped[list["Comment"]] = relationship(back_populates="experiment", order_by="Comment.created_at")
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="experiment", order_by="ExperimentLog.created_at")
 
+    # --- execution lock (per-project; CP-3) ---------------------------------
+    lock_holder_experiment_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    lock_acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lock_ttl_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lock_skip_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
 
 class Topic(Base):
     __tablename__ = "topics"
@@ -145,12 +157,19 @@ class Topic(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="topics")
-    creator: Mapped["Agent"] = relationship()
+    creator: Mapped["Agent"] = relationship(foreign_keys=[creator_agent_id])
     comments: Mapped[list["TopicComment"]] = relationship(
         back_populates="topic", order_by="TopicComment.created_at"
     )
     experiments: Mapped[list["Experiment"]] = relationship(back_populates="topic")
     decision: Mapped["TopicDecision | None"] = relationship(back_populates="topic", uselist=False)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id"), nullable=True
+    )
+    advance_round_pending_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class TopicComment(Base):
@@ -161,11 +180,25 @@ class TopicComment(Base):
     author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     parent_comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topic_comments.id"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    comment_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     topic: Mapped["Topic"] = relationship(back_populates="comments")
     author: Mapped["Agent"] = relationship()
     parent: Mapped["TopicComment | None"] = relationship(remote_side="TopicComment.id")
+
+
+class TopicReadCursor(Base):
+    __tablename__ = "topic_read_cursors"
+    __table_args__ = (UniqueConstraint("topic_id", "agent_id", name="uq_topic_read_cursor_topic_agent"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id"), nullable=False, index=True)
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    last_read_comment_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class TopicDecision(Base):
@@ -213,6 +246,12 @@ class TopicActionItem(Base):
     linked_experiment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("experiments.id"), nullable=True, index=True
     )
+    category: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wake_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    last_woken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -365,10 +404,80 @@ class Notification(Base):
     target_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    category: Mapped[NotificationCategory] = mapped_column(
+        Enum(NotificationCategory),
+        default=NotificationCategory.digest,
+        server_default=NotificationCategory.digest.value,
+        nullable=False,
+        index=True,
+    )
+    group_key: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    wake_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    fingerprint_version: Mapped[NotificationFingerprintVersion] = mapped_column(
+        Enum(NotificationFingerprintVersion),
+        default=NotificationFingerprintVersion.v2,
+        server_default=NotificationFingerprintVersion.v2.value,
+        nullable=False,
+        index=True,
+    )
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    first_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     recipient: Mapped["Agent"] = relationship()
+
+
+class InboundEvent(Base):
+    """Waker-side ingest log. Decouples "server published a notification" from
+    "waker saw and (about to) act on it" with a stable ``fingerprint`` unique key.
+
+    Audit three-layer split:
+      - ``notification`` (event layer, server-side fan-out)
+      - ``inbound_event`` (this table, access layer — waker's idempotent ingest)
+      - ``runtime-waker-sessions/<id>.jsonl`` (execution layer)
+
+    ``event_id`` matches ``notification.id`` one-to-one (UUID) so reviewers can
+    join the three layers without persona-name string joins. ``fingerprint`` is
+    the dedup key and is the server-side primary gate for replay rejection
+    (Phase 1 ``UNIQUE(fingerprint)`` enforces A1).
+    """
+
+    __tablename__ = "inbound_events"
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_inbound_events_fingerprint"),
+        Index(
+            "ix_inbound_events_agent_source_received",
+            "agent_id",
+            "source",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[InboundEventSource] = mapped_column(
+        Enum(InboundEventSource),
+        default=InboundEventSource.polling,
+        nullable=False,
+    )
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
+    agent: Mapped["Agent"] = relationship()
 
 
 class Mention(Base):
@@ -384,6 +493,36 @@ class Mention(Base):
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     excerpt: Mapped[str] = mapped_column(String(512), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     mentioned_agent: Mapped["Agent"] = relationship(foreign_keys=[mentioned_agent_id])
     author: Mapped["Agent"] = relationship(foreign_keys=[author_agent_id])
+
+
+class PlatformFeedback(Base):
+    """Platform-wide feedback inbox.
+
+    A global object (project_id is nullable) so any authenticated agent can
+    submit feedback about the MAP platform itself, regardless of which project
+    they are bound to. Only admins read/triage the inbox.
+    """
+
+    __tablename__ = "platform_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[FeedbackCategory | None] = mapped_column(Enum(FeedbackCategory), nullable=True)
+    status: Mapped[FeedbackStatus] = mapped_column(
+        Enum(FeedbackStatus), default=FeedbackStatus.new, nullable=False, index=True
+    )
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    author: Mapped["Agent"] = relationship()
+    project: Mapped["Project | None"] = relationship()

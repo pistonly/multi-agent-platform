@@ -1,0 +1,4 @@
+interface:
+  display_name: "MAP Runtime Waker"
+  short_description: "Guide resumed runtime agents for MAP persona wake events."
+  default_prompt: "Use the MAP runtime-waker workflow to handle the current persona wake event with map CLI."

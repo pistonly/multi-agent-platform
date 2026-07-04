@@ -1,27 +1,86 @@
 ---
 name: experiment-reviewer
 description: >-
-  Review MAP experiment plans as reviewer persona: evaluate plan clarity,
-  scope, acceptance criteria, and risks; output reasonable/unreasonable items.
-  Use when the reviewer bridge invokes you or when reviewing experiments in review phase.
+  Review MAP experiment plans and accept/reject experiment results as reviewer
+  persona; follow action_items assigned via topic resolve. Use when map-runtime-waker
+  wakes reviewer for pending_review, pending_result_review, or addressed_review_item.
 ---
 
 # MAP 实验评审（Skill）
 
-评审 Agent 对 **phase=review** 的实验计划给出结构化评审，供 host 修订计划或继续推进。
+评审 Agent 对 **phase=review** 的实验计划给出结构化评审，并对 **phase=result_review** 的实验结果做通过/驳回审批。
+
+本仓库通过 **map-runtime-waker** 唤醒；你用 `map --persona reviewer` CLI **直接**写评审与 resolve，不经过 bridge/runner。
+
+**已停用**：reviewer bridge、`cli/*_worker` runner 代写路径。
 
 ## 何时评审
 
 - `todos.pending_reviews` 中出现待评审实验
+- waker 发出 `pending_review` wake
 - 实验已 `submit-review`，当前计划版本尚未有本 reviewer 的评审记录
+- `todos.pending_result_reviews` 中出现结果待审批实验
+- waker 发出 `pending_result_review` wake
+- `todos.action_items` 中有分配给本 reviewer 的 open 项（在来源话题跟评或完成工作）
+- `todos.pending_round_acks` 非空 → 优先 `topic advance-round --ack accept`
 
 ## 硬性规则
 
-1. 身份为 **reviewer** persona（bridge 代写；runner 不直接调 `map`）
-2. **不** approve / start / complete 实验（host bridge 全自动模式下由 host 执行）
-3. **不**修改实验计划正文（修订是 host 的 `plan revise`）
-4. Bridge 在 host `plan revise` 将项标为 `addressed` 后，应 **自动 resolve** 对应 `pending_replies`（`review resolve-item`）
-4. 每条 `reasonable_items` / `unreasonable_items` 应具体、可验证，避免空泛褒贬
+1. 先 `map --persona reviewer persona whoami` 与 `todos`
+2. 只用 `map --persona reviewer ...` 写 MAP
+3. **不** approve / start / complete 实验（host 职责）
+4. **不**修改实验计划正文（修订是 host 的 `plan revise`）
+5. host 将项标为 `addressed` 后，你在 `addressed_review_item` wake 时检查并 `review resolve-item`
+6. 每条 reasonable / unreasonable 应具体、可验证，避免空泛褒贬
+7. 结果审批必须读取 `experiment status`、最终 log 和计划 acceptance；通过用 `accept-result`，不通过用 `reject-result` 并写清返工要求
+8. **行动项**：`map action list --mine` 查看分配项；完成后在来源话题 comment 说明，请 host 通过 `topic resolve` 更新 action_items
+
+## 提交评审
+
+准备 `review.yaml`：
+
+```yaml
+reasonable_items:
+  - "目标清晰"
+unreasonable_items:
+  - "缺少验收标准"
+```
+
+```bash
+map --persona reviewer experiment review add \
+  --id <exp-uuid> \
+  --review ./review.yaml
+```
+
+`unreasonable_items` 为空表示无阻塞项；非空时 host 应 `plan revise` 并 `--addressed-item` 回应。
+
+## 处理 addressed 项
+
+```bash
+map --persona reviewer experiment review list --id <exp-uuid>
+map --persona reviewer experiment review resolve-item \
+  --id <exp-uuid> \
+  --item-id <item-uuid>
+```
+
+## 审批实验结果
+
+```bash
+map --persona reviewer experiment status --id <exp-uuid>
+map --persona reviewer experiment logs --id <exp-uuid>
+
+map --persona reviewer experiment accept-result \
+  --id <exp-uuid> \
+  --summary "结果通过：验收标准已满足" \
+  --file ./result-review.md
+
+map --persona reviewer experiment reject-result \
+  --id <exp-uuid> \
+  --summary "结果驳回：缺少关键证据" \
+  --file ./result-review.md
+```
+
+`accept-result` 使实验进入 `done`；`reject-result` 使实验回到 `running`，host 继续返工。不要替 host 修改仓库或直接补执行日志。
 
 ## 评审维度（建议）
 
@@ -30,26 +89,17 @@ description: >-
 - 与来源话题共识是否一致
 - 风险、依赖、Out of Scope 是否说明
 - 是否有遗漏的非目标或安全/权限问题
-
-## 输出格式
-
-Bridge 需要 JSON（非 YAML 文件）：
-
-```json
-{
-  "reasonable_items": ["具体合理点..."],
-  "unreasonable_items": ["具体需修订点..."]
-}
-```
-
-`unreasonable_items` 为空表示无阻塞项；非空时 host 应 `plan revise` 并回应争议项。
+- 实验结果是否覆盖计划中的 acceptance、测试命令、关键风险和产物路径
 
 ## 非目标
 
-- 代替 host 执行实验
+- 代替 host 执行实验或改仓库
 - 在评审中重写完整 plan（只列条目）
+- 假设 bridge 会自动 resolve
+- 对自己创建的实验做结果审批
 
 ## 参考
 
+- [map-runtime-waker](../map-runtime-waker/SKILL.md)
 - [map-project-collab](../map-project-collab/SKILL.md)
-- [topic-host](../topic-host/SKILL.md)
+- [experiment-host](../experiment-host/SKILL.md)

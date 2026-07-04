@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from map_types.enums import TopicActionItemStatus
 from server.api.background_tasks import bind_background_tasks
-from server.api.common import emit, http_error
+from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, AgentRole
@@ -24,7 +24,6 @@ from server.domain.schemas import (
 from server.services import permissions as perm
 from server.services import project_service as svc
 from server.services import project_status_service as status_doc_service
-from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 
 router = APIRouter(
     prefix="/projects",
@@ -39,13 +38,8 @@ def create_project(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectRead:
-    try:
-        perm.require_admin(agent)
-        project = svc.create_project(db, payload, author_agent_id=agent.id)
-    except ForbiddenError as exc:
-        raise http_error(exc) from exc
-    except ConflictError as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    project = svc.create_project(db, payload, author_agent_id=agent.id)
     return ProjectRead.model_validate(project)
 
 
@@ -72,13 +66,8 @@ def get_project_by_key(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectRead:
-    try:
-        project = svc.get_project_by_key(db, project_key)
-        perm.ensure_project_access(agent, project.id)
-    except NotFoundError as exc:
-        raise http_error(exc) from exc
-    except ForbiddenError as exc:
-        raise http_error(exc) from exc
+    project = svc.get_project_by_key(db, project_key)
+    perm.ensure_project_access(agent, project.id)
     return ProjectRead.model_validate(project)
 
 
@@ -88,11 +77,8 @@ def get_project(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectRead:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        project = svc.get_project(db, project_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_project_access(agent, project_id)
+    project = svc.get_project(db, project_id)
     return ProjectRead.model_validate(project)
 
 
@@ -102,11 +88,8 @@ def list_project_agents(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[AgentRead]:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        svc.get_project(db, project_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_project_access(agent, project_id)
+    svc.get_project(db, project_id)
     agents = list(
         db.scalars(
             select(Agent)
@@ -134,11 +117,8 @@ def update_project(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectRead:
-    try:
-        perm.require_admin(agent)
-        project = svc.update_project(db, project_id, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.require_admin(agent)
+    project = svc.update_project(db, project_id, payload)
     return ProjectRead.model_validate(project)
 
 
@@ -148,11 +128,8 @@ def get_project_status(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectStatusRead:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        return svc.get_project_status(db, project_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_project_access(agent, project_id)
+    return svc.get_project_status(db, project_id)
 
 
 @router.get("/{project_id}/decisions", response_model=list[TopicDecisionRead])
@@ -162,11 +139,8 @@ def list_project_decisions(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[TopicDecisionRead]:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        return svc.list_project_decisions(db, project_id, limit=limit)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_project_access(agent, project_id)
+    return svc.list_project_decisions(db, project_id, limit=limit)
 
 
 @router.get("/{project_id}/action-items", response_model=list[TopicActionItemRead])
@@ -178,17 +152,14 @@ def list_project_action_items(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[TopicActionItemRead]:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        return svc.list_project_action_items(
-            db,
-            project_id,
-            owner_agent_id=owner_agent_id,
-            status=item_status,
-            limit=limit,
-        )
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_project_access(agent, project_id)
+    return svc.list_project_action_items(
+        db,
+        project_id,
+        owner_agent_id=owner_agent_id,
+        status=item_status,
+        limit=limit,
+    )
 
 
 @router.post(
@@ -202,11 +173,8 @@ def revise_project_status(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectStatusVersionRead:
-    try:
-        perm.ensure_can_revise_project_status(agent, project_id)
-        version = status_doc_service.revise_status(db, project_id, agent.id, payload)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_can_revise_project_status(agent, project_id)
+    version = status_doc_service.revise_status(db, project_id, agent.id, payload)
     emit(
         db,
         agent,
@@ -225,11 +193,8 @@ def list_project_status_versions(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ProjectStatusVersionRead]:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        return status_doc_service.list_status_versions(db, project_id)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
+    perm.ensure_project_access(agent, project_id)
+    return status_doc_service.list_status_versions(db, project_id)
 
 
 @router.get("/{project_id}/status/versions/{version}", response_model=ProjectStatusVersionRead)
@@ -239,9 +204,5 @@ def get_project_status_version(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ProjectStatusVersionRead:
-    try:
-        perm.ensure_project_access(agent, project_id)
-        return status_doc_service.get_status_version(db, project_id, version)
-    except (NotFoundError, ForbiddenError) as exc:
-        raise http_error(exc) from exc
-
+    perm.ensure_project_access(agent, project_id)
+    return status_doc_service.get_status_version(db, project_id, version)
