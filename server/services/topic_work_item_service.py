@@ -161,6 +161,10 @@ def _mention_items(db: Session, topic: Topic, agent: Agent) -> list[TopicWorkIte
     ]
     items: list[TopicWorkItem] = []
     for mention in mentions:
+        if mention_service.agent_replied_after_mention(
+            db, mention=mention, agent_id=agent.id
+        ):
+            continue
         items.append(
             TopicWorkItem(
                 kind="mention",

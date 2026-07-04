@@ -108,6 +108,7 @@ map --persona host experiment create --title "..." --plan-file ./plan.md --topic
 map --persona host todos
 map --persona host topic progress   # work items 投影；与 todos 话题 obligation 分区同源
 map --persona host topic dismiss --id <uuid>   # 与 UI ✕ 相同，双视图同时消失
+map --persona host todo clear --key my_open_topics:<topic-uuid>   # explicit_only 分区清理路由
 map --persona host experiment complete --id <uuid> --summary "提交结果" --file ./log.md      # running -> result_review
 map --persona reviewer experiment logs --id <uuid>
 map --persona reviewer experiment accept-result --id <uuid> --summary "通过" --file ./review.md

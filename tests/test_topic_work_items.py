@@ -207,3 +207,52 @@ def test_dismiss_hides_topic_from_progress_and_todos(client, auth_headers, proje
     progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()
     assert todos["pending_topic_replies"] == []
     assert progress["total"] == 0
+
+
+def test_stale_mention_projection_matches_replied_after_mention(
+    client, auth_headers, reviewer, project, db_session
+):
+    """Stale mention projection matches agent_replied_after_mention (T1 H)."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from server.domain.models import Mention
+    from server.services import mention_service
+
+    reviewer_headers = reviewer["headers"]
+    reviewer_id = uuid.UUID(reviewer["id"])
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "stale-equiv", "description": "d"},
+    ).json()
+    root = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent check"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "ok", "parent_id": root["id"]},
+    )
+    mention = db_session.scalar(
+        select(Mention).where(
+            Mention.mentioned_agent_id == reviewer_id,
+            Mention.source_id == uuid.UUID(root["id"]),
+        )
+    )
+    assert mention is not None
+    mention.dismissed_at = None
+    db_session.commit()
+
+    stale = mention_service.agent_replied_after_mention(
+        db_session, mention=mention, agent_id=reviewer_id
+    )
+    assert stale is True
+
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    progress = client.get("/api/v1/agents/me/topic-progress", headers=reviewer_headers).json()
+    assert todos["mentions"] == []
+    assert _obligation_work_items_by_kind(progress, "mention") == []

@@ -881,6 +881,41 @@ def mention_dismiss_all() -> None:
     _run(lambda c: c.dismiss_all_mentions())
 
 
+@mention_app.command("reconcile-stale")
+def mention_reconcile_stale() -> None:
+    """Admin stub: offline stale mention reconciliation (T1 D5 MVP — not implemented)."""
+    typer.echo(
+        "mention reconcile-stale: stub only — stale mentions are filtered in "
+        "topic-progress/todos projection; use write-path dismiss on comment."
+    )
+
+
+todo_app = typer.Typer(help="Todo partition clear routing (explicit_only buckets)")
+app.add_typer(todo_app, name="todo")
+
+
+@todo_app.command("clear")
+def todo_clear(
+    key: str = typer.Option(..., "--key", help="Work-item idempotency_key or partition id"),
+) -> None:
+    """Route explicit_only todo partitions to the canonical clear CLI (T1 D7)."""
+    if key.startswith("notification:"):
+        notification_id = uuid.UUID(key.split(":", 1)[1])
+        _run(lambda c: c.mark_notification_read(notification_id))
+        return
+    if key.startswith("action_item:"):
+        item_id = uuid.UUID(key.split(":", 1)[1])
+        _run(lambda c: c.complete_action_item(item_id))
+        return
+    if key.startswith("my_open_topics:") or key.startswith("topic:"):
+        topic_id = uuid.UUID(key.rsplit(":", 1)[-1])
+        _run(lambda c: c.dismiss_topic(topic_id))
+        return
+    raise typer.BadParameter(
+        f"unsupported todo clear key {key!r}; explicit_only: notification, action_item, my_open_topics"
+    )
+
+
 @topic_app.command("create")
 def topic_create(
     title: str = typer.Option(..., "--title"),

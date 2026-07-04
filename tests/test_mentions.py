@@ -328,7 +328,7 @@ def test_auto_dismiss_does_not_touch_other_topic(
 def test_auto_dismiss_topic_on_top_level_comment(
     client, auth_headers, reviewer, project
 ):
-    """Posting any topic comment dismisses all open mentions in that topic."""
+    """Top-level reply after @mentions dismisses them via participation rules (T1 D2)."""
     reviewer_headers = reviewer["headers"]
     topic = client.post(
         f"/api/v1/projects/{project['id']}/topics",
@@ -357,10 +357,10 @@ def test_auto_dismiss_topic_on_top_level_comment(
     assert todos["mentions"] == []
 
 
-def test_reconcile_mentions_on_todos_after_prior_participation(
+def test_stale_mention_filtered_in_todos_without_read_write(
     client, auth_headers, reviewer, project, db_session
 ):
-    """get_todos reconciles stale mentions when the agent already replied earlier."""
+    """get_todos must not write; stale mentions are filtered in projection only."""
     import uuid
 
     from sqlalchemy import select
@@ -372,7 +372,7 @@ def test_reconcile_mentions_on_todos_after_prior_participation(
     topic = client.post(
         f"/api/v1/projects/{project['id']}/topics",
         headers=auth_headers,
-        json={"title": "Reconcile", "description": "d"},
+        json={"title": "Stale projection", "description": "d"},
     ).json()
     root = client.post(
         f"/api/v1/topics/{topic['id']}/comments",
@@ -394,11 +394,10 @@ def test_reconcile_mentions_on_todos_after_prior_participation(
     assert mention is not None
     assert mention.dismissed_at is not None
 
-    # Simulate legacy row left open after the agent already participated.
     mention.dismissed_at = None
     db_session.commit()
 
     todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert todos["mentions"] == []
     db_session.refresh(mention)
-    assert mention.dismissed_at is not None
+    assert mention.dismissed_at is None

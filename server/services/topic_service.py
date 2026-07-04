@@ -970,13 +970,13 @@ def create_topic_comment(
         and topic_ack_service.is_round_summary_comment(payload.body)
     ):
         topic_ack_service.mark_round_ack_pending(topic)
-    db.commit()
+    db.flush()
     db.refresh(comment)
 
     from server.services import mention_service
 
     unresolved = mention_service.process_topic_comment_mentions(
-        db, comment=comment, author=author, topic=topic
+        db, comment=comment, author=author, topic=topic, commit=False
     )
     mention_service.auto_dismiss_mentions_after_comment(
         db,
@@ -984,7 +984,9 @@ def create_topic_comment(
         experiment_id=None,
         topic_id=topic_id,
         new_comment_id=comment.id,
+        commit=False,
     )
+    db.commit()
     return comment, unresolved
 
 

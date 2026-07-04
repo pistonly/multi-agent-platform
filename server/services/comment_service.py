@@ -59,7 +59,7 @@ def create_comment(
         body=payload.body,
     )
     db.add(comment)
-    db.commit()
+    db.flush()
     db.refresh(comment)
 
     from server.services import mention_service
@@ -71,6 +71,7 @@ def create_comment(
         author=author,
         project_id=experiment.project_id,
         experiment_title=experiment.title,
+        commit=False,
     )
     mention_service.auto_dismiss_mentions_after_comment(
         db,
@@ -78,7 +79,9 @@ def create_comment(
         experiment_id=experiment_id,
         topic_id=None,
         new_comment_id=comment.id,
+        commit=False,
     )
+    db.commit()
     return comment, unresolved
 
 

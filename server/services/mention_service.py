@@ -96,6 +96,7 @@ def process_experiment_comment_mentions(
     author: Agent,
     project_id: uuid.UUID,
     experiment_title: str,
+    commit: bool = True,
 ) -> list[str]:
     names = extract_mention_names(comment.body)
     agents, unresolved = partition_mention_names(db, names)
@@ -119,7 +120,8 @@ def process_experiment_comment_mentions(
             recipient_ids.append(agent.id)
 
         if recipient_ids:
-            db.commit()
+            if commit:
+                db.commit()
             notification_service.enqueue_for_agents(
                 db,
                 recipient_agent_ids=recipient_ids,
@@ -160,6 +162,7 @@ def process_topic_comment_mentions(
     comment: TopicComment,
     author: Agent,
     topic: Topic,
+    commit: bool = True,
 ) -> list[str]:
     names = extract_mention_names(comment.body)
     agents, unresolved = partition_mention_names(db, names)
@@ -183,7 +186,8 @@ def process_topic_comment_mentions(
             recipient_ids.append(agent.id)
 
         if recipient_ids:
-            db.commit()
+            if commit:
+                db.commit()
             notification_service.enqueue_for_agents(
                 db,
                 recipient_agent_ids=recipient_ids,
@@ -324,6 +328,7 @@ def auto_dismiss_mentions_after_comment(
     experiment_id: uuid.UUID | None,
     topic_id: uuid.UUID | None,
     new_comment_id: uuid.UUID,
+    commit: bool = True,
 ) -> int:
     """Auto-dismiss open mentions after an agent participates in a topic/experiment."""
     count = auto_dismiss_mentions_for_author_in_thread(
@@ -332,14 +337,63 @@ def auto_dismiss_mentions_after_comment(
         experiment_id=experiment_id,
         topic_id=topic_id,
         new_comment_id=new_comment_id,
+        commit=False,
     )
-    count += auto_dismiss_mentions_in_container(
+    count += dismiss_mentions_answered_by_participation(
         db,
-        author=new_comment_author,
+        agent_id=new_comment_author.id,
         topic_id=topic_id,
         experiment_id=experiment_id,
+        commit=False,
     )
+    if commit:
+        db.commit()
     return count
+
+
+def dismiss_mentions_answered_by_participation(
+    db: Session,
+    *,
+    agent_id: uuid.UUID,
+    topic_id: uuid.UUID | None = None,
+    experiment_id: uuid.UUID | None = None,
+    commit: bool = True,
+) -> int:
+    """Dismiss open mentions when the agent already replied per thread/container rules."""
+    filters = [
+        Mention.mentioned_agent_id == agent_id,
+        Mention.dismissed_at.is_(None),
+    ]
+    if topic_id is not None:
+        filters.extend(
+            [
+                Mention.topic_id == topic_id,
+                Mention.source_type == MentionSourceType.topic_comment,
+            ]
+        )
+    elif experiment_id is not None:
+        filters.extend(
+            [
+                Mention.experiment_id == experiment_id,
+                Mention.source_type == MentionSourceType.experiment_comment,
+            ]
+        )
+    else:
+        return 0
+
+    open_mentions = list(db.scalars(select(Mention).where(*filters)))
+    to_dismiss = [
+        mention.id
+        for mention in open_mentions
+        if _agent_replied_after_mention(db, mention=mention, agent_id=agent_id)
+    ]
+    if not to_dismiss:
+        return 0
+    now = datetime.now(timezone.utc)
+    db.execute(update(Mention).where(Mention.id.in_(to_dismiss)).values(dismissed_at=now))
+    if commit:
+        db.commit()
+    return len(to_dismiss)
 
 
 def auto_dismiss_mentions_in_container(
@@ -439,7 +493,19 @@ def _agent_replied_after_mention(
             continue
         if _is_reply_in_thread_to(comment, source, by_id):
             return True
+        if comment.id > source.id:
+            return True
     return False
+
+
+def agent_replied_after_mention(
+    db: Session,
+    *,
+    mention: Mention,
+    agent_id: uuid.UUID,
+) -> bool:
+    """Public wrapper: True when agent posted in container after the mention source."""
+    return _agent_replied_after_mention(db, mention=mention, agent_id=agent_id)
 
 
 def reconcile_mentions_after_participation(db: Session, agent_id: uuid.UUID) -> int:
@@ -484,6 +550,7 @@ def auto_dismiss_mentions_for_author_in_thread(
     experiment_id: uuid.UUID | None,
     topic_id: uuid.UUID | None,
     new_comment_id: uuid.UUID,
+    commit: bool = True,
 ) -> int:
     """When an agent posts a reply in a thread, any @mention rows pointing at him
     inside that thread (i.e. whose source_id is one of the thread comment ids)
@@ -514,5 +581,6 @@ def auto_dismiss_mentions_for_author_in_thread(
         )
         .values(dismissed_at=now)
     )
-    db.commit()
+    if commit:
+        db.commit()
     return result.rowcount or 0

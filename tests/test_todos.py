@@ -347,3 +347,89 @@ def test_list_topics_search_pagination(client, auth_headers, project):
     )
     assert len(paged.json()) == 2
     assert paged.headers["X-Total-Count"] == "4"
+
+
+def test_no_write_on_repeated_todos(client, auth_headers, reviewer, project, db_session):
+    """Repeated GET /todos must not UPDATE mentions (T1 A/E)."""
+    import uuid
+
+    from sqlalchemy import select, update
+
+    from server.domain.models import Mention
+
+    reviewer_headers = reviewer["headers"]
+    reviewer_id = uuid.UUID(reviewer["id"])
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Read idempotent", "description": "d"},
+    ).json()
+    root = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent ping"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "replied", "parent_id": root["id"]},
+    )
+    mention = db_session.scalar(
+        select(Mention).where(
+            Mention.mentioned_agent_id == reviewer_id,
+            Mention.source_id == uuid.UUID(root["id"]),
+        )
+    )
+    assert mention is not None
+    mention.dismissed_at = None
+    db_session.commit()
+
+    for _ in range(5):
+        client.get("/api/v1/agents/me/todos", headers=reviewer_headers)
+
+    db_session.refresh(mention)
+    assert mention.dismissed_at is None
+
+
+def test_mention_dismiss_on_comment_write_path(client, auth_headers, reviewer, project, db_session):
+    """Posting a comment dismisses stale mentions on the write path (T1 B)."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from server.domain.models import Mention
+
+    reviewer_headers = reviewer["headers"]
+    reviewer_id = uuid.UUID(reviewer["id"])
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Write dismiss", "description": "d"},
+    ).json()
+    root = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "@reviewer-agent legacy open row"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "first reply", "parent_id": root["id"]},
+    )
+    mention = db_session.scalar(
+        select(Mention).where(
+            Mention.mentioned_agent_id == reviewer_id,
+            Mention.source_id == uuid.UUID(root["id"]),
+        )
+    )
+    assert mention is not None
+    mention.dismissed_at = None
+    db_session.commit()
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "nudge write-path dismiss"},
+    )
+    db_session.refresh(mention)
+    assert mention.dismissed_at is not None
