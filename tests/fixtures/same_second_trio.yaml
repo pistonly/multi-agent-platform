@@ -1,0 +1,25 @@
+# T3 D5: three comments at the same created_at — seq tie-break via comment_seq + id.
+topic:
+  title: same-second-trio
+  description: obligation + mention + round_ack at identical timestamp
+preface:
+  - role: participant
+    body: participant round1 thread root
+same_second:
+  - role: host
+    body: |
+      ## Round 1 Summary
+
+      ### 已共识
+      - same-second fixture
+  - role: participant
+    body: participant same-second reply
+    parent: preface
+  - role: host
+    body: "@reviewer-agent same-second mention ping"
+expected_obligations:
+  host:
+    - pending_topic_reply
+  participant:
+    - round_ack
+    - mention

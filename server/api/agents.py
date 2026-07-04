@@ -21,12 +21,14 @@ from server.domain.schemas import (
     NotificationRead,
     TodoRead,
     TopicProgressListRead,
+    TopicReadCursorRead,
 )
 from server.services import auth as auth_service
 from server.services import inbound_event_service
 from server.services import mention_service
 from server.services import notification_service
 from server.services import todo_service
+from server.services import topic_service
 from server.services.notification_stream import notification_sse_response
 from server.services import permissions as perm
 from server.services import project_service as svc
@@ -152,6 +154,18 @@ def get_my_topic_progress(
     from server.services import topic_progress_service
 
     return topic_progress_service.list_topic_progress_for_agent(db, agent)
+
+
+@agents_router.post(
+    "/me/topics/{topic_id}/read",
+    response_model=TopicReadCursorRead,
+)
+def mark_my_topic_read(
+    topic_id: uuid.UUID,
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> TopicReadCursorRead:
+    return topic_service.mark_topic_read(db, agent=agent, topic_id=topic_id)
 
 
 @agents_router.post(

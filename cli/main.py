@@ -911,8 +911,13 @@ def todo_clear(
         topic_id = uuid.UUID(key.rsplit(":", 1)[-1])
         _run(lambda c: c.dismiss_topic(topic_id))
         return
+    if key.startswith("unread_change:"):
+        topic_id = uuid.UUID(key.split(":", 2)[1])
+        _run(lambda c: c.mark_topic_read(topic_id))
+        return
     raise typer.BadParameter(
-        f"unsupported todo clear key {key!r}; explicit_only: notification, action_item, my_open_topics"
+        f"unsupported todo clear key {key!r}; explicit_only: notification, action_item, "
+        "my_open_topics, unread_change"
     )
 
 
@@ -1050,6 +1055,12 @@ def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 def topic_dismiss(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     """Hide an open topic from host todos until new activity (same as Web UI ✕)."""
     _run(lambda c: c.dismiss_topic(topic_id))
+
+
+@topic_app.command("read")
+def topic_read(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    """Mark all comments in a topic as read (advances per-agent comment_seq cursor)."""
+    _run(lambda c: c.mark_topic_read(topic_id))
 
 
 @topic_app.command(

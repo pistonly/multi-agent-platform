@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload
 
 from map_types.enums import AgentRole, ExperimentPhase, TopicActionItemStatus, TopicDiscussionRound
 from map_types.schemas import ActionItemCancel
-from server.domain.models import Agent, Experiment, Topic, TopicActionItem, TopicComment, TopicDecision, TopicStatus
+from server.domain.models import Agent, Experiment, Topic, TopicActionItem, TopicComment, TopicDecision, TopicReadCursor, TopicStatus
 from server.domain.schemas import (
     ExperimentSummaryRead,
     TopicActionItemRead,
@@ -17,6 +17,7 @@ from server.domain.schemas import (
     TopicCreate,
     TopicDecisionRead,
     TopicRead,
+    TopicReadCursorRead,
     TopicResolve,
     TopicSummaryRead,
     TopicUpdate,
@@ -63,6 +64,55 @@ def dismiss_topic(db: Session, *, agent: Agent, topic_id: uuid.UUID) -> Topic | 
         db.commit()
         db.refresh(topic)
     return topic
+
+
+def mark_topic_read(
+    db: Session,
+    *,
+    agent: Agent,
+    topic_id: uuid.UUID,
+) -> TopicReadCursorRead:
+    """Advance per-agent read cursor to the latest comment_seq (T3 D4).
+
+    Independent transaction from comment INSERT (T3-1). Does not clear
+    obligation work items (reply / mention / round_ack).
+    """
+    from server.services.permissions import ensure_topic_access
+
+    topic = ensure_topic_access(db, agent, topic_id)
+    max_seq = int(
+        db.scalar(
+            select(func.coalesce(func.max(TopicComment.comment_seq), 0)).where(
+                TopicComment.topic_id == topic.id
+            )
+        )
+        or 0
+    )
+    now = datetime.now(timezone.utc)
+    cursor = db.scalar(
+        select(TopicReadCursor).where(
+            TopicReadCursor.topic_id == topic.id,
+            TopicReadCursor.agent_id == agent.id,
+        )
+    )
+    if cursor is None:
+        cursor = TopicReadCursor(
+            topic_id=topic.id,
+            agent_id=agent.id,
+            last_read_comment_seq=max_seq,
+        )
+        db.add(cursor)
+    else:
+        cursor.last_read_comment_seq = max_seq
+        cursor.updated_at = now
+    db.commit()
+    db.refresh(cursor)
+    return TopicReadCursorRead(
+        topic_id=cursor.topic_id,
+        agent_id=cursor.agent_id,
+        last_read_comment_seq=cursor.last_read_comment_seq,
+        updated_at=cursor.updated_at,
+    )
 
 
 def topic_summaries_for_topics(
@@ -926,6 +976,7 @@ def _build_comment_tree(
             author_name=author_names.get(comment.author_agent_id),
             parent_comment_id=comment.parent_comment_id,
             body=comment.body,
+            comment_seq=comment.comment_seq,
             created_at=comment.created_at,
             children=[],
         )
@@ -937,6 +988,15 @@ def _build_comment_tree(
         else:
             roots.append(node)
     return roots
+
+
+def _next_topic_comment_seq(db: Session, topic_id: uuid.UUID) -> int:
+    current = db.scalar(
+        select(func.coalesce(func.max(TopicComment.comment_seq), 0)).where(
+            TopicComment.topic_id == topic_id
+        )
+    )
+    return int(current or 0) + 1
 
 
 def create_topic_comment(
@@ -959,6 +1019,7 @@ def create_topic_comment(
         author_agent_id=author.id,
         parent_comment_id=payload.parent_id,
         body=payload.body,
+        comment_seq=_next_topic_comment_seq(db, topic_id),
     )
     db.add(comment)
     # Bump topic.updated_at so any prior host-side dismiss on this topic
@@ -1001,6 +1062,7 @@ def topic_comment_read(
         author_name=author_names.get(comment.author_agent_id),
         parent_comment_id=comment.parent_comment_id,
         body=comment.body,
+        comment_seq=comment.comment_seq,
         created_at=comment.created_at,
         unresolved_mentions=list(unresolved_mentions or ()),
     )
@@ -1030,6 +1092,7 @@ def list_topic_comments(
             author_name=author_names.get(comment.author_agent_id),
             parent_comment_id=comment.parent_comment_id,
             body=comment.body,
+            comment_seq=comment.comment_seq,
             created_at=comment.created_at,
         )
         for comment in comments

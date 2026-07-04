@@ -29,6 +29,7 @@ from server.domain.schemas import (
 )
 from server.services import mention_service
 from server.services import permissions as perm
+from server.services import thread_activity
 from server.services import topic_ack_service
 from server.services.topic_service import topic_summaries_for_topics
 
@@ -51,11 +52,7 @@ def _excerpt(body: str) -> str:
 
 
 def thread_root_id(comment_id: uuid.UUID, by_id: dict[uuid.UUID, TopicComment]) -> uuid.UUID:
-    """Walk parent_comment_id to the top-level comment; that id is the thread root."""
-    current = by_id[comment_id]
-    while current.parent_comment_id is not None:
-        current = by_id[current.parent_comment_id]
-    return current.id
+    return thread_activity.thread_root_id(comment_id, by_id)
 
 
 def _host_replied_after(
@@ -65,33 +62,9 @@ def _host_replied_after(
     *,
     comment_order: list[uuid.UUID] | None = None,
 ) -> bool:
-    """True when the host has posted in the same thread after ``comment``.
-
-    Uses chronological comment order (``created_at`` asc, stable tie-break) so a
-    host reply clears the whole thread without treating an earlier host opener as
-    a reply to later participant messages. Same-second timestamps rely on list
-    order rather than strict ``created_at > cutoff``.
-    """
-    root = thread_root_id(comment.id, by_id)
-    if comment_order is None:
-        comment_order = sorted(
-            by_id.keys(),
-            key=lambda cid: (by_id[cid].created_at, str(cid)),
-        )
-    try:
-        comment_pos = comment_order.index(comment.id)
-    except ValueError:
-        return False
-    for cid in host_comment_ids:
-        if thread_root_id(cid, by_id) != root:
-            continue
-        try:
-            host_pos = comment_order.index(cid)
-        except ValueError:
-            continue
-        if host_pos > comment_pos:
-            return True
-    return False
+    return thread_activity.host_replied_after(
+        comment, host_comment_ids, by_id, comment_order=comment_order
+    )
 
 
 def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicReplyTodoRead]:
@@ -213,6 +186,7 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
         )
     )
     my_open_topics = topic_summaries_for_topics(db, open_topics, viewer_agent_id=agent.id)
+    # DEPRECATED (T3 D6): prefer topic-progress work_items; kept for host dismiss (explicit_only).
 
     project_clause = None if perm.is_admin(agent) else Experiment.project_id == agent.project_id
 

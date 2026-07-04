@@ -245,7 +245,7 @@ export function TodosPage() {
       )}
 
       {data.my_open_topics.length > 0 && (
-        <Section title={`我发起的话题（${data.my_open_topics.length}）`}>
+        <Section title={`我发起的话题（${data.my_open_topics.length}，参考 topic-progress）`}>
           {data.my_open_topics.map((t) => (
             <Row key={t.id} to={`/topics/${t.id}`}>
               <span className="text-accent hover:underline">{t.title}</span>

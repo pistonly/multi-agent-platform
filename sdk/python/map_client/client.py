@@ -57,6 +57,7 @@ from map_types import (
     TopicDecisionRead,
     TopicProgressListRead,
     TopicRead,
+    TopicReadCursorRead,
     TopicResolve,
     TopicStatus,
     TopicSummaryRead,
@@ -642,6 +643,10 @@ class MAPClient:
 
     def dismiss_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
         return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/dismiss"))
+
+    def mark_topic_read(self, topic_id: uuid.UUID) -> TopicReadCursorRead:
+        data = self._json("POST", f"/agents/me/topics/{topic_id}/read")
+        return TopicReadCursorRead.model_validate(data)
 
     def create_topic_comment(
         self,

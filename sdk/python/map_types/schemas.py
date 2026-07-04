@@ -462,6 +462,7 @@ class TopicCommentRead(ORMModel):
     author_name: str | None = None
     parent_comment_id: uuid.UUID | None
     body: str
+    comment_seq: int
     created_at: datetime
     unresolved_mentions: list[str] = Field(default_factory=list)
 
@@ -584,6 +585,13 @@ class DismissMentionResultRead(BaseModel):
 
 class DismissAllMentionsResultRead(BaseModel):
     dismissed: int
+
+
+class TopicReadCursorRead(BaseModel):
+    topic_id: uuid.UUID
+    agent_id: uuid.UUID
+    last_read_comment_seq: int
+    updated_at: datetime
 
 
 class TopicActionItemTodoRead(BaseModel):

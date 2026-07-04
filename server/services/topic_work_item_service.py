@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from server.domain.models import Agent, Mention, MentionSourceType, Topic, TopicComment, TopicStatus
+from server.domain.models import Agent, Mention, MentionSourceType, Topic, TopicComment, TopicReadCursor, TopicStatus
 from server.domain.schemas import (
     MentionTodoRead,
     PendingRoundAckTodoRead,
@@ -26,7 +26,7 @@ _CLEAR_ACTION_BY_KIND = {
     "pending_topic_reply": "comment",
     "round_ack": "ack",
     "mention": "dismiss",
-    "unread_change": "comment",
+    "unread_change": "read",
 }
 
 
@@ -187,28 +187,34 @@ def _mention_items(db: Session, topic: Topic, agent: Agent) -> list[TopicWorkIte
     return items
 
 
+def _agent_cursor_seq(db: Session, topic_id: uuid.UUID, agent_id: uuid.UUID) -> int:
+    cursor = db.scalar(
+        select(TopicReadCursor.last_read_comment_seq).where(
+            TopicReadCursor.topic_id == topic_id,
+            TopicReadCursor.agent_id == agent_id,
+        )
+    )
+    return int(cursor or 0)
+
+
 def _unread_change_items(
+    db: Session,
     topic: Topic,
     agent: Agent,
     comments: list[TopicComment],
 ) -> list[TopicWorkItem]:
     if not comments:
         return []
-    last_comment = comments[-1]
-    if last_comment.author_agent_id == agent.id:
-        return []
-
-    my_comments = [c for c in comments if c.author_agent_id == agent.id]
-    my_last = my_comments[-1] if my_comments else None
-    if my_last is None:
-        new_comments = comments
-    else:
-        my_last_idx = next(i for i, c in enumerate(comments) if c.id == my_last.id)
-        new_comments = comments[my_last_idx + 1 :]
-
+    cursor_seq = _agent_cursor_seq(db, topic.id, agent.id)
+    new_comments = [
+        c
+        for c in comments
+        if c.comment_seq > cursor_seq and c.author_agent_id != agent.id
+    ]
     if not new_comments:
         return []
 
+    by_id = {c.id: c for c in comments}
     items: list[TopicWorkItem] = []
     for comment in new_comments:
         items.append(
@@ -218,7 +224,7 @@ def _unread_change_items(
                 topic_id=topic.id,
                 topic_title=topic.title,
                 source_comment_id=comment.id,
-                thread_root_id=thread_root_id(comment.id, {c.id: c for c in comments}),
+                thread_root_id=thread_root_id(comment.id, by_id),
                 required_agent_id=agent.id,
                 reason="content_since_cursor",
                 idempotency_key=f"unread_change:{topic.id}:{comment.id}",
@@ -264,7 +270,7 @@ def topic_work_items_for_topic(
     items.extend(_pending_reply_items(db, topic, agent, comments))
     items.extend(_round_ack_items(db, topic, agent))
     items.extend(_mention_items(db, topic, agent))
-    items.extend(_unread_change_items(topic, agent, comments))
+    items.extend(_unread_change_items(db, topic, agent, comments))
     if not _include_topic_for_agent(db, topic, agent, comments, items):
         return []
     return items

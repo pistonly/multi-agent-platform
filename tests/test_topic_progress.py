@@ -29,7 +29,7 @@ def test_topic_progress_empty_when_last_comment_is_mine(client, auth_headers, pr
     assert progress["items"] == []
 
 
-def test_topic_progress_returns_comments_after_my_last(client, auth_headers, project, reviewer):
+def test_topic_progress_returns_comments_after_cursor(client, auth_headers, project, reviewer):
     topic = _create_topic(client, auth_headers, project, title="progress-b")
     tid = topic["id"]
     client.post(
@@ -48,6 +48,10 @@ def test_topic_progress_returns_comments_after_my_last(client, auth_headers, pro
         json={"body": "host follow-up"},
     )
     client.post(
+        f"/api/v1/agents/me/topics/{tid}/read",
+        headers=auth_headers,
+    )
+    client.post(
         f"/api/v1/topics/{tid}/comments",
         headers=reviewer["headers"],
         json={"body": "reviewer newest"},
@@ -64,7 +68,16 @@ def test_topic_progress_returns_comments_after_my_last(client, auth_headers, pro
     reviewer_progress = client.get(
         "/api/v1/agents/me/topic-progress", headers=reviewer["headers"]
     ).json()
-    assert reviewer_progress["total"] == 0
+    assert reviewer_progress["total"] == 1  # host follow-up unread until cursor read
+
+    client.post(
+        f"/api/v1/agents/me/topics/{tid}/read",
+        headers=reviewer["headers"],
+    )
+    reviewer_after_read = client.get(
+        "/api/v1/agents/me/topic-progress", headers=reviewer["headers"]
+    ).json()
+    assert reviewer_after_read["total"] == 0
 
 
 def test_topic_progress_empty_when_never_participated(client, auth_headers, project, reviewer):

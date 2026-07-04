@@ -180,11 +180,25 @@ class TopicComment(Base):
     author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     parent_comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topic_comments.id"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    comment_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     topic: Mapped["Topic"] = relationship(back_populates="comments")
     author: Mapped["Agent"] = relationship()
     parent: Mapped["TopicComment | None"] = relationship(remote_side="TopicComment.id")
+
+
+class TopicReadCursor(Base):
+    __tablename__ = "topic_read_cursors"
+    __table_args__ = (UniqueConstraint("topic_id", "agent_id", name="uq_topic_read_cursor_topic_agent"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id"), nullable=False, index=True)
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    last_read_comment_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class TopicDecision(Base):
