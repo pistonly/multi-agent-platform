@@ -26,6 +26,7 @@ from server.services import action_item_service, audit_service, notification_ser
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 from server.services.permissions import is_admin
 from server.services.project_service import get_project
+from server.services.thread_activity import topic_comment_order_clauses, topic_comment_order_clauses_desc
 
 
 def _get_topic(db: Session, topic_id: uuid.UUID) -> Topic:
@@ -210,7 +211,7 @@ def _latest_topic_comments_by_topic(
         comment = db.scalars(
             select(TopicComment)
             .where(TopicComment.topic_id == topic_id)
-            .order_by(TopicComment.created_at.desc(), TopicComment.id.desc())
+            .order_by(*topic_comment_order_clauses_desc())
             .limit(1)
         ).first()
         if comment is not None:
@@ -429,7 +430,7 @@ def get_topic_detail(db: Session, topic_id: uuid.UUID) -> TopicRead:
     comments = list(db.scalars(
         select(TopicComment)
         .where(TopicComment.topic_id == topic.id)
-        .order_by(TopicComment.created_at.asc())
+        .order_by(*topic_comment_order_clauses())
     ))
     comments_tree = _build_comment_tree(comments, _agent_names_by_ids(
         db, {comment.author_agent_id for comment in comments}
@@ -1078,7 +1079,7 @@ def list_topic_comments(
     stmt = (
         select(TopicComment)
         .where(TopicComment.topic_id == topic_id)
-        .order_by(TopicComment.created_at.asc())
+        .order_by(*topic_comment_order_clauses())
     )
     comments = list(db.scalars(stmt))
     author_names = _agent_names_by_ids(db, {comment.author_agent_id for comment in comments})

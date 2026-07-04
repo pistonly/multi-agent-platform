@@ -19,6 +19,7 @@ from server.domain.schemas import (
     TopicWorkItemRead,
 )
 from server.services import mention_service, topic_ack_service
+from server.services.thread_activity import topic_comment_order_clauses
 from server.services.todo_service import _excerpt, _host_replied_after, thread_root_id
 from server.services.topic_service import _agent_names_by_ids
 
@@ -69,7 +70,7 @@ def _topic_comments(db: Session, topic_id: uuid.UUID) -> list[TopicComment]:
         db.scalars(
             select(TopicComment)
             .where(TopicComment.topic_id == topic_id)
-            .order_by(TopicComment.created_at.asc())
+            .order_by(*topic_comment_order_clauses())
         )
     )
 

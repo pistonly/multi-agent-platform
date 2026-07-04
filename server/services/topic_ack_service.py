@@ -17,6 +17,7 @@ from server.domain.topic_ack_constants import (
     ADVANCE_ROUND_ACK_TIMEOUT,
 )
 from server.services.errors import ConflictError
+from server.services.thread_activity import topic_comment_order_clauses, topic_comment_sort_key
 
 ROUND_SUMMARY_RE = re.compile(r"^##\s*Round\s+\d+\s+Summary\b", re.MULTILINE | re.IGNORECASE)
 
@@ -43,7 +44,7 @@ def _topic_comments(db: Session, topic_id: uuid.UUID) -> list[TopicComment]:
         db.scalars(
             select(TopicComment)
             .where(TopicComment.topic_id == topic_id)
-            .order_by(TopicComment.created_at.asc())
+            .order_by(*topic_comment_order_clauses())
         )
     )
 
@@ -228,7 +229,7 @@ def latest_host_round_summary_comment(
     ]
     if not candidates:
         return None
-    return max(candidates, key=lambda comment: (comment.created_at, comment.id))
+    return max(candidates, key=topic_comment_sort_key)
 
 
 def _ack_cutoff_for_topic(db: Session, topic: Topic) -> datetime | None:

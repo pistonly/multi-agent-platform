@@ -11,6 +11,29 @@ from sqlalchemy.orm import Session
 from server.domain.models import Comment, Mention, MentionSourceType, TopicComment
 
 
+def topic_comment_sort_key(comment: TopicComment) -> tuple:
+    """Canonical per-topic total order: wall clock, then seq, then id."""
+    return (comment.created_at, comment.comment_seq, comment.id)
+
+
+def topic_comment_order_clauses():
+    """SQLAlchemy ORDER BY for topic comments (ascending)."""
+    return (
+        TopicComment.created_at.asc(),
+        TopicComment.comment_seq.asc(),
+        TopicComment.id.asc(),
+    )
+
+
+def topic_comment_order_clauses_desc():
+    """SQLAlchemy ORDER BY for topic comments (descending / latest first)."""
+    return (
+        TopicComment.created_at.desc(),
+        TopicComment.comment_seq.desc(),
+        TopicComment.id.desc(),
+    )
+
+
 class _CommentLike(Protocol):
     id: uuid.UUID
     author_agent_id: uuid.UUID
@@ -39,10 +62,7 @@ def host_replied_after(
     """True when the host posted in the same thread after ``comment``."""
     root = thread_root_id(comment.id, by_id)
     if comment_order is None:
-        comment_order = sorted(
-            by_id.keys(),
-            key=lambda cid: (by_id[cid].created_at, str(cid)),
-        )
+        comment_order = sorted(by_id.keys(), key=lambda cid: topic_comment_sort_key(by_id[cid]))
     try:
         comment_pos = comment_order.index(comment.id)
     except ValueError:
@@ -84,7 +104,7 @@ def comment_after(
             db.scalars(
                 select(TopicComment)
                 .where(TopicComment.topic_id == mention.topic_id)
-                .order_by(TopicComment.created_at.asc(), TopicComment.comment_seq.asc(), TopicComment.id.asc())
+                .order_by(*topic_comment_order_clauses())
             )
         )
     elif (
