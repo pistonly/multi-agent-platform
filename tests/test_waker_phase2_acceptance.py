@@ -23,6 +23,10 @@ is in ``test_waker_phase2_i2_i3.py``.
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 import uuid
 from collections import Counter
 

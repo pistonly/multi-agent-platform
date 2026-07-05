@@ -26,6 +26,8 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+pytestmark = pytest.mark.slow
+
 from cli.host_worker_types import WorkerError
 from cli.runtime_waker import (
     RuntimeWaker,

@@ -20,6 +20,10 @@ shortcut.
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 import json
 import uuid
 from pathlib import Path

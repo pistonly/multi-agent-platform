@@ -5,6 +5,8 @@ implicit in the 372-test suite passing locally.
 """
 
 import pytest
+
+pytestmark = pytest.mark.slow
 from fastapi.testclient import TestClient
 
 

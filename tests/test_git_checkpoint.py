@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from cli.git_checkpoint import GitCheckpointError, checkpoint_after, checkpoint_before, head_sha
 
 

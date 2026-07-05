@@ -1,3 +1,6 @@
+import shutil
+import subprocess
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -9,6 +12,43 @@ from map_client.testing import MAPTestClientTransport
 from server.db.base import Base
 from server.db.session import get_db
 from server.main import create_app
+
+
+# ---------------------------------------------------------------------------
+# claude_cli marker：未登录时 skip 而非 fail
+# ---------------------------------------------------------------------------
+# 真调用 `claude --print` 的测试（waker phase2 e2e_a1b / a1_total 等）依赖
+# claude CLI 登录态。CI 沙箱环境通常未登录，应 skip 而不是报 FAILED。
+# 用法：在测试模块顶部 `pytestmark = pytest.mark.claude_cli`，本 fixture 自动
+# 探活；若 claude 不可用或未登录则整模块 skip。
+def _claude_cli_available() -> tuple[bool, str]:
+    if not shutil.which("claude"):
+        return False, "claude CLI not found in PATH"
+    try:
+        proc = subprocess.run(
+            ["claude", "--print", "--dangerously-skip-permissions", "Reply with exactly one word: ok"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "claude CLI timed out (>15s)"
+    except Exception as exc:  # pragma: no cover - 防御性
+        return False, f"claude CLI probe failed: {exc}"
+    if proc.returncode != 0:
+        return False, f"claude CLI rc={proc.returncode} (likely not logged in)"
+    return True, "ok"
+
+
+@pytest.fixture(autouse=True)
+def skip_claude_cli_if_unavailable(request):
+    """对标记了 `claude_cli` 的测试项，若 claude 不可用则 skip。"""
+    marker = request.node.get_closest_marker("claude_cli")
+    if marker is None:
+        return
+    ok, reason = _claude_cli_available()
+    if not ok:
+        pytest.skip(f"claude_cli unavailable: {reason}")
 
 
 @pytest.fixture(scope="session")

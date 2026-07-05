@@ -22,6 +22,10 @@ would be off-by-one because the host is usually the actor.
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 from fastapi.testclient import TestClient
 
 

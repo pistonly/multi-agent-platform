@@ -20,6 +20,10 @@ would serialize threads through one connection and mask the race).
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 import json
 import threading
 import uuid

@@ -43,6 +43,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
+pytestmark = pytest.mark.slow
 from sqlalchemy import select
 
 from map_types.enums import (

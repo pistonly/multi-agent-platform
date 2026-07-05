@@ -55,6 +55,20 @@ include = ["server*", "cli*", "map_client*", "map_mcp*", "map_types*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# 测试分层（详见 tests/README.md）：
+# - unit：默认，纯 in-memory sqlite + TestClient + mock，秒级
+# - slow：单测耗时 >1s，含多线程 / SSE / file-backed sqlite / phase1 acceptance
+# - integration：多进程 / 真 httpx / 真 systemd / 压力测试，分钟级
+# - claude_cli：真调用 `claude --print` 子进程（需登录），integration 子集
+# 默认 addopts 排除 slow/integration/claude_cli，本地 PR 用 `pytest` 即可；
+# `pytest -m integration` 跑集成；`pytest -m claude_cli` 跑真 CLI；
+# `pytest --marker-all` 或 `pytest -m ""` 跑全量。
+addopts = "-m 'not slow and not integration and not claude_cli'"
+markers = [
+    "slow: 单测耗时 >1s 或使用多线程/SSE/file-backed sqlite（本地默认 skip）",
+    "integration: 多进程/真 httpx/真 systemd/压力测试，应在 CI nightly 跑",
+    "claude_cli: 真调用 `claude --print` 子进程，需 claude CLI 登录态；integration 子集",
+]
 
 [tool.ruff]
 line-length = 120
@@ -64,3 +78,6 @@ extend-exclude = ["reference", "tmp"]
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402"]

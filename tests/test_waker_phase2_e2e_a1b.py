@@ -51,6 +51,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.claude_cli]
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
