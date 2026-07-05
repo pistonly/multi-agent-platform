@@ -11,11 +11,11 @@
 | project_key | `multi-agents-platform` |
 | workspace_path | `/home/AI02/Documents/quantaeye/multi_agents_platform` |
 | 主分支 | `main` |
-| 最新版本 | **v0.8 waker 闭环已验收**（runtime-waker 标准路径） |
+| 最新版本 | **v0.8 waker 闭环已验收**（simple-waker 默认；legacy runtime-waker 保留 SSE/审计） |
 
 ## Agent 身份与协作路径
 
-本仓库 **统一使用 `.map/` persona + `map` CLI + runtime-waker**。
+本仓库 **统一使用 `.map/` persona + `map` CLI + simple-waker（默认）**。
 
 | Persona | Agent 名 | 职责 |
 |---------|----------|------|
@@ -23,9 +23,9 @@
 | **participant** | `multi-agents-platform-participant` | 参与话题讨论 |
 | **reviewer** | `multi-agents-platform-reviewer` | 评审实验计划 |
 
-**标准路径**：`./scripts/start-all-wakers.sh` → Agent 读 Skill → `map --persona <name>` CLI。
+**标准路径**：`./scripts/start-all-wakers.sh`（simple-waker）→ Agent 读 Skill → `map --persona <name>` CLI。
 
-**Runtime 后端**（`MAP_RUNTIME_BACKEND`）：`claude`（默认）、`codex`、`cursor`（Cursor SDK 本地 agent）。详见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md)。
+**Legacy runtime-waker**：`MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh`；`MAP_RUNTIME_BACKEND` 支持 `claude`（默认）、`codex`、`cursor`。详见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md)。
 
 **已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`、runner JSON 契约。
 
@@ -46,13 +46,13 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 | 阶段 | 内容 |
 |------|------|
 | M25–M26 | v0.7 P1 轮次字段 + P2 host bridge（**legacy，不再扩展**） |
-| M27 | v0.8 runtime-waker 标准路径、systemd 部署、ack 门禁、SSE acceptance |
+| M27 | v0.8 runtime-waker legacy 路径、systemd 部署、ack 门禁、SSE acceptance |
 
 ## 技术栈
 
 - **后端**：FastAPI + SQLAlchemy + Alembic
 - **前端**：React + Vite + TypeScript
-- **协作**：CLI (`map`)、runtime-waker（`claude` / `codex` / `cursor` 后端）、`.cursor/skills/`
+- **协作**：CLI (`map`)、simple-waker（默认）/ legacy runtime-waker（`claude` / `codex` / `cursor`）、`.cursor/skills/`
 - **部署**：Docker Compose（API :8001 / Web :3000）；可选 systemd `map-wakers.service`
 
 ## 阻塞 / 风险
@@ -71,5 +71,6 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 ## 关键文档
 
 - [README](../README.md)
+- [MAP-SIMPLE-WAKER.md](../docs/MAP-SIMPLE-WAKER.md)
 - [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md)
 - [AGENTS.md](../AGENTS.md)

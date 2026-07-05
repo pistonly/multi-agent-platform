@@ -52,6 +52,9 @@ class MapCommandClient:
     def todos(self) -> dict[str, Any]:
         return self._run(["todos"])
 
+    def work(self) -> dict[str, Any]:
+        return self._run(["work"])
+
     def topic_progress(self) -> dict[str, Any]:
         return self._run(["topic", "progress"])
 

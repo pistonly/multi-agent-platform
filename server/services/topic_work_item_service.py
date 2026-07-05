@@ -127,10 +127,16 @@ def _pending_reply_items(
     return items
 
 
-def _round_ack_items(db: Session, topic: Topic, agent: Agent) -> list[TopicWorkItem]:
+def _round_ack_items(
+    db: Session,
+    topic: Topic,
+    agent: Agent,
+    comments: list[TopicComment] | None = None,
+) -> list[TopicWorkItem]:
     if not topic_ack_service.agent_needs_round_ack(db, topic, agent.id):
         return []
-    comments = _topic_comments(db, topic.id)
+    if comments is None:
+        comments = _topic_comments(db, topic.id)
     summary = topic_ack_service.latest_host_round_summary_comment(
         comments,
         host_agent_id=topic.creator_agent_id,
@@ -156,10 +162,18 @@ def _round_ack_items(db: Session, topic: Topic, agent: Agent) -> list[TopicWorkI
     ]
 
 
-def _mention_items(db: Session, topic: Topic, agent: Agent) -> list[TopicWorkItem]:
+def _mention_items(
+    db: Session,
+    topic: Topic,
+    agent: Agent,
+    mentions_for_agent: list[Mention] | None = None,
+) -> list[TopicWorkItem]:
+    mentions = mentions_for_agent
+    if mentions is None:
+        mentions = mention_service.list_mentions_for_agent(db, agent.id, limit=200)
     mentions = [
         m
-        for m in mention_service.list_mentions_for_agent(db, agent.id, limit=200)
+        for m in mentions
         if m.topic_id == topic.id and m.dismissed_at is None
     ]
     items: list[TopicWorkItem] = []
@@ -265,21 +279,35 @@ def topic_work_items_for_topic(
     db: Session,
     topic: Topic,
     agent: Agent,
+    *,
+    comments: list[TopicComment] | None = None,
+    mentions_for_agent: list[Mention] | None = None,
 ) -> list[TopicWorkItem]:
-    comments = _topic_comments(db, topic.id)
+    if comments is None:
+        comments = _topic_comments(db, topic.id)
     items: list[TopicWorkItem] = []
     items.extend(_pending_reply_items(db, topic, agent, comments))
-    items.extend(_round_ack_items(db, topic, agent))
-    items.extend(_mention_items(db, topic, agent))
+    items.extend(_round_ack_items(db, topic, agent, comments))
+    items.extend(_mention_items(db, topic, agent, mentions_for_agent))
     items.extend(_unread_change_items(db, topic, agent, comments))
     if not _include_topic_for_agent(db, topic, agent, comments, items):
         return []
     return items
 
 
+@dataclass(frozen=True)
+class AgentTopicWorkItems:
+    items: list[TopicWorkItem]
+    comments_by_topic: dict[uuid.UUID, list[TopicComment]]
+
+
 def topic_work_items_for_agent(db: Session, agent: Agent) -> list[TopicWorkItem]:
+    return topic_work_items_bundle_for_agent(db, agent).items
+
+
+def topic_work_items_bundle_for_agent(db: Session, agent: Agent) -> AgentTopicWorkItems:
     if agent.project_id is None:
-        return []
+        return AgentTopicWorkItems(items=[], comments_by_topic={})
     open_topics = list(
         db.scalars(
             select(Topic)
@@ -292,10 +320,22 @@ def topic_work_items_for_agent(db: Session, agent: Agent) -> list[TopicWorkItem]
             .order_by(Topic.updated_at.desc())
         )
     )
+    mentions_for_agent = mention_service.list_mentions_for_agent(db, agent.id, limit=200)
     items: list[TopicWorkItem] = []
+    comments_by_topic: dict[uuid.UUID, list[TopicComment]] = {}
     for topic in open_topics:
-        items.extend(topic_work_items_for_topic(db, topic, agent))
-    return items
+        comments = _topic_comments(db, topic.id)
+        comments_by_topic[topic.id] = comments
+        items.extend(
+            topic_work_items_for_topic(
+                db,
+                topic,
+                agent,
+                comments=comments,
+                mentions_for_agent=mentions_for_agent,
+            )
+        )
+    return AgentTopicWorkItems(items=items, comments_by_topic=comments_by_topic)
 
 
 def obligation_items_for_agent(db: Session, agent: Agent) -> list[TopicWorkItem]:
@@ -433,12 +473,15 @@ def topic_progress_item_from_work_items(
     topic: Topic,
     agent: Agent,
     items: list[TopicWorkItem],
+    *,
+    comments: list[TopicComment] | None = None,
 ) -> TopicProgressItemRead | None:
     topic_items = [i for i in items if i.topic_id == topic.id]
     if not topic_items:
         return None
 
-    comments = _topic_comments(db, topic.id)
+    if comments is None:
+        comments = _topic_comments(db, topic.id)
     if not comments:
         return None
     last_comment = comments[-1]

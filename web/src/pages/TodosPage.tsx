@@ -5,7 +5,7 @@ import {
   dismissAllMentions,
   dismissMention,
   dismissTopic,
-  fetchTodos,
+  fetchWork,
 } from "../api/client";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
@@ -15,29 +15,31 @@ import { formatElapsed, wakeBadge } from "../utils/actionItemWake";
 
 export function TodosPage() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
-    queryKey: ["todos"],
-    queryFn: fetchTodos,
+  const { data: work, isLoading } = useQuery({
+    queryKey: ["work"],
+    queryFn: fetchWork,
     refetchInterval: 120_000,
   });
 
   const dismissOne = useMutation({
     mutationFn: (mentionId: string) => dismissMention(mentionId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work"] }),
   });
 
   const dismissMany = useMutation({
     mutationFn: () => dismissAllMentions(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work"] }),
   });
 
   const dismissOneTopic = useMutation({
     mutationFn: (topicId: string) => dismissTopic(topicId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["todos"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work"] }),
   });
 
   if (isLoading) return <p className="text-slate-400">加载待办…</p>;
-  if (!data) return null;
+  if (!work) return null;
+
+  const data = work.todos;
 
   const empty = sumTodos(data) === 0;
 

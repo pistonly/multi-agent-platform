@@ -8,32 +8,44 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 产品主功能是 **Skill 指导 Agent 使用 MAP 协作**：Skill 负责行为流程与判断规则，MAP 平台负责状态、权限、审计、话题、实验、结论和行动项等持久化协作对象。开发优先级应围绕 SDK/CLI、`.map/` persona、Skill onboarding、文档和端到端协作闭环展开。
 
-多 persona 自动推进是附带功能：**`runtime-waker`**（`./scripts/start-all-wakers.sh`）负责发现待办、唤醒 Agent Runtime，并保持短提示与幂等；**本仓库已停用 `cli/host_worker` bridge**（`start-host-bridge*.sh` 勿再使用）。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
+多 persona 自动推进是附带功能：**`simple-waker`**（`./scripts/start-all-wakers.sh` 默认）轮询 topic progress、todos 与 wakeable 通知，统一 remind 唤醒 Agent Runtime；**legacy `runtime-waker`**（`MAP_USE_LEGACY_WAKER=1`）保留 SSE + 逐项 fingerprint 与 `inbound_event` 审计路径。**本仓库已停用 `cli/host_worker` bridge**（`start-host-bridge*.sh` 勿再使用）。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
 
-## Agent 自动推进（runtime-waker）原则
+## Agent 自动推进（waker）原则
 
-**Web UI 待办页 + 未读通知 = waker 的唯一触发源。** 不在 waker 里维护第二套业务规则（如评论游标、自定义 kind）。
+**topic progress + Web 待办页 + wakeable 未读通知 = waker 的触发源**（与平台 API 同源；不在 waker 里维护第二套业务规则，如评论游标、自定义 kind）。
+
+### 两种 waker
+
+| | **simple-waker**（默认） | **runtime-waker**（legacy） |
+| --- | --- | --- |
+| 启动 | `./scripts/start-all-wakers.sh` | `MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` |
+| 触发 | 轮询 `topic-progress` + `todos` + wakeable 通知 | SSE 长连 + 轮询兜底，逐项 fingerprint |
+| 粒度 | 批量 remind（一次可处理多项） | 一步一 wake（一次只推进一项） |
+| State | `.map/simple-waker-state-*.json` | `.map/runtime-waker-state-*.json` |
+| 文档 | [MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md) | [MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md) |
+
+`my_open_topics` 为被动清单，** alone 不触发** simple-waker remind；话题参与看 **topic progress**。
 
 ### 职责边界
 
 | 组件 | 做什么 | 不做什么 |
 |------|--------|----------|
-| **runtime-waker** | 轮询 `map todos` 与未读通知 → 去重 → 短 prompt 唤醒 Runtime | 不写 MAP、不跑实验、不替 Agent 做业务判断 |
+| **waker**（simple 或 legacy） | 发现待办/话题进展 → 短 prompt 唤醒 Runtime | 不写 MAP、不跑实验、不替 Agent 做业务判断 |
 | **Skill** | 定义被唤醒后**怎么做**（topic-host / experiment-host 等） | 不替代平台状态机 |
-| **被唤醒的 Agent** | `whoami` → `todos` → **处理当前 wake 对应的一项** → 写回 MAP | 不凭 session 记忆跳过待办 |
+| **被唤醒的 Agent** | `whoami` → `topic progress` + `todos` → 写回 MAP | 不凭 session 记忆跳过待办 |
 
 被唤醒时 Agent **必须先读** [.cursor/skills/map-runtime-waker/SKILL.md](.cursor/skills/map-runtime-waker/SKILL.md)，再读 persona Skill 与 [map-project-collab](.cursor/skills/map-project-collab/SKILL.md)。
 
-### 触发与 kind
+### 触发与 kind（legacy runtime-waker）
 
-- waker 发现的每一项待办，其 **`kind` 等于 `map todos` 的字段名**（与 Web 待办分区同名），例如 `pending_topic_replies`、`pending_round_acks`、`my_open_experiments`。
+- 每一项待办的 **`kind` 等于 `map todos` 的字段名**（与 Web 待办分区同名），例如 `pending_topic_replies`、`pending_round_acks`、`my_open_experiments`。
 - 另有 `notification` kind，对应未读应用内通知。
 - fingerprint 为 `{persona}:{kind}:{item_id}`；**待办从 API 消失后不再 wake**（heartbeat 仅在项仍存在时自愈重试）。
 
 ### 被唤醒后 Agent 必须遵守
 
-1. **todos 即真相**：每次 wake 后执行 `map --persona <name> todos`，以 API 返回为准，禁止把「上次看过 / pending 队列曾为空」当成无事可做。
-2. **一步一 wake**：一次 wake 只推进**当前 kind 对应的一项**的下一步（回复一条、ack 一次、advance-round 一次等）。
+1. **topic progress + todos 即真相**：每次 remind/wake 后执行 `map --persona <name> topic progress` 与 `map --persona <name> todos`，以 API 返回为准，禁止把「上次看过 / 队列曾为空」当成无事可做。
+2. **推进粒度**：**simple-waker** 可批量处理多项，收尾前再验证 `topic progress` + `todos` 已清空或每项有文档化 blocker；**runtime-waker** 一次 wake 只推进**当前 kind 对应的一项**。
 3. **清理 = 与 UI 相同**：处理完成后须让该项从待办或通知列表消失——不是 waker 本地标记「已读」：
    - `@mentions` → `map mention dismiss --id <uuid>`
    - 未读通知 → `map notification read --id <uuid>`
@@ -46,9 +58,10 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 ### 开发与调试注意
 
-- 改 waker 行为时优先改 **`get_todos` / Web 待办展示**，保持 UI 与 waker 一致；详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
-- 部署：`./scripts/start-all-wakers.sh`；日志 `.map/waker-logs/`；本地 state `.map/runtime-waker-state-*.json`（session + 去重，**不含**业务游标）。
-- 改 waker 代码或 Skill 后需**重启 waker**；改 API todos 字段后需**重启 API 容器**。
+- 改 waker 行为时优先改 **`topic_work_items_for_agent` / `get_todos` / Web 待办展示**，保持 UI 与 waker 一致。
+- 部署：`./scripts/start-all-wakers.sh`（默认 simple-waker）；日志 `.map/waker-logs/`；session 转录 `.map/runtime-waker-sessions/`。
+- legacy：`MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh`；state `.map/runtime-waker-state-*.json`（session + 去重 + `inbound_event` 审计）。
+- 改 waker 代码或 Skill 后需**重启 waker**；改 API todos / topic-progress 字段后需**重启 API 容器**。
 
 ## Agent 身份（必读）
 
@@ -106,6 +119,7 @@ map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."
 map --persona host experiment create --title "..." --plan-file ./plan.md --topic-id <uuid>
 map --persona host todos
+map --persona host work              # 统一快照：whoami + topic progress + todos + wakeable 通知
 map --persona host topic progress   # work items 投影；与 todos 话题 obligation 分区同源
 map --persona host topic dismiss --id <uuid>   # 与 UI ✕ 相同，双视图同时消失
 map --persona host todo clear --key my_open_topics:<topic-uuid>   # explicit_only 分区清理路由

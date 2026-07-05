@@ -383,6 +383,18 @@ export interface NotificationList {
   unread_count: number;
 }
 
+export interface TopicProgressList {
+  items: Record<string, unknown>[];
+  total: number;
+}
+
+export interface AgentWorkRead {
+  agent: Agent;
+  topic_progress: TopicProgressList;
+  todos: TodoRead;
+  notifications: NotificationList;
+}
+
 export interface NotificationStreamEvent {
   type: "notification.created";
   event: string;

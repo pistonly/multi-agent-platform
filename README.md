@@ -12,7 +12,8 @@
 - [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/PRD-v0.6.md)
 - [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/PRD-v0.9.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
-- [Agent Runtime 集成（runtime-waker）](docs/MAP-RUNTIME-WAKER.md)
+- [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
+- [Agent Runtime 集成（runtime-waker，legacy）](docs/MAP-RUNTIME-WAKER.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -155,31 +156,37 @@ map --persona host status              # 查看 open_topics
 
 ## Agent Runtime Waker（推荐）
 
-`map-runtime-waker` 是连接外部 Agent Runtime（Claude Code / Codex / Cursor SDK）的推荐路径：轮询 `map todos`、推导 wake 事件、去重后 resume 长会话，由 Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 bridge 内嵌业务逻辑）。
+**默认路径为 `map-simple-waker`**：轮询 `topic-progress`、`map todos` 与 wakeable 通知，统一 remind 后 resume 长会话；Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 waker 内嵌业务逻辑）。
 
 ```bash
-# 三 persona 各起一个 waker（默认 backend=claude，interval=30s，每周期最多 3 次 wake）
+# 三 persona 各起一个 waker（默认 simple-waker，active interval=30s）
 ./scripts/start-all-wakers.sh
 
-# 使用 Cursor SDK 本地 agent 作为运行时
-MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
-
 # 单 persona
-./scripts/start-runtime-waker.sh --persona host
-./scripts/start-runtime-waker.sh --persona participant
-./scripts/start-runtime-waker.sh --persona reviewer
+./scripts/start-simple-waker.sh --persona host
+./scripts/start-simple-waker.sh --persona participant
+./scripts/start-simple-waker.sh --persona reviewer
 
 # 干跑一轮
-./scripts/start-runtime-waker.sh --persona host --once --dry-run
+./scripts/start-simple-waker.sh --persona host --once --dry-run
 ```
 
-状态文件：`.map/runtime-waker-state.json`（本地去重 + session resume，勿提交 Git）。详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
+状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳，勿提交 Git）。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
+
+**Legacy runtime-waker**（SSE + 逐项 fingerprint + `inbound_event` 审计；含 action_item escalation）：
+
+```bash
+MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh
+MAP_RUNTIME_BACKEND=cursor MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh   # legacy 才支持多 backend
+```
+
+详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
 
 **@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。
 
 ## Host Worker（旧 bridge，维护模式）
 
-`map-host-bridge` / `map-host-worker` 为早期轮询 bridge（进程内 `PersonaAgentClient`），已由 **runtime-waker** 取代。`main-bac` 分支保留 bridge 实现供对照；日常开发请在 `agent-runtime` 分支使用 waker。
+`map-host-bridge` / `map-host-worker` 为早期轮询 bridge（进程内 `PersonaAgentClient`），已由 **waker** 取代。`main-bac` 分支保留 bridge 实现供对照；日常开发请在 `agent-runtime` 分支使用 waker。
 
 ```bash
 # 旧路径（不推荐新接入）
@@ -228,4 +235,4 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（runtime-waker + PersonaAgentClient）。待推进项见 [docs/status-md-v8.md](docs/status-md-v8.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（simple-waker 默认 + PersonaAgentClient；legacy runtime-waker 保留 SSE/审计路径）。待推进项见 [docs/status-md-v10.md](docs/status-md-v10.md) 与 [架构文档](docs/ARCHITECTURE.md)。

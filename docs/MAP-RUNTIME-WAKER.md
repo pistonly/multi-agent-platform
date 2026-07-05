@@ -1,4 +1,8 @@
-# MAP Runtime Waker
+# MAP Runtime Waker（legacy）
+
+> **Default waker:** `./scripts/start-all-wakers.sh` runs **simple-waker** (`cli/simple_waker.py`). See [MAP-SIMPLE-WAKER.md](./MAP-SIMPLE-WAKER.md) for the default path.
+>
+> This document describes the **legacy per-item runtime-waker** used when `MAP_USE_LEGACY_WAKER=1` or via `./scripts/start-all-wakers-legacy.sh` / `./scripts/start-runtime-waker-claude.sh`.
 
 `map-runtime-waker` is the low-token Agent Runtime integration path. It differs
 from the older bridge runners: it does not build full task prompts, does not ask
@@ -37,13 +41,16 @@ Supported runtime backends:
 
 ## Usage
 
+> `./scripts/start-runtime-waker.sh` without `MAP_USE_LEGACY_WAKER=1` delegates to **simple-waker**. Use the commands below for the legacy runtime-waker.
+
 ```bash
-./scripts/start-runtime-waker.sh --persona host
-MAP_RUNTIME_PERSONA=reviewer ./scripts/start-runtime-waker.sh
-MAP_RUNTIME_BACKEND=codex ./scripts/start-runtime-waker.sh --persona host
-MAP_RUNTIME_BACKEND=cursor ./scripts/start-runtime-waker.sh --persona host
-MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
-./scripts/start-runtime-waker.sh --once --dry-run
+./scripts/start-runtime-waker-claude.sh --persona host
+MAP_RUNTIME_PERSONA=reviewer ./scripts/start-runtime-waker-claude.sh
+MAP_RUNTIME_BACKEND=codex ./scripts/start-runtime-waker-claude.sh --persona host
+MAP_RUNTIME_BACKEND=cursor ./scripts/start-runtime-waker-claude.sh --persona host
+MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh
+MAP_USE_LEGACY_WAKER=1 MAP_RUNTIME_BACKEND=cursor ./scripts/start-all-wakers.sh
+./scripts/start-runtime-waker-claude.sh --once --dry-run
 ```
 
 Useful environment variables:

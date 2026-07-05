@@ -659,6 +659,15 @@ class NotificationListRead(BaseModel):
     unread_count: int
 
 
+class AgentWorkRead(BaseModel):
+    """Unified work snapshot for Web 待办, waker, and CLI ``map work``."""
+
+    agent: AgentRead
+    topic_progress: TopicProgressListRead
+    todos: TodoRead
+    notifications: NotificationListRead
+
+
 # --- InboundEvent ---
 
 

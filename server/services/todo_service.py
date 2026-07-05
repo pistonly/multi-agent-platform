@@ -67,27 +67,33 @@ def _host_replied_after(
     )
 
 
-def list_pending_topic_replies(db: Session, agent: Agent) -> list[PendingTopicReplyTodoRead]:
-    from server.services import topic_work_item_service as work_items
+def list_pending_topic_replies(
+    db: Session,
+    agent: Agent,
+    *,
+    work_items: list | None = None,
+) -> list[PendingTopicReplyTodoRead]:
+    from server.services import topic_work_item_service as work_items_module
 
-    items = [
-        item
-        for item in work_items.topic_work_items_for_agent(db, agent)
-        if item.kind == "pending_topic_reply"
-    ]
-    return work_items.pending_topic_replies_from_work_items(db, items)
+    if work_items is None:
+        work_items = work_items_module.topic_work_items_for_agent(db, agent)
+    items = [item for item in work_items if item.kind == "pending_topic_reply"]
+    return work_items_module.pending_topic_replies_from_work_items(db, items)
 
 
-def list_pending_round_acks(db: Session, agent: Agent) -> list[PendingRoundAckTodoRead]:
+def list_pending_round_acks(
+    db: Session,
+    agent: Agent,
+    *,
+    work_items: list | None = None,
+) -> list[PendingRoundAckTodoRead]:
     """Round summaries awaiting this agent's ack — projected from topic work items."""
-    from server.services import topic_work_item_service as work_items
+    from server.services import topic_work_item_service as work_items_module
 
-    items = [
-        item
-        for item in work_items.topic_work_items_for_agent(db, agent)
-        if item.kind == "round_ack"
-    ]
-    return work_items.pending_round_acks_from_work_items(db, items)
+    if work_items is None:
+        work_items = work_items_module.topic_work_items_for_agent(db, agent)
+    items = [item for item in work_items if item.kind == "round_ack"]
+    return work_items_module.pending_round_acks_from_work_items(db, items)
 
 
 def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanceRoundTodoRead]:
@@ -153,7 +159,12 @@ def _experiment_summary_with_open_unreasonable(
     )
 
 
-def get_todos(db: Session, agent: Agent) -> TodoRead:
+def get_todos(
+    db: Session,
+    agent: Agent,
+    *,
+    bundle: "work_items.AgentTopicWorkItems | None" = None,
+) -> TodoRead:
     my_open_experiments = [
         _experiment_summary_with_open_unreasonable(db, e)
         for e in db.scalars(
@@ -259,11 +270,10 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
 
     from server.services import topic_work_item_service as work_items
 
-    mention_work_items = [
-        item
-        for item in work_items.obligation_items_for_agent(db, agent)
-        if item.kind == "mention"
-    ]
+    if bundle is None:
+        bundle = work_items.topic_work_items_bundle_for_agent(db, agent)
+    all_work_items = bundle.items
+    mention_work_items = [item for item in all_work_items if item.kind == "mention"]
     mentions = work_items.mentions_from_work_items(db, agent.id, mention_work_items)
     topic_mention_ids = {m.id for m in mentions}
     for m in mention_service.list_mentions_for_agent(db, agent.id):
@@ -291,8 +301,8 @@ def get_todos(db: Session, agent: Agent) -> TodoRead:
             )
         )
 
-    pending_topic_replies = list_pending_topic_replies(db, agent)
-    pending_round_acks = list_pending_round_acks(db, agent)
+    pending_topic_replies = list_pending_topic_replies(db, agent, work_items=all_work_items)
+    pending_round_acks = list_pending_round_acks(db, agent, work_items=all_work_items)
     pending_advance_rounds = list_pending_advance_rounds(db, agent)
 
     action_items = [

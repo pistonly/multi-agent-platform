@@ -12,6 +12,7 @@ from map_types.enums import NotificationCategory
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
+    AgentWorkRead,
     DismissAllMentionsResultRead,
     DismissMentionResultRead,
     InboundEventCreate,
@@ -24,6 +25,7 @@ from server.domain.schemas import (
     TopicReadCursorRead,
 )
 from server.services import auth as auth_service
+from server.services import agent_work_service
 from server.services import inbound_event_service
 from server.services import mention_service
 from server.services import notification_service
@@ -144,6 +146,35 @@ def get_my_todos(
     db: Session = Depends(get_db),
 ) -> TodoRead:
     return todo_service.get_todos(db, agent)
+
+
+@agents_router.get("/me/work", response_model=AgentWorkRead)
+def get_my_work(
+    notification_limit: int = Query(default=50, ge=1, le=200),
+    notification_category: NotificationCategory | str | None = Query(default="wakeable"),
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> AgentWorkRead:
+    """Unified work snapshot: whoami + topic-progress + todos + unread notifications."""
+    normalized_category: NotificationCategory | None
+    if notification_category is None or notification_category == "all":
+        normalized_category = None
+    elif isinstance(notification_category, NotificationCategory):
+        normalized_category = notification_category
+    else:
+        try:
+            normalized_category = NotificationCategory(notification_category)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="notification_category must be wakeable, digest, or all",
+            ) from exc
+    return agent_work_service.get_agent_work(
+        db,
+        agent,
+        notification_limit=notification_limit,
+        notification_category=normalized_category,
+    )
 
 
 @agents_router.get("/me/topic-progress", response_model=TopicProgressListRead)

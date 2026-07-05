@@ -358,6 +358,26 @@ def map_todos() -> None:
     _run(lambda c: c.get_todos())
 
 
+@app.command("work")
+def map_work(
+    notification_limit: int = typer.Option(50, "--notification-limit", min=1, max=200),
+    notification_category: str = typer.Option(
+        "wakeable",
+        "--notification-category",
+        help="wakeable (waker default), digest, or all",
+    ),
+) -> None:
+    """Unified work snapshot: whoami + topic-progress + todos + unread notifications."""
+
+    def action(c: MAPClient):
+        return c.get_agent_work(
+            notification_limit=notification_limit,
+            notification_category=notification_category,
+        )
+
+    _run(action)
+
+
 @project_app.command("create")
 def project_create(
     key: str = typer.Option(..., "--key"),

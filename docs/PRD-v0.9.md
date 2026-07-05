@@ -10,7 +10,7 @@
 
 ## 1. 变更摘要
 
-v0.8+ 已把 MAP 的自动推进路径收敛到 `runtime-waker`：waker 轮询 `map todos` 与未读通知，写入 `inbound_event` 做服务端去重，再用短 prompt 唤醒对应 persona runtime。当前剩余问题不是“是否能唤醒”，而是**通知噪音与 wake 信号边界不清**：
+v0.8+ 已把 MAP 的自动推进路径收敛到 waker 体系：**默认 `simple-waker`**（轮询 topic-progress + `map todos` + wakeable 通知）；**legacy `runtime-waker`** 保留 SSE、`inbound_event` 服务端去重与逐项 wake 审计。当前剩余问题不是“是否能唤醒”，而是**通知噪音与 wake 信号边界不清**：
 
 - 同一 topic / experiment 的连续更新会产生大量重复通知。
 - 很多通知只需要人类知道，不应该唤醒 Agent。
@@ -41,9 +41,9 @@ v0.9 目标是把通知从“逐事件入箱”升级为“分层通知 + 可选
 - 通知可以辅助人类浏览，也可以作为非 todo 事件的 wake source，但不能覆盖 todos 的生命周期判断。
 - 若某通知对应的业务项已经在 `todos` 中出现，waker 必须忽略该通知，或把它规范化为与 todo 完全相同的 fingerprint。
 
-### 2.2 runtime-waker 保持薄层
+### 2.2 waker 保持薄层
 
-waker 只做：
+waker（simple-waker 默认；legacy runtime-waker 另见 [MAP-RUNTIME-WAKER.md](./MAP-RUNTIME-WAKER.md)）只做：
 
 - 拉取 `map todos`
 - 拉取过滤后的 wakeable notifications

@@ -2,6 +2,7 @@ import axios, { type AxiosError } from "axios";
 import type {
   Agent,
   AgentRole,
+  AgentWorkRead,
   CommentTreeNode,
   ExperimentBundle,
   ExperimentCreatePayload,
@@ -419,11 +420,18 @@ export async function createTopicComment(
   await api.post(`/topics/${topicId}/comments`, payload);
 }
 
-// --- todos ---
+// --- todos / work ---
+
+export async function fetchWork(): Promise<AgentWorkRead> {
+  const { data } = await api.get<AgentWorkRead>("/agents/me/work", {
+    params: { notification_category: "all" },
+  });
+  return data;
+}
 
 export async function fetchTodos(): Promise<TodoRead> {
-  const { data } = await api.get<TodoRead>("/agents/me/todos");
-  return data;
+  const work = await fetchWork();
+  return work.todos;
 }
 
 export async function dismissMention(mentionId: string): Promise<void> {

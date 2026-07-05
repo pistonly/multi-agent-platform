@@ -1,15 +1,15 @@
 # MAP Simple Waker
 
 `map-simple-waker` is a thin alternative to `map-runtime-waker`. It polls
-`GET /agents/me/topic-progress`, `GET /agents/me/todos`, and unread notifications
-on a fixed cadence and sends one unified remind prompt to a long-lived Agent
-Runtime session when work exists.
+`GET /agents/me/work` (unified snapshot: whoami + topic-progress + todos +
+wakeable notifications) on a fixed cadence and sends one unified remind prompt
+to a long-lived Agent Runtime session when work exists.
 
 ## Design
 
 | | `runtime-waker` | `simple-waker` |
 | --- | --- | --- |
-| Trigger | SSE + per-item fingerprints | Poll topic-progress / todos / notifications |
+| Trigger | SSE + per-item fingerprints | Poll `GET /agents/me/work` (topic-progress + todos + wakeable notifications) |
 | Prompt | Per-item wake hint + kind routing | Single remind with **topic new-comment excerpts** |
 | Session | Context reset per MAP object | One session per persona |
 | Agent rule | One item per wake | Batch until `topic progress` + `todos` clear or blocked |
@@ -34,7 +34,7 @@ The resumed agent reads Skills and uses `map --persona <name>` CLI.
 - Participant/reviewer: topics with obligation items, or prior participation, or @mention.
 - Reviewer cold-start: contextual-only open topics are omitted.
 
-Agents mirror this with `map topic progress`. **`map todos`** exposes the same
+Agents mirror this with `map topic progress` or `map work`. **`map todos`** exposes the same
 obligation kinds in named buckets (`pending_topic_replies`, `pending_round_acks`,
 `mentions`); simple-waker polls both endpoints.
 

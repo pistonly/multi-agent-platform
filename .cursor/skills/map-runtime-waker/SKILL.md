@@ -77,10 +77,10 @@ reviewer 的核心义务是实验评审（`pending_reviews` / `pending_result_re
 
 ## 部署
 
-- runtime-waker：`./scripts/start-all-wakers.sh` · [MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)
-- simple-waker：`./scripts/start-all-simple-wakers.sh` · [MAP-SIMPLE-WAKER.md](../../../docs/MAP-SIMPLE-WAKER.md)
+- **simple-waker**（默认）：`./scripts/start-all-wakers.sh` · [MAP-SIMPLE-WAKER.md](../../../docs/MAP-SIMPLE-WAKER.md)
+- **runtime-waker**（legacy）：`MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` · [MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)
 
-## 触发方式（v0.8 起 SSE 长连为主路径）
+## 触发方式（仅 legacy runtime-waker：SSE 长连为主路径）
 
 - **主路径**：waker 订阅 `GET /agents/me/notifications/stream`（SSE 长连），由服务端 `notification.created` 帧触发 wake
 - **兜底**：`MAP_RUNTIME_INTERVAL`（默认 `600s`，10min）轮询 `map --persona <name> todos` + 未读通知

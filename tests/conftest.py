@@ -29,7 +29,14 @@ def db_session():
 
 @pytest.fixture
 def client(db_session):
-    app = create_app()
+    import server.main as main_module
+
+    original_init_db = main_module.init_db
+    main_module.init_db = lambda: None
+    try:
+        app = create_app()
+    finally:
+        main_module.init_db = original_init_db
 
     def override_get_db():
         try:

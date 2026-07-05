@@ -246,7 +246,7 @@ export function TopicPage() {
               setShowResolve(false);
               invalidate();
               queryClient.invalidateQueries({ queryKey: ["project-decisions", topic.project_id] });
-              queryClient.invalidateQueries({ queryKey: ["todos"] });
+              queryClient.invalidateQueries({ queryKey: ["work"] });
             }}
           />
         </Modal>

@@ -1,7 +1,8 @@
-"""Thin MAP waker: poll topic progress + actionable todos, remind agent when there is new work.
+"""Thin MAP waker: poll unified work snapshot, remind agent when there is new work.
 
-Waker logic stays minimal: the platform computes per-agent topic unread activity
-(``GET /agents/me/topic-progress``); agents use ``map topic progress`` in Skills.
+Waker logic stays minimal: the platform serves ``GET /agents/me/work``
+(whoami + topic-progress + todos + wakeable notifications); agents use
+``map work`` / ``map topic progress`` in Skills.
 """
 
 from __future__ import annotations
@@ -371,9 +372,15 @@ class SimpleWaker:
     async def _run_once_async(self) -> tuple[SimpleWakerStats, float]:
         self._ensure_identity()
         stats = SimpleWakerStats(cycles=1)
-        topic_progress_data = self.client.topic_progress() or {}
-        todos = self.client.todos() or {}
-        notifications = self.client.notifications_unread()
+        work = self.client.work() or {}
+        topic_progress_data = work.get("topic_progress") or {}
+        todos = work.get("todos") or {}
+        notifications_payload = work.get("notifications") or {}
+        notifications = (
+            list(notifications_payload.get("items") or [])
+            if isinstance(notifications_payload, dict)
+            else []
+        )
         context = build_wake_context(
             topic_progress_data=topic_progress_data,
             todos=todos,

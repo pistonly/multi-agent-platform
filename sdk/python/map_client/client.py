@@ -13,6 +13,7 @@ from map_types import (
     AgentCreateResponse,
     AgentRead,
     AgentRole,
+    AgentWorkRead,
     AuditLogRead,
     CommentAnchorType,
     CommentCreate,
@@ -671,6 +672,21 @@ class MAPClient:
 
     def get_todos(self) -> TodoRead:
         return TodoRead.model_validate(self._json("GET", "/agents/me/todos"))
+
+    def get_agent_work(
+        self,
+        *,
+        notification_limit: int = 50,
+        notification_category: NotificationCategory | str | None = "wakeable",
+    ) -> AgentWorkRead:
+        params: dict[str, Any] = {"notification_limit": notification_limit}
+        if notification_category is None or notification_category == "all":
+            params["notification_category"] = "all"
+        elif isinstance(notification_category, NotificationCategory):
+            params["notification_category"] = notification_category.value
+        else:
+            params["notification_category"] = notification_category
+        return AgentWorkRead.model_validate(self._json("GET", "/agents/me/work", params=params))
 
     def get_topic_progress(self) -> TopicProgressListRead:
         return TopicProgressListRead.model_validate(self._json("GET", "/agents/me/topic-progress"))

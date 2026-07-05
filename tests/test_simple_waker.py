@@ -25,16 +25,30 @@ class FakeMapClient(MapCommandClient):
         persona: str,
         todos: dict[str, Any],
         notifications: list[dict[str, Any]] | None = None,
+        topic_progress: dict[str, Any] | None = None,
     ) -> None:
         self.persona = persona
         self._todos = todos
         self._notifications = notifications or []
+        self._topic_progress = topic_progress or {"items": [], "total": 0}
 
     def whoami(self) -> dict[str, Any]:
         return {"id": f"{self.persona}-agent", "name": self.persona}
 
     def todos(self) -> dict[str, Any]:
         return self._todos
+
+    def work(self) -> dict[str, Any]:
+        return {
+            "agent": self.whoami(),
+            "topic_progress": self._topic_progress,
+            "todos": self._todos,
+            "notifications": {
+                "items": self._notifications,
+                "total": len(self._notifications),
+                "unread_count": len(self._notifications),
+            },
+        }
 
     def notifications_unread(self) -> list[dict[str, Any]]:
         return self._notifications
@@ -178,7 +192,6 @@ def test_run_once_dry_run_does_not_wake_backend(tmp_path: Path) -> None:
         persona="host",
         todos={"pending_topic_replies": [{"comment_id": "c1", "topic_id": "t1"}]},
     )
-    client.topic_progress = lambda: {"items": [], "total": 0}  # type: ignore[method-assign]
     backend = MagicMock()
     backend.wake_async = AsyncMock()
     config = SimpleWakerConfig(
@@ -198,20 +211,20 @@ def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     client = FakeMapClient(
         persona="host",
         todos={},
+        topic_progress={
+            "items": [
+                {
+                    "topic_id": "t1",
+                    "topic_title": "T",
+                    "discussion_round": "round2",
+                    "last_comment_author_name": "participant",
+                    "new_comment_count": 1,
+                    "new_comments": [{"author_name": "participant", "excerpt": "hi"}],
+                }
+            ],
+            "total": 1,
+        },
     )
-    client.topic_progress = lambda: {  # type: ignore[method-assign]
-        "items": [
-            {
-                "topic_id": "t1",
-                "topic_title": "T",
-                "discussion_round": "round2",
-                "last_comment_author_name": "participant",
-                "new_comment_count": 1,
-                "new_comments": [{"author_name": "participant", "excerpt": "hi"}],
-            }
-        ],
-        "total": 1,
-    }
     backend = MagicMock()
     backend.wake_async = AsyncMock(return_value=MagicMock(session_id="sess-1", skipped=False))
     backend.connect = AsyncMock()

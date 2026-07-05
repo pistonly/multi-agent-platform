@@ -15,7 +15,7 @@ export function useNotificationStream(token: string | null, enabled: boolean) {
       onEvent: (event) => {
         if (event.type === "notification.created") {
           void queryClient.invalidateQueries({ queryKey: ["notifications"] });
-          void queryClient.invalidateQueries({ queryKey: ["todos"] });
+          void queryClient.invalidateQueries({ queryKey: ["work"] });
         }
       },
       onError: () => {
