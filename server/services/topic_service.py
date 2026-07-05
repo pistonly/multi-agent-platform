@@ -968,6 +968,7 @@ def _build_comment_tree(
     comments: list[TopicComment],
     author_names: dict[uuid.UUID, str],
 ) -> list[TopicCommentTreeNode]:
+    _ensure_comment_seq_values(comments)
     nodes: dict[uuid.UUID, TopicCommentTreeNode] = {}
     for comment in comments:
         nodes[comment.id] = TopicCommentTreeNode(
@@ -989,6 +990,26 @@ def _build_comment_tree(
         else:
             roots.append(node)
     return roots
+
+
+def _ensure_comment_seq_values(comments: list[TopicComment]) -> None:
+    if all(comment.comment_seq is not None for comment in comments):
+        return
+    by_topic: dict[uuid.UUID, list[TopicComment]] = {}
+    for comment in comments:
+        by_topic.setdefault(comment.topic_id, []).append(comment)
+    for topic_comments in by_topic.values():
+        ordered = sorted(
+            topic_comments,
+            key=lambda comment: (
+                comment.created_at,
+                comment.comment_seq if comment.comment_seq is not None else 0,
+                comment.id,
+            ),
+        )
+        for index, comment in enumerate(ordered, start=1):
+            if comment.comment_seq is None:
+                comment.comment_seq = index
 
 
 def _next_topic_comment_seq(db: Session, topic_id: uuid.UUID) -> int:
@@ -1056,6 +1077,7 @@ def topic_comment_read(
     db: Session, comment: TopicComment, *, unresolved_mentions: list[str] | None = None
 ) -> TopicCommentRead:
     author_names = _agent_names_by_ids(db, {comment.author_agent_id})
+    _ensure_comment_seq_values([comment])
     return TopicCommentRead(
         id=comment.id,
         topic_id=comment.topic_id,
@@ -1082,6 +1104,7 @@ def list_topic_comments(
         .order_by(*topic_comment_order_clauses())
     )
     comments = list(db.scalars(stmt))
+    _ensure_comment_seq_values(comments)
     author_names = _agent_names_by_ids(db, {comment.author_agent_id for comment in comments})
     if tree:
         return _build_comment_tree(comments, author_names)
