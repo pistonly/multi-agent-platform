@@ -13,7 +13,6 @@
 - [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/PRD-v0.9.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
-- [Agent Runtime 集成（runtime-waker，legacy）](docs/MAP-RUNTIME-WAKER.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
@@ -173,14 +172,7 @@ map --persona host status              # 查看 open_topics
 
 状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳，勿提交 Git）。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
 
-**Legacy runtime-waker**（SSE + 逐项 fingerprint + `inbound_event` 审计；含 action_item escalation）：
-
-```bash
-MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh
-MAP_RUNTIME_BACKEND=cursor MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh   # legacy 才支持多 backend
-```
-
-详见 [docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md)。
+simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（fingerprint=`simple-remind:{persona}:{ts}`），并在 remind 前推进 `action_item` 升级时间线（WAKE → `action mark-wake-sent`，STALE → `action mark-stale`）。
 
 **@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。
 
@@ -235,4 +227,4 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（simple-waker 默认 + PersonaAgentClient；legacy runtime-waker 保留 SSE/审计路径）。待推进项见 [docs/status-md-v10.md](docs/status-md-v10.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（simple-waker 默认 + PersonaAgentClient；legacy runtime-waker 启动路径已退役，模块保留为 re-export 兼容层）。待推进项见 [docs/status-md-v10.md](docs/status-md-v10.md) 与 [架构文档](docs/ARCHITECTURE.md)。

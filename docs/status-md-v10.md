@@ -11,7 +11,7 @@
 | project_key | `multi-agents-platform` |
 | workspace_path | `/home/AI02/Documents/quantaeye/multi_agents_platform` |
 | 主分支 | `main` |
-| 最新版本 | **v0.8+ waker Phase 1 已验收**（simple-waker 默认；legacy runtime-waker 保留 SSE/审计 + TTL sweep + creator filter CLI） |
+| 最新版本 | **v0.10 waker 统一**（simple-waker 默认且唯一；legacy runtime-waker 启动路径退役，模块保留为 re-export 兼容层；action_item escalation + 聚合 inbound_event 已移植到 simple-waker） |
 
 ## Agent 身份与协作路径
 
@@ -25,9 +25,7 @@
 
 **标准路径**：`./scripts/start-all-wakers.sh`（simple-waker）→ Agent 读 Skill → `map --persona <name>` CLI。
 
-**Legacy runtime-waker**：`MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh`；`MAP_RUNTIME_BACKEND` 支持 `claude`（默认）、`codex`、`cursor`。详见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md)。
-
-**已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`、runner JSON 契约。
+**已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`、runner JSON 契约；legacy `runtime-waker` 启动路径（`start-runtime-waker-claude.sh` / `start-all-wakers-legacy.sh` 已删除，`MAP_USE_LEGACY_WAKER=1` 不再生效）。`cli/runtime_waker.py` 模块保留为 re-export 兼容层，原 `ActionItemWakeDecision` / `PersonaAgentWakeBackend` / `TODO_WAKE_BUCKETS` 等已迁至 `cli/action_item_escalation.py` 与 `cli/wake_backend.py`。
 
 ## v0.8 闭环验收（实验 `c9776cb4`，plan v3）
 
@@ -39,7 +37,7 @@
 | SSE A/C | `test_sse_isolation.py` + `test_sse_schema_overlap.py` |
 | P3 dogfood | 探针 `90cba1c3` draft→done；三 waker `wake_errors: 0`；未启动 bridge |
 
-C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v08-保留正则不在-round_summary_re-清理范围)。
+C 类保留正则清单已随 `docs/MAP-RUNTIME-WAKER.md` 一并归档；如需查阅，可在 git 历史中检索 `v0.8` 标签附近的版本。
 
 ## waker Phase 1 验收（实验 `a188555c`，plan v2）
 
@@ -76,14 +74,14 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 
 - **后端**：FastAPI + SQLAlchemy + Alembic
 - **前端**：React + Vite + TypeScript
-- **协作**：CLI (`map`)、simple-waker（默认）/ legacy runtime-waker（`claude` / `codex` / `cursor`）、`.cursor/skills/`
+- **协作**：CLI (`map`)、simple-waker（默认且唯一）、`.cursor/skills/`
 - **部署**：Docker Compose（API :8001 / Web :3000）；可选 systemd `map-wakers.service`
 
 ## 阻塞 / 风险
 
 - SSE 仍为单进程 pub/sub；多 API 副本需外部扇出（暂不引入 Redis / PG LISTEN/NOTIFY，作为后续单独立项）
-- `cli/host_worker*.py` Python 模块仍保留——`host_worker_types.py` / `bridge_state.py` 被 simple-waker / runtime-waker 共用，删除需先完成拆分；已删除 host bridge 启动脚本（`start-host-bridge*.sh` / `start-all-bridges*.sh`）与 `pyproject.toml` 中的 `map-host-worker` / `map-host-bridge` 入口
-- legacy `runtime_waker.py` 双轨保留，已在模块顶部加 deprecation 注释（候选 v0.10 退役）
+- `cli/host_worker*.py` Python 模块仍保留——`host_worker_types.py` / `bridge_state.py` 被 simple-waker 共用，删除需先完成拆分；已删除 host bridge 启动脚本（`start-host-bridge*.sh` / `start-all-bridges*.sh`）与 `pyproject.toml` 中的 `map-host-worker` / `map-host-bridge` 入口
+- legacy `runtime_waker.py` 启动路径已退役（`start-runtime-waker-claude.sh` / `start-all-wakers-legacy.sh` 删除，`MAP_USE_LEGACY_WAKER` 不再生效）；模块保留为 re-export 兼容层，原符号已迁至 `cli/action_item_escalation.py` 与 `cli/wake_backend.py`
 
 ## 下一步（建议）
 
@@ -102,5 +100,4 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 - [README](../README.md)
 - [PRD v0.9 草案：waker Phase 2 通知降噪](../docs/PRD-v0.9.md)
 - [MAP-SIMPLE-WAKER.md](../docs/MAP-SIMPLE-WAKER.md)
-- [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md)
 - [AGENTS.md](../AGENTS.md)

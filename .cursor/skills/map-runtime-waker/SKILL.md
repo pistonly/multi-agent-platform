@@ -8,27 +8,27 @@ description: >-
 
 # MAP Runtime Waker（调度壳）
 
-被 **map-runtime-waker** 或 **map-simple-waker** 守护进程唤醒/提醒时读本文。**CLI 规则、业务细节不在此重复**——以 [map-project-collab](../map-project-collab/SKILL.md) 与 persona Skill 为唯一行为源。
+被 **map-simple-waker** 守护进程唤醒/提醒时读本文。**CLI 规则、业务细节不在此重复**——以 [map-project-collab](../map-project-collab/SKILL.md) 与 persona Skill 为唯一行为源。
 
 手动协作（用户在 Cursor 发指令）**不需要**读本文，直接用 `map-project-collab` + persona Skill。
 
-## 两种 waker 模式
+## waker 模式（simple-waker）
 
 | 模式 | 启动脚本 | Agent 推进粒度 |
 |------|----------|----------------|
-| **simple-waker**（默认） | `./scripts/start-all-wakers.sh` | 批量：轮询 **`map work`**（topic work items + todos + wakeable 通知）；remind 内带 work_items 摘要 |
-| **runtime-waker**（legacy） | `MAP_USE_LEGACY_WAKER=1` 或 `./scripts/start-all-wakers-legacy.sh` | 一步一 wake：一次只推进当前 kind 对应的一项 |
+| **simple-waker**（默认且唯一） | `./scripts/start-all-wakers.sh` | 批量：轮询 **`map work`**（topic work items + todos + wakeable 通知）；remind 内带 work_items 摘要 |
 
 **simple-waker** 主信号为 `GET /agents/me/work`（或分拆的 topic-progress + todos）。其中 **topic-progress** 是 `topic_work_items_for_agent` 的 per-agent 投影（`work_items[]`：obligation + contextual），不是「最后一条评论非己」启发式。`my_open_topics` **alone 不触发** remind。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
+
+v0.10 起 simple-waker 在 remind 前推进 `action_item` 升级时间线（WAKE → `action mark-wake-sent`，STALE → `action mark-stale`），并在 remind 后写聚合 `inbound_event` 审计行。
 
 ## 每次 wake / 提醒 的顺序
 
 1. [map-project-collab](../map-project-collab/SKILL.md) — persona、CLI 硬性规则
 2. 下表 persona Skill — 具体怎么做
 3. `map --persona <persona> persona whoami` → **`map --persona <persona> work`**（或 `topic progress` + `todos`）
-4. **simple-waker**：按 remind 中的 **topic work items** 与 todos **主动参与**开放话题；host 负责回复 thread 与推进轮次
-5. **runtime-waker**：按 wake hint 的 `kind` 处理对应一项，做一步可验证推进
-6. **必须**让已处理项从 `topic progress` / `map todos` 或通知列表消失后再收尾
+4. 按 remind 中的 **topic work items** 与 todos **主动参与**开放话题；host 负责回复 thread 与推进轮次
+5. **必须**让已处理项从 `topic progress` / `map todos` 或通知列表消失后再收尾
 
 ## 核心规则（与 Web UI 一致）
 
@@ -37,11 +37,9 @@ description: >-
 | topic progress / work 即话题真相 | `topic_work_items_for_agent` 投影：obligation（`pending_topic_reply` / `round_ack` / `mention`）+ contextual（`unread_change`）；与 `map todos` 话题分区同源；各 persona **主动** `map work` 或 `map topic progress` |
 | todos 即待办真相 | waker 另轮询 `GET /agents/me/todos` + 未读通知；**kind 名 = todos 字段名** |
 | 清理 = 与 UI 相同 | 处理完成后调用与 UI 等价的 API（见下表）；**禁止**凭 session 记忆判断「已处理」 |
-| 一步一 wake | 仅 **runtime-waker**：一次 wake 只推进当前 todo 项的下一步 |
-| 批量提醒 | 仅 **simple-waker**：一次提醒可处理多项；收尾前再跑 `map work`（或 `topic progress` + `todos`）验证 |
+| 批量提醒 | **simple-waker**：一次提醒可处理多项；收尾前再跑 `map work`（或 `topic progress` + `todos`）验证 |
 | `my_open_topics` alone | 被动清单，**不**单独触发 simple-waker；话题活动看 **topic work items**（topic-progress / work） |
-| skip ≠ 执行中 | `wake_skips` 表示 heartbeat/TTL 内已 wake 过（去重），不是后台在跑 |
-| heartbeat | 待办项仍在 API 中时，TTL 到期后会重 wake（自愈） |
+| action_item 升级 | waker 在 remind 前扫描 `todos.action_items`：WAKE → `action mark-wake-sent`（推进 wake_count），STALE → `action mark-stale`（标记过期） |
 
 ## reviewer 评审优先（跨视图调度）
 
@@ -77,15 +75,11 @@ reviewer 的核心义务是实验评审（`pending_reviews` / `pending_result_re
 
 ## 部署
 
-- **simple-waker**（默认）：`./scripts/start-all-wakers.sh` · [MAP-SIMPLE-WAKER.md](../../../docs/MAP-SIMPLE-WAKER.md)
-- **runtime-waker**（legacy）：`MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` · [MAP-RUNTIME-WAKER.md](../../../docs/MAP-RUNTIME-WAKER.md)
+- **simple-waker**：`./scripts/start-all-wakers.sh` · [MAP-SIMPLE-WAKER.md](../../../docs/MAP-SIMPLE-WAKER.md)
 
-## 触发方式（仅 legacy runtime-waker：SSE 长连为主路径）
+## 触发方式（simple-waker：轮询为主路径）
 
-- **主路径**：waker 订阅 `GET /agents/me/notifications/stream`（SSE 长连），由服务端 `notification.created` 帧触发 wake
-- **兜底**：`MAP_RUNTIME_INTERVAL`（默认 `600s`，10min）轮询 `map --persona <name> todos` + 未读通知
-- **D3 重连补偿**：SSE 断连后指数退避（1s → 30s 上限），重连成功先做一次 `unread_only=true` 全量补漏
-- **D4 客户端限速**：同 fingerprint 60s 内最多 1 次 resume 尝试；**补漏事件（`event_source="replay"`）豁免 D4**，服务端 `inbound_event.UNIQUE(fingerprint)` 主闸仍防跨进程重投
-- SSE 订阅发生在 waker 进程层（与 backend 无关），三 backend（claude / codex / cursor）等价受益
-
-详见 [MAP-RUNTIME-WAKER.md §SSE long-poll primary path](../../../docs/MAP-RUNTIME-WAKER.md#sse-long-poll-primary-path)。
+- **主路径**：waker 轮询 `GET /agents/me/work`（whoami + topic-progress + todos + wakeable 通知），有 work 时发统一 remind prompt
+- **审计**：每次 remind 后写聚合 `inbound_event`（fingerprint=`simple-remind:{persona}:{ts}`）
+- **action_item 升级**：remind 前扫描 `todos.action_items`，WAKE → `action mark-wake-sent`，STALE → `action mark-stale`
+- 详见 [MAP-SIMPLE-WAKER.md](../../../docs/MAP-SIMPLE-WAKER.md)
