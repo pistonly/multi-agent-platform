@@ -1,3 +1,15 @@
+"""Legacy runtime-waker (SSE + 逐项 fingerprint + inbound_event 审计).
+
+.. deprecated::
+    本模块为 legacy 路径，默认 waker 已切换为 ``cli.simple_waker``
+    （``./scripts/start-all-wakers.sh`` 默认调用）。
+    仅在 ``MAP_USE_LEGACY_WAKER=1`` 时启用，保留 SSE 长连、
+    逐项 fingerprint 与 ``inbound_event`` 审计路径。
+
+    计划在后续版本（候选 v0.10）退役；新接入请使用 simple-waker，
+    不要为本模块新增功能。详见 docs/MAP-RUNTIME-WAKER.md。
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -81,9 +81,9 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 
 ## 阻塞 / 风险
 
-- SSE 仍为单进程 pub/sub；多 API 副本需外部扇出
-- `cli/host_worker` 仍留于仓库作 legacy，计划单独实验删除
-- `tests/test_experiment_lock.py` 与 integration 同名模块存在 pytest 收集冲突（`--ignore` 规避）
+- SSE 仍为单进程 pub/sub；多 API 副本需外部扇出（暂不引入 Redis / PG LISTEN/NOTIFY，作为后续单独立项）
+- `cli/host_worker*.py` Python 模块仍保留——`host_worker_types.py` / `bridge_state.py` 被 simple-waker / runtime-waker 共用，删除需先完成拆分；已删除 host bridge 启动脚本（`start-host-bridge*.sh` / `start-all-bridges*.sh`）与 `pyproject.toml` 中的 `map-host-worker` / `map-host-bridge` 入口
+- legacy `runtime_waker.py` 双轨保留，已在模块顶部加 deprecation 注释（候选 v0.10 退役）
 
 ## 下一步（建议）
 
@@ -93,8 +93,8 @@ C 类保留正则清单见 [MAP-RUNTIME-WAKER.md](../docs/MAP-RUNTIME-WAKER.md#v
 2. **M32 对象级聚合（另起话题）**（话题 `d0df651c` action_item：group_key schema 精细化 + 「同一对象」边界条件 + 与 SSE 帧 payload 兼容方案；M30A+M31 done 后发起）
 3. **Phase 2 SSE 叠加实验**（话题 `cfd1578e` action_item：SSE 长连 + lifecycle publish + 重连补偿；Phase 1 前置已满足）
 4. 关闭 creator filter action_item（实验 `c572a725` 已 done，待 `topic resolve` 同步）
-5. 删除 legacy host bridge / runner 脚本（单独 issue）
-6. v0.9 Codex 探针；修复 pytest 模块名冲突；SSE B 模块闭包检查；v1 `rejection_count` 监控阈值观察（M30A+M31 后续观察项）
+5. ~~删除 legacy host bridge / runner 脚本~~ 已完成（脚本 + pyproject 入口移除；Python 模块保留供 waker 复用）
+6. v0.9 Codex 探针；~~修复 pytest 模块名冲突~~ 已完成（`test_experiment_lock_unit.py` / `integration/test_experiment_lock_stress.py` 重命名后 29 测试正常收集）；SSE B 模块闭包检查；v1 `rejection_count` 监控阈值观察（M30A+M31 后续观察项）
 7. CI 持续：pytest + vitest + alembic upgrade
 
 ## 关键文档
