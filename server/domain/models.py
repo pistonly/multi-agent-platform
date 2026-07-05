@@ -16,6 +16,7 @@ from map_types.enums import (
     NotificationFingerprintVersion,
     ReviewItemKind,
     ReviewItemStatus,
+    ReviewSubstituteKind,
     TopicActionItemStatus,
     TopicDiscussionRound,
     TopicStatus,
@@ -290,6 +291,12 @@ class Review(Base):
     experiment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("experiments.id"), nullable=False, index=True)
     reviewer_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     plan_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    substitute_kind: Mapped[ReviewSubstituteKind] = mapped_column(
+        Enum(ReviewSubstituteKind),
+        nullable=False,
+        default=ReviewSubstituteKind.none,
+        server_default="none",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     experiment: Mapped["Experiment"] = relationship(back_populates="reviews")

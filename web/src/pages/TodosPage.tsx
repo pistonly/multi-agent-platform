@@ -10,6 +10,7 @@ import {
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { withCommentAnchor } from "../utils/commentAnchor";
+import { blockedOnMessage } from "../utils/experimentCapabilities";
 import { sumTodos } from "../utils/todoCount";
 import { formatElapsed, wakeBadge } from "../utils/actionItemWake";
 
@@ -199,6 +200,22 @@ export function TodosPage() {
         </Section>
       )}
 
+      {data.pending_plan_revisions.length > 0 && (
+        <Section title={`计划待修订（${data.pending_plan_revisions.length}）`}>
+          {data.pending_plan_revisions.map((r) => (
+            <Row key={r.experiment_id} to={`/experiments/${r.experiment_id}`}>
+              <div>
+                <div className="text-accent hover:underline">{r.experiment_title}</div>
+                <div className="text-xs text-slate-400">
+                  v{r.current_plan_version} · {r.open_unreasonable_count} 条 open unreasonable
+                </div>
+              </div>
+              <span className="badge bg-amber-900/40 text-amber-200">待修订 plan</span>
+            </Row>
+          ))}
+        </Section>
+      )}
+
       {data.pending_reviews.length > 0 && (
         <Section title={`待评审（${data.pending_reviews.length}）`}>
           {data.pending_reviews.map((e) => (
@@ -240,7 +257,14 @@ export function TodosPage() {
           {data.my_open_experiments.map((e) => (
             <Row key={e.id} to={`/experiments/${e.id}`}>
               <span className="text-accent hover:underline">{e.title}</span>
-              <PhaseBadge phase={e.phase} />
+              <div className="flex items-center gap-2">
+                {blockedOnMessage(e.blocked_on) && (
+                  <span className="badge bg-amber-900/40 text-amber-200" title={e.blocked_on ?? undefined}>
+                    {blockedOnMessage(e.blocked_on)}
+                  </span>
+                )}
+                <PhaseBadge phase={e.phase} />
+              </div>
             </Row>
           ))}
         </Section>

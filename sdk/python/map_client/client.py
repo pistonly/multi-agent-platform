@@ -517,6 +517,9 @@ class MAPClient:
         data = self._json("GET", f"/experiments/{experiment_id}/reviews")
         return [ReviewRead.model_validate(item) for item in data]
 
+    def withdraw_review(self, experiment_id: uuid.UUID, review_id: uuid.UUID) -> None:
+        self._json("POST", f"/experiments/{experiment_id}/reviews/{review_id}/withdraw")
+
     def update_review_item(self, item_id: uuid.UUID, status: ReviewItemStatus) -> ReviewItemRead:
         payload = ReviewItemUpdate(status=status)
         data = self._json("PATCH", f"/review-items/{item_id}", json=payload.model_dump())

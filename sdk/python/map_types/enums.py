@@ -21,6 +21,12 @@ class ReviewItemKind(str, enum.Enum):
     unreasonable = "unreasonable"
 
 
+class ReviewSubstituteKind(str, enum.Enum):
+    none = "none"
+    admin_for_others = "admin_for_others"
+    admin_self_substitute = "admin_self_substitute"
+
+
 class ReviewItemStatus(str, enum.Enum):
     open = "open"
     addressed = "addressed"

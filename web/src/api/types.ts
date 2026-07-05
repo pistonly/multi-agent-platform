@@ -32,6 +32,13 @@ export interface Project {
   archived_at: string | null;
 }
 
+export type ExperimentBlockedOn =
+  | "awaiting_non_creator_review"
+  | "awaiting_result_approval"
+  | "open_unreasonable_item"
+  | "awaiting_addressed_item_ack"
+  | "none";
+
 export interface ExperimentSummary {
   id: string;
   project_id: string;
@@ -44,6 +51,8 @@ export interface ExperimentSummary {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  actions: string[];
+  blocked_on: string | null;
 }
 
 export interface PlanVersion {
@@ -274,6 +283,16 @@ export interface PendingReply {
   updated_at: string;
 }
 
+export interface PendingPlanRevision {
+  experiment_id: string;
+  experiment_title: string;
+  current_plan_version: number;
+  open_unreasonable_count: number;
+  blocked_on: string;
+  actions: string[];
+  updated_at: string;
+}
+
 export interface MentionTodo {
   id: string;
   mentioned_agent_id: string;
@@ -348,6 +367,7 @@ export interface TodoRead {
   pending_reviews: ExperimentSummary[];
   pending_result_reviews: ExperimentSummary[];
   pending_replies: PendingReply[];
+  pending_plan_revisions: PendingPlanRevision[];
   pending_topic_replies: PendingTopicReplyTodo[];
   pending_round_acks: PendingRoundAckTodo[];
   pending_advance_rounds: PendingAdvanceRoundTodo[];

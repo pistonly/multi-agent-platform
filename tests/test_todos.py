@@ -32,6 +32,11 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
         e for e in agent_todos_after_review["my_open_experiments"] if e["id"] == exp["id"]
     )
     assert creator_exp_after_review["open_unreasonable_count"] == 1
+    assert len(agent_todos_after_review["pending_plan_revisions"]) == 1
+    plan_rev = agent_todos_after_review["pending_plan_revisions"][0]
+    assert plan_rev["experiment_id"] == exp["id"]
+    assert plan_rev["open_unreasonable_count"] == 1
+    assert plan_rev["blocked_on"] == "open_unreasonable_item"
 
     # 发起者修订计划并标记该不合理项为「已修改」(addressed) → 双方都应看到待回复
     item = client.get(f"/api/v1/experiments/{exp['id']}/reviews", headers=reviewer_headers).json()[0]
@@ -47,6 +52,7 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     )
 
     agent_todos2 = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert agent_todos2["pending_plan_revisions"] == []
     assert any(r["item_id"] == unreasonable["id"] for r in agent_todos2["pending_replies"])
     reviewer_todos3 = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert any(r["item_id"] == unreasonable["id"] for r in reviewer_todos3["pending_replies"])
@@ -159,6 +165,71 @@ def test_new_topic_comment_resurrects_dismissed_topic(
     matching = [t for t in resurface["my_open_topics"] if t["id"] == topic["id"]]
     assert len(matching) == 1
     assert matching[0]["dismissed_at"] is not None  # still flagged, but visible
+
+
+def test_pending_plan_revisions_three_states(client, auth_headers, reviewer, project):
+    """AC#6: review+open unreasonable / review+0 / approved partition correctly."""
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "plan-rev states", "plan": {"content_md": "p"}, "submit_for_review": True},
+    ).json()
+    exp_id = exp["id"]
+    reviewer_headers = reviewer["headers"]
+
+    # review + 0 open unreasonable → no pending_plan_revisions
+    client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer_headers,
+        json={"reasonable_items": ["OK"]},
+    )
+    todos_ok = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert todos_ok["pending_plan_revisions"] == []
+
+    # add unreasonable on new plan version path: revoke via new review after revise
+    item = client.get(f"/api/v1/experiments/{exp_id}/reviews", headers=reviewer_headers).json()[0]
+    unreasonable = [i for i in item["items"] if i["kind"] == "unreasonable"]
+    if not unreasonable:
+        review2 = client.post(
+            f"/api/v1/experiments/{exp_id}/reviews",
+            headers=reviewer_headers,
+            json={"unreasonable_items": ["gap"]},
+        )
+        assert review2.status_code == 409  # already reviewed v1
+
+    # withdraw reviewer review and re-submit with unreasonable
+    review_id = item["id"]
+    client.post(
+        f"/api/v1/experiments/{exp_id}/reviews/{review_id}/withdraw",
+        headers=reviewer_headers,
+    )
+    client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer_headers,
+        json={"unreasonable_items": ["needs revise"]},
+    )
+    todos_open = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert len(todos_open["pending_plan_revisions"]) == 1
+
+    # approve → no pending_plan_revisions (not in review)
+    item2 = client.get(f"/api/v1/experiments/{exp_id}/reviews", headers=reviewer_headers).json()[0]
+    unres = [i for i in item2["items"] if i["kind"] == "unreasonable"][0]
+    client.post(
+        f"/api/v1/experiments/{exp_id}/plans",
+        headers=auth_headers,
+        json={
+            "content_md": "p v2",
+            "addressed_item_ids": [unres["id"]],
+        },
+    )
+    client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer_headers,
+        json={"reasonable_items": ["fixed"]},
+    )
+    client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
+    todos_approved = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert todos_approved["pending_plan_revisions"] == []
 
 
 def test_dismiss_topic_forbidden_for_non_creator(

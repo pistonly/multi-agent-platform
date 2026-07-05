@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -75,7 +75,7 @@ def test_same_second_trio_seq_and_obligations(
             _post_comment(client, headers, tid, step["body"].strip(), parent_id=parent_id)
         )
 
-    stamp = datetime(2026, 7, 4, 12, 0, 0, tzinfo=UTC)
+    stamp = datetime(2026, 7, 4, 12, 0, 0)
     comment_ids = [uuid.UUID(c["id"]) for c in same_second_comments]
     all_topic_comment_ids = [uuid.UUID(c["id"]) for c in [root, *same_second_comments]]
     for row in db_session.scalars(
@@ -97,8 +97,7 @@ def test_same_second_trio_seq_and_obligations(
 
     trio = [c for c in all_comments if c.id in comment_ids]
     assert len(trio) == 3
-    stamp_naive = stamp.replace(tzinfo=None)
-    assert all(c.created_at.replace(tzinfo=None) == stamp_naive for c in trio)
+    assert all(c.created_at == stamp for c in trio)
     assert trio[0].comment_seq < trio[1].comment_seq < trio[2].comment_seq
 
     host_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()

@@ -594,7 +594,18 @@ def experiment_logs(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> Non
 
 @experiment_app.command("status")
 def experiment_status(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    _run(lambda c: c.get_experiment(experiment_id))
+    def _action(client: MAPClient):
+        result = client.get_experiment(experiment_id)
+        typer.echo(f"actions: {list(result.actions)}")
+        typer.echo(f"blocked_on: {result.blocked_on}")
+        if result.blocked_on == "open_unreasonable_item" or "plan_revise" in result.actions:
+            typer.echo(
+                "obligation: revise plan for open unreasonable items "
+                "(see pending_plan_revisions in map todos / map work)"
+            )
+        return result
+
+    _run(_action)
 
 
 @experiment_app.command("show")
@@ -738,6 +749,14 @@ def plan_revise(
 @review_app.command("list")
 def review_list(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     _run(lambda c: c.list_reviews(experiment_id))
+
+
+@review_app.command("withdraw")
+def review_withdraw(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    review_id: uuid.UUID = typer.Option(..., "--review-id"),
+) -> None:
+    _run(lambda c: c.withdraw_review(experiment_id, review_id))
 
 
 @review_app.command("resolve-item")

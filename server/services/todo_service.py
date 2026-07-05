@@ -20,6 +20,7 @@ from server.domain.models import (
 from server.domain.schemas import (
     ExperimentSummaryRead,
     MentionTodoRead,
+    PendingPlanRevisionRead,
     PendingReplyRead,
     PendingRoundAckTodoRead,
     PendingAdvanceRoundTodoRead,
@@ -134,7 +135,9 @@ def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanc
 def _experiment_summary_with_open_unreasonable(
     db: Session,
     experiment: Experiment,
+    agent: Agent,
 ) -> ExperimentSummaryRead:
+    from server.services.experiment_capabilities_service import experiment_summary_for_actor
     from server.services.log_service import get_latest_log
     from server.services.review_service import count_open_unreasonable_for_experiment
 
@@ -148,15 +151,51 @@ def _experiment_summary_with_open_unreasonable(
     )
     latest = get_latest_log(db, experiment.id)
 
-    return ExperimentSummaryRead.model_validate(experiment).model_copy(
-        update={
+    return experiment_summary_for_actor(
+        db,
+        experiment,
+        agent,
+        extra_updates={
             "open_unreasonable_count": count_open_unreasonable_for_experiment(
                 db, experiment.id
             ),
             "log_count": log_count,
             "latest_log_summary": latest.summary if latest else None,
-        }
+        },
     )
+
+
+def list_pending_plan_revisions(db: Session, agent: Agent) -> list[PendingPlanRevisionRead]:
+    """Host/creator experiments in review with open unreasonable items needing plan revise."""
+    from server.services.review_service import count_open_status_unreasonable_for_experiment
+
+    stmt = (
+        select(Experiment)
+        .where(
+            Experiment.creator_agent_id == agent.id,
+            Experiment.deleted_at.is_(None),
+            Experiment.phase == ExperimentPhase.review,
+        )
+        .order_by(Experiment.updated_at.desc())
+    )
+    if not perm.is_admin(agent):
+        stmt = stmt.where(Experiment.project_id == agent.project_id)
+
+    pending: list[PendingPlanRevisionRead] = []
+    for experiment in db.scalars(stmt):
+        open_count = count_open_status_unreasonable_for_experiment(db, experiment.id)
+        if open_count <= 0:
+            continue
+        pending.append(
+            PendingPlanRevisionRead(
+                experiment_id=experiment.id,
+                experiment_title=experiment.title,
+                current_plan_version=experiment.current_plan_version,
+                open_unreasonable_count=open_count,
+                updated_at=experiment.updated_at,
+            )
+        )
+    return pending
 
 
 def get_todos(
@@ -166,7 +205,7 @@ def get_todos(
     bundle: "work_items.AgentTopicWorkItems | None" = None,
 ) -> TodoRead:
     my_open_experiments = [
-        _experiment_summary_with_open_unreasonable(db, e)
+        _experiment_summary_with_open_unreasonable(db, e, agent)
         for e in db.scalars(
             select(Experiment)
             .where(
@@ -219,8 +258,10 @@ def get_todos(
     if project_clause is not None:
         review_stmt = review_stmt.where(project_clause)
 
+    from server.services.experiment_capabilities_service import experiment_summary_for_actor
+
     pending_reviews = [
-        ExperimentSummaryRead.model_validate(exp) for exp in db.scalars(review_stmt)
+        experiment_summary_for_actor(db, exp, agent) for exp in db.scalars(review_stmt)
     ]
 
     result_review_stmt = (
@@ -236,7 +277,8 @@ def get_todos(
         result_review_stmt = result_review_stmt.where(project_clause)
 
     pending_result_reviews = [
-        ExperimentSummaryRead.model_validate(exp) for exp in db.scalars(result_review_stmt)
+        experiment_summary_for_actor(db, exp, agent)
+        for exp in db.scalars(result_review_stmt)
     ]
 
     reply_stmt = (
@@ -304,6 +346,7 @@ def get_todos(
     pending_topic_replies = list_pending_topic_replies(db, agent, work_items=all_work_items)
     pending_round_acks = list_pending_round_acks(db, agent, work_items=all_work_items)
     pending_advance_rounds = list_pending_advance_rounds(db, agent)
+    pending_plan_revisions = list_pending_plan_revisions(db, agent)
 
     action_items = [
         TopicActionItemTodoRead(
@@ -340,6 +383,7 @@ def get_todos(
         pending_reviews=pending_reviews,
         pending_result_reviews=pending_result_reviews,
         pending_replies=pending_replies,
+        pending_plan_revisions=pending_plan_revisions,
         pending_topic_replies=pending_topic_replies,
         pending_round_acks=pending_round_acks,
         pending_advance_rounds=pending_advance_rounds,

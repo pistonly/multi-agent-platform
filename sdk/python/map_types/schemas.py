@@ -17,6 +17,7 @@ from map_types.enums import (
     NotificationFingerprintVersion,
     ReviewItemKind,
     ReviewItemStatus,
+    ReviewSubstituteKind,
     TopicActionItemStatus,
     TopicDiscussionRound,
     TopicStatus,
@@ -121,6 +122,11 @@ class PlanVersionRead(ORMModel):
 class ReviewCreate(BaseModel):
     reasonable_items: list[str] = Field(default_factory=list)
     unreasonable_items: list[str] = Field(default_factory=list)
+    substitute_reason: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Required when admin submits a substitute review (admin_for_others).",
+    )
 
 
 class ReviewItemRead(ORMModel):
@@ -142,6 +148,7 @@ class ReviewRead(ORMModel):
     experiment_id: uuid.UUID
     reviewer_agent_id: uuid.UUID
     plan_version: int
+    substitute_kind: ReviewSubstituteKind = ReviewSubstituteKind.none
     created_at: datetime
     items: list[ReviewItemRead] = Field(default_factory=list)
 
@@ -213,6 +220,11 @@ class ExperimentSummaryRead(ORMModel):
     open_unreasonable_count: int = 0
     log_count: int = 0
     latest_log_summary: str | None = None
+    # Per-agent capabilities (experiment plan v2 AC#3); populated when actor context exists.
+    actions: list[str] = Field(default_factory=list)
+    blocked_on: str | None = None
+    # Historical annotation: approved/running/done without qualifying non-creator review.
+    legacy_self_review: bool = False
 
 
 class ExperimentDetailRead(ExperimentSummaryRead):
@@ -529,6 +541,16 @@ class PendingReplyRead(BaseModel):
     updated_at: datetime
 
 
+class PendingPlanRevisionRead(BaseModel):
+    experiment_id: uuid.UUID
+    experiment_title: str
+    current_plan_version: int
+    open_unreasonable_count: int
+    blocked_on: str = "open_unreasonable_item"
+    actions: list[str] = Field(default_factory=lambda: ["plan_revise"])
+    updated_at: datetime
+
+
 class PendingTopicReplyTodoRead(BaseModel):
     topic_id: uuid.UUID
     topic_title: str
@@ -621,6 +643,7 @@ class TodoRead(BaseModel):
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_result_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_replies: list[PendingReplyRead] = Field(default_factory=list)
+    pending_plan_revisions: list[PendingPlanRevisionRead] = Field(default_factory=list)
     pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)
     pending_round_acks: list[PendingRoundAckTodoRead] = Field(default_factory=list)
     pending_advance_rounds: list[PendingAdvanceRoundTodoRead] = Field(default_factory=list)

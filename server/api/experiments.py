@@ -33,6 +33,11 @@ from server.domain.schemas import (
 from server.services import comment_service, log_service, lock_service, notification_service, phase_service, plan_service, review_service
 from server.services import permissions as perm
 from server.services import project_service as svc
+from server.services.experiment_capabilities_service import experiment_summary_for_actor
+
+
+def _summary_for_agent(db: Session, experiment, agent: Agent, **extra) -> ExperimentSummaryRead:
+    return experiment_summary_for_actor(db, experiment, agent, extra_updates=extra or None)
 
 experiments_router = APIRouter(tags=["experiments"], dependencies=[Depends(bind_background_tasks)])
 
@@ -63,7 +68,7 @@ def create_experiment(
         event="experiment.created",
         event_payload={"id": str(experiment.id), "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment).model_copy(update={"warnings": warnings})
+    return _summary_for_agent(db, experiment, agent, warnings=warnings)
 
 
 @experiments_router.get("/projects/{project_id}/experiments", response_model=list[ExperimentSummaryRead])
@@ -102,7 +107,7 @@ def get_experiment(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentDetailRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    return svc.get_experiment_detail(db, experiment_id)
+    return svc.get_experiment_detail(db, experiment_id, agent)
 
 
 @experiments_router.get("/experiments/{experiment_id}/bundle", response_model=ExperimentBundleRead)
@@ -112,7 +117,7 @@ def get_experiment_bundle(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentBundleRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    return svc.get_experiment_bundle(db, experiment_id)
+    return svc.get_experiment_bundle(db, experiment_id, agent)
 
 
 @experiments_router.patch("/experiments/{experiment_id}", response_model=ExperimentSummaryRead)
@@ -124,7 +129,7 @@ def update_experiment(
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
     experiment = svc.update_experiment(db, experiment_id, payload)
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.delete("/experiments/{experiment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -160,7 +165,7 @@ def submit_for_review(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post("/experiments/{experiment_id}/approve", response_model=ExperimentSummaryRead)
@@ -183,7 +188,7 @@ def approve_experiment(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post("/experiments/{experiment_id}/withdraw", response_model=ExperimentSummaryRead)
@@ -207,7 +212,7 @@ def withdraw_from_review(
         target_id=experiment.id,
         payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post("/experiments/{experiment_id}/cancel", response_model=ExperimentSummaryRead)
@@ -231,7 +236,7 @@ def cancel_experiment(
         target_id=experiment.id,
         payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 # --- M2: plans ---
@@ -326,6 +331,31 @@ def list_reviews(
     perm.ensure_experiment_access(db, agent, experiment_id)
     reviews = review_service.list_reviews(db, experiment_id)
     return [review_service.review_to_read(r) for r in reviews]
+
+
+@experiments_router.post(
+    "/experiments/{experiment_id}/reviews/{review_id}/withdraw",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def withdraw_review(
+    experiment_id: uuid.UUID,
+    review_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> None:
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    review_service.withdraw_review(db, experiment_id, review_id, agent)
+    emit(
+        db,
+        agent,
+        action="review.withdrawn",
+        target_type="review",
+        target_id=review_id,
+        project_id=experiment.project_id,
+        summary="撤回评审",
+        event="review.withdrawn",
+        event_payload={"experiment_id": str(experiment_id), "review_id": str(review_id)},
+    )
 
 
 @experiments_router.patch("/review-items/{item_id}", response_model=ReviewItemRead)
@@ -426,7 +456,7 @@ def start_experiment(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post("/experiments/{experiment_id}/complete", response_model=ExperimentSummaryRead)
@@ -450,7 +480,7 @@ def complete_experiment(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post("/experiments/{experiment_id}/accept-result", response_model=ExperimentSummaryRead)
@@ -474,7 +504,7 @@ def accept_experiment_result(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post("/experiments/{experiment_id}/reject-result", response_model=ExperimentSummaryRead)
@@ -498,7 +528,7 @@ def reject_experiment_result(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return ExperimentSummaryRead.model_validate(experiment)
+    return _summary_for_agent(db, experiment, agent)
 
 
 @experiments_router.post(

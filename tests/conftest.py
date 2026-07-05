@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from map_client import MAPClient
@@ -11,20 +11,67 @@ from server.db.session import get_db
 from server.main import create_app
 
 
-@pytest.fixture
-def db_session():
-    engine = create_engine(
+@pytest.fixture(scope="session")
+def engine():
+    eng = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(bind=engine)
-    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+    @event.listens_for(eng, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(bind=eng)
+    yield eng
+    eng.dispose()
+
+
+def _session_with_savepoints(connection) -> Session:
+    """Return a Session whose commits only release nested savepoints."""
+    session = Session(bind=connection, autoflush=False, expire_on_commit=False)
+    nested = connection.begin_nested()
+
+    @event.listens_for(session, "after_transaction_end")
+    def _restart_savepoint(sess: Session, trans) -> None:
+        nonlocal nested
+        if not nested.is_active:
+            nested = connection.begin_nested()
+
+    return session
+
+
+@pytest.fixture
+def db_session(engine):
+    """Per-test session rolled back via an outer transaction + savepoints."""
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = _session_with_savepoints(connection)
     try:
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine)
+        transaction.rollback()
+        connection.close()
+
+
+class _SameSessionLocal:
+    """Route production ``SessionLocal()`` calls to the active test session."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def __call__(self) -> Session:
+        return self._session
+
+    def __enter__(self) -> Session:
+        return self._session
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
 
 
 @pytest.fixture
@@ -46,12 +93,10 @@ def client(db_session):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    test_engine = db_session.get_bind()
-    test_session_local = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
     import server.db.session as db_session_module
 
     original_session_local = db_session_module.SessionLocal
-    db_session_module.SessionLocal = test_session_local
+    db_session_module.SessionLocal = _SameSessionLocal(db_session)
 
     with TestClient(app) as test_client:
         yield test_client

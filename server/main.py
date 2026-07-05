@@ -48,6 +48,12 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
             reason = getattr(exc, "reason", None)
             if isinstance(reason, str) and reason:
                 content["reason"] = reason
+            actor_id = getattr(exc, "actor_id", None)
+            if isinstance(actor_id, str) and actor_id:
+                content["actor_id"] = actor_id
+            experiment_id = getattr(exc, "experiment_id", None)
+            if isinstance(experiment_id, str) and experiment_id:
+                content["experiment_id"] = experiment_id
             return JSONResponse(status_code=code, content=content)
 
         return handler

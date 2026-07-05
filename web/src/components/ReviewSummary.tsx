@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { createReview } from "../api/client";
 import type { Review, ReviewItem, ReviewItemStatus } from "../api/types";
@@ -53,9 +53,17 @@ interface ReviewSummaryProps {
   experimentId: string;
   reviews: Review[];
   onUpdated: () => void;
+  canAddReview?: boolean;
+  highlightReview?: boolean;
 }
 
-export function ReviewSummary({ experimentId, reviews, onUpdated }: ReviewSummaryProps) {
+export function ReviewSummary({
+  experimentId,
+  reviews,
+  onUpdated,
+  canAddReview = false,
+  highlightReview = false,
+}: ReviewSummaryProps) {
   const [expanded, setExpanded] = useState(false);
   const [okText, setOkText] = useState("");
   const [badText, setBadText] = useState("");
@@ -80,8 +88,14 @@ export function ReviewSummary({ experimentId, reviews, onUpdated }: ReviewSummar
     (i) => i.status && ["open", "addressed", "rebutted", "escalated"].includes(i.status)
   ).length;
 
+  useEffect(() => {
+    if (highlightReview && canAddReview) {
+      setExpanded(true);
+    }
+  }, [highlightReview, canAddReview]);
+
   return (
-    <div className="card h-full">
+    <div className={`card h-full ${highlightReview ? "ring-2 ring-accent" : ""}`}>
       <h2 className="mb-3 text-base font-semibold text-white">评审摘要</h2>
       <div className="mb-4 grid grid-cols-2 gap-2 text-center text-sm">
         <div className="rounded bg-emerald-950/40 py-2">
@@ -115,46 +129,48 @@ export function ReviewSummary({ experimentId, reviews, onUpdated }: ReviewSummar
       )}
       {reviews.length === 0 && <p className="text-sm text-slate-500">暂无评审</p>}
 
-      <div className="mt-4 border-t border-surface-border pt-3">
-        {expanded ? (
-          <div className="space-y-2">
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">合理项（每行一条，可选）</label>
-              <textarea
-                className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                value={okText}
-                onChange={(e) => setOkText(e.target.value)}
-              />
+      {canAddReview && (
+        <div className="mt-4 border-t border-surface-border pt-3">
+          {expanded ? (
+            <div className="space-y-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">合理项（每行一条，可选）</label>
+                <textarea
+                  className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+                  value={okText}
+                  onChange={(e) => setOkText(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">不合理项（每行一条，可选）</label>
+                <textarea
+                  className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
+                  value={badText}
+                  onChange={(e) => setBadText(e.target.value)}
+                />
+              </div>
+              {reviewMutation.isError && <p className="text-sm text-red-400">提交失败</p>}
+              <div className="flex justify-end gap-2">
+                <button type="button" className="btn-secondary" onClick={() => setExpanded(false)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={reviewMutation.isPending || (!okText.trim() && !badText.trim())}
+                  onClick={() => reviewMutation.mutate()}
+                >
+                  {reviewMutation.isPending ? "提交中…" : "提交评审"}
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">不合理项（每行一条，可选）</label>
-              <textarea
-                className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                value={badText}
-                onChange={(e) => setBadText(e.target.value)}
-              />
-            </div>
-            {reviewMutation.isError && <p className="text-sm text-red-400">提交失败</p>}
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => setExpanded(false)}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={reviewMutation.isPending || (!okText.trim() && !badText.trim())}
-                onClick={() => reviewMutation.mutate()}
-              >
-                {reviewMutation.isPending ? "提交中…" : "提交评审"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
-            提交评审
-          </button>
-        )}
-      </div>
+          ) : (
+            <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
+              提交评审
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   acceptExperimentResult,
   approveExperiment,
-  cancelExperiment,
   completeExperiment,
   createComment,
   fetchExperimentBundle,
@@ -23,6 +22,11 @@ import { PhaseBadge, PhaseStepper } from "../components/PhaseStepper";
 import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
 import { parseCommentAnchor } from "../utils/commentAnchor";
+import {
+  blockedOnMessage,
+  hasExperimentAction,
+  shouldShowBlockedBanner,
+} from "../utils/experimentCapabilities";
 
 export function ExperimentPage() {
   const { experimentId } = useParams<{ experimentId: string }>();
@@ -37,6 +41,10 @@ export function ExperimentPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [generalComment, setGeneralComment] = useState("");
+  const [highlightPlanRevise, setHighlightPlanRevise] = useState(false);
+  const [highlightReviewAdd, setHighlightReviewAdd] = useState(false);
+  const planPanelRef = useRef<HTMLDivElement>(null);
+  const reviewPanelRef = useRef<HTMLDivElement>(null);
 
   const bundleKey = ["experiment-bundle", experimentId] as const;
 
@@ -54,7 +62,7 @@ export function ExperimentPage() {
     mutationFn: async (action: string) => {
       if (!experimentId) return;
       switch (action) {
-        case "submit":
+        case "submit_for_review":
           return submitForReview(experimentId);
         case "approve":
           return approveExperiment(experimentId);
@@ -62,19 +70,17 @@ export function ExperimentPage() {
           return startExperiment(experimentId);
         case "withdraw":
           return withdrawExperiment(experimentId);
-        case "cancel":
-          return cancelExperiment(experimentId);
         case "complete":
           return completeExperiment(experimentId, {
             summary: completeSummary,
             content_md: completeBody,
           });
-        case "accept-result":
+        case "accept_result":
           return acceptExperimentResult(experimentId, {
             summary: resultReviewSummary,
             content_md: resultReviewBody,
           });
-        case "reject-result":
+        case "reject_result":
           return rejectExperimentResult(experimentId, {
             summary: resultReviewSummary,
             content_md: resultReviewBody,
@@ -139,6 +145,10 @@ export function ExperimentPage() {
   }
 
   const { experiment, plans, reviews, comments, logs } = bundleQuery.data;
+  const actions = experiment.actions ?? [];
+  const blockedMessage = shouldShowBlockedBanner(actions, experiment.blocked_on)
+    ? blockedOnMessage(experiment.blocked_on)
+    : null;
   const version = planVersion ?? experiment.current_plan_version;
   const selectedPlan = plans.find((p) => p.version === version) ?? experiment.current_plan;
   const unreasonable = getUnreasonableItems(reviews);
@@ -146,7 +156,16 @@ export function ExperimentPage() {
     experiment.phase === "running" || experiment.phase === "result_review" || experiment.phase === "done";
   const isTerminal = experiment.phase === "done" || experiment.phase === "cancelled";
   const isCreator = !!agent && agent.id === experiment.creator_agent_id;
-  const canReviewResult = !!agent && (agent.id !== experiment.creator_agent_id || agent.role === "admin");
+
+  const scrollToPlanRevise = () => {
+    setHighlightPlanRevise(true);
+    planPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const scrollToReviewAdd = () => {
+    setHighlightReviewAdd(true);
+    reviewPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   return (
     <div className="space-y-6">
@@ -219,30 +238,47 @@ export function ExperimentPage() {
             </button>
           </div>
         )}
+        {blockedMessage && (
+          <p className="mt-3 rounded border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-200">
+            {blockedMessage}
+          </p>
+        )}
         <div className="mt-4 flex flex-wrap gap-2">
-          {experiment.phase === "draft" && (
-            <button type="button" className="btn-primary" onClick={() => phaseMutation.mutate("submit")}>
+          {hasExperimentAction(actions, "submit_for_review") && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => phaseMutation.mutate("submit_for_review")}
+            >
               提交评审
             </button>
           )}
-          {experiment.phase === "review" && (
-            <>
-              {experiment.open_unreasonable_count === 0 && (
-                <button type="button" className="btn-primary" onClick={() => phaseMutation.mutate("approve")}>
-                  批准实验
-                </button>
-              )}
-              <button type="button" className="btn-secondary" onClick={() => phaseMutation.mutate("withdraw")}>
-                撤回修改
-              </button>
-            </>
+          {hasExperimentAction(actions, "approve") && (
+            <button type="button" className="btn-primary" onClick={() => phaseMutation.mutate("approve")}>
+              确认进入执行
+            </button>
           )}
-          {experiment.phase === "approved" && (
+          {hasExperimentAction(actions, "withdraw") && (
+            <button type="button" className="btn-secondary" onClick={() => phaseMutation.mutate("withdraw")}>
+              撤回修改
+            </button>
+          )}
+          {hasExperimentAction(actions, "start") && (
             <button type="button" className="btn-primary" onClick={() => phaseMutation.mutate("start")}>
               开始执行
             </button>
           )}
-          {experiment.phase === "running" && (
+          {hasExperimentAction(actions, "plan_revise") && (
+            <button type="button" className="btn-secondary" onClick={scrollToPlanRevise}>
+              修订计划
+            </button>
+          )}
+          {hasExperimentAction(actions, "review_add") && (
+            <button type="button" className="btn-secondary" onClick={scrollToReviewAdd}>
+              提交评审意见
+            </button>
+          )}
+          {hasExperimentAction(actions, "complete") && (
             <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
               <input
                 className="rounded border border-surface-border bg-surface px-2 py-1 text-sm"
@@ -266,7 +302,8 @@ export function ExperimentPage() {
               </button>
             </div>
           )}
-          {experiment.phase === "result_review" && canReviewResult && (
+          {(hasExperimentAction(actions, "accept_result") ||
+            hasExperimentAction(actions, "reject_result")) && (
             <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
               <input
                 className="rounded border border-surface-border bg-surface px-2 py-1 text-sm"
@@ -280,28 +317,27 @@ export function ExperimentPage() {
                 value={resultReviewBody}
                 onChange={(e) => setResultReviewBody(e.target.value)}
               />
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={!resultReviewSummary || !resultReviewBody}
-                onClick={() => phaseMutation.mutate("accept-result")}
-              >
-                通过结果
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={!resultReviewSummary || !resultReviewBody}
-                onClick={() => phaseMutation.mutate("reject-result")}
-              >
-                驳回返工
-              </button>
+              {hasExperimentAction(actions, "accept_result") && (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={!resultReviewSummary || !resultReviewBody}
+                  onClick={() => phaseMutation.mutate("accept_result")}
+                >
+                  通过结果
+                </button>
+              )}
+              {hasExperimentAction(actions, "reject_result") && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={!resultReviewSummary || !resultReviewBody}
+                  onClick={() => phaseMutation.mutate("reject_result")}
+                >
+                  驳回返工
+                </button>
+              )}
             </div>
-          )}
-          {!isTerminal && (
-            <button type="button" className="btn-secondary" onClick={() => phaseMutation.mutate("cancel")}>
-              取消实验
-            </button>
           )}
         </div>
         {phaseMutation.isError && (
@@ -310,15 +346,27 @@ export function ExperimentPage() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <PlanPanel
-          experimentId={experimentId!}
-          plan={selectedPlan}
-          versions={plans}
-          version={version}
-          onSelectVersion={setPlanVersion}
-          onUpdated={invalidate}
-        />
-        <ReviewSummary experimentId={experimentId!} reviews={reviews} onUpdated={invalidate} />
+        <div ref={planPanelRef}>
+          <PlanPanel
+            experimentId={experimentId!}
+            plan={selectedPlan}
+            versions={plans}
+            version={version}
+            onSelectVersion={setPlanVersion}
+            onUpdated={invalidate}
+            canRevise={hasExperimentAction(actions, "plan_revise")}
+            highlightRevise={highlightPlanRevise}
+          />
+        </div>
+        <div ref={reviewPanelRef}>
+          <ReviewSummary
+            experimentId={experimentId!}
+            reviews={reviews}
+            onUpdated={invalidate}
+            canAddReview={hasExperimentAction(actions, "review_add")}
+            highlightReview={highlightReviewAdd}
+          />
+        </div>
       </div>
 
       <section className="card">

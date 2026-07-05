@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { revisePlan } from "../api/client";
@@ -12,6 +12,8 @@ interface PlanPanelProps {
   version: number;
   onSelectVersion: (v: number) => void;
   onUpdated: () => void;
+  canRevise?: boolean;
+  highlightRevise?: boolean;
 }
 
 export function PlanPanel({
@@ -21,6 +23,8 @@ export function PlanPanel({
   version,
   onSelectVersion,
   onUpdated,
+  canRevise = false,
+  highlightRevise = false,
 }: PlanPanelProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -45,8 +49,15 @@ export function PlanPanel({
     },
   });
 
+  useEffect(() => {
+    if (highlightRevise && canRevise && plan) {
+      setDraft(plan.content_md);
+      setEditing(true);
+    }
+  }, [highlightRevise, canRevise, plan]);
+
   return (
-    <div className="card h-full">
+    <div className={`card h-full ${highlightRevise ? "ring-2 ring-accent" : ""}`}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">实验计划 v{version}</h2>
         <div className="flex flex-wrap items-center gap-2">
@@ -155,18 +166,20 @@ export function PlanPanel({
           </div>
         </div>
       ) : (
-        <div className="mt-3 border-t border-surface-border pt-3">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              setDraft(plan?.content_md ?? "");
-              setEditing(true);
-            }}
-          >
-            修订计划
-          </button>
-        </div>
+        canRevise && (
+          <div className="mt-3 border-t border-surface-border pt-3">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setDraft(plan?.content_md ?? "");
+                setEditing(true);
+              }}
+            >
+              修订计划
+            </button>
+          </div>
+        )
       )}
     </div>
   );

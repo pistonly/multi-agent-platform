@@ -8,6 +8,7 @@ function emptyTodos(): TodoRead {
     pending_reviews: [],
     pending_result_reviews: [],
     pending_replies: [],
+    pending_plan_revisions: [],
     pending_topic_replies: [],
     pending_round_acks: [],
     pending_advance_rounds: [],
@@ -30,14 +31,13 @@ describe("sumTodos", () => {
     expect(sumTodos(data)).toBe(6);
   });
 
-  it("counts every TodoRead bucket so Layout and TodosPage stay in sync", () => {
-    // One item in each of the 10 buckets -> total 10. If a bucket is added to
-    // TodoRead but forgotten here, this test (and the helper) must be updated.
+  it("counts obligation buckets only (passive my_open_* excluded)", () => {
     const data: TodoRead = {
       my_open_experiments: [{}] as never,
       pending_reviews: [{}] as never,
       pending_result_reviews: [{}] as never,
       pending_replies: [{}] as never,
+      pending_plan_revisions: [{}] as never,
       pending_topic_replies: [{}] as never,
       pending_round_acks: [{}] as never,
       pending_advance_rounds: [{}] as never,
@@ -45,6 +45,6 @@ describe("sumTodos", () => {
       mentions: [{}] as never,
       action_items: [{}] as never,
     };
-    expect(sumTodos(data)).toBe(10);
+    expect(sumTodos(data)).toBe(9);
   });
 });

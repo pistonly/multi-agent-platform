@@ -359,8 +359,15 @@ def get_experiment(db: Session, experiment_id: uuid.UUID) -> Experiment:
     return experiment
 
 
-def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDetailRead:
+def get_experiment_detail(
+    db: Session, experiment_id: uuid.UUID, actor: Agent | None = None
+) -> ExperimentDetailRead:
     from server.domain.models import ExperimentLog, Review
+    from server.services.experiment_capabilities_service import (
+        apply_capabilities_to_detail,
+        compute_experiment_capabilities,
+        compute_legacy_self_review,
+    )
     from server.services.log_service import get_latest_log
     from server.services.review_service import count_open_unreasonable_for_experiment
 
@@ -386,7 +393,7 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         select(func.count()).select_from(ExperimentLog).where(ExperimentLog.experiment_id == experiment.id)
     ) or 0
 
-    return ExperimentDetailRead(
+    detail = ExperimentDetailRead(
         id=experiment.id,
         project_id=experiment.project_id,
         creator_agent_id=experiment.creator_agent_id,
@@ -410,12 +417,21 @@ def get_experiment_detail(db: Session, experiment_id: uuid.UUID) -> ExperimentDe
         next_attempt_at=experiment.next_attempt_at,
         lock_skip_count=int(experiment.lock_skip_count or 0),
     )
+    if actor is not None:
+        actions, blocked_on = compute_experiment_capabilities(db, experiment, actor)
+        legacy = compute_legacy_self_review(db, experiment)
+        return apply_capabilities_to_detail(
+            detail, actions, blocked_on, legacy_self_review=legacy
+        )
+    return detail
 
 
-def get_experiment_bundle(db: Session, experiment_id: uuid.UUID) -> ExperimentBundleRead:
+def get_experiment_bundle(
+    db: Session, experiment_id: uuid.UUID, actor: Agent | None = None
+) -> ExperimentBundleRead:
     from server.services import comment_service, log_service, plan_service, review_service
 
-    experiment = get_experiment_detail(db, experiment_id)
+    experiment = get_experiment_detail(db, experiment_id, actor)
     plans = [PlanVersionRead.model_validate(p) for p in plan_service.list_plans(db, experiment_id)]
     reviews = [review_service.review_to_read(r) for r in review_service.list_reviews(db, experiment_id)]
     comments = comment_service.build_comment_tree(db, comment_service.list_comments(db, experiment_id))

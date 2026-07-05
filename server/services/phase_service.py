@@ -5,12 +5,12 @@ from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole, ExperimentPhase, TopicActionItem, TopicActionItemStatus
 from server.domain.schemas import ExperimentComplete, ExperimentLogCreate, ExperimentResultDecision
-from server.domain.state_machine import can_approve, validate_phase_transition
+from server.domain.state_machine import validate_phase_transition
 from server.services import audit_service, topic_service
 from server.services.errors import ForbiddenError, StateTransitionError
 from server.services.log_service import append_log
 from server.services.project_service import get_experiment
-from server.services.review_service import get_unreasonable_items
+from server.services.review_service import assert_approve_eligibility
 
 
 def submit_for_review(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
@@ -28,9 +28,7 @@ def approve_experiment(db: Session, experiment_id: uuid.UUID, actor: Agent) -> N
     experiment = get_experiment(db, experiment_id)
     if experiment.creator_agent_id != actor.id and actor.role != AgentRole.admin:
         raise ForbiddenError("Only the creator can approve the experiment")
-    unreasonable = get_unreasonable_items(db, experiment_id)
-    if not can_approve(experiment.phase, unreasonable):
-        raise StateTransitionError("Cannot approve: open unreasonable items remain")
+    assert_approve_eligibility(db, experiment)
     validate_phase_transition(experiment.phase, ExperimentPhase.approved)
     experiment.phase = ExperimentPhase.approved
     db.commit()
