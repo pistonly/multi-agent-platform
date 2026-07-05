@@ -359,7 +359,7 @@ def test_a1_total_composition_breakdown() -> None:
     shutil.which(CLAUDE_BIN) is None,
     reason=f"claude CLI not on PATH (looked for {CLAUDE_BIN!r})",
 )
-def test_a1_total_real_cli_single_trial_mention() -> None:
+def test_a1_total_real_cli_single_trial_mention(claude_cli_env: dict[str, str]) -> None:
     """Single real-CLI trial for mention kind, cross-checks stub calibration.
 
     A1b Test 1 measured real `claude --print` ≈ 2.1s on this developer
@@ -384,6 +384,7 @@ def test_a1_total_real_cli_single_trial_mention() -> None:
         timeout=60,
         check=False,
         cwd=str(PROJECT_ROOT),
+        env=claude_cli_env,
     )
     t1 = time.perf_counter()
     elapsed_ms = (t1 - t0) * 1000.0

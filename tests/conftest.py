@@ -1,5 +1,8 @@
+import os
+import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,25 +21,78 @@ from server.main import create_app
 # claude_cli marker：未登录时 skip 而非 fail
 # ---------------------------------------------------------------------------
 # 真调用 `claude --print` 的测试（waker phase2 e2e_a1b / a1_total 等）依赖
-# claude CLI 登录态。CI 沙箱环境通常未登录，应 skip 而不是报 FAILED。
+# claude CLI 凭证。凭证解析顺序与 scripts/claude-{host,participant,reviewer}-runner.py
+# 保持一致：
+#   1. 已存在的环境变量（ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL）
+#   2. 项目根目录 .map/.claude-env（export VAR=... 格式）
+#   3. ~/.bashrc / ~/.profile / ~/.bash_profile
 # 用法：在测试模块顶部 `pytestmark = pytest.mark.claude_cli`，本 fixture 自动
-# 探活；若 claude 不可用或未登录则整模块 skip。
+# 探活；若 claude 不可用或凭证缺失则 skip 而非 fail。
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_CLAUDE_ENV_FILE = PROJECT_ROOT / ".map" / ".claude-env"
+_EXPORT_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
+def _read_export_from_file(path: Path, name: str) -> str | None:
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        match = _EXPORT_RE.match(line)
+        if match and match.group(1) == name:
+            value = match.group(2).strip().strip("\"'").strip()
+            if value:
+                return value
+    return None
+
+
+def _resolve_claude_env_var(name: str) -> str | None:
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    home = Path.home()
+    for path in (_CLAUDE_ENV_FILE, home / ".bashrc", home / ".profile", home / ".bash_profile"):
+        found = _read_export_from_file(path, name)
+        if found:
+            return found
+    return None
+
+
+def _build_claude_env() -> dict[str, str]:
+    """构造 claude CLI 子进程环境：继承当前 env + 解析 .map/.claude-env。"""
+    env = os.environ.copy()
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
+        resolved = _resolve_claude_env_var(name)
+        if resolved:
+            env[name] = resolved
+    return env
+
+
 def _claude_cli_available() -> tuple[bool, str]:
     if not shutil.which("claude"):
         return False, "claude CLI not found in PATH"
+    env = _build_claude_env()
+    has_token = bool(env.get("ANTHROPIC_API_KEY") or env.get("ANTHROPIC_AUTH_TOKEN"))
+    if not has_token:
+        return False, "no ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN (env + .map/.claude-env + shell rc)"
     try:
         proc = subprocess.run(
             ["claude", "--print", "--dangerously-skip-permissions", "Reply with exactly one word: ok"],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=20,
+            env=env,
         )
     except subprocess.TimeoutExpired:
-        return False, "claude CLI timed out (>15s)"
+        return False, "claude CLI timed out (>20s)"
     except Exception as exc:  # pragma: no cover - 防御性
         return False, f"claude CLI probe failed: {exc}"
     if proc.returncode != 0:
-        return False, f"claude CLI rc={proc.returncode} (likely not logged in)"
+        snippet = (proc.stdout or proc.stderr or "").strip().splitlines()[:1]
+        return False, f"claude CLI rc={proc.returncode} ({snippet[0] if snippet else 'no output'})"
     return True, "ok"
 
 
@@ -49,6 +105,12 @@ def skip_claude_cli_if_unavailable(request):
     ok, reason = _claude_cli_available()
     if not ok:
         pytest.skip(f"claude_cli unavailable: {reason}")
+
+
+@pytest.fixture
+def claude_cli_env() -> dict[str, str]:
+    """供 claude_cli 测试使用的子进程环境（已合并 .map/.claude-env）。"""
+    return _build_claude_env()
 
 
 @pytest.fixture(scope="session")
