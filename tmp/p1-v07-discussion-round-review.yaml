@@ -1,9 +1,0 @@
-reasonable_items:
-  - "目标与来源话题 Round 2 共识一致：discussion_round + round_summary_count 最小字段集"
-  - "状态机 round1→round2→ready 清晰，advance-round 与 create_experiment 职责分离"
-  - "权限模型与 create_experiment(topic_id) 对齐（creator 或 admin）"
-  - "非目标边界明确：无 Web advance 按钮、无 last_summary_comment_id、无 pending 硬门禁"
-  - "Alembic NOT NULL + server_default 与验收标准（pytest/ruff/alembic）可执行"
-  - "测试矩阵覆盖 API 权限、状态转换、CLI、worker readiness"
-unreasonable_items:
-  - "实施步骤 6「保留旧正文正则作为兼容 fallback」与 Round 2 共识「count 仅由 advance-round 递增、避免双源真相」存在张力；请在 plan v2 明确 fallback 仅用于存量 topic 且 discussion_round=round1 & count=0 的过渡路径，或删除 fallback 并注明 v0.7.1 清理"

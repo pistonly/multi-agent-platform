@@ -1,5 +1,0 @@
-decision: "采用 TTL sweep 自动清理 runtime-waker state events：删除 now - last_attempt_at > max(cooldown_seconds, woken_cooldown_seconds) 的孤儿 entry；默认开 + --no-prune-events 逃逸阀；每 cycle 扫、仅真删置 dirty；不动 fingerprint、不 bump schema_version。开实验在 running 阶段实际改 cli/runtime_waker.py 并跑 tests/test_runtime_waker.py。"
-rationale: "两轮讨论全收敛、零争议（participant 148f129c/0bb18c12 + reviewer 356c1a75 + host，均已 --ack accept）。死条源于 fingerprint 编码派生态——pending_topic_reply:{topic_id}:{comment_id} / experiment_lifecycle:{id}:{phase}:v{version}:u{open_count} / topic_lifecycle:{id}:{topic_key}(含 updated_at+comment_count)，派生字段一变即新键、旧键在 _event_state 整键查(runtime_waker.py:623-628)永不再命中；topic_lifecycle 每条评论换键是死条头号贡献者。updated_at 进键有意（waker 需在 topic 任何变化时重评 summary/advance），正解是清死条而非改 fingerprint。max() 阈值恰是 _should_skip_event(:589-609) 必然返 False 的时刻 → 凡被删的本就不会被 skip，行为零回归（reviewer 356c1a75 逐条核实现有用例不破）。"
-rejected_options: "LRU 容量上限（可能误删仍在 TTL 窗口内的 record）；改 fingerprint 去掉 updated_at/comment_count（变唤醒语义，waker 不再能在 topic 变化时重评）；bump schema_version=2（prune 只删 dict key 不改 schema，load_bridge_state 仅校验 ==1，写 2 反触发 Unsupported schema 自伤）；按 events 总数硬上限（死条判定应基于 TTL 行为影响，非计数）"
-open_questions: ""
-action_items: []

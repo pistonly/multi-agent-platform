@@ -1,5 +1,0 @@
-reasonable_items:
-  - "探针范围清晰，仅验证 waker 生命周期闭环"
-  - "验收标准可执行"
-
-unreasonable_items: []

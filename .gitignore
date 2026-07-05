@@ -51,7 +51,7 @@ htmlcov/
 !.cursor/skills/
 !.cursor/skills/**
 
-# MAP project-local secrets (committed templates: .map/*.example)
+# MAP project-local (committed: .map/*.example, agents.yaml, config.yaml)
 .map/agents.local.yaml
 .map/host-bridge-state.json
 .map/participant-bridge-state.json
@@ -59,14 +59,22 @@ htmlcov/
 .map/runtime-waker-state.json
 .map/runtime-waker-state-*.json
 .map/runtime-waker-*-state.json
+.map/simple-waker-state.json
+.map/simple-waker-state-*.json
 .map/runtime-waker-sessions/
 .map/claude-runtime-home/
 .map/claude-runtime-home-*/
 .map/codex-runtime-home/
 .map/bridge-logs/
 .map/waker-logs/
+.map/simple-waker-logs/
 .map/generated-reviews/
 .map/.claude-env
+.map/.cursor-env
+# Agent 运行时生成的计划/日志（baseline 例外保留供测试对照）
+.map/generated-plans/
+!.map/generated-plans/phase1-p95-baseline.json
+!.map/generated-plans/phase2-p95-baseline.json
 
 # Local data
 data/
@@ -82,6 +90,13 @@ web/dist/
 
 # Demo project generated output
 test_project/output/
+
+# Local scratch (experiment drafts, one-off scripts, notes)
+tmp/
+
+# Local git worktrees (metadata lives in .git/worktrees/)
+.worktrees/
+.claude/worktrees/
 
 # OS
 .DS_Store
