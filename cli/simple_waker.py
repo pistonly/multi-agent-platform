@@ -42,6 +42,7 @@ class TopicProgressEntry:
     last_comment_author_name: str | None
     new_comment_count: int
     new_comments: tuple[dict[str, Any], ...]
+    work_item_kinds: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,12 @@ def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntr
         new_comments = raw.get("new_comments") or []
         if not isinstance(new_comments, list):
             new_comments = []
+        work_items = raw.get("work_items") or []
+        kinds: list[str] = []
+        if isinstance(work_items, list):
+            for item in work_items:
+                if isinstance(item, dict) and item.get("kind"):
+                    kinds.append(str(item["kind"]))
         entries.append(
             TopicProgressEntry(
                 topic_id=str(topic_id),
@@ -140,6 +147,7 @@ def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntr
                 ),
                 new_comment_count=int(raw.get("new_comment_count") or len(new_comments)),
                 new_comments=tuple(c for c in new_comments if isinstance(c, dict)),
+                work_item_kinds=tuple(kinds),
             )
         )
     return tuple(entries)
@@ -244,22 +252,25 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
     lines = [
         f"MAP 协作提醒 · {persona}",
         "",
-        "平台检测到新进展。请先读 map-runtime-waker、map-project-collab 与 persona Skill，然后：",
+        "平台检测到待处理 work items。请先读 map-runtime-waker、map-project-collab 与 persona Skill，然后：",
         f"1. `{command} persona whoami`",
-        f"2. `{command} topic progress` — 查看各开放话题中你上次发言后的新评论",
-        f"3. `{command} todos` — 实验/评审/mention 等待办",
-        "4. 主动参与开放话题；host 负责回复 thread 与推进轮次",
+        f"2. `{command} work` 或 `{command} topic progress` — topic work items 统一视图（obligation + contextual；与 todos 话题分区同源）",
+        f"3. `{command} todos` — 实验/评审/mention 等待办分区",
+        "4. 按 work_items.kind 逐项处理（obligation 优先）；host 回复 thread 与推进轮次",
         "",
     ]
 
     if context.topic_progress:
-        lines.append("## 话题新进展")
+        lines.append("## 话题 work items（topic-progress）")
         for entry in context.topic_progress:
+            kinds = ", ".join(entry.work_item_kinds) if entry.work_item_kinds else "?"
             who = entry.last_comment_author_name or "他人"
             lines.append(
                 f"- **{entry.topic_title}** (`{entry.topic_id}`) "
-                f"· {entry.discussion_round} · 最新来自 {who} · +{entry.new_comment_count} 条"
+                f"· {entry.discussion_round} · kinds: {kinds} · 末评 {who}"
             )
+            if entry.new_comment_count > 0:
+                lines.append(f"  - unread 摘要 +{entry.new_comment_count} 条：")
             for comment in entry.new_comments[:3]:
                 author = comment.get("author_name") or comment.get("author_agent_id") or "?"
                 excerpt = comment.get("excerpt") or comment.get("body") or ""
@@ -279,7 +290,7 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
             )
         lines.append("")
 
-    lines.append(f"详情：`{command} topic progress` · `{command} todos`")
+    lines.append(f"详情：`{command} work` · `{command} topic progress` · `{command} todos`")
     return "\n".join(lines) + "\n"
 
 
@@ -337,7 +348,8 @@ class SimpleWaker:
         return asyncio.run(self._run_forever_async())
 
     async def _run_forever_async(self) -> SimpleWakerStats:
-        await self.backend.connect()
+        if not self.config.dry_run:
+            await self.backend.connect()
         total = SimpleWakerStats()
         try:
             while True:
@@ -364,7 +376,8 @@ class SimpleWaker:
                 await asyncio.sleep(sleep_for)
             return total
         finally:
-            await self.backend.disconnect()
+            if not self.config.dry_run:
+                await self.backend.disconnect()
 
     def run_once(self) -> SimpleWakerStats:
         return asyncio.run(self._run_once_async())[0]
@@ -504,7 +517,7 @@ def run(
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
     resolved_runtime_home = runtime_home
-    if resolved_runtime_home is not None:
+    if resolved_runtime_home is not None and not dry_run:
         sync_runtime_skills(project_root=root, runtime_home=resolved_runtime_home)
     client = MapCommandClient(persona=persona, project_root=root, map_cmd=map_cmd)
     config = SimpleWakerConfig(

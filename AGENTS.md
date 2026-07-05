@@ -8,23 +8,23 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 产品主功能是 **Skill 指导 Agent 使用 MAP 协作**：Skill 负责行为流程与判断规则，MAP 平台负责状态、权限、审计、话题、实验、结论和行动项等持久化协作对象。开发优先级应围绕 SDK/CLI、`.map/` persona、Skill onboarding、文档和端到端协作闭环展开。
 
-多 persona 自动推进是附带功能：**`simple-waker`**（`./scripts/start-all-wakers.sh` 默认）轮询 topic progress、todos 与 wakeable 通知，统一 remind 唤醒 Agent Runtime；**legacy `runtime-waker`**（`MAP_USE_LEGACY_WAKER=1`）保留 SSE + 逐项 fingerprint 与 `inbound_event` 审计路径。**本仓库已停用 `cli/host_worker` bridge**（`start-host-bridge*.sh` 勿再使用）。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
+多 persona 自动推进是附带功能：**`simple-waker`**（`./scripts/start-all-wakers.sh` 默认）轮询 **`map work`**（topic work items + todos + wakeable 通知），统一 remind 唤醒 Agent Runtime；**legacy `runtime-waker`**（`MAP_USE_LEGACY_WAKER=1`）保留 SSE + 逐项 fingerprint 与 `inbound_event` 审计路径。**本仓库已停用 `cli/host_worker` bridge**（`start-host-bridge*.sh` 勿再使用）。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
 
 ## Agent 自动推进（waker）原则
 
-**topic progress + Web 待办页 + wakeable 未读通知 = waker 的触发源**（与平台 API 同源；不在 waker 里维护第二套业务规则，如评论游标、自定义 kind）。
+**`map work`（或 topic-progress + todos）+ Web 待办页 + wakeable 未读通知 = waker 的触发源**（与平台 API 同源；不在 waker 里维护第二套业务规则，如评论游标、自定义 kind）。其中 **topic-progress** 是 `topic_work_items_for_agent` 的 per-agent 投影（`work_items[]`：obligation + contextual），不是「最后一条评论非己」启发式。
 
 ### 两种 waker
 
 | | **simple-waker**（默认） | **runtime-waker**（legacy） |
 | --- | --- | --- |
 | 启动 | `./scripts/start-all-wakers.sh` | `MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` |
-| 触发 | 轮询 `topic-progress` + `todos` + wakeable 通知 | SSE 长连 + 轮询兜底，逐项 fingerprint |
+| 触发 | 轮询 `GET /agents/me/work`（topic-progress + todos + wakeable 通知） | SSE 长连 + 轮询兜底，逐项 fingerprint |
 | 粒度 | 批量 remind（一次可处理多项） | 一步一 wake（一次只推进一项） |
 | State | `.map/simple-waker-state-*.json` | `.map/runtime-waker-state-*.json` |
 | 文档 | [MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md) | [MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md) |
 
-`my_open_topics` 为被动清单，** alone 不触发** simple-waker remind；话题参与看 **topic progress**。
+`my_open_topics` 为被动清单，**alone 不触发** simple-waker remind；话题参与看 **topic work items**（`map work` / `topic progress`）。
 
 ### 职责边界
 
@@ -32,7 +32,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 |------|--------|----------|
 | **waker**（simple 或 legacy） | 发现待办/话题进展 → 短 prompt 唤醒 Runtime | 不写 MAP、不跑实验、不替 Agent 做业务判断 |
 | **Skill** | 定义被唤醒后**怎么做**（topic-host / experiment-host 等） | 不替代平台状态机 |
-| **被唤醒的 Agent** | `whoami` → `topic progress` + `todos` → 写回 MAP | 不凭 session 记忆跳过待办 |
+| **被唤醒的 Agent** | `whoami` → **`map work`**（或 `topic progress` + `todos`）→ 写回 MAP | 不凭 session 记忆跳过待办 |
 
 被唤醒时 Agent **必须先读** [.cursor/skills/map-runtime-waker/SKILL.md](.cursor/skills/map-runtime-waker/SKILL.md)，再读 persona Skill 与 [map-project-collab](.cursor/skills/map-project-collab/SKILL.md)。
 
@@ -44,8 +44,8 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 ### 被唤醒后 Agent 必须遵守
 
-1. **topic progress + todos 即真相**：每次 remind/wake 后执行 `map --persona <name> topic progress` 与 `map --persona <name> todos`，以 API 返回为准，禁止把「上次看过 / 队列曾为空」当成无事可做。
-2. **推进粒度**：**simple-waker** 可批量处理多项，收尾前再验证 `topic progress` + `todos` 已清空或每项有文档化 blocker；**runtime-waker** 一次 wake 只推进**当前 kind 对应的一项**。
+1. **`map work` / topic progress + todos 即真相**：每次 remind/wake 后执行 `map --persona <name> work`（或 `topic progress` + `todos`），以 API 返回为准，禁止把「上次看过 / 队列曾为空」当成无事可做。
+2. **推进粒度**：**simple-waker** 可批量处理多项，收尾前再验证 `map work`（或 topic progress + todos）已清空或每项有文档化 blocker；**runtime-waker** 一次 wake 只推进**当前 kind 对应的一项**。
 3. **清理 = 与 UI 相同**：处理完成后须让该项从待办或通知列表消失——不是 waker 本地标记「已读」：
    - `@mentions` → `map mention dismiss --id <uuid>`
    - 未读通知 → `map notification read --id <uuid>`

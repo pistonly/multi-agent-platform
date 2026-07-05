@@ -19,26 +19,26 @@ description: >-
 
 - 用户说「主持话题」「跟进话题」「Round Summary」「是否开实验」
 - Agent 是话题 `creator_agent_id`（主持身份）
-- `map topic progress` 有需跟进的开放话题（他人最后发言）
+- `map work` / `map topic progress` 有非空 topic work items（obligation 或 contextual）
 - `get_todos` 的 `pending_topic_replies` / `pending_advance_rounds` 非空
-- **map-runtime-waker** / **simple-waker** 因话题新进展或 `map todos` 待办 wake
+- **map-runtime-waker** / **simple-waker** 因 topic work items 或 `map todos` 待办 wake
 
 ## Runtime waker 路径（本仓库标准）
 
-由 `./scripts/start-all-wakers.sh`（simple-waker）轮询 **`topic progress`** + `map todos`，对 host 发出 remind（含新评论摘要）。你在 wake 后**亲自**用 map CLI 完成主持工作。
+由 `./scripts/start-all-wakers.sh`（simple-waker）轮询 **`map work`**（topic-progress + todos + wakeable 通知），对 host 发出 remind（含 work_items kinds 与 unread 摘要）。你在 wake 后**亲自**用 map CLI 完成主持工作。
 
 **已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`。不要假设 bridge 会自动 reply / Round Summary / promote / execute。
 
 **每次 wake / remind 时（必读）**：
 
-1. `map --persona host topic progress` — 查看各开放话题中你上次发言后的新评论
+1. `map --persona host work` 或 `topic progress` — topic work items 统一视图（obligation 优先）
 2. **必须** `map --persona host topic show --id <topic-uuid>` — 禁止凭 session 记忆跳过
 3. 查看**全部新评论**（含 nested / thread 内回复），逐 thread 回复
 4. 若 Round 1/2 已收敛 → 发 **Round Summary**（**不必等 reviewer**；participant 已参与即可）
 5. Summary 后等 participant ack → `advance-round`
 6. 两轮 Summary 完成且门禁通过 → `topic resolve` + `experiment create`
 
-**禁止**：`topic progress` 与 `pending_*` 全空时才认为无事可做；remind 已带新进展摘要时须先核实。
+**禁止**：`map work` / `topic progress` 与 `pending_*` 全空时才认为无事可做；remind 已带 work_items 摘要时须先核实。
 
 每轮 wake 只做**一步**可验证推进（回复一条 / 发 Summary / advance-round / 开实验）。
 

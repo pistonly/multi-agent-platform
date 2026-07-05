@@ -91,6 +91,7 @@ def test_build_wake_context_topic_progress_triggers_wake() -> None:
                             "excerpt": "Round 2 kickoff",
                         }
                     ],
+                    "work_items": [{"kind": "unread_change", "priority": "contextual"}],
                 }
             ],
             "total": 1,
@@ -99,7 +100,7 @@ def test_build_wake_context_topic_progress_triggers_wake() -> None:
     )
     assert context.has_work is True
     prompt = build_remind_prompt("participant", context)
-    assert "话题新进展" in prompt
+    assert "话题 work items" in prompt
     assert "Dogfood" in prompt
     assert "topic progress" in prompt
 
@@ -207,6 +208,32 @@ def test_run_once_dry_run_does_not_wake_backend(tmp_path: Path) -> None:
     backend.wake_async.assert_not_called()
 
 
+def test_run_forever_once_dry_run_skips_backend_connect(tmp_path: Path) -> None:
+    client = FakeMapClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"comment_id": "c1", "topic_id": "t1"}]},
+    )
+    backend = MagicMock()
+    backend.connect = AsyncMock()
+    backend.disconnect = AsyncMock()
+    backend.wake_async = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        dry_run=True,
+        once=True,
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+    stats = waker.run_forever()
+    assert stats.cycles == 1
+    assert stats.dry_run_actions == 1
+    assert stats.reminds_sent == 0
+    backend.connect.assert_not_called()
+    backend.disconnect.assert_not_called()
+    backend.wake_async.assert_not_called()
+
+
 def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     client = FakeMapClient(
         persona="host",
@@ -220,6 +247,7 @@ def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
                     "last_comment_author_name": "participant",
                     "new_comment_count": 1,
                     "new_comments": [{"author_name": "participant", "excerpt": "hi"}],
+                    "work_items": [{"kind": "unread_change", "priority": "contextual"}],
                 }
             ],
             "total": 1,
@@ -239,4 +267,4 @@ def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     assert stats.reminds_sent == 1
     backend.wake_async.assert_awaited_once()
     prompt = backend.wake_async.await_args.kwargs["prompt"]
-    assert "话题新进展" in prompt
+    assert "话题 work items" in prompt

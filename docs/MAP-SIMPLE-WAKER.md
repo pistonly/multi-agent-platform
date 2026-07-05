@@ -10,9 +10,9 @@ to a long-lived Agent Runtime session when work exists.
 | | `runtime-waker` | `simple-waker` |
 | --- | --- | --- |
 | Trigger | SSE + per-item fingerprints | Poll `GET /agents/me/work` (topic-progress + todos + wakeable notifications) |
-| Prompt | Per-item wake hint + kind routing | Single remind with **topic new-comment excerpts** |
+| Prompt | Per-item wake hint + kind routing | Single remind with **work_items kinds + unread excerpts** |
 | Session | Context reset per MAP object | One session per persona |
-| Agent rule | One item per wake | Batch until `topic progress` + `todos` clear or blocked |
+| Agent rule | One item per wake | Batch until `map work`（或 topic progress + todos）clear or blocked |
 | State file | `.map/runtime-waker-state-*.json` | `.map/simple-waker-state-*.json` |
 
 The waker does **not** write MAP, run experiments, or make business decisions.
@@ -34,13 +34,13 @@ The resumed agent reads Skills and uses `map --persona <name>` CLI.
 - Participant/reviewer: topics with obligation items, or prior participation, or @mention.
 - Reviewer cold-start: contextual-only open topics are omitted.
 
-Agents mirror this with `map topic progress` or `map work`. **`map todos`** exposes the same
+Agents mirror this with `map work` or `map topic progress`. **`map todos`** exposes the same
 obligation kinds in named buckets (`pending_topic_replies`, `pending_round_acks`,
-`mentions`); simple-waker polls both endpoints.
+`mentions`); simple-waker polls the unified **`/agents/me/work`** endpoint.
 
 **Remind buckets:** `my_open_topics` is passive inventory; simple-waker does
-**not** remind on it alone. Topic participation is driven by **topic-progress**
-(and obligation rows in `todos`).
+**not** remind on it alone. Topic participation is driven by **topic work items**
+(topic-progress / `map work`, and obligation rows in `todos`).
 
 ### Reviewer scheduling (P4)
 
@@ -80,15 +80,15 @@ backend (`PersonaAgentClient`).
 On remind, the agent should:
 
 1. Read `map-runtime-waker` → `map-project-collab` → persona Skill
-2. Run `map --persona <name> persona whoami`, **`map --persona <name> topic progress`**, and `map --persona <name> todos`
+2. Run `map --persona <name> persona whoami`, **`map --persona <name> work`**（或 `topic progress` + `todos`）
 3. Participate in open topics (host: reply threads + advance rounds; participant: comment + ack)
 4. Handle **all** current pending todos (may batch related work)
-5. Finish when `topic progress` and `map todos` are empty or every item has a documented blocker
+5. Finish when `map work`（或 topic progress + todos）is empty or every item has a documented blocker
 6. Never skip work based on session memory
 
 ## When to use which waker
 
-- **simple-waker** (default via `./scripts/start-all-wakers.sh`): local dogfood, topic-progress driven participation, agent-driven batching
+- **simple-waker** (default via `./scripts/start-all-wakers.sh`): local dogfood, topic work items driven participation, agent-driven batching
 - **runtime-waker** (legacy): `MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` or `./scripts/start-all-wakers-legacy.sh` — SSE latency, per-item `inbound_event` audit, action_item escalation hooks
 
 Both can coexist during migration; use separate state files per persona.

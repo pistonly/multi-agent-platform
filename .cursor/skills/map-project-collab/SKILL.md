@@ -127,7 +127,8 @@ map --persona host project status revise \
 ```bash
 map topic list --status open
 map topic show --id <topic-uuid>
-map topic progress   # 开放话题中「最后一条评论不是自己」的项；含你上次发言后的新评论
+map topic progress   # topic work items 投影（obligation + contextual）；与 todos 话题分区同源
+map work             # 统一快照：whoami + topic-progress + todos + 通知（Web/waker 同源）
 ```
 
 **`topic progress`**（各 persona 主动参与开放话题时用）：

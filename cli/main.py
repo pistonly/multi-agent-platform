@@ -1006,7 +1006,7 @@ def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 
 @topic_app.command("progress")
 def topic_progress() -> None:
-    """Open topics where the latest comment is not yours; includes new comments since your last post."""
+    """Per-agent topic work items view (obligation + contextual); same source as todos topic buckets."""
     _run(lambda c: c.get_topic_progress())
 
 

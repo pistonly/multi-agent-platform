@@ -16,17 +16,17 @@ description: >-
 
 | 模式 | 启动脚本 | Agent 推进粒度 |
 |------|----------|----------------|
-| **simple-waker**（默认） | `./scripts/start-all-wakers.sh` | 批量：轮询 **topic progress** + 可执行 todos；remind 内带新评论摘要 |
+| **simple-waker**（默认） | `./scripts/start-all-wakers.sh` | 批量：轮询 **`map work`**（topic work items + todos + wakeable 通知）；remind 内带 work_items 摘要 |
 | **runtime-waker**（legacy） | `MAP_USE_LEGACY_WAKER=1` 或 `./scripts/start-all-wakers-legacy.sh` | 一步一 wake：一次只推进当前 kind 对应的一项 |
 
-**simple-waker** 主信号为 `GET /agents/me/topic-progress`（开放话题中最后评论非己 + 你上次发言后的新内容）。`my_open_topics` ** alone 不触发** remind。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
+**simple-waker** 主信号为 `GET /agents/me/work`（或分拆的 topic-progress + todos）。其中 **topic-progress** 是 `topic_work_items_for_agent` 的 per-agent 投影（`work_items[]`：obligation + contextual），不是「最后一条评论非己」启发式。`my_open_topics` **alone 不触发** remind。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
 
 ## 每次 wake / 提醒 的顺序
 
 1. [map-project-collab](../map-project-collab/SKILL.md) — persona、CLI 硬性规则
 2. 下表 persona Skill — 具体怎么做
-3. `map --persona <persona> persona whoami` → **`map --persona <persona> topic progress`** → `map --persona <persona> todos`
-4. **simple-waker**：按 remind 中的话题新进展与 todos **主动参与**开放话题；host 负责回复 thread 与推进轮次
+3. `map --persona <persona> persona whoami` → **`map --persona <persona> work`**（或 `topic progress` + `todos`）
+4. **simple-waker**：按 remind 中的 **topic work items** 与 todos **主动参与**开放话题；host 负责回复 thread 与推进轮次
 5. **runtime-waker**：按 wake hint 的 `kind` 处理对应一项，做一步可验证推进
 6. **必须**让已处理项从 `topic progress` / `map todos` 或通知列表消失后再收尾
 
@@ -34,12 +34,12 @@ description: >-
 
 | 规则 | 说明 |
 |------|------|
-| topic progress 即话题真相 | 平台计算「最后评论非己 + 你上次发言后的新评论」；各 persona **主动** `map topic progress` 参与 |
+| topic progress / work 即话题真相 | `topic_work_items_for_agent` 投影：obligation（`pending_topic_reply` / `round_ack` / `mention`）+ contextual（`unread_change`）；与 `map todos` 话题分区同源；各 persona **主动** `map work` 或 `map topic progress` |
 | todos 即待办真相 | waker 另轮询 `GET /agents/me/todos` + 未读通知；**kind 名 = todos 字段名** |
 | 清理 = 与 UI 相同 | 处理完成后调用与 UI 等价的 API（见下表）；**禁止**凭 session 记忆判断「已处理」 |
 | 一步一 wake | 仅 **runtime-waker**：一次 wake 只推进当前 todo 项的下一步 |
-| 批量提醒 | 仅 **simple-waker**：一次提醒可处理多项；收尾前再跑 `topic progress` + `todos` 验证 |
-| `my_open_topics` alone | 被动清单，**不**单独触发 simple-waker；话题活动看 **topic progress** |
+| 批量提醒 | 仅 **simple-waker**：一次提醒可处理多项；收尾前再跑 `map work`（或 `topic progress` + `todos`）验证 |
+| `my_open_topics` alone | 被动清单，**不**单独触发 simple-waker；话题活动看 **topic work items**（topic-progress / work） |
 | skip ≠ 执行中 | `wake_skips` 表示 heartbeat/TTL 内已 wake 过（去重），不是后台在跑 |
 | heartbeat | 待办项仍在 API 中时，TTL 到期后会重 wake（自愈） |
 
