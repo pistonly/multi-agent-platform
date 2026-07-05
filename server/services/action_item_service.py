@@ -29,7 +29,7 @@ Related plan sections:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -56,7 +56,7 @@ def _utcnow() -> datetime:
     chasing ``datetime.now`` through every call site (plan §4 clock-skew
     requirement: only server time, never client time).
     """
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _ensure_first_open_at(item: TopicActionItem, now: datetime) -> None:
@@ -67,9 +67,9 @@ def _ensure_first_open_at(item: TopicActionItem, now: datetime) -> None:
     a wake on an already-open item must NOT reset this — the T+24h / T+72h
     window is anchored to the moment the item first became open.
 
-    The backfill for already-open rows happened in I1's
-    ``_backfill_action_item_first_open_at()`` — this helper only sets the
-    timestamp when it's still null.
+    The backfill for already-open rows is handled by alembic migration
+    ``027_topic_action_item_escalation_fields.py`` — this helper only sets
+    the timestamp when it's still null.
     """
     if item.status.value == "open" and item.first_open_at is None:
         item.first_open_at = now

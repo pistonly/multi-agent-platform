@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -60,7 +60,7 @@ def dismiss_topic(db: Session, *, agent: Agent, topic_id: uuid.UUID) -> Topic | 
     if topic is None or topic.creator_agent_id != agent.id:
         return None
     if topic.dismissed_at is None:
-        topic.dismissed_at = datetime.now(timezone.utc)
+        topic.dismissed_at = datetime.now(UTC)
         topic.dismissed_by_agent_id = agent.id
         db.commit()
         db.refresh(topic)
@@ -89,7 +89,7 @@ def mark_topic_read(
         )
         or 0
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cursor = db.scalar(
         select(TopicReadCursor).where(
             TopicReadCursor.topic_id == topic.id,
@@ -493,7 +493,7 @@ def resolve_topic(
         if old_item.status == TopicActionItemStatus.open:
             prev_status = old_item.status
             old_item.status = TopicActionItemStatus.done
-            old_item.updated_at = datetime.now(timezone.utc)
+            old_item.updated_at = datetime.now(UTC)
             audit_entries.append(
                 {
                     "action": "action_item.completed",
@@ -529,8 +529,7 @@ def resolve_topic(
             # Stamp first_open_at at creation so the waker's T+24h / T+72h
             # escalation timer starts immediately on resolve. Plan §2: open
             # transitions are the moment the timer anchors to. Existing open
-            # items were backfilled by ``_backfill_action_item_first_open_at``
-            # in I1.
+            # items are backfilled by alembic migration 027.
             db.add(
                 TopicActionItem(
                     decision_id=decision.id,
@@ -1046,7 +1045,7 @@ def create_topic_comment(
     db.add(comment)
     # Bump topic.updated_at so any prior host-side dismiss on this topic
     # is automatically un-dismissed — there's new activity worth seeing.
-    topic.updated_at = datetime.now(timezone.utc)
+    topic.updated_at = datetime.now(UTC)
     if (
         author.id == topic.creator_agent_id
         and payload.parent_id is None

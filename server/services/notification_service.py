@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -202,7 +202,7 @@ def _upsert_notification(
     payload: dict | None,
     category: NotificationCategory,
 ) -> Notification:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     group_key = _group_key(
         recipient_agent_id=recipient_agent_id,
         project_id=project_id,
@@ -554,7 +554,7 @@ def mark_agent_mentioned_notifications_read_no_commit(
 
     if not mentions:
         return 0
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     touched = 0
     for mention in mentions:
         if not isinstance(mention, Mention):
@@ -582,14 +582,14 @@ def mark_read(db: Session, agent: Agent, notification_id: uuid.UUID) -> Notifica
     if notification.recipient_agent_id != agent.id:
         raise ForbiddenError("Cannot mark another agent's notification")
     if notification.read_at is None:
-        notification.read_at = datetime.now(timezone.utc)
+        notification.read_at = datetime.now(UTC)
         db.commit()
         db.refresh(notification)
     return notification
 
 
 def mark_all_read(db: Session, agent: Agent) -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = list(
         db.scalars(
             select(Notification).where(

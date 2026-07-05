@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,7 +19,9 @@ def _require_project(db: Session, project_id: uuid.UUID) -> Project:
 
 
 def default_status_template(*, project_key: str, created_at: datetime | None = None) -> str:
-    ts = (created_at or datetime.now()).isoformat()
+    # 使用 tz-aware 的 UTC 时间，避免向 DateTime(timezone=True) 列写入 naive datetime
+    # 导致时区信息丢失（与 server 其余路径保持一致）。
+    ts = (created_at or datetime.now(UTC)).isoformat()
     return f"""# Current Status — {project_key}
 
 ## 当前目标

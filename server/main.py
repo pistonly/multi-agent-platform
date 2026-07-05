@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,10 +65,29 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
         app.add_exception_handler(exc_type, make_handler(code))
 
 
-def create_app() -> FastAPI:
+def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
+    """Build the ASGI app.
+
+    Args:
+        init_db_on_startup: When ``True`` (default), the app runs
+            :func:`server.db.session.init_db` inside a FastAPI lifespan
+            handler so ``uvicorn server.main:app`` self-bootstraps the
+            schema. Tests pass ``False`` and inject a per-test session via
+            ``app.dependency_overrides``.
+    """
     settings = get_settings()
-    init_db()
-    app = FastAPI(title="Multi-Agent Platform", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        if init_db_on_startup:
+            init_db()
+        yield
+
+    app = FastAPI(
+        title="Multi-Agent Platform",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
