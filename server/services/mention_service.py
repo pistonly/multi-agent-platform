@@ -12,14 +12,61 @@ MENTION_PATTERN = re.compile(r"@([a-zA-Z][a-zA-Z0-9_-]*)")
 _EXCERPT_LEN = 200
 
 
+def _iter_text_outside_markdown_code(body: str):
+    """Yield substrings of *body* that lie outside inline/fenced Markdown code."""
+    i = 0
+    n = len(body)
+    while i < n:
+        if body.startswith("```", i) or body.startswith("~~~", i):
+            fence = body[i : i + 3]
+            i += 3
+            while i < n and body[i] != "\n":
+                i += 1
+            if i < n:
+                i += 1
+            while i < n:
+                if body.startswith(fence, i):
+                    i += 3
+                    break
+                i += 1
+            continue
+        if body[i] == "`":
+            j = i
+            while j < n and body[j] == "`":
+                j += 1
+            tick_count = j - i
+            i = j
+            while i < n:
+                if body[i] == "`":
+                    k = i
+                    while k < n and body[k] == "`":
+                        k += 1
+                    if k - i >= tick_count:
+                        i = k
+                        break
+                i += 1
+            continue
+        start = i
+        while (
+            i < n
+            and body[i] != "`"
+            and not body.startswith("```", i)
+            and not body.startswith("~~~", i)
+        ):
+            i += 1
+        if start < i:
+            yield body[start:i]
+
+
 def extract_mention_names(body: str) -> list[str]:
     seen: set[str] = set()
     names: list[str] = []
-    for match in MENTION_PATTERN.finditer(body):
-        name = match.group(1)
-        if name not in seen:
-            seen.add(name)
-            names.append(name)
+    for segment in _iter_text_outside_markdown_code(body):
+        for match in MENTION_PATTERN.finditer(segment):
+            name = match.group(1)
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
     return names
 
 

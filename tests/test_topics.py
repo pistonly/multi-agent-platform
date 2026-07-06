@@ -76,6 +76,42 @@ def test_only_topic_host_or_admin_can_advance_round(client, auth_headers, review
     assert allowed.json()["discussion_round"] == "round2"
 
 
+def test_only_topic_host_or_admin_can_manage_topic(client, auth_headers, reviewer, admin_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+
+    denied_patch = client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=reviewer["headers"],
+        json={"pinned": True},
+    )
+    assert denied_patch.status_code == 403
+
+    denied_close = client.post(f"/api/v1/topics/{topic['id']}/close", headers=reviewer["headers"])
+    assert denied_close.status_code == 403
+
+    admin_close = client.post(f"/api/v1/topics/{topic['id']}/close", headers=admin_headers)
+    assert admin_close.status_code == 200
+    assert admin_close.json()["status"] == "closed"
+
+    denied_reopen = client.post(f"/api/v1/topics/{topic['id']}/reopen", headers=reviewer["headers"])
+    assert denied_reopen.status_code == 403
+
+    admin_reopen = client.post(f"/api/v1/topics/{topic['id']}/reopen", headers=admin_headers)
+    assert admin_reopen.status_code == 200
+    assert admin_reopen.json()["status"] == "open"
+
+    admin_patch = client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=admin_headers,
+        json={"pinned": True},
+    )
+    assert admin_patch.status_code == 200
+    assert admin_patch.json()["pinned"] is True
+
+    denied_delete = client.delete(f"/api/v1/topics/{topic['id']}", headers=reviewer["headers"])
+    assert denied_delete.status_code == 403
+
+
 def test_topic_list_includes_last_comment_author(client, auth_headers, reviewer, project):
     topic = _create_topic(client, auth_headers, project)
     listing = client.get(f"/api/v1/projects/{project['id']}/topics", headers=auth_headers)

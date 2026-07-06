@@ -102,7 +102,7 @@ def update_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    perm.ensure_topic_access(db, agent, topic_id)
+    perm.ensure_topic_host_or_admin(db, agent, topic_id)
     topic = topic_service.update_topic(db, topic_id, payload)
     return topic_service.topic_summary(db, topic)
 
@@ -113,7 +113,7 @@ def delete_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> None:
-    perm.ensure_topic_access(db, agent, topic_id)
+    perm.ensure_topic_host_or_admin(db, agent, topic_id)
     topic_service.soft_delete_topic(db, topic_id)
 
 
@@ -123,7 +123,7 @@ def close_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    perm.ensure_topic_access(db, agent, topic_id)
+    perm.ensure_topic_host_or_admin(db, agent, topic_id)
     topic = topic_service.set_topic_status(db, topic_id, TopicStatus.closed)
     # Phase 2 D2: kind-directed SSE so the waker can map to ``topic_lifecycle``.
     notification_service.emit_kind(
@@ -162,7 +162,7 @@ def reopen_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    perm.ensure_topic_access(db, agent, topic_id)
+    perm.ensure_topic_host_or_admin(db, agent, topic_id)
     topic = topic_service.set_topic_status(db, topic_id, TopicStatus.open)
     # Phase 2 D2: kind-directed SSE for reopen so the waker can map to
     # ``topic_lifecycle`` and resume the participant wake loop.

@@ -128,14 +128,16 @@ export function TopicPage() {
           <span>发布于 {new Date(topic.created_at).toLocaleString()}</span>
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {topic.status === "open" ? (
-            <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("close")}>
-              关闭话题
-            </button>
-          ) : (
-            <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("reopen")}>
-              重新开启
-            </button>
+          {isTopicHost && (
+            topic.status === "open" ? (
+              <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("close")}>
+                关闭话题
+              </button>
+            ) : (
+              <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("reopen")}>
+                重新开启
+              </button>
+            )
           )}
           <button
             type="button"
@@ -151,14 +153,16 @@ export function TopicPage() {
               {topic.decision ? "修订结论" : "沉淀结论"}
             </button>
           )}
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={pinMutation.isPending}
-            onClick={() => pinMutation.mutate(!topic.pinned)}
-          >
-            {topic.pinned ? "取消置顶" : "置顶话题"}
-          </button>
+          {isTopicHost && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={pinMutation.isPending}
+              onClick={() => pinMutation.mutate(!topic.pinned)}
+            >
+              {topic.pinned ? "取消置顶" : "置顶话题"}
+            </button>
+          )}
           {isTopicHost && (
             <button
               type="button"

@@ -184,6 +184,53 @@ def test_valid_mention_has_empty_unresolved(client, auth_headers, reviewer, proj
     assert resp.json()["unresolved_mentions"] == []
 
 
+def test_mention_inside_inline_code_ignored(client, auth_headers, reviewer, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Code mention", "description": "d"},
+    ).json()
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "工具 `` `pytest` `` 与 `` `@host` `` 不应触发 mention"},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["unresolved_mentions"] == []
+
+    reviewer_headers = reviewer["headers"]
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert not any(m["topic_id"] == topic["id"] for m in todos["mentions"])
+
+
+def test_mention_inside_fenced_code_ignored(client, auth_headers, reviewer, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Fenced code", "description": "d"},
+    ).json()
+    body = (
+        "示例：\n```\n"
+        "@multi-agents-platform-host\n"
+        "`@host`\n"
+        "```\n"
+        "块外请 @reviewer-agent 参与"
+    )
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": body},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["unresolved_mentions"] == []
+
+    reviewer_headers = reviewer["headers"]
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert any(m["topic_id"] == topic["id"] for m in todos["mentions"])
+
+
 def test_dismiss_single_mention(client, auth_headers, reviewer, project):
     reviewer_headers = reviewer["headers"]
     exp = client.post(

@@ -67,6 +67,13 @@ def ensure_topic_access(db: Session, agent: Agent, topic_id: uuid.UUID) -> Topic
     return topic
 
 
+def ensure_topic_host_or_admin(db: Session, agent: Agent, topic_id: uuid.UUID) -> Topic:
+    topic = ensure_topic_access(db, agent, topic_id)
+    if topic.creator_agent_id != agent.id and not is_admin(agent):
+        raise ForbiddenError("Only the topic host or admin can manage the topic")
+    return topic
+
+
 def ensure_topic_comment_access(db: Session, agent: Agent, comment_id: uuid.UUID) -> TopicComment:
     comment = db.get(TopicComment, comment_id)
     if comment is None:
