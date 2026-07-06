@@ -85,7 +85,10 @@ def resolve_session_id(
 
 
 def find_runtime_waker_pids(persona: str) -> list[int]:
-    pattern = f"cli.runtime_waker.*--persona {persona}"
+    # simple-waker 已取代 legacy runtime-waker，实际进程是
+    # `python3 -m cli.simple_waker --persona <persona>`；同时保留对 legacy
+    # `cli.runtime_waker` 的匹配，直到 legacy SSE 路径彻底下线。
+    pattern = rf"cli\.(runtime_waker|simple_waker).*--persona {persona}"
     result = subprocess.run(
         ["pgrep", "-f", pattern],
         check=False,

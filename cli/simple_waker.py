@@ -122,6 +122,9 @@ class SimpleWakerStats:
     action_items_stale: int = 0
     action_items_skip: int = 0
     action_items_errors: int = 0
+    # 单次 cycle 因瞬时错误（API 5xx / 子进程失败 / 身份解析失败）而未能完成。
+    # 长驻 waker 兜底跳过该 cycle 并在下一周期重试，此计数仅用于可观测性。
+    cycle_errors: int = 0
 
     def add(self, other: SimpleWakerStats) -> None:
         self.cycles += other.cycles
@@ -139,6 +142,7 @@ class SimpleWakerStats:
         self.action_items_stale += other.action_items_stale
         self.action_items_skip += other.action_items_skip
         self.action_items_errors += other.action_items_errors
+        self.cycle_errors += other.cycle_errors
 
 
 def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntry, ...]:
@@ -381,7 +385,21 @@ class SimpleWaker:
         total = SimpleWakerStats()
         try:
             while True:
-                stats, sleep_for = await self._run_once_async()
+                try:
+                    stats, sleep_for = await self._run_once_async()
+                except WorkerError as exc:
+                    # 瞬时错误兜底：API 5xx / 子进程失败 / 身份解析失败等。
+                    # 长驻 waker 不能因单次 cycle 失败退出——记错到 state，
+                    # 按 idle 间隔退避后下一 cycle 重试。持续失败会在 state
+                    # 累积 last_cycle_error 供运维观测。
+                    typer.echo(f"[simple-waker:cycle-error] {exc}", err=True)
+                    persona_state = self._persona_state(self.config.persona)
+                    persona_state["last_cycle_error"] = str(exc)
+                    persona_state["last_cycle_error_at"] = datetime.now(UTC).isoformat()
+                    self._state_dirty = True
+                    self._save_state_if_needed(force=True)
+                    stats = SimpleWakerStats(cycles=1, cycle_errors=1)
+                    sleep_for = self.config.idle_interval
                 total.add(stats)
                 log_cycle_summary(
                     "simple-waker",
@@ -402,6 +420,7 @@ class SimpleWaker:
                         "action_items_stale",
                         "action_items_skip",
                         "action_items_errors",
+                        "cycle_errors",
                     ],
                 )
                 if self.config.once:
