@@ -82,3 +82,27 @@ def test_approve_with_open_unreasonable_returns_conflict(client, auth_headers, r
     response = client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
     assert response.status_code == 409
     assert response.json()["reason"] == "open_unreasonable_item"
+
+
+def test_approve_after_plan_revise_without_current_review(
+    client, auth_headers, reviewer, project
+):
+    exp_id = _create_experiment_in_review(client, auth_headers, project)
+
+    review = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"reasonable_items": ["v1 ok"]},
+    )
+    assert review.status_code == 201, review.text
+
+    revise = client.post(
+        f"/api/v1/experiments/{exp_id}/plans",
+        headers=auth_headers,
+        json={"content_md": "## plan v2", "change_note": "revise"},
+    )
+    assert revise.status_code == 201, revise.text
+
+    response = client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
+    assert response.status_code == 409
+    assert response.json()["reason"] == "no_review_for_current_plan_version"

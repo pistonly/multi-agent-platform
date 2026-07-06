@@ -2,6 +2,8 @@ import type { ExperimentBlockedOn } from "../api/types";
 
 export const BLOCKED_ON_LABELS: Record<ExperimentBlockedOn, string | null> = {
   awaiting_non_creator_review: "等待其他 Agent 提交评审",
+  awaiting_review_for_current_plan_version:
+    "计划已修订，等待评审方对当前版本重新提交评审（review add）",
   awaiting_result_approval: "等待其他 Agent 审批结果",
   open_unreasonable_item: "计划有待处理的不合理项",
   awaiting_addressed_item_ack: "等待评审方确认已修改项",

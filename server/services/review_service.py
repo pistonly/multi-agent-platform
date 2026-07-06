@@ -102,6 +102,19 @@ def count_open_unreasonable_for_experiment(db: Session, experiment_id: uuid.UUID
     return db.scalar(stmt) or 0
 
 
+def has_review_on_older_plan_version(db: Session, experiment) -> bool:
+    """True when plan was revised after at least one review on a prior version."""
+    stmt = (
+        select(func.count())
+        .select_from(Review)
+        .where(
+            Review.experiment_id == experiment.id,
+            Review.plan_version < experiment.current_plan_version,
+        )
+    )
+    return (db.scalar(stmt) or 0) > 0
+
+
 def count_open_status_unreasonable_for_experiment(
     db: Session, experiment_id: uuid.UUID
 ) -> int:
@@ -131,6 +144,13 @@ def assert_approve_eligibility(db: Session, experiment) -> None:
     non_creator_reviews = _qualifying_non_creator_reviews(reviews, experiment.creator_agent_id)
     if not non_creator_reviews:
         if not reviews:
+            if has_review_on_older_plan_version(db, experiment):
+                raise ApproveEligibilityError(
+                    "Cannot approve: no review for the current plan version "
+                    f"(v{experiment.current_plan_version}); reviewer must submit review "
+                    "for this plan version after plan revise",
+                    reason="no_review_for_current_plan_version",
+                )
             raise ApproveEligibilityError(
                 "Cannot approve: no review from a non-creator agent",
                 reason="no_review",

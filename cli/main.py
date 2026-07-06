@@ -603,6 +603,16 @@ def experiment_status(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> N
                 "obligation: revise plan for open unreasonable items "
                 "(see pending_plan_revisions in map todos / map work)"
             )
+        elif result.blocked_on == "awaiting_review_for_current_plan_version":
+            typer.echo(
+                "obligation: reviewer must experiment review add for the current "
+                f"plan version (v{result.current_plan_version}); host cannot approve until then"
+            )
+        elif result.blocked_on == "awaiting_non_creator_review":
+            typer.echo(
+                "obligation: reviewer must submit the first experiment review "
+                "(experiment review add)"
+            )
         return result
 
     _run(_action)
