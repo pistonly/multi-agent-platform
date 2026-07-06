@@ -19,11 +19,17 @@ class MapCommandClient:
         persona: str = "host",
         project_root: Path | None = None,
         dry_run: bool = False,
+        cmd_timeout: float = 120.0,
     ) -> None:
         self.map_cmd = map_cmd
         self.persona = persona
         self.project_root = project_root
         self.dry_run = dry_run
+        # 每次 ``map`` 子进程调用的最大秒数。waker 每个 cycle 会发起多次
+        # subprocess（whoami / work / action mark-* / inbound-event record …）；
+        # 一条挂起的命令若没有超时保护，会把整个 waker cycle 永久阻塞
+        # （_inflight 永远回不到 False，后续 cycle 全部 skip("busy")）。
+        self.cmd_timeout = cmd_timeout
 
     def _base_args(self) -> list[str]:
         args = [self.map_cmd, "--persona", self.persona]
@@ -36,7 +42,19 @@ class MapCommandClient:
         if self.dry_run and _is_write_command(args):
             typer.echo("[dry-run] " + " ".join(cmd))
             return None
-        result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        try:
+            result = subprocess.run(
+                cmd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=self.cmd_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WorkerError(
+                f"Command timed out after {self.cmd_timeout}s: {' '.join(cmd)}"
+            ) from exc
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
             raise WorkerError(f"Command failed ({result.returncode}): {' '.join(cmd)}\n{detail}")
@@ -288,9 +306,19 @@ class MapCommandClient:
         if self.dry_run and _is_write_command(args):
             typer.echo("[dry-run] " + " ".join(cmd))
             return True
-        result = subprocess.run(
-            cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=self.cmd_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WorkerError(
+                f"Command timed out after {self.cmd_timeout}s: {' '.join(cmd)}"
+            ) from exc
         if result.returncode == 0:
             return True
         if result.returncode == 2:
@@ -302,39 +330,77 @@ class MapCommandClient:
         )
 
 
+# 会修改 MAP 状态的子命令（``map --dry-run`` 时必须跳过这些，否则会真实
+# 写入）。``_WRITE_COMMANDS_2`` 匹配两段路径 ``[group, command]``，
+# ``_WRITE_COMMANDS_3`` 匹配三段路径 ``[group, subgroup, command]``。
+#
+# 这个清单必须与 ``cli/main.py`` 注册的命令保持一致——
+# ``tests/cli/test_dry_run_write_commands.py`` 用反射扫描 main.py 的全部
+# 命令，强制每个命令要么在此处（写）、要么在测试的 read-only 集合里，
+# 从而防止"新增写命令却忘了登记"导致 dry-run 真实执行。
+_WRITE_COMMANDS_2: set[tuple[str, str]] = {
+    # topic
+    ("topic", "comment"),
+    ("topic", "create"),
+    ("topic", "close"),
+    ("topic", "reopen"),
+    ("topic", "dismiss"),
+    ("topic", "advance-round"),
+    ("topic", "resolve"),
+    ("topic", "archive"),
+    ("topic", "read"),
+    # experiment
+    ("experiment", "create"),
+    ("experiment", "submit-review"),
+    ("experiment", "approve"),
+    ("experiment", "start"),
+    ("experiment", "complete"),
+    ("experiment", "log"),
+    ("experiment", "comment"),
+    ("experiment", "archive"),
+    ("experiment", "accept-result"),
+    ("experiment", "reject-result"),
+    # mention
+    ("mention", "dismiss"),
+    ("mention", "dismiss-all"),
+    ("mention", "reconcile-stale"),
+    # notification（标记已读 = 写）
+    ("notification", "read"),
+    ("notification", "read-all"),
+    # action item
+    ("action", "complete"),
+    ("action", "cancel"),
+    ("action", "link"),
+    ("action", "mark-wake-sent"),
+    ("action", "mark-stale"),
+    # feedback
+    ("feedback", "submit"),
+    ("feedback", "update"),
+    # project
+    ("project", "create"),
+    # inbound event（waker 审计门禁）
+    ("inbound-event", "record"),
+    # todo 分区清理
+    ("todo", "clear"),
+}
+
+_WRITE_COMMANDS_3: set[tuple[str, str, str]] = {
+    ("experiment", "plan", "revise"),
+    ("experiment", "review", "add"),
+    ("experiment", "review", "resolve-item"),
+    ("experiment", "review", "withdraw"),
+    ("experiment", "lock", "acquire"),
+    ("experiment", "lock", "release"),
+    ("experiment", "lock", "force-release"),
+    ("experiment", "lock", "skip"),
+    # project Current Status MD 修订
+    ("project", "status", "revise"),
+}
+
+
 def _is_write_command(args: list[str]) -> bool:
     if not args:
         return False
-    if args[:2] in (
-        ["topic", "comment"],
-        ["topic", "create"],
-        ["topic", "close"],
-        ["topic", "reopen"],
-        ["topic", "dismiss"],
-        ["topic", "advance-round"],
-        ["topic", "resolve"],
-        ["experiment", "create"],
-        ["experiment", "submit-review"],
-        ["experiment", "approve"],
-        ["experiment", "start"],
-        ["experiment", "complete"],
-        ["experiment", "log"],
-    ):
+    if len(args) >= 3 and tuple(args[:3]) in _WRITE_COMMANDS_3:
         return True
-    if args[:3] == ["experiment", "plan", "revise"]:
-        return True
-    if args[:3] == ["experiment", "review", "add"]:
-        return True
-    if args[:3] == ["experiment", "review", "resolve-item"]:
-        return True
-    if args[:3] == ["experiment", "lock", "acquire"]:
-        return True
-    if args[:3] == ["experiment", "lock", "release"]:
-        return True
-    if args[:3] == ["experiment", "lock", "force-release"]:
-        return True
-    if args[:3] == ["experiment", "lock", "skip"]:
-        return True
-    if args[:2] == ["inbound-event", "record"]:
-        return True
-    return False
+    return tuple(args[:2]) in _WRITE_COMMANDS_2
