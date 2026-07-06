@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 
 def _create_topic(client, headers, project, **overrides):
     payload = {"title": "work-items", "description": "d"}

@@ -1,6 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.slow
+
 
 @pytest.fixture
 def approved_experiment(client: TestClient, auth_headers: dict[str, str], reviewer: dict, project: dict) -> dict:

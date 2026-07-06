@@ -172,6 +172,8 @@ map --persona host status              # 查看 open_topics
 
 状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳，勿提交 Git）。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
 
+Legacy bridge / 旧 console entry 分类见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
+
 simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（fingerprint=`simple-remind:{persona}:{ts}`），并在 remind 前推进 `action_item` 升级时间线（WAKE → `action mark-wake-sent`，STALE → `action mark-stale`）。
 
 **@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。

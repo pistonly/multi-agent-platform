@@ -5,6 +5,10 @@ from map_types import (
     PlatformFeedbackUpdate,
 )
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 
 def _submit(client, headers, **overrides):
     payload = {"body": "反馈：希望支持 Markdown 导出"}

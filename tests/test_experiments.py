@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.slow
+
+
 def test_experiment_crud(client, auth_headers, project):
     create = client.post(
         f"/api/v1/projects/{project['id']}/experiments",

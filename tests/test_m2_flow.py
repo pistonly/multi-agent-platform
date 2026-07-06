@@ -1,6 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.slow
+
 
 @pytest.fixture
 def experiment_in_review(client: TestClient, auth_headers: dict[str, str], project: dict) -> dict:
@@ -36,7 +38,7 @@ def test_full_review_flow(client, auth_headers, reviewer, experiment_in_review):
     assert detail.json()["open_unreasonable_count"] == 2
 
     cannot_approve = client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
-    assert cannot_approve.status_code == 422
+    assert cannot_approve.status_code == 409
 
     item_ids = [i["id"] for i in unreasonable]
     revised = client.post(

@@ -1,5 +1,10 @@
 """MAP participant bridge — single backend: in-process Claude SDK client with session resume.
 
+.. deprecated::
+    Legacy bridge entry. Use ``./scripts/start-all-wakers.sh`` (simple-waker) and
+    ``map --persona participant`` with topic-participant Skill instead.
+    See ``docs/LEGACY-ENTRY-MATRIX.md``. Phase 1: retained with deprecation label only.
+
 After v0.7 P4 the participant bridge holds one ``ClaudeSDKClient`` for the
 lifetime of the bridge process; ``claude_session_id`` is persisted in the
 bridge state file so the next restart resumes the same Claude session via

@@ -1,8 +1,11 @@
 import uuid
 
+import pytest
 from sqlalchemy import select
 
 from server.domain.models import TopicComment
+
+pytestmark = pytest.mark.slow
 
 
 def _create_topic(client, headers, project, **overrides):

@@ -11,6 +11,10 @@ from sqlalchemy import select
 
 from server.domain.models import TopicComment
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "same_second_trio.yaml"
 
 

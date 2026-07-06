@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.slow
+
+
 def test_mention_in_experiment_comment_creates_todo_and_notification(
     client, auth_headers, reviewer, project
 ):

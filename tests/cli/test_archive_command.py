@@ -15,6 +15,8 @@ from cli.main import app
 from map_client import project_config
 from map_client.testing import MAPTestClientTransport
 
+pytestmark = pytest.mark.slow
+
 
 # ---------------------------------------------------------------------------
 # fixtures

@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.slow
+
+
 def test_todos_aggregation(client, auth_headers, reviewer, project):
     # 发起人创建实验并提交评审
     exp = client.post(

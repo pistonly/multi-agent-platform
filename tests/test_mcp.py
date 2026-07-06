@@ -4,6 +4,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from map_client.testing import MAPTestClientTransport
 from map_mcp.server import build_server
 
+pytestmark = pytest.mark.slow
+
 AGENT_TOOLS = {
     "get_me",
     "get_project_status",

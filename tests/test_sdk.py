@@ -13,6 +13,8 @@ from server.domain.schemas import (
     PlanInput,
     ReviewCreate,
 )
+
+pytestmark = pytest.mark.slow
 from map_types.schemas import TopicActionItemCreate, TopicResolve
 
 

@@ -96,6 +96,36 @@ def _claude_cli_available() -> tuple[bool, str]:
     return True, "ok"
 
 
+# PR3 fast gate：仅下列模块参与默认 `pytest`（见 tests/README.md）；其余未标 integration/claude_cli 的用例默认视为 slow。
+_FAST_GATE_MODULES = frozenset(
+    {
+        "test_agent_client",
+        "test_bridge_state",
+        "test_experiment_lock_unit",
+        "test_git_checkpoint",
+        "test_mcp_http",
+        "test_runtime_chat",
+        "test_sdk_exceptions",
+        "test_sse_isolation",
+        "test_sse_schema_overlap",
+        "test_dry_run_write_commands",
+    }
+)
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if (
+            item.get_closest_marker("slow")
+            or item.get_closest_marker("integration")
+            or item.get_closest_marker("claude_cli")
+        ):
+            continue
+        mod = item.module.__name__.rsplit(".", 1)[-1]
+        if mod not in _FAST_GATE_MODULES:
+            item.add_marker(pytest.mark.slow)
+
+
 @pytest.fixture(autouse=True)
 def skip_claude_cli_if_unavailable(request):
     """对标记了 `claude_cli` 的测试项，若 claude 不可用则 skip。"""

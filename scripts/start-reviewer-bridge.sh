@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED: Use ./scripts/start-all-wakers.sh (simple-waker) + reviewer Skill instead.
+# See docs/LEGACY-ENTRY-MATRIX.md. Phase 1: retained with deprecation label only.
+#
 # Poll pending_reviews and submit experiment reviews via reviewer persona + Cursor runner.
 #
 # Usage:

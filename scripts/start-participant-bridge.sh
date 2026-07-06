@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# DEPRECATED: Use ./scripts/start-all-wakers.sh (simple-waker) + participant Skill instead.
+# See docs/LEGACY-ENTRY-MATRIX.md. Phase 1: retained with deprecation label only.
+#
 # Poll open MAP topics and participate via participant persona + Cursor runner.
 #
 # Usage:

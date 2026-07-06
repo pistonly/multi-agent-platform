@@ -39,8 +39,10 @@ codex-runtime = [
 [project.scripts]
 map-server = "server.main:run"
 map = "cli.main:main"
+# DEPRECATED (Phase 1 retained): see docs/LEGACY-ENTRY-MATRIX.md — use simple-waker + persona Skill
 map-participant-bridge = "cli.participant_worker:main"
 map-reviewer-bridge = "cli.reviewer_worker:main"
+# legacy-facade re-export module; default waker is cli.simple_waker via start-all-wakers.sh
 map-runtime-waker = "cli.runtime_waker:main"
 map-mcp = "map_mcp.main:cli"
 

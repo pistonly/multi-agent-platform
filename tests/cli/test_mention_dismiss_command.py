@@ -10,6 +10,10 @@ from cli.main import app
 from map_client import project_config
 from map_client.testing import MAPTestClientTransport
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 
 def _create_mention_for_reviewer(client, auth_headers, reviewer_headers, project) -> str:
     exp = client.post(
