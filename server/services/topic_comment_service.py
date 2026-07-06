@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from map_types.enums import AgentRole
+from map_types.enums import AgentRole, TopicCommentKind
 from server.domain.models import Agent, Topic, TopicComment
 from server.domain.schemas import (
     TopicCommentCreate,
@@ -33,6 +33,7 @@ from server.domain.schemas import (
     TopicCommentTreeNode,
 )
 from server.services import mention_service, topic_ack_service
+from server.services.topic_comment_kind import resolve_topic_comment_kind
 from server.services.errors import NotFoundError
 from server.services.thread_activity import topic_comment_order_clauses
 
@@ -53,6 +54,10 @@ def _agent_names_by_ids(db: Session, agent_ids: set[uuid.UUID]) -> dict[uuid.UUI
     return {agent_id: name for agent_id, name in rows}
 
 
+def _comment_kind(comment: TopicComment) -> TopicCommentKind:
+    return comment.kind or TopicCommentKind.user
+
+
 def _build_comment_tree(
     comments: list[TopicComment],
     author_names: dict[uuid.UUID, str],
@@ -67,6 +72,7 @@ def _build_comment_tree(
             author_name=author_names.get(comment.author_agent_id),
             parent_comment_id=comment.parent_comment_id,
             body=comment.body,
+            kind=_comment_kind(comment).value,
             comment_seq=comment.comment_seq,
             created_at=comment.created_at,
             children=[],
@@ -130,6 +136,7 @@ def create_topic_comment(
         author_agent_id=author.id,
         parent_comment_id=payload.parent_id,
         body=payload.body,
+        kind=resolve_topic_comment_kind(payload.body),
         comment_seq=_next_topic_comment_seq(db, topic_id),
     )
     db.add(comment)
@@ -154,6 +161,7 @@ def create_topic_comment(
         experiment_id=None,
         topic_id=topic_id,
         new_comment_id=comment.id,
+        comment_body=payload.body,
         commit=False,
     )
     db.commit()
@@ -172,6 +180,7 @@ def topic_comment_read(
         author_name=author_names.get(comment.author_agent_id),
         parent_comment_id=comment.parent_comment_id,
         body=comment.body,
+        kind=_comment_kind(comment).value,
         comment_seq=comment.comment_seq,
         created_at=comment.created_at,
         unresolved_mentions=list(unresolved_mentions or ()),
@@ -203,6 +212,7 @@ def list_topic_comments(
             author_name=author_names.get(comment.author_agent_id),
             parent_comment_id=comment.parent_comment_id,
             body=comment.body,
+            kind=_comment_kind(comment).value,
             comment_seq=comment.comment_seq,
             created_at=comment.created_at,
         )

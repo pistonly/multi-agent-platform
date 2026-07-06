@@ -352,6 +352,8 @@ def _apply_mention_dismiss_cascade(
     actor_agent_id: uuid.UUID,
     mentions: list[Mention],
     now: datetime | None = None,
+    audit_action: str = "mention.dismiss",
+    audit_payload_extra: dict | None = None,
 ) -> int:
     """Dismiss mentions, cascade-read matching notifications, write audit rows."""
     from server.services import audit_service, notification_service
@@ -365,19 +367,22 @@ def _apply_mention_dismiss_cascade(
             continue
         mention.dismissed_at = now
         touched.append(mention)
+        payload = {
+            "mention_id": str(mention.id),
+            "source_comment_id": str(mention.source_id),
+            "actor_agent_id": str(actor_agent_id),
+        }
+        if audit_payload_extra:
+            payload.update(audit_payload_extra)
         audit_service._log_no_commit(
             db,
-            action="mention.dismiss",
+            action=audit_action,
             target_type="mention",
             agent_id=actor_agent_id,
             project_id=mention.project_id,
             target_id=mention.id,
             summary="Mention dismissed",
-            payload={
-                "mention_id": str(mention.id),
-                "source_comment_id": str(mention.source_id),
-                "actor_agent_id": str(actor_agent_id),
-            },
+            payload=payload,
         )
     if not touched:
         return 0
@@ -480,9 +485,21 @@ def auto_dismiss_mentions_after_comment(
     experiment_id: uuid.UUID | None,
     topic_id: uuid.UUID | None,
     new_comment_id: uuid.UUID,
+    comment_body: str | None = None,
     commit: bool = True,
 ) -> int:
     """Auto-dismiss open mentions after an agent participates in a topic/experiment."""
+    if topic_id is not None:
+        from server.services import topic_ack_service
+
+        body = comment_body
+        if body is None:
+            comment = db.get(TopicComment, new_comment_id)
+            body = comment.body if comment is not None else None
+        if body is not None and topic_ack_service._ack_kind(body) is not None:
+            # Round-ack dismiss uses mention.auto_dismissed in record_participant_round_ack.
+            return 0
+
     count = auto_dismiss_mentions_for_author_in_thread(
         db,
         new_comment_author=new_comment_author,
@@ -624,6 +641,79 @@ def auto_dismiss_mentions_for_author_in_thread(
         count += _apply_mention_dismiss_cascade(
             db, actor_agent_id=new_comment_author.id, mentions=topic_mentions
         )
+    if commit and count:
+        db.commit()
+    return count
+
+
+def auto_dismiss_mentions_for_round_ack(
+    db: Session,
+    *,
+    topic: Topic,
+    agent: Agent,
+    ack_kind: str,
+    commit: bool = True,
+) -> int:
+    """Dismiss open mentions in the latest Round Summary subtree after accept/dismiss ack."""
+    import logging
+
+    from server.services import topic_ack_service
+
+    if ack_kind == "reject":
+        return 0
+    if ack_kind not in {"accept", "dismiss"}:
+        return 0
+
+    comments = topic_ack_service._topic_comments(db, topic.id)
+    summary = topic_ack_service.latest_host_round_summary_comment(
+        comments, host_agent_id=topic.creator_agent_id
+    )
+    if summary is None:
+        logging.getLogger(__name__).debug(
+            "round_ack auto_dismiss skip topic=%s agent=%s reason=no_summary",
+            topic.id,
+            agent.id,
+        )
+        return 0
+
+    thread_ids = _topic_thread_comment_ids(
+        db, comment_id=summary.id, topic_id=topic.id
+    )
+    if not thread_ids:
+        return 0
+
+    mentions = list(
+        db.scalars(
+            select(Mention).where(
+                Mention.topic_id == topic.id,
+                Mention.mentioned_agent_id == agent.id,
+                Mention.source_type == MentionSourceType.topic_comment,
+                Mention.source_id.in_(thread_ids),
+                Mention.dismissed_at.is_(None),
+            )
+        )
+    )
+    if not mentions:
+        logging.getLogger(__name__).debug(
+            "round_ack auto_dismiss skip topic=%s agent=%s reason=no_open_mentions",
+            topic.id,
+            agent.id,
+        )
+        return 0
+
+    audit_extra = {
+        "triggered_by": f"round_ack:{ack_kind}",
+        "summary_comment_id": str(summary.id),
+        "dismissing_agent_id": str(agent.id),
+        "round_id": topic.discussion_round.value,
+    }
+    count = _apply_mention_dismiss_cascade(
+        db,
+        actor_agent_id=agent.id,
+        mentions=mentions,
+        audit_action="mention.auto_dismissed",
+        audit_payload_extra=audit_extra,
+    )
     if commit and count:
         db.commit()
     return count

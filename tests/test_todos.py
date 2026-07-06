@@ -509,3 +509,87 @@ def test_mention_dismiss_on_comment_write_path(client, auth_headers, reviewer, p
     )
     db_session.refresh(mention)
     assert mention.dismissed_at is not None
+
+
+def test_todos_persona_filter_review_partitions(
+    client, auth_headers, reviewer, project, admin_headers
+):
+    """Host/participant personas omit review obligation buckets; reviewer keeps them."""
+    from server.services.notification_service import PERSONA_AGENT_NAMES
+
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "persona-filter-exp", "plan": {"content_md": "p"}, "submit_for_review": True},
+    ).json()
+    exp_id = exp["id"]
+
+    host_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        params={
+            "name": PERSONA_AGENT_NAMES["host"],
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    assert host_resp.status_code == 201
+    host_headers = {"Authorization": f"Bearer {host_resp.json()['api_token']}"}
+
+    participant_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        params={
+            "name": PERSONA_AGENT_NAMES["participant"],
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    assert participant_resp.status_code == 201
+    participant_headers = {
+        "Authorization": f"Bearer {participant_resp.json()['api_token']}"
+    }
+
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert any(e["id"] == exp_id for e in reviewer_todos["pending_reviews"])
+    assert reviewer_todos.get("experiment_review_informational") == []
+
+    host_todos = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert host_todos["pending_reviews"] == []
+    assert host_todos["pending_result_reviews"] == []
+    host_info = host_todos["experiment_review_informational"]
+    assert any(i["experiment_title"] == "persona-filter-exp" for i in host_info)
+    assert host_info[0]["review_progress"] == "0/1"
+
+    participant_todos = client.get(
+        "/api/v1/agents/me/todos", headers=participant_headers
+    ).json()
+    assert participant_todos["pending_reviews"] == []
+    assert participant_todos["pending_result_reviews"] == []
+    assert any(
+        i["experiment_title"] == "persona-filter-exp"
+        for i in participant_todos["experiment_review_informational"]
+    )
+
+
+def test_todos_persona_filter_admin_sees_full_partitions(
+    client, auth_headers, reviewer, project, admin_headers
+):
+    """Admin keeps review obligation buckets; informational stays empty."""
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "admin-filter-exp", "plan": {"content_md": "p"}, "submit_for_review": True},
+    ).json()
+    exp_id = exp["id"]
+
+    admin_todos = client.get("/api/v1/agents/me/todos", headers=admin_headers).json()
+    assert any(e["id"] == exp_id for e in admin_todos["pending_reviews"])
+    assert admin_todos.get("experiment_review_informational") == []
+
+    admin_work = client.get(
+        "/api/v1/agents/me/todos",
+        headers=admin_headers,
+        params={"include_all_partitions": True},
+    ).json()
+    assert any(e["id"] == exp_id for e in admin_work["pending_reviews"])

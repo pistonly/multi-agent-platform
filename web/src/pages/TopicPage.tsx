@@ -6,6 +6,7 @@ import type { TopicCommentTreeNode, TopicDecision } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
 import { MarkdownBody } from "../components/MarkdownBody";
+import { SystemCommentBody } from "../components/SystemCommentBody";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { AgentMentionInput, AgentMentionTextarea } from "../components/AgentMentionInput";
@@ -506,7 +507,11 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth =
               />
             </div>
             <div className="mb-2">
-              <MarkdownBody content={n.body} />
+              {n.kind === "system" ? (
+                <SystemCommentBody content={n.body} />
+              ) : (
+                <MarkdownBody content={n.body} />
+              )}
             </div>
             <button
               type="button"

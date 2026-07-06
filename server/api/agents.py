@@ -142,10 +142,13 @@ def get_me(
 
 @agents_router.get("/me/todos", response_model=TodoRead)
 def get_my_todos(
+    include_all_partitions: bool = Query(default=False),
     agent: Agent = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ) -> TodoRead:
-    return todo_service.get_todos(db, agent)
+    return todo_service.get_todos(
+        db, agent, include_all_partitions=include_all_partitions
+    )
 
 
 @agents_router.get("/me/work", response_model=AgentWorkRead)

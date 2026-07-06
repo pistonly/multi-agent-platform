@@ -7,6 +7,14 @@ import pytest
 pytestmark = pytest.mark.slow
 
 
+def _flatten_comments(nodes: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for node in nodes:
+        out.append(node)
+        out.extend(_flatten_comments(node.get("children") or []))
+    return out
+
+
 def _create_topic(client, headers, project, **overrides):
     payload = {"title": "work-items", "description": "d"}
     payload.update(overrides)
@@ -122,6 +130,48 @@ def test_obligation_and_contextual_work_items_same_topic(client, auth_headers, p
     assert ("pending_topic_reply", "obligation") in by_kind
     assert ("unread_change", "contextual") in by_kind
     assert len(todos["pending_round_acks"]) == 0
+
+
+def test_system_ack_comment_skips_unread_change_work_item(
+    client, auth_headers, project, reviewer
+):
+    """Ack comments are kind=system and must not create unread_change noise."""
+    topic = _create_topic(client, auth_headers, project, title="system-ack-unread")
+    tid = topic["id"]
+    client.post(
+        f"/api/v1/topics/{tid}/comments",
+        headers=reviewer["headers"],
+        json={"body": "participant round1"},
+    )
+    client.post(
+        f"/api/v1/topics/{tid}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
+    )
+    ack = client.post(
+        f"/api/v1/topics/{tid}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+    assert ack.status_code == 200
+
+    detail = client.get(f"/api/v1/topics/{tid}", headers=auth_headers).json()
+    ack_comments = [
+        c
+        for c in _flatten_comments(detail["comments"])
+        if "map:ack=" in c.get("body", "")
+    ]
+    assert len(ack_comments) == 1
+    assert ack_comments[0]["kind"] == "system"
+
+    host_progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()
+    unread = [
+        w
+        for item in host_progress.get("items", [])
+        for w in item.get("work_items", [])
+        if w.get("kind") == "unread_change"
+    ]
+    assert not any("map:ack=" in (w.get("excerpt") or "") for w in unread)
 
 
 def test_mention_three_views_consistent_cold_start(client, auth_headers, reviewer, project):

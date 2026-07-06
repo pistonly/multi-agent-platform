@@ -271,6 +271,10 @@ class MAPClient:
         data = self._json("POST", f"/action-items/{action_item_id}/complete")
         return TopicActionItemRead.model_validate(data)
 
+    def deliver_action_item(self, action_item_id: uuid.UUID) -> TopicActionItemRead:
+        data = self._json("POST", f"/action-items/{action_item_id}/deliver")
+        return TopicActionItemRead.model_validate(data)
+
     def cancel_action_item(
         self,
         action_item_id: uuid.UUID,

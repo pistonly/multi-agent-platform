@@ -74,6 +74,11 @@ class MentionSourceType(str, enum.Enum):
     topic_comment = "topic_comment"
 
 
+class TopicCommentKind(str, enum.Enum):
+    user = "user"
+    system = "system"
+
+
 class NotificationCategory(str, enum.Enum):
     wakeable = "wakeable"
     digest = "digest"

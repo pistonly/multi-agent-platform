@@ -214,6 +214,7 @@ export interface TopicComment {
   author_name: string | null;
   parent_comment_id: string | null;
   body: string;
+  kind?: string;
   created_at: string;
 }
 
@@ -363,10 +364,18 @@ export interface TopicActionItemTodo {
   updated_at: string;
 }
 
+export interface ExperimentReviewInformational {
+  experiment_title: string;
+  phase: ExperimentPhase;
+  updated_at: string;
+  review_progress: string;
+}
+
 export interface TodoRead {
   my_open_experiments: ExperimentSummary[];
   pending_reviews: ExperimentSummary[];
   pending_result_reviews: ExperimentSummary[];
+  experiment_review_informational?: ExperimentReviewInformational[];
   pending_replies: PendingReply[];
   pending_plan_revisions: PendingPlanRevision[];
   pending_topic_replies: PendingTopicReplyTodo[];

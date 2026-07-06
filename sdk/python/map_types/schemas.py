@@ -474,6 +474,7 @@ class TopicCommentRead(ORMModel):
     author_name: str | None = None
     parent_comment_id: uuid.UUID | None
     body: str
+    kind: str = "user"
     comment_seq: int
     created_at: datetime
     unresolved_mentions: list[str] = Field(default_factory=list)
@@ -638,10 +639,22 @@ class TopicActionItemTodoRead(BaseModel):
     updated_at: datetime
 
 
+class ExperimentReviewInformationalRead(BaseModel):
+    """Read-only experiment review snapshot for non-reviewer personas."""
+
+    experiment_title: str
+    phase: ExperimentPhase
+    updated_at: datetime
+    review_progress: str
+
+
 class TodoRead(BaseModel):
     my_open_experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_result_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
+    experiment_review_informational: list[ExperimentReviewInformationalRead] = Field(
+        default_factory=list
+    )
     pending_replies: list[PendingReplyRead] = Field(default_factory=list)
     pending_plan_revisions: list[PendingPlanRevisionRead] = Field(default_factory=list)
     pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)

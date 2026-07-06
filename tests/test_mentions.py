@@ -1,6 +1,10 @@
+from pathlib import Path
+
 import pytest
 
 pytestmark = pytest.mark.slow
+
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_mention_in_experiment_comment_creates_todo_and_notification(
@@ -203,6 +207,38 @@ def test_mention_inside_inline_code_ignored(client, auth_headers, reviewer, proj
     reviewer_headers = reviewer["headers"]
     todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
     assert not any(m["topic_id"] == topic["id"] for m in todos["mentions"])
+
+
+def test_golden_comment_seq_4_fixture_unresolved_empty(client, auth_headers, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Golden seq4", "description": "d"},
+    ).json()
+    body = (_FIXTURES / "mention_comment_seq_4.md").read_text(encoding="utf-8")
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": body},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["unresolved_mentions"] == []
+
+
+def test_golden_comment_seq_5_fixture_unresolved_empty(client, auth_headers, project):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Golden seq5", "description": "d"},
+    ).json()
+    body = (_FIXTURES / "mention_comment_seq_5.md").read_text(encoding="utf-8")
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": body},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["unresolved_mentions"] == []
 
 
 def test_mention_inside_fenced_code_ignored(client, auth_headers, reviewer, project):
@@ -599,3 +635,246 @@ def test_dismiss_mention_cascades_notification_read(
         n["event"] == "agent.mentioned" and n.get("read_at") is None
         for n in notifs_after["items"]
     )
+
+
+def test_round_ack_accept_dismisses_summary_tree_mention(
+    client, auth_headers, reviewer, project, db_session
+):
+    from sqlalchemy import select
+
+    from server.domain.models import AuditLog
+
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Ack dismiss mention", "description": "d"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "participant round 1 view"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n@reviewer-agent 请 ack\n"},
+    )
+
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert len(todos["mentions"]) == 1
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer_headers,
+        json={"ack": "accept"},
+    )
+
+    todos_after = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert todos_after["mentions"] == []
+
+    logs = list(
+        db_session.scalars(
+            select(AuditLog).where(AuditLog.action == "mention.auto_dismissed")
+        )
+    )
+    assert logs
+    assert logs[-1].payload_json.get("triggered_by") == "round_ack:accept"
+
+
+def test_round_ack_reject_keeps_summary_tree_mention(
+    client, auth_headers, reviewer, project, db_session
+):
+    import uuid as uuid_mod
+
+    from sqlalchemy import select
+
+    from server.domain.models import Mention
+
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Ack reject mention", "description": "d"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "participant view"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n@reviewer-agent 请 ack\n"},
+    )
+
+    todos_before = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert len(todos_before["mentions"]) == 1
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer_headers,
+        json={"ack": "reject"},
+    )
+
+    db_session.expire_all()
+    rows = list(
+        db_session.scalars(
+            select(Mention).where(Mention.topic_id == uuid_mod.UUID(topic["id"]))
+        )
+    )
+
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    assert len(rows) == 1, rows
+    assert rows[0].dismissed_at is None, rows[0].dismissed_at
+    assert len(todos["mentions"]) == 1, (todos["mentions"], rows[0].dismissed_at)
+
+
+def test_round_ack_cross_round_does_not_dismiss_prior_summary_mention(
+    client, auth_headers, reviewer, project, db_session
+):
+    """Round 2 ack accept must not auto-dismiss mentions from Round 1 Summary subtree."""
+    import uuid as uuid_mod
+
+    from sqlalchemy import select
+
+    from server.domain.models import Mention
+
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Cross-round ack", "description": "d"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "host round 1 note"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "round 1 participant"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n@reviewer-agent round1\n"},
+    )
+    # Host advances without participant ack — mention from R1 stays open.
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert (
+        client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers).json()["discussion_round"]
+        == "round2"
+    )
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 2 Summary\n\n### 已共识\n- 继续\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer_headers,
+        json={"ack": "accept"},
+    )
+
+    db_session.expire_all()
+    rows = list(
+        db_session.scalars(
+            select(Mention).where(
+                Mention.topic_id == uuid_mod.UUID(topic["id"]),
+                Mention.mentioned_agent_id == uuid_mod.UUID(reviewer["id"]),
+            )
+        )
+    )
+    r1_rows = [m for m in rows if "round1" in (m.excerpt or "")]
+    assert len(r1_rows) == 1
+    assert r1_rows[0].dismissed_at is None
+
+
+def test_round_ack_does_not_dismiss_topic_description_mention(
+    client, auth_headers, reviewer, project, db_session
+):
+    """Legacy / description mentions are outside Summary tree — not auto-dismissed on ack."""
+    import uuid as uuid_mod
+
+    from sqlalchemy import select
+
+    from server.domain.models import Mention, MentionSourceType
+
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={
+            "title": "Legacy mention",
+            "description": "@reviewer-agent 请从开题参与",
+        },
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "host context before summary"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer_headers,
+        json={"ack": "accept"},
+    )
+
+    db_session.expire_all()
+    topic_mentions = list(
+        db_session.scalars(
+            select(Mention).where(
+                Mention.topic_id == uuid_mod.UUID(topic["id"]),
+                Mention.source_type == MentionSourceType.topic,
+            )
+        )
+    )
+    assert len(topic_mentions) == 1
+    assert topic_mentions[0].dismissed_at is None
+
+
+def test_round_ack_accept_idempotent_when_mention_already_dismissed(
+    client, auth_headers, reviewer, project
+):
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "Ack idempotent", "description": "d"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer_headers,
+        json={"body": "participant"},
+    )
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n@reviewer-agent ack\n"},
+    )
+    mention_id = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()[
+        "mentions"
+    ][0]["id"]
+    client.post(
+        f"/api/v1/agents/me/mentions/{mention_id}/dismiss",
+        headers=reviewer_headers,
+    )
+
+    resp = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer_headers,
+        json={"ack": "accept"},
+    )
+    assert resp.status_code == 200

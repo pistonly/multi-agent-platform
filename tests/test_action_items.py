@@ -5,6 +5,8 @@ contract (``cancel_reason`` / ``triggered_by`` / ``category``), and the
 permissions + idempotency rules.
 """
 
+import uuid
+
 
 def _create_topic(client, headers, project, **overrides):
     payload = {"title": "action-item test", "description": "tests for complete/cancel"}
@@ -293,3 +295,184 @@ def test_resolve_preserves_existing_done_status_across_runs(client, auth_headers
     )
     items = {i["id"]: i for i in second["action_items"]}
     assert items[item_id]["status"] == "done"
+
+
+def test_deliver_action_item_on_closed_topic(client, auth_headers, admin_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    resolved = _resolve_with_action_items(
+        client,
+        auth_headers,
+        topic["id"],
+        [{"title": "closed topic deliver", "owner_agent_id": reviewer["id"]}],
+    )
+    item_id = resolved["action_items"][0]["id"]
+    client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+
+    delivered = client.post(
+        f"/api/v1/action-items/{item_id}/deliver",
+        headers=admin_headers,
+    )
+    assert delivered.status_code == 200, delivered.text
+    assert delivered.json()["status"] == "done"
+
+    audit = client.get(
+        "/api/v1/audit",
+        headers=auth_headers,
+        params={"target_type": "topic_action_item", "target_id": item_id},
+    )
+    delivered_logs = [log for log in audit.json() if log["action"] == "action_item.delivered"]
+    assert len(delivered_logs) == 1
+    assert delivered_logs[0]["payload_json"]["topic_status"] == "closed"
+
+
+def test_deliver_action_item_on_archived_topic(client, auth_headers, admin_headers, reviewer, project):
+    topic = _create_topic(client, auth_headers, project)
+    resolved = _resolve_with_action_items(
+        client,
+        auth_headers,
+        topic["id"],
+        [{"title": "archived topic deliver", "owner_agent_id": reviewer["id"]}],
+    )
+    item_id = resolved["action_items"][0]["id"]
+    client.patch(
+        f"/api/v1/topics/{topic['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+
+    delivered = client.post(
+        f"/api/v1/action-items/{item_id}/deliver",
+        headers=admin_headers,
+    )
+    assert delivered.status_code == 200
+
+
+def test_deliver_action_item_404_when_topic_deleted(
+    client, auth_headers, admin_headers, reviewer, project
+):
+    topic = _create_topic(client, auth_headers, project)
+    resolved = _resolve_with_action_items(
+        client,
+        auth_headers,
+        topic["id"],
+        [{"title": "deleted topic deliver", "owner_agent_id": reviewer["id"]}],
+    )
+    item_id = resolved["action_items"][0]["id"]
+    client.delete(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+
+    resp = client.post(
+        f"/api/v1/action-items/{item_id}/deliver",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_resolve_rebinds_topic_id_on_existing_item(
+    client, auth_headers, reviewer, project, db_session
+):
+    from server.domain.models import TopicActionItem
+
+    topic = _create_topic(client, auth_headers, project)
+    first = _resolve_with_action_items(
+        client,
+        auth_headers,
+        topic["id"],
+        [{"title": "rebind test", "owner_agent_id": reviewer["id"]}],
+    )
+    item_id = first["action_items"][0]["id"]
+    other = _create_topic(client, auth_headers, project, title="other-topic")
+    row = db_session.get(TopicActionItem, uuid.UUID(item_id))
+    row.topic_id = uuid.UUID(other["id"])
+    db_session.commit()
+
+    second = _resolve_with_action_items(
+        client,
+        auth_headers,
+        topic["id"],
+        [{"id": item_id, "title": "rebind test", "owner_agent_id": reviewer["id"]}],
+    )
+    rebound = next(i for i in second["action_items"] if i["id"] == item_id)
+    assert rebound["topic_id"] == topic["id"]
+
+
+def test_migrate_closed_topic_action_item_cascade_backlog(
+    client, auth_headers, admin_headers, reviewer, project, db_session, agent_token
+):
+    from server.domain.models import TopicActionItem
+    from server.services import action_item_migration_service as mig
+
+    owner_id = agent_token[0]
+    topic = _create_topic(client, auth_headers, project, title="Migrate Closed Topic")
+    resolved = _resolve_with_action_items(
+        client,
+        auth_headers,
+        topic["id"],
+        [{"title": "Migrate Closed Topic", "owner_agent_id": owner_id}],
+    )
+    item_id = resolved["action_items"][0]["id"]
+    client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "Migrate Closed Topic",
+            "plan": {"content_md": "p"},
+            "submit_for_review": True,
+        },
+    ).json()
+    client.post(
+        f"/api/v1/experiments/{exp['id']}/reviews",
+        headers=reviewer["headers"],
+        json={"reasonable_items": ["ok"]},
+    )
+    client.post(f"/api/v1/experiments/{exp['id']}/approve", headers=auth_headers)
+    client.post(f"/api/v1/experiments/{exp['id']}/start", headers=auth_headers)
+    client.post(
+        f"/api/v1/experiments/{exp['id']}/complete",
+        headers=auth_headers,
+        json={"summary": "done", "content_md": "ok"},
+    )
+    client.post(
+        f"/api/v1/experiments/{exp['id']}/accept-result",
+        headers=reviewer["headers"],
+        json={"summary": "ok", "content_md": "ok"},
+    )
+
+    row = db_session.get(TopicActionItem, uuid.UUID(item_id))
+    assert row.status.value == "open"
+
+    item = row
+    first = mig.migrate_action_item(db_session, item)
+    assert first.strategy == "cascade_backlog"
+    db_session.refresh(item)
+    assert item.status.value == "done"
+
+    second = mig.migrate_action_item(db_session, item)
+    assert second.skipped is True
+
+
+def test_migrate_action_item_to_topic_opt_in(client, auth_headers, reviewer, project, db_session):
+    from server.domain.models import TopicActionItem
+    from server.services import action_item_migration_service as mig
+
+    closed_topic = _create_topic(client, auth_headers, project, title="closed-src")
+    resolved = _resolve_with_action_items(
+        client,
+        auth_headers,
+        closed_topic["id"],
+        [{"title": "move me", "owner_agent_id": reviewer["id"]}],
+    )
+    item_id = resolved["action_items"][0]["id"]
+    client.post(f"/api/v1/topics/{closed_topic['id']}/close", headers=auth_headers)
+
+    target = _create_topic(client, auth_headers, project, title="open-target")
+    item = db_session.get(TopicActionItem, uuid.UUID(item_id))
+    result = mig.migrate_action_item(
+        db_session,
+        item,
+        migrate_to_topic_id=uuid.UUID(target["id"]),
+    )
+    assert result.strategy == "migrate_to"
+    db_session.refresh(item)
+    assert str(item.topic_id) == target["id"]

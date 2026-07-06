@@ -207,6 +207,7 @@ def get_todos(
     agent: Agent,
     *,
     bundle: "AgentTopicWorkItems | None" = None,
+    include_all_partitions: bool = False,
 ) -> TodoRead:
     my_open_experiments = [
         _experiment_summary_with_open_unreasonable(db, e, agent)
@@ -315,6 +316,19 @@ def get_todos(
     ]
 
     from server.services import topic_work_item_service as work_items
+    from server.services import todo_persona_filter as persona_filter
+
+    shows_review_obligations = persona_filter.agent_sees_review_obligations(
+        agent, include_all_partitions=include_all_partitions
+    )
+    if not shows_review_obligations:
+        pending_reviews = []
+        pending_result_reviews = []
+        experiment_review_informational = persona_filter.list_experiment_review_informational(
+            db, agent
+        )
+    else:
+        experiment_review_informational = []
 
     if bundle is None:
         bundle = work_items.topic_work_items_bundle_for_agent(db, agent)
@@ -386,6 +400,7 @@ def get_todos(
         my_open_experiments=my_open_experiments,
         pending_reviews=pending_reviews,
         pending_result_reviews=pending_result_reviews,
+        experiment_review_informational=experiment_review_informational,
         pending_replies=pending_replies,
         pending_plan_revisions=pending_plan_revisions,
         pending_topic_replies=pending_topic_replies,

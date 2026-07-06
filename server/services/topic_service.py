@@ -550,6 +550,7 @@ def resolve_topic(
             old_item.owner_agent_id = item_payload.owner_agent_id
             old_item.due_at = item_payload.due_at
             old_item.linked_experiment_id = item_payload.linked_experiment_id
+            old_item.topic_id = topic.id
             if item_payload.category is not None:
                 old_item.category = item_payload.category.value
         else:
@@ -693,6 +694,58 @@ def _complete_action_item_no_commit(
         "prev_status": prev_status.value,
         "new_status": item.status.value,
     }
+
+
+def _action_item_source_topic(db: Session, item: TopicActionItem) -> Topic:
+    topic = db.get(Topic, item.topic_id)
+    if topic is None or topic.deleted_at is not None:
+        raise NotFoundError("Action item source topic not found")
+    return topic
+
+
+def deliver_action_item_no_commit(
+    db: Session,
+    item: TopicActionItem,
+    *,
+    triggered_by: str = "deliver",
+    agent_id: uuid.UUID | None = None,
+) -> dict:
+    """Mark an open action item done when its source topic may be closed/archived."""
+    if item.status != TopicActionItemStatus.open:
+        raise ConflictError(f"Action item already {item.status.value}")
+    topic = _action_item_source_topic(db, item)
+    audit_service._log_no_commit(
+        db,
+        action="action_item.delivered",
+        target_type="topic_action_item",
+        target_id=item.id,
+        agent_id=agent_id,
+        project_id=item.project_id,
+        summary=f"交付行动项「{item.title}」",
+        payload={
+            "action_item_id": str(item.id),
+            "topic_id": str(topic.id),
+            "topic_status": topic.status.value,
+            "topic_archived": topic.archived_at is not None,
+            "triggered_by": triggered_by,
+        },
+    )
+    return _complete_action_item_no_commit(db, item, triggered_by=triggered_by)
+
+
+def deliver_action_item(
+    db: Session,
+    action_item_id: uuid.UUID,
+    agent: Agent,
+) -> TopicActionItemRead:
+    item = db.get(TopicActionItem, action_item_id)
+    if item is None:
+        raise NotFoundError("Action item not found")
+    _ensure_action_item_accessor(item, agent)
+    deliver_action_item_no_commit(db, item, triggered_by="deliver", agent_id=agent.id)
+    db.commit()
+    db.refresh(item)
+    return _action_item_read(db, item)
 
 
 def complete_action_item(
@@ -986,6 +1039,12 @@ def record_participant_round_ack(
         agent,
         TopicCommentCreate(body=topic_ack_service.participant_ack_body(kind)),
     )
+    if kind in {"accept", "dismiss"}:
+        from server.services import mention_service
+
+        mention_service.auto_dismiss_mentions_for_round_ack(
+            db, topic=topic, agent=agent, ack_kind=kind
+        )
     db.refresh(topic)
     return topic
 

@@ -1204,6 +1204,18 @@ def action_complete(
     _run(action)
 
 
+@action_app.command("deliver")
+def action_deliver(
+    action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to deliver."),
+) -> None:
+    """Deliver an open action item (source topic may be closed/archived)."""
+
+    def action(c: MAPClient):
+        return c.deliver_action_item(action_item_id)
+
+    _run(action)
+
+
 @action_app.command("cancel")
 def action_cancel(
     action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to cancel."),

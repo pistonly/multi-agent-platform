@@ -44,6 +44,20 @@ def complete_action_item(
 
 
 @action_items_router.post(
+    "/action-items/{action_item_id}/deliver",
+    response_model=TopicActionItemRead,
+    status_code=status.HTTP_200_OK,
+)
+def deliver_action_item(
+    action_item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> TopicActionItemRead:
+    """Deliver (complete) an open action item when its source topic is closed/archived."""
+    return topic_service.deliver_action_item(db, action_item_id, agent)
+
+
+@action_items_router.post(
     "/action-items/{action_item_id}/cancel",
     response_model=TopicActionItemRead,
     status_code=status.HTTP_200_OK,

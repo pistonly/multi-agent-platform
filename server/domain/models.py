@@ -18,6 +18,7 @@ from map_types.enums import (
     ReviewItemStatus,
     ReviewSubstituteKind,
     TopicActionItemStatus,
+    TopicCommentKind,
     TopicDiscussionRound,
     TopicStatus,
 )
@@ -181,6 +182,9 @@ class TopicComment(Base):
     author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     parent_comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topic_comments.id"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[TopicCommentKind] = mapped_column(
+        Enum(TopicCommentKind), default=TopicCommentKind.user, nullable=False
+    )
     comment_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

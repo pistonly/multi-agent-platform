@@ -149,6 +149,10 @@ def comment_after(
             continue
         if comment.id == mention.source_id:
             continue
+        from server.services import topic_ack_service
+
+        if topic_ack_service._ack_kind(getattr(comment, "body", "") or "") is not None:
+            continue
         if comment.created_at > source.created_at:
             return True
         if comment.created_at < source.created_at:

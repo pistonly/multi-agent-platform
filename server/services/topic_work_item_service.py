@@ -9,6 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from map_types.enums import TopicCommentKind
 from server.domain.models import Agent, Mention, MentionSourceType, Topic, TopicComment, TopicReadCursor, TopicStatus
 from server.domain.schemas import (
     MentionTodoRead,
@@ -232,6 +233,8 @@ def _unread_change_items(
     by_id = {c.id: c for c in comments}
     items: list[TopicWorkItem] = []
     for comment in new_comments:
+        if comment.kind == TopicCommentKind.system:
+            continue
         items.append(
             TopicWorkItem(
                 kind="unread_change",
