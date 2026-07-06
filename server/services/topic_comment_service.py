@@ -121,6 +121,8 @@ def create_topic_comment(
     topic_id: uuid.UUID,
     author: Agent,
     payload: TopicCommentCreate,
+    *,
+    commit: bool = True,
 ) -> tuple[TopicComment, list[str]]:
     topic = _get_topic(db, topic_id)
     if payload.parent_id is not None:
@@ -164,7 +166,10 @@ def create_topic_comment(
         comment_body=payload.body,
         commit=False,
     )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return comment, unresolved
 
 

@@ -355,7 +355,7 @@ def test_thread_root_id_helper():
     from types import SimpleNamespace
     from uuid import uuid4
 
-    from server.services.todo_service import thread_root_id
+    from server.services.thread_activity import thread_root_id
 
     a, b, c = uuid4(), uuid4(), uuid4()
     by_id = {

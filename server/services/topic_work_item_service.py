@@ -20,8 +20,12 @@ from server.domain.schemas import (
     TopicWorkItemRead,
 )
 from server.services import mention_service, topic_ack_service
-from server.services.thread_activity import topic_comment_order_clauses
-from server.services.todo_service import _excerpt, _host_replied_after, thread_root_id
+from server.services.thread_activity import (
+    host_replied_after as _host_replied_after,
+    topic_comment_order_clauses,
+    thread_root_id,
+)
+from server.services.text_utils import excerpt as _excerpt
 from server.services.topic_service import _agent_names_by_ids
 
 _CLEAR_ACTION_BY_KIND = {

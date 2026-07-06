@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, Comment, Mention, MentionSourceType, Topic, TopicComment
 from server.services import notification_service, thread_activity
+from server.services.text_utils import excerpt as _excerpt
 
 MENTION_PATTERN = re.compile(r"@([a-zA-Z][a-zA-Z0-9_-]*)")
-_EXCERPT_LEN = 200
 
 
 def _iter_text_outside_markdown_code(body: str):
@@ -103,6 +103,7 @@ def notify_unresolved_mentions(
     target_id: uuid.UUID,
     context_label: str,
     payload: dict[str, str],
+    commit: bool = True,
 ) -> None:
     """Soft-fail feedback: comment is kept, author is told which @names did not match."""
     if not unresolved:
@@ -126,14 +127,8 @@ def notify_unresolved_mentions(
             "hint": "Run `map persona list` and @ the exact agent_name field.",
         },
         exclude_actor=False,
+        commit=commit,
     )
-
-
-def _excerpt(body: str) -> str:
-    text = body.strip().replace("\n", " ")
-    if len(text) <= _EXCERPT_LEN:
-        return text
-    return text[: _EXCERPT_LEN - 1] + "…"
 
 
 def process_experiment_comment_mentions(
@@ -184,6 +179,7 @@ def process_experiment_comment_mentions(
                     "author_name": author.name,
                     "excerpt": excerpt,
                 },
+                commit=commit,
             )
 
     if unresolved:
@@ -199,6 +195,7 @@ def process_experiment_comment_mentions(
                 "experiment_id": str(comment.experiment_id),
                 "comment_id": str(comment.id),
             },
+            commit=commit,
         )
     return unresolved
 
@@ -250,6 +247,7 @@ def process_topic_comment_mentions(
                     "author_name": author.name,
                     "excerpt": excerpt,
                 },
+                commit=commit,
             )
 
     if unresolved:
@@ -265,6 +263,7 @@ def process_topic_comment_mentions(
                 "topic_id": str(topic.id),
                 "comment_id": str(comment.id),
             },
+            commit=commit,
         )
     return unresolved
 
@@ -316,6 +315,7 @@ def process_topic_mentions(
                     "author_name": author.name,
                     "excerpt": excerpt,
                 },
+                commit=commit,
             )
 
     if unresolved:
@@ -328,6 +328,7 @@ def process_topic_mentions(
             target_id=topic.id,
             context_label=f"话题「{topic.title}」",
             payload={"topic_id": str(topic.id)},
+            commit=commit,
         )
     return unresolved
 

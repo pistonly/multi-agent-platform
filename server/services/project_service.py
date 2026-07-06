@@ -25,6 +25,9 @@ from server.domain.schemas import (
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 from server.services import project_status_service as status_doc_service
 from server.services import topic_service
+# ``get_project`` 下沉到 ``_lookups`` 以打破 project_service ↔ topic_service 循环 import；
+# 这里 re-export 保持 ``from server.services.project_service import get_project`` 兼容。
+from server.services._lookups import get_project
 
 _ACTIVE_TOPIC_EXPERIMENT_PHASES = (
     ExperimentPhase.draft,
@@ -60,13 +63,6 @@ def list_projects(
     if not include_archived:
         stmt = stmt.where(Project.archived_at.is_(None))
     return list(db.scalars(stmt))
-
-
-def get_project(db: Session, project_id: uuid.UUID) -> Project:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise NotFoundError("Project not found")
-    return project
 
 
 def get_project_by_key(db: Session, project_key: str) -> Project:

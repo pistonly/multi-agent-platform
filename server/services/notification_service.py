@@ -292,6 +292,7 @@ def emit_kind(
     target_id: uuid.UUID,
     payload: dict | None,
     wakeable: bool | None = None,
+    commit: bool = True,
 ) -> list[uuid.UUID]:
     """Insert one Notification per persona agent + SSE publish.
 
@@ -324,6 +325,7 @@ def emit_kind(
         target_id=target_id,
         payload=enriched,
         wakeable=wakeable,
+        commit=commit,
     )
 
 
@@ -351,8 +353,13 @@ def enqueue_from_event(
     payload: dict | None,
     exclude_recipient_ids: set[uuid.UUID] | None = None,
     wakeable: bool | None = None,
+    commit: bool = True,
 ) -> list[uuid.UUID]:
-    """Write in-app notifications for project agents (and admins), excluding the actor."""
+    """Write in-app notifications for project agents (and admins), excluding the actor.
+
+    ``commit=False`` 时只 ``flush`` 不 ``commit``——供需要把通知写入与调用方
+    自身业务变更绑在同一事务内的场景。调用方负责最终 commit。
+    """
     skip = exclude_recipient_ids or set()
     recipients = [
         agent
@@ -385,7 +392,10 @@ def enqueue_from_event(
         categories.append(notification.category)
         wake_versions.append(notification.wake_version)
         fingerprint_versions.append(notification.fingerprint_version)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     if notification_ids:
         _emit_created(
             recipient_ids,
@@ -451,8 +461,13 @@ def enqueue_for_agents(
     payload: dict | None,
     wakeable: bool | None = None,
     exclude_actor: bool = True,
+    commit: bool = True,
 ) -> list[uuid.UUID]:
-    """Write in-app notifications for specific agents (e.g. @mentions)."""
+    """Write in-app notifications for specific agents (e.g. @mentions).
+
+    ``commit=False`` 时只 ``flush``——供需要把通知与调用方业务变更绑在同一
+    事务内的场景（如 mention 处理）。调用方负责最终 commit。
+    """
     notification_ids: list[uuid.UUID] = []
     recipient_ids: list[uuid.UUID] = []
     categories: list[NotificationCategory] = []
@@ -479,7 +494,10 @@ def enqueue_for_agents(
         wake_versions.append(notification.wake_version)
         fingerprint_versions.append(notification.fingerprint_version)
     if notification_ids:
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         _emit_created(
             recipient_ids,
             notification_ids,

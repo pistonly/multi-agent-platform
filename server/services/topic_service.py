@@ -25,8 +25,9 @@ from server.services import action_item_service, audit_service, mention_service,
 from server.services import topic_comment_service
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 from server.services.permissions import is_admin
-from server.services.project_service import get_project
+from server.services._lookups import get_project
 from server.services.thread_activity import topic_comment_order_clauses, topic_comment_order_clauses_desc
+from server.services.text_utils import excerpt
 
 
 def _get_topic(db: Session, topic_id: uuid.UUID) -> Topic:
@@ -178,7 +179,7 @@ def topic_summaries_for_topics(
                 else None
             ),
             last_comment_excerpt=(
-                _topic_comment_excerpt(latest_comments[topic.id].body)
+                excerpt(latest_comments[topic.id].body)
                 if topic.id in latest_comments
                 else None
             ),
@@ -191,14 +192,6 @@ def topic_summaries_for_topics(
         )
         for topic in topics
     ]
-
-
-def _topic_comment_excerpt(body: str) -> str:
-    text = body.strip().replace("\n", " ")
-    limit = 200
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
 
 
 def _latest_topic_comments_by_topic(
@@ -305,14 +298,79 @@ def _suggest_linked_experiment(db: Session, item: TopicActionItem) -> tuple[uuid
     return None, None
 
 
-def _action_item_read(db: Session, item: TopicActionItem) -> TopicActionItemRead:
+def _suggest_linked_experiments_batch(
+    db: Session, items: list[TopicActionItem]
+) -> dict[uuid.UUID, tuple[uuid.UUID | None, str | None]]:
+    """Batch counterpart of :func:`_suggest_linked_experiment`.
+
+    List / decision-read 路径会对多个 action_item 逐条调用 read，若每条都
+    单独查候选实验会产生 N+1（每条一次 SQL + 50 行内存匹配）。本函数按
+    ``(project_id, owner_agent_id)`` 分桶，每桶只查一次候选实验，再在 Python
+    内做子串匹配。不合格（非 open / 已 link / 无 owner）的 item 直接映射到
+    ``(None, None)``。
+    """
+    result: dict[uuid.UUID, tuple[uuid.UUID | None, str | None]] = {}
+    eligible: list[TopicActionItem] = []
+    for item in items:
+        if (
+            item.status == TopicActionItemStatus.open
+            and item.linked_experiment_id is None
+            and item.owner_agent_id is not None
+        ):
+            eligible.append(item)
+        else:
+            result[item.id] = (None, None)
+    if not eligible:
+        return result
+
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    groups: dict[tuple[uuid.UUID, uuid.UUID], list[TopicActionItem]] = {}
+    for item in eligible:
+        groups.setdefault((item.project_id, item.owner_agent_id), []).append(item)
+
+    for (project_id, owner_id), group_items in groups.items():
+        candidates = db.scalars(
+            select(Experiment)
+            .where(
+                Experiment.project_id == project_id,
+                Experiment.creator_agent_id == owner_id,
+                Experiment.phase == ExperimentPhase.done,
+                Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
+                Experiment.updated_at >= cutoff,
+            )
+            .order_by(Experiment.updated_at.desc())
+            .limit(50)
+        ).all()
+        for item in group_items:
+            item_norm = item.title.lower().replace(" ", "")
+            match: tuple[uuid.UUID | None, str | None] = (None, None)
+            if item_norm:
+                for exp in candidates:
+                    exp_norm = exp.title.lower().replace(" ", "")
+                    if exp_norm and (exp_norm in item_norm or item_norm in exp_norm):
+                        match = (exp.id, exp.title)
+                        break
+            result[item.id] = match
+    return result
+
+
+def _action_item_read(
+    db: Session,
+    item: TopicActionItem,
+    *,
+    suggested: tuple[uuid.UUID | None, str | None] | None = None,
+) -> TopicActionItemRead:
     owner_name = None
     if item.owner_agent_id is not None:
         owner = getattr(item, "owner", None)
         if owner is None:
             owner = db.get(Agent, item.owner_agent_id)
         owner_name = owner.name if owner else None
-    suggested_id, suggested_title = _suggest_linked_experiment(db, item)
+    # 列表 / 决策读路径已批量预取 suggested，传入时跳过逐条 SQL（消除 N+1）。
+    suggested_id, suggested_title = (
+        suggested if suggested is not None else _suggest_linked_experiment(db, item)
+    )
     return TopicActionItemRead(
         id=item.id,
         decision_id=item.decision_id,
@@ -353,6 +411,7 @@ def topic_decision_read(db: Session, decision: TopicDecision) -> TopicDecisionRe
     if topic is not None:
         topic_title = topic.title
 
+    suggested_map = _suggest_linked_experiments_batch(db, list(decision.action_items))
     return TopicDecisionRead(
         id=decision.id,
         project_id=decision.project_id,
@@ -365,7 +424,10 @@ def topic_decision_read(db: Session, decision: TopicDecision) -> TopicDecisionRe
         rejected_options=decision.rejected_options,
         open_questions=decision.open_questions,
         no_decision_reason=decision.no_decision_reason,
-        action_items=[_action_item_read(db, item) for item in decision.action_items],
+        action_items=[
+            _action_item_read(db, item, suggested=suggested_map.get(item.id))
+            for item in decision.action_items
+        ],
         created_at=decision.created_at,
         updated_at=decision.updated_at,
     )
@@ -574,13 +636,11 @@ def resolve_topic(
                 )
             )
 
-    db.commit()
-
-    # Audit logs are written post-commit so a half-failed resolve cannot leak
-    # events. ``audit_service.log`` opens its own transaction; if it fails the
-    # decision is already persisted.
+    # Audit 与状态变更同事务：audit_entries 收集的「旧项等价 done」事件用
+    # _log_no_commit 累积，与上面的 decision / action_item 变更在单次 commit 内
+    # 一起落库。commit 失败则全部回滚——不再出现「decision 已存但 audit 缺失」。
     for entry in audit_entries:
-        audit_service.log(
+        audit_service._log_no_commit(
             db,
             action=entry["action"],
             target_type="topic_action_item",
@@ -590,6 +650,7 @@ def resolve_topic(
             summary="resolve 二次约束关闭 action_item",
             payload=entry["payload"],
         )
+    db.commit()
 
     loaded = _load_decision(db, topic.id)
     if loaded is None:
@@ -641,7 +702,12 @@ def list_action_items(
         stmt = stmt.where(TopicActionItem.owner_agent_id == owner_agent_id)
     if status is not None:
         stmt = stmt.where(TopicActionItem.status == status)
-    return [_action_item_read(db, item) for item in db.scalars(stmt)]
+    items = list(db.scalars(stmt))
+    suggested_map = _suggest_linked_experiments_batch(db, items)
+    return [
+        _action_item_read(db, item, suggested=suggested_map.get(item.id))
+        for item in items
+    ]
 
 
 def _ensure_action_item_accessor(item: TopicActionItem, agent: Agent) -> None:
@@ -857,9 +923,9 @@ def cancel_action_item(
     item.cancel_reason = payload.reason
     if payload.category is not None:
         item.category = payload.category.value
-    db.commit()
-    db.refresh(item)
-    audit_service.log(
+    # 状态变更与 audit 行写在同一事务内（_log_no_commit 只 flush），单次 commit；
+    # audit 失败会连同状态变更一起回滚，避免「已取消但无审计」的脱钩。
+    audit_service._log_no_commit(
         db,
         action="action_item.cancelled",
         target_type="topic_action_item",
@@ -876,6 +942,8 @@ def cancel_action_item(
             "triggered_by": triggered_by,
         },
     )
+    db.commit()
+    db.refresh(item)
     return _action_item_read(db, item)
 
 
@@ -1033,18 +1101,22 @@ def record_participant_round_ack(
     if agent.id == topic.creator_agent_id:
         raise ConflictError("Host cannot post participant ack; use acknowledged_by when advancing")
 
+    # ack 评论 + mention dismiss 写在同一事务内，单次 commit；任一步失败全部
+    # 回滚，避免「ack 评论已写但 mention 未 dismiss」或重试时重复写多条 ack。
     create_topic_comment(
         db,
         topic_id,
         agent,
         TopicCommentCreate(body=topic_ack_service.participant_ack_body(kind)),
+        commit=False,
     )
     if kind in {"accept", "dismiss"}:
         from server.services import mention_service
 
         mention_service.auto_dismiss_mentions_for_round_ack(
-            db, topic=topic, agent=agent, ack_kind=kind
+            db, topic=topic, agent=agent, ack_kind=kind, commit=False
         )
+    db.commit()
     db.refresh(topic)
     return topic
 

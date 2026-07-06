@@ -1,4 +1,3 @@
-import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import exists, func, or_, select
@@ -15,7 +14,6 @@ from server.domain.models import (
     Topic,
     TopicActionItem,
     TopicActionItemStatus,
-    TopicComment,
     TopicStatus,
 )
 from server.domain.schemas import (
@@ -31,7 +29,6 @@ from server.domain.schemas import (
 )
 from server.services import mention_service
 from server.services import permissions as perm
-from server.services import thread_activity
 from server.services import topic_ack_service
 from server.services.topic_service import topic_summaries_for_topics
 
@@ -46,30 +43,6 @@ _ACTIVE_PHASES = (
     ExperimentPhase.result_review,
 )
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
-_EXCERPT_LEN = 200
-
-
-def _excerpt(body: str) -> str:
-    text = body.strip().replace("\n", " ")
-    if len(text) <= _EXCERPT_LEN:
-        return text
-    return text[: _EXCERPT_LEN - 1] + "…"
-
-
-def thread_root_id(comment_id: uuid.UUID, by_id: dict[uuid.UUID, TopicComment]) -> uuid.UUID:
-    return thread_activity.thread_root_id(comment_id, by_id)
-
-
-def _host_replied_after(
-    comment: TopicComment,
-    host_comment_ids: set[uuid.UUID],
-    by_id: dict[uuid.UUID, TopicComment],
-    *,
-    comment_order: list[uuid.UUID] | None = None,
-) -> bool:
-    return thread_activity.host_replied_after(
-        comment, host_comment_ids, by_id, comment_order=comment_order
-    )
 
 
 def list_pending_topic_replies(
