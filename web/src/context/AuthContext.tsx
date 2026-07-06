@@ -36,6 +36,12 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+export function shouldRemoveIdentityAfterVerifyError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = (error as { response?: { status?: unknown } }).response?.status;
+  return status === 401 || status === 403;
+}
+
 function initialAuthState() {
   const identities = readStoredIdentities(localStorage);
   const activeIdentity = chooseActiveIdentity(
@@ -85,8 +91,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAgent(me);
           setIsReady(true);
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
+          if (!shouldRemoveIdentityAfterVerifyError(error)) {
+            setAgent((currentAgent) => {
+              if (currentAgent) return currentAgent;
+              const cached = chooseActiveIdentity(identities, activeIdentityId);
+              return cached ? agentFromIdentity(cached) : null;
+            });
+            setIsReady(true);
+            return;
+          }
           const fallback = chooseActiveIdentity(
             identities.filter((identity) => identity.token !== token),
             null

@@ -44,8 +44,13 @@ describe("detectMentionTrigger", () => {
   });
 
   it("closes the popover once the user types whitespace after the query", () => {
-    // After the whitespace the caret is at index 9 (right after the space).
-    expect(detectMentionTrigger("hello @al world", 9)).toBeNull();
+    expect(detectMentionTrigger("hello @al world", 9)).toEqual({
+      start: 6,
+      query: "al",
+      caret: 9,
+    });
+    // After the whitespace the caret is at index 10 (right after the space).
+    expect(detectMentionTrigger("hello @al world", 10)).toBeNull();
     expect(detectMentionTrigger("hello @al world", 13)).toBeNull();
   });
 
@@ -58,10 +63,10 @@ describe("detectMentionTrigger", () => {
   });
 
   it("supports dotted / dashed / underscored query characters", () => {
-    expect(detectMentionTrigger("@alpha-bot_v2", 12)).toEqual({
+    expect(detectMentionTrigger("@alpha-bot_v2", 13)).toEqual({
       start: 0,
       query: "alpha-bot_v2",
-      caret: 12,
+      caret: 13,
     });
   });
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -609,7 +609,6 @@ class SimpleWaker:
     def _save_state_if_needed(self, *, force: bool = False) -> None:
         if not force and not self._state_dirty:
             return
-        from cli.bridge_state import save_bridge_state
 
         save_bridge_state(self.config.state_file, self.state)
         self._state_dirty = False

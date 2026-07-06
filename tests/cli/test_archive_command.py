@@ -409,12 +409,12 @@ def test_archive_emits_audit_event(
 
     # query audit log for each target
     topic_audit = client.get(
-        f"/api/v1/audit",
+        "/api/v1/audit",
         params={"target_type": "topic", "target_id": topic_id},
         headers=auth_headers,
     )
     exp_audit = client.get(
-        f"/api/v1/audit",
+        "/api/v1/audit",
         params={"target_type": "experiment", "target_id": exp_id},
         headers=auth_headers,
     )

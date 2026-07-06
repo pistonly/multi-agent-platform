@@ -87,6 +87,7 @@ from map_types.schemas import (
 
 __all__ = [
     "ActionItemCancel",
+    "ActionItemCategory",
     "AgentRole",
     "CommentAnchorType",
     "ExperimentPhase",

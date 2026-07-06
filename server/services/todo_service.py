@@ -1,4 +1,5 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -33,6 +34,9 @@ from server.services import permissions as perm
 from server.services import thread_activity
 from server.services import topic_ack_service
 from server.services.topic_service import topic_summaries_for_topics
+
+if TYPE_CHECKING:
+    from server.services.topic_work_item_service import AgentTopicWorkItems
 
 _ACTIVE_PHASES = (
     ExperimentPhase.draft,
@@ -202,7 +206,7 @@ def get_todos(
     db: Session,
     agent: Agent,
     *,
-    bundle: "work_items.AgentTopicWorkItems | None" = None,
+    bundle: "AgentTopicWorkItems | None" = None,
 ) -> TodoRead:
     my_open_experiments = [
         _experiment_summary_with_open_unreasonable(db, e, agent)

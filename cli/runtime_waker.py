@@ -23,13 +23,10 @@ import asyncio
 import json
 import os
 import re
-import shutil
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -43,7 +40,6 @@ from cli.action_item_escalation import (
     scan_pending_action_items,
     should_wake_action_item,
 )
-from cli.agent_client import PersonaAgentClient
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient

@@ -6,7 +6,6 @@ import pytest
 
 pytestmark = pytest.mark.slow
 
-import ast
 import importlib.util
 import textwrap
 from pathlib import Path
