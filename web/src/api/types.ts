@@ -49,11 +49,22 @@ export interface ExperimentSummary {
   phase: ExperimentPhase;
   current_plan_version: number;
   topic_id: string | null;
+  warnings: string[];
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  // --- execution lock (per-project) ---
+  lock_holder_experiment_id: string | null;
+  lock_acquired_at: string | null;
+  lock_ttl_seconds: number | null;
+  next_attempt_at: string | null;
+  lock_skip_count: number;
+  open_unreasonable_count: number;
+  log_count: number;
+  latest_log_summary: string | null;
   actions: string[];
   blocked_on: string | null;
+  legacy_self_review: boolean;
 }
 
 export interface PlanVersion {
@@ -187,6 +198,8 @@ export interface TopicCreatePayload {
 export type TopicStatus = "open" | "closed";
 export type TopicDiscussionRound = "round1" | "round2" | "ready";
 export type TopicActionItemStatus = "open" | "done" | "cancelled";
+export type TopicCommentKind = "user" | "system";
+export type ActionItemCategory = "implementation" | "decision" | "unspecified";
 
 export interface TopicSummary {
   id: string;
@@ -201,10 +214,16 @@ export interface TopicSummary {
   round_summary_count: number;
   comment_count: number;
   experiment_count: number;
+  last_comment_id: string | null;
+  last_comment_author_agent_id: string | null;
+  last_comment_author_name: string | null;
+  last_comment_excerpt: string | null;
+  my_comment_count: number | null;
+  dismissed_at: string | null;
+  advance_round_pending_since: string | null;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
-  dismissed_at: string | null;
 }
 
 export interface TopicComment {
@@ -214,8 +233,10 @@ export interface TopicComment {
   author_name: string | null;
   parent_comment_id: string | null;
   body: string;
-  kind?: string;
+  kind: TopicCommentKind;
+  comment_seq: number;
   created_at: string;
+  unresolved_mentions: string[];
 }
 
 export interface TopicCommentTreeNode extends TopicComment {
@@ -234,6 +255,14 @@ export interface TopicActionItem {
   status: TopicActionItemStatus;
   due_at: string | null;
   linked_experiment_id: string | null;
+  category: ActionItemCategory | null;
+  cancel_reason: string | null;
+  suggested_linked_experiment_id: string | null;
+  suggested_linked_experiment_title: string | null;
+  wake_count: number;
+  first_open_at: string | null;
+  last_woken_at: string | null;
+  stale_at: string | null;
   created_at: string;
   updated_at: string;
 }
