@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -273,8 +273,13 @@ def list_my_notifications(
 
 
 @agents_router.get("/me/notifications/stream")
-def stream_my_notifications(agent: Agent = Depends(get_current_agent)) -> StreamingResponse:
-    return notification_sse_response(agent.id)
+def stream_my_notifications(
+    agent: Agent = Depends(get_current_agent),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+) -> StreamingResponse:
+    # Last-Event-ID 由浏览器 EventSource 在断线重连时自动发送，服务端从
+    # per-agent ring buffer 中 replay id > last_event_id 的事件。
+    return notification_sse_response(agent.id, last_event_id)
 
 
 @agents_router.post("/me/notifications/read-all")

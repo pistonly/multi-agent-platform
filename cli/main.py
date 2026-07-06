@@ -7,7 +7,7 @@ import httpx
 import typer
 import yaml
 from map_client.client import MAPClient
-from map_client.exceptions import MAPHTTPError
+from map_client.exceptions import MAPConflictError, MAPHTTPError, MAPNotFoundError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
 from map_client.bootstrap import bootstrap_project_map
 from server.domain.models import AgentRole
@@ -660,14 +660,12 @@ def experiment_archive(
     def action(c: MAPClient):
         try:
             return c.update_experiment(experiment_id, payload)
-        except MAPHTTPError as exc:
-            if exc.status_code == 404:
-                typer.echo(
-                    f"Error: {object_kind} {experiment_id} not found",
-                    err=True,
-                )
-                raise typer.Exit(1) from exc
-            raise
+        except MAPNotFoundError as exc:
+            typer.echo(
+                f"Error: {object_kind} {experiment_id} not found",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
 
     _run(action)
 
@@ -866,14 +864,12 @@ def inbound_event_record(
     def action(c: MAPClient):
         try:
             return c.record_inbound_event(payload)
-        except MAPHTTPError as exc:
-            if exc.status_code == 409:
-                typer.echo(
-                    f"inbound-event duplicate (409): {exc.detail}",
-                    err=True,
-                )
-                raise typer.Exit(2) from exc
-            raise
+        except MAPConflictError as exc:
+            typer.echo(
+                f"inbound-event duplicate (409): {exc.detail}",
+                err=True,
+            )
+            raise typer.Exit(2) from exc
 
     _run(action)
 
@@ -1145,14 +1141,12 @@ def topic_archive(
     def action(c: MAPClient):
         try:
             return c.update_topic(topic_id, payload)
-        except MAPHTTPError as exc:
-            if exc.status_code == 404:
-                typer.echo(
-                    f"Error: {object_kind} {topic_id} not found",
-                    err=True,
-                )
-                raise typer.Exit(1) from exc
-            raise
+        except MAPNotFoundError as exc:
+            typer.echo(
+                f"Error: {object_kind} {topic_id} not found",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
 
     _run(action)
 

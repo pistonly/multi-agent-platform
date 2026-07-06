@@ -395,10 +395,18 @@ class AuditLog(Base):
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     target_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     summary: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        # query_by_target: WHERE target_type=? AND target_id=? ORDER BY created_at DESC
+        # 复合索引左前缀覆盖现有 target_id 单列查询，避免重复索引。
+        Index("ix_audit_logs_target", "target_type", "target_id"),
+        # query_all: ORDER BY created_at DESC LIMIT/OFFSET 分页
+        Index("ix_audit_logs_created_at", "created_at"),
+    )
 
 
 class Notification(Base):

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from map_client.config import load_config
-from map_client.exceptions import MAPHTTPError
+from map_client.exceptions import raise_for_status
 from map_types import (
     ActionItemCancel,
     AgentCreateResponse,
@@ -141,7 +141,9 @@ class MAPClient:
                         detail = str(payload["detail"])
                 except Exception:
                     detail = response.text
-            raise MAPHTTPError(response.status_code, detail)
+            # P2 #2: 根据 status_code raise 具体子类（NotFound / Conflict 等），
+            # 调用方可 catch 子类写语义化处理，不再依赖 if status_code == 404。
+            raise_for_status(response.status_code, detail)
         return response
 
     def _json(self, method: str, path: str, **kwargs: Any) -> Any:
