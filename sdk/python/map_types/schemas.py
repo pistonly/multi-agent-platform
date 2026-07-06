@@ -19,6 +19,7 @@ from map_types.enums import (
     ReviewItemStatus,
     ReviewSubstituteKind,
     TopicActionItemStatus,
+    TopicCommentKind,
     TopicDiscussionRound,
     TopicStatus,
 )
@@ -231,14 +232,23 @@ class ExperimentDetailRead(ExperimentSummaryRead):
     current_plan: PlanVersionRead | None = None
     plan_version_count: int = 0
     review_count: int = 0
-    log_count: int = 0
-    latest_log_summary: str | None = None
-    # --- execution lock (per-project; CP-3) ---
-    lock_holder_experiment_id: uuid.UUID | None = None
-    lock_acquired_at: datetime | None = None
-    lock_ttl_seconds: int | None = None
+
+
+class ExperimentLockRead(ORMModel):
+    """Per-project execution-lock snapshot (CP-3).
+
+    定义在 ``map_types.schemas`` 以便 server API 与 SDK 共享同一响应模型；
+    server 端用 ``ExperimentLockRead.model_validate(result)`` 从 lock_service
+    的结果对象构造（``ORMModel`` 已开启 ``from_attributes``）。
+    """
+
+    experiment_id: uuid.UUID
+    project_id: uuid.UUID
+    holder: uuid.UUID | None = None
+    acquired_at: datetime | None = None
+    ttl_seconds: int | None = None
     next_attempt_at: datetime | None = None
-    lock_skip_count: int = 0
+    skip_count: int = 0
 
 
 # --- Log ---
@@ -474,7 +484,7 @@ class TopicCommentRead(ORMModel):
     author_name: str | None = None
     parent_comment_id: uuid.UUID | None
     body: str
-    kind: str = "user"
+    kind: TopicCommentKind = TopicCommentKind.user
     comment_seq: int
     created_at: datetime
     unresolved_mentions: list[str] = Field(default_factory=list)

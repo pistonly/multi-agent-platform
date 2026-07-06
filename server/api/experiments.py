@@ -18,6 +18,7 @@ from server.domain.schemas import (
     ExperimentCreate,
     ExperimentDetailRead,
     ExperimentBundleRead,
+    ExperimentLockRead,
     ExperimentLogCreate,
     ExperimentLogRead,
     ExperimentResultDecision,
@@ -573,28 +574,6 @@ class ExperimentLockSkipPayload(BaseModel):
     next_attempt_at: datetime
 
 
-class ExperimentLockRead(BaseModel):
-    experiment_id: uuid.UUID
-    project_id: uuid.UUID
-    holder: uuid.UUID | None
-    acquired_at: datetime | None
-    ttl_seconds: int | None
-    next_attempt_at: datetime | None
-    skip_count: int
-
-    @classmethod
-    def from_result(cls, result) -> "ExperimentLockRead":
-        return cls(
-            experiment_id=result.experiment_id,
-            project_id=result.project_id,
-            holder=result.holder,
-            acquired_at=result.acquired_at,
-            ttl_seconds=result.ttl_seconds,
-            next_attempt_at=result.next_attempt_at,
-            skip_count=result.skip_count,
-        )
-
-
 @experiments_router.post(
     "/experiments/{experiment_id}/lock/acquire",
     response_model=ExperimentLockRead,
@@ -611,7 +590,7 @@ def acquire_experiment_lock_endpoint(
         agent,
         ttl_seconds=payload.ttl_seconds,
     )
-    return ExperimentLockRead.from_result(result)
+    return ExperimentLockRead.model_validate(result)
 
 
 @experiments_router.post(
@@ -624,7 +603,7 @@ def release_experiment_lock_endpoint(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
     result = lock_service.release_experiment_lock(db, experiment_id, agent)
-    return ExperimentLockRead.from_result(result)
+    return ExperimentLockRead.model_validate(result)
 
 
 @experiments_router.post(
@@ -643,7 +622,7 @@ def force_release_experiment_lock_endpoint(
         agent,
         reason=payload.reason,
     )
-    return ExperimentLockRead.from_result(result)
+    return ExperimentLockRead.model_validate(result)
 
 
 @experiments_router.post(
@@ -662,4 +641,4 @@ def record_experiment_lock_skip_endpoint(
         agent,
         next_attempt_at=payload.next_attempt_at,
     )
-    return ExperimentLockRead.from_result(result)
+    return ExperimentLockRead.model_validate(result)

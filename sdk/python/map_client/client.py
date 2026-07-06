@@ -25,6 +25,7 @@ from map_types import (
     ExperimentCreate,
     ExperimentDetailRead,
     ExperimentBundleRead,
+    ExperimentLockRead,
     ExperimentLogCreate,
     ExperimentLogRead,
     ExperimentResultDecision,
@@ -459,17 +460,17 @@ class MAPClient:
 
     def acquire_experiment_lock(
         self, experiment_id: uuid.UUID, *, ttl_seconds: int
-    ) -> dict[str, Any]:
+    ) -> ExperimentLockRead:
         data = self._json(
             "POST",
             f"/experiments/{experiment_id}/lock/acquire",
             json={"ttl_seconds": ttl_seconds},
         )
-        return data or {}
+        return ExperimentLockRead.model_validate(data)
 
-    def release_experiment_lock(self, experiment_id: uuid.UUID) -> dict[str, Any]:
+    def release_experiment_lock(self, experiment_id: uuid.UUID) -> ExperimentLockRead:
         data = self._json("POST", f"/experiments/{experiment_id}/lock/release")
-        return data or {}
+        return ExperimentLockRead.model_validate(data)
 
     def force_release_experiment_lock(
         self,
@@ -477,25 +478,25 @@ class MAPClient:
         *,
         reason: str,
         actor: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> ExperimentLockRead:
         payload: dict[str, Any] = {"reason": reason}
         if actor:
             payload["actor"] = actor
         data = self._json("POST", f"/experiments/{experiment_id}/lock/force-release", json=payload)
-        return data or {}
+        return ExperimentLockRead.model_validate(data)
 
     def record_experiment_lock_skip(
         self,
         experiment_id: uuid.UUID,
         *,
         next_attempt_at: str,
-    ) -> dict[str, Any]:
+    ) -> ExperimentLockRead:
         data = self._json(
             "POST",
             f"/experiments/{experiment_id}/lock/skip",
             json={"next_attempt_at": next_attempt_at},
         )
-        return data or {}
+        return ExperimentLockRead.model_validate(data)
 
     # --- plans ---
 
