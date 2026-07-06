@@ -96,8 +96,7 @@ On remind, the agent should:
 `inbound_event` 审计的启动路径已退役：
 
 - `scripts/start-runtime-waker-claude.sh`、`scripts/start-all-wakers-legacy.sh` 已删除
-- `MAP_USE_LEGACY_WAKER=1` 不再生效（`start-all-wakers.sh` / `start-runtime-waker.sh`
-  现直接调用 simple-waker）
+- `MAP_USE_LEGACY_WAKER=1` 不再生效（`start-all-wakers.sh` 现直接调用 simple-waker）
 - `docs/MAP-RUNTIME-WAKER.md` 已删除
 - 原 `ActionItemWakeDecision` / `should_wake_action_item` /
   `scan_pending_action_items` 已迁至 `cli/action_item_escalation.py`

@@ -31,7 +31,6 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 | `scripts/start-all-wakers.sh` | 主路径 | 三 persona simple-waker（默认） |
 | `scripts/start-all-simple-wakers.sh` | 主路径 | 同上（被 start-all-wakers 调用） |
 | `scripts/start-simple-waker.sh` | 主路径 | 单 persona simple-waker |
-| `scripts/start-runtime-waker.sh` | legacy-facade | 名称历史遗留；实际 `exec` 到 `start-simple-waker.sh` |
 | `scripts/start-participant-bridge.sh` | deprecated | 旧 bridge 启动脚本 |
 | `scripts/start-participant-bridge-claude.sh` | deprecated | 旧 bridge（Claude runner） |
 | `scripts/start-reviewer-bridge.sh` | deprecated | 旧 bridge 启动脚本 |
