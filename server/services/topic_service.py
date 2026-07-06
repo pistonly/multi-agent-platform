@@ -12,7 +12,6 @@ from server.domain.schemas import (
     ExperimentSummaryRead,
     TopicActionItemRead,
     TopicCommentCreate,
-    TopicCommentRead,
     TopicCommentTreeNode,
     TopicCreate,
     TopicDecisionRead,
@@ -23,6 +22,7 @@ from server.domain.schemas import (
     TopicUpdate,
 )
 from server.services import action_item_service, audit_service, notification_service, topic_ack_service
+from server.services import topic_comment_service
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 from server.services.permissions import is_admin
 from server.services.project_service import get_project
@@ -204,19 +204,41 @@ def _topic_comment_excerpt(body: str) -> str:
 def _latest_topic_comments_by_topic(
     db: Session, topic_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, TopicComment]:
+    """Return the latest TopicComment per topic in a single query.
+
+    Previously this was an N+1 loop firing ``SELECT ... ORDER BY ... LIMIT 1``
+    per topic. Topic list pages scale linearly with the number of topics, and
+    the cost showed up on projects with many open topics. The replacement uses
+    ``ROW_NUMBER() OVER (PARTITION BY topic_id ORDER BY <sort>)`` so each
+    topic's winning row is selected in one round-trip.
+
+    The ORDER BY mirrors :func:`thread_activity.topic_comment_order_clauses_desc`
+    so the result is the same comment the old per-topic query would have picked.
+    """
     if not topic_ids:
         return {}
-    latest: dict[uuid.UUID, TopicComment] = {}
-    for topic_id in topic_ids:
-        comment = db.scalars(
-            select(TopicComment)
-            .where(TopicComment.topic_id == topic_id)
-            .order_by(*topic_comment_order_clauses_desc())
-            .limit(1)
-        ).first()
-        if comment is not None:
-            latest[topic_id] = comment
-    return latest
+    rn = (
+        func.row_number()
+        .over(
+            partition_by=TopicComment.topic_id,
+            order_by=topic_comment_order_clauses_desc(),
+        )
+        .label("rn")
+    )
+    subq = (
+        select(TopicComment.id.label("cid"), rn)
+        .where(TopicComment.topic_id.in_(topic_ids))
+        .subquery()
+    )
+    winning_ids = db.scalars(
+        select(subq.c.cid).where(subq.c.rn == 1)
+    ).all()
+    if not winning_ids:
+        return {}
+    comments = db.scalars(
+        select(TopicComment).where(TopicComment.id.in_(winning_ids))
+    ).all()
+    return {comment.topic_id: comment for comment in comments}
 
 
 def _my_comment_counts_by_topic(
@@ -967,156 +989,22 @@ def _build_comment_tree(
     comments: list[TopicComment],
     author_names: dict[uuid.UUID, str],
 ) -> list[TopicCommentTreeNode]:
-    _ensure_comment_seq_values(comments)
-    nodes: dict[uuid.UUID, TopicCommentTreeNode] = {}
-    for comment in comments:
-        nodes[comment.id] = TopicCommentTreeNode(
-            id=comment.id,
-            topic_id=comment.topic_id,
-            author_agent_id=comment.author_agent_id,
-            author_name=author_names.get(comment.author_agent_id),
-            parent_comment_id=comment.parent_comment_id,
-            body=comment.body,
-            comment_seq=comment.comment_seq,
-            created_at=comment.created_at,
-            children=[],
-        )
-    roots: list[TopicCommentTreeNode] = []
-    for comment in comments:
-        node = nodes[comment.id]
-        if comment.parent_comment_id and comment.parent_comment_id in nodes:
-            nodes[comment.parent_comment_id].children.append(node)
-        else:
-            roots.append(node)
-    return roots
+    """Backwards-compatible re-export; see ``topic_comment_service``."""
+    return topic_comment_service._build_comment_tree(comments, author_names)
 
 
 def _ensure_comment_seq_values(comments: list[TopicComment]) -> None:
-    if all(comment.comment_seq is not None for comment in comments):
-        return
-    by_topic: dict[uuid.UUID, list[TopicComment]] = {}
-    for comment in comments:
-        by_topic.setdefault(comment.topic_id, []).append(comment)
-    for topic_comments in by_topic.values():
-        ordered = sorted(
-            topic_comments,
-            key=lambda comment: (
-                comment.created_at,
-                comment.comment_seq if comment.comment_seq is not None else 0,
-                comment.id,
-            ),
-        )
-        for index, comment in enumerate(ordered, start=1):
-            if comment.comment_seq is None:
-                comment.comment_seq = index
+    """Backwards-compatible re-export; see ``topic_comment_service``."""
+    topic_comment_service._ensure_comment_seq_values(comments)
 
 
 def _next_topic_comment_seq(db: Session, topic_id: uuid.UUID) -> int:
-    current = db.scalar(
-        select(func.coalesce(func.max(TopicComment.comment_seq), 0)).where(
-            TopicComment.topic_id == topic_id
-        )
-    )
-    return int(current or 0) + 1
+    """Backwards-compatible re-export; see ``topic_comment_service``."""
+    return topic_comment_service._next_topic_comment_seq(db, topic_id)
 
 
-def create_topic_comment(
-    db: Session,
-    topic_id: uuid.UUID,
-    author: Agent,
-    payload: TopicCommentCreate,
-) -> tuple[TopicComment, list[str]]:
-    topic = _get_topic(db, topic_id)
-    if payload.parent_id is not None:
-        parent = db.scalar(
-            select(TopicComment).where(
-                TopicComment.id == payload.parent_id, TopicComment.topic_id == topic_id
-            )
-        )
-        if parent is None:
-            raise NotFoundError("Parent comment not found")
-    comment = TopicComment(
-        topic_id=topic_id,
-        author_agent_id=author.id,
-        parent_comment_id=payload.parent_id,
-        body=payload.body,
-        comment_seq=_next_topic_comment_seq(db, topic_id),
-    )
-    db.add(comment)
-    # Bump topic.updated_at so any prior host-side dismiss on this topic
-    # is automatically un-dismissed — there's new activity worth seeing.
-    topic.updated_at = datetime.now(UTC)
-    if (
-        author.id == topic.creator_agent_id
-        and payload.parent_id is None
-        and topic_ack_service.is_round_summary_comment(payload.body)
-    ):
-        topic_ack_service.mark_round_ack_pending(topic)
-    db.flush()
-    db.refresh(comment)
-
-    from server.services import mention_service
-
-    unresolved = mention_service.process_topic_comment_mentions(
-        db, comment=comment, author=author, topic=topic, commit=False
-    )
-    mention_service.auto_dismiss_mentions_after_comment(
-        db,
-        new_comment_author=author,
-        experiment_id=None,
-        topic_id=topic_id,
-        new_comment_id=comment.id,
-        commit=False,
-    )
-    db.commit()
-    return comment, unresolved
-
-
-def topic_comment_read(
-    db: Session, comment: TopicComment, *, unresolved_mentions: list[str] | None = None
-) -> TopicCommentRead:
-    author_names = _agent_names_by_ids(db, {comment.author_agent_id})
-    _ensure_comment_seq_values([comment])
-    return TopicCommentRead(
-        id=comment.id,
-        topic_id=comment.topic_id,
-        author_agent_id=comment.author_agent_id,
-        author_name=author_names.get(comment.author_agent_id),
-        parent_comment_id=comment.parent_comment_id,
-        body=comment.body,
-        comment_seq=comment.comment_seq,
-        created_at=comment.created_at,
-        unresolved_mentions=list(unresolved_mentions or ()),
-    )
-
-
-def list_topic_comments(
-    db: Session,
-    topic_id: uuid.UUID,
-    *,
-    tree: bool = False,
-) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
-    _get_topic(db, topic_id)
-    stmt = (
-        select(TopicComment)
-        .where(TopicComment.topic_id == topic_id)
-        .order_by(*topic_comment_order_clauses())
-    )
-    comments = list(db.scalars(stmt))
-    _ensure_comment_seq_values(comments)
-    author_names = _agent_names_by_ids(db, {comment.author_agent_id for comment in comments})
-    if tree:
-        return _build_comment_tree(comments, author_names)
-    return [
-        TopicCommentRead(
-            id=comment.id,
-            topic_id=comment.topic_id,
-            author_agent_id=comment.author_agent_id,
-            author_name=author_names.get(comment.author_agent_id),
-            parent_comment_id=comment.parent_comment_id,
-            body=comment.body,
-            comment_seq=comment.comment_seq,
-            created_at=comment.created_at,
-        )
-        for comment in comments
-    ]
+# Comment CRUD / tree / seq logic lives in ``topic_comment_service`` since
+# P1 #1 拆分；本模块 re-export 公开 API 以保持现有 import 不破。
+create_topic_comment = topic_comment_service.create_topic_comment
+topic_comment_read = topic_comment_service.topic_comment_read
+list_topic_comments = topic_comment_service.list_topic_comments

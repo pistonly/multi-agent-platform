@@ -29,8 +29,17 @@ jobs:
           MAP_DATABASE_URL="sqlite:///$tmpdb" alembic upgrade head
           rm -f "$tmpdb"
 
-      - name: Pytest
-        run: pytest -q
+      - name: Pytest with coverage
+        # 默认 addopts 已排除 slow/integration/claude_cli，与 PR 上跑的子集一致。
+        # --cov 配置见 pyproject.toml [tool.coverage]；fail_under=60 阈值兜底。
+        run: pytest --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
 
   frontend:
     runs-on: ubuntu-latest

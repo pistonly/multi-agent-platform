@@ -137,3 +137,98 @@ def test_project_webhook_receives_review_submitted(client, admin_headers, projec
 
     assert len(calls) == 1
     assert b"review.submitted" in calls[0]
+
+
+def test_webhook_retries_on_5xx(client, admin_headers, project, monkeypatch):
+    """5xx 应触发重试，最终成功后 attempts=2、success=True、last_error=None。"""
+    call_statuses = [503, 200]
+
+    def fake_post(url, body, signature):
+        return call_statuses.pop(0)
+
+    monkeypatch.setattr(webhook_service, "_http_post", fake_post)
+    monkeypatch.setattr(webhook_service, "time", type("M", (), {"sleep": lambda *a, **kw: None})())
+
+    client.post(
+        "/api/v1/webhooks",
+        headers=admin_headers,
+        json={"url": "http://example.com/hook", "events": ["experiment.created"]},
+    )
+    client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=admin_headers,
+        json={"title": "重试一次", "plan": {"content_md": "p"}},
+    )
+
+    deliveries = client.get(
+        "/api/v1/webhooks", headers=admin_headers
+    ).json()
+    wh_id = deliveries[0]["id"]
+    deliveries = client.get(
+        f"/api/v1/webhooks/{wh_id}/deliveries", headers=admin_headers
+    ).json()
+    assert deliveries[0]["success"] is True
+    assert deliveries[0]["attempts"] == 2
+    assert deliveries[0]["status_code"] == 200
+    assert deliveries[0]["last_error"] is None
+
+
+def test_webhook_no_retry_on_4xx(client, admin_headers, project, monkeypatch):
+    """4xx (非 408/429) 不重试，attempts=1、success=False、last_error='HTTP 400'。"""
+    def fake_post(url, body, signature):
+        return 400
+
+    monkeypatch.setattr(webhook_service, "_http_post", fake_post)
+    monkeypatch.setattr(webhook_service, "time", type("M", (), {"sleep": lambda *a, **kw: None})())
+
+    client.post(
+        "/api/v1/webhooks",
+        headers=admin_headers,
+        json={"url": "http://example.com/hook", "events": ["experiment.created"]},
+    )
+    client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=admin_headers,
+        json={"title": "不重试", "plan": {"content_md": "p"}},
+    )
+
+    wh_id = client.get("/api/v1/webhooks", headers=admin_headers).json()[0]["id"]
+    delivery = client.get(
+        f"/api/v1/webhooks/{wh_id}/deliveries", headers=admin_headers
+    ).json()[0]
+    assert delivery["success"] is False
+    assert delivery["attempts"] == 1
+    assert delivery["status_code"] == 400
+    assert delivery["last_error"] == "HTTP 400"
+
+
+def test_webhook_records_exception(client, admin_headers, project, monkeypatch):
+    """网络异常应重试至 max_attempts，最后 last_error 包含异常类型名。"""
+    class _ConnError(Exception):
+        pass
+
+    def fake_post(url, body, signature):
+        raise _ConnError("connection refused")
+
+    monkeypatch.setattr(webhook_service, "_http_post", fake_post)
+    monkeypatch.setattr(webhook_service, "time", type("M", (), {"sleep": lambda *a, **kw: None})())
+
+    client.post(
+        "/api/v1/webhooks",
+        headers=admin_headers,
+        json={"url": "http://example.com/hook", "events": ["experiment.created"]},
+    )
+    client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=admin_headers,
+        json={"title": "网络异常", "plan": {"content_md": "p"}},
+    )
+
+    wh_id = client.get("/api/v1/webhooks", headers=admin_headers).json()[0]["id"]
+    delivery = client.get(
+        f"/api/v1/webhooks/{wh_id}/deliveries", headers=admin_headers
+    ).json()[0]
+    assert delivery["success"] is False
+    assert delivery["attempts"] == webhook_service.DEFAULT_MAX_ATTEMPTS
+    assert delivery["status_code"] is None
+    assert "_ConnError" in delivery["last_error"]

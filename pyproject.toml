@@ -22,6 +22,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
     "httpx>=0.28.0",
     "mcp>=1.26.0",
     "ruff>=0.8.0",
@@ -81,3 +82,25 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["E402"]
+
+[tool.coverage.run]
+# 关注生产代码的覆盖率；测试脚本、迁移、SDK 生成代码不计入。
+source = ["server", "cli", "map_client", "map_mcp"]
+branch = true
+omit = [
+    # alembic migrations 是 DDL 声明，没有可测的分支
+    "alembic/*",
+    # SDK 类型由 pydantic 模型生成
+    "sdk/python/map_types/__init__.py",
+]
+
+[tool.coverage.report]
+# CI 上覆盖率低于此阈值则 fail，避免覆盖率无声下滑。
+fail_under = 60
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

@@ -775,6 +775,7 @@ class WebhookDeliveryRead(ORMModel):
     attempts: int
     success: bool
     last_attempt_at: datetime | None
+    last_error: str | None
     created_at: datetime
 
 
