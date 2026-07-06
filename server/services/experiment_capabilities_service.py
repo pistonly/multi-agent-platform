@@ -23,6 +23,7 @@ from server.services.review_service import (
     _review_has_item_activity,
     compute_legacy_self_review,
     count_open_unreasonable_for_experiment,
+    has_review_on_older_plan_version,
 )
 
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
@@ -115,7 +116,10 @@ def compute_experiment_capabilities(
                 if _count_open_status_unreasonable(db, experiment.id) > 0:
                     actions.append("plan_revise")
             elif not _has_non_creator_review(reviews, experiment.creator_agent_id):
-                blocked_on = "awaiting_non_creator_review"
+                if has_review_on_older_plan_version(db, experiment):
+                    blocked_on = "awaiting_review_for_current_plan_version"
+                else:
+                    blocked_on = "awaiting_non_creator_review"
             else:
                 blocked_on = "none"
                 actions = ["approve", "withdraw"]
