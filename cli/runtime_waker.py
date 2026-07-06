@@ -7,7 +7,14 @@
     逐项 fingerprint 与 ``inbound_event`` 审计路径。
 
     计划在后续版本（候选 v0.10）退役；新接入请使用 simple-waker，
-    不要为本模块新增功能。详见 docs/MAP-RUNTIME-WAKER.md。
+    不要为本模块新增功能。
+
+    v0.10 预清理：``ActionItemWakeDecision`` / ``should_wake_action_item``
+    / ``scan_pending_action_items`` 已迁至 :mod:`cli.action_item_escalation`；
+    ``PersonaAgentWakeBackend`` / ``sync_runtime_skills`` / ``WakeResult`` /
+    ``TODO_WAKE_BUCKETS`` / ``TODO_BUCKET_UI_LABELS`` 已迁至
+    :mod:`cli.wake_backend`。本模块通过 re-export 保持向后兼容，
+    既有 ``from cli.runtime_waker import ...`` 不需要修改。
 """
 
 from __future__ import annotations
@@ -16,175 +23,52 @@ import asyncio
 import json
 import os
 import re
-import shutil
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol
 
 import typer
 
-from cli.agent_client import PersonaAgentClient
+from cli.action_item_escalation import (
+    _WAKE_MAX_BEFORE_STALE,
+    _WAKE_REPEAT_DAYS,
+    _WAKE_STAGE_HOURS,
+    ActionItemWakeDecision,
+    scan_pending_action_items,
+    should_wake_action_item,
+)
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient
+from cli.wake_backend import (
+    TODO_BUCKET_UI_LABELS,
+    TODO_WAKE_BUCKETS,
+    PersonaAgentWakeBackend,
+    WakeResult,
+    sync_runtime_skills,
+)
 from cli.worker_cycle_log import log_cycle_summary
+
+# Re-export 帮助 IDE / 静态检查识别这些符号仍是本模块公开 API 的一部分。
+__all__ = [
+    "ActionItemWakeDecision",
+    "PersonaAgentWakeBackend",
+    "TODO_BUCKET_UI_LABELS",
+    "TODO_WAKE_BUCKETS",
+    "WakeResult",
+    "_WAKE_MAX_BEFORE_STALE",
+    "_WAKE_REPEAT_DAYS",
+    "_WAKE_STAGE_HOURS",
+    "scan_pending_action_items",
+    "should_wake_action_item",
+    "sync_runtime_skills",
+]
 
 APP = typer.Typer(add_completion=False)
 
-
-# ---------------------------------------------------------------------------
-# action_item escalation (experiment B, plan §3 / I4)
-# ---------------------------------------------------------------------------
-#
-# The waker drives the three-stage escalation timeline
-# ``T+24h → T+72h → 7d × N → stale`` against each open action_item whose
-# owner matches the current persona. ``should_wake_action_item`` is the
-# pure decision function — kept side-effect-free so unit tests can stamp
-# ``now`` directly without touching the DB. ``scan_pending_action_items``
-# is the thin caller-friendly wrapper used by ``_run_once_async``.
-#
-# All threshold numbers mirror ``server.services.action_item_service``
-# (``WAKE_STAGE_THRESHOLDS`` / ``WAKE_REPEAT_INTERVAL_DAYS`` /
-# ``WAKE_MAX_COUNT_BEFORE_STALE``). Keep these two definitions in sync —
-# the I3 unit test ``test_threshold_constants_match_plan_section_three``
-# is the canonical lint and we re-export the server-side constants here
-# for runtime use.
-# ---------------------------------------------------------------------------
-
-
-class ActionItemWakeDecision(str, Enum):
-    """Outcome of ``should_wake_action_item`` for one action_item at ``now``."""
-
-    WAKE = "wake"
-    STALE = "stale"
-    SKIP = "skip"
-
-
-# Mirrored from server.services.action_item_service. Importing would force
-# the waker CLI to depend on the server-side stack (SQLAlchemy models +
-# FastAPI deps), which violates the waker's no-FastAPI invariant. Kept
-# short and obvious so a reviewer can spot drift.
-_WAKE_STAGE_HOURS: tuple[tuple[int, int], ...] = (
-    (1, 24),   # wake_count_after_increment=1 → first wake at T+24h
-    (2, 72),   # wake_count_after_increment=2 → second wake at T+72h
-)
-_WAKE_REPEAT_DAYS = 7  # after the 72h wake, fire every 7d
-_WAKE_MAX_BEFORE_STALE = 4  # 4th unanswered wake → stale
-
-
-def _parse_iso_datetime(value: Any) -> datetime | None:
-    """Parse an ISO-8601 string into an aware UTC datetime.
-
-    Defensive about the variety of shapes the SDK / API may emit
-    (``...Z`` vs ``...+00:00`` vs naive ISO). Returns ``None`` if the value
-    is missing or unparseable — callers treat ``None`` as "skip".
-    """
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-
-
-def should_wake_action_item(
-    item: dict[str, Any],
-    *,
-    now: datetime | None = None,
-) -> ActionItemWakeDecision:
-    """Decide the escalation action for one open action_item at ``now``.
-
-    Pure function (no I/O, no clock). Returns ``WAKE`` when the waker
-    should bump ``wake_count`` and emit a wake event, ``STALE`` when the
-    4th wake has already fired and the assignee still hasn't responded
-    (we mark stale + stop waking), or ``SKIP`` when the escalation
-    timeline does not yet call for an action.
-
-    Rules (plan §3, mirrored from ``server.services.action_item_service``):
-
-    - Only open items are eligible; closed items (done / cancelled) and
-      unassigned items (no ``owner_agent_id``) are skipped.
-    - Stale items (``stale_at`` set) are skipped forever — once we've
-      written the diagnostic audit row we stop bothering the assignee.
-    - First wake fires 24h after ``first_open_at``; second at 72h; further
-      wakes every 7d; the (N+1)th check after the 4th wake writes stale.
-    - ``now`` defaults to ``datetime.now(UTC)`` — callers that need a
-      deterministic clock (tests, dogfood) inject their own.
-    """
-    if not isinstance(item, dict):
-        return ActionItemWakeDecision.SKIP
-    if item.get("status") != "open":
-        return ActionItemWakeDecision.SKIP
-    if not item.get("owner_agent_id"):
-        # plan §3 「仅 assignee」 — unassigned items must not be woken by
-        # anyone, the waker has no addressee.
-        return ActionItemWakeDecision.SKIP
-    if _parse_iso_datetime(item.get("stale_at")) is not None:
-        return ActionItemWakeDecision.SKIP
-
-    current = now or datetime.now(UTC)
-    first_open_at = _parse_iso_datetime(item.get("first_open_at"))
-    if first_open_at is None:
-        # Pre-I1 backfill may have missed this row (closed before I1, etc).
-        # Conservatively skip — re-running the backfill is the remediation.
-        return ActionItemWakeDecision.SKIP
-    last_woken_at = _parse_iso_datetime(item.get("last_woken_at"))
-    wake_count = int(item.get("wake_count") or 0)
-
-    elapsed = current - first_open_at
-
-    # Stage 1 & 2: hard thresholds keyed to first_open_at.
-    for target_count, min_hours in _WAKE_STAGE_HOURS:
-        if wake_count + 1 == target_count and elapsed >= timedelta(hours=min_hours):
-            return ActionItemWakeDecision.WAKE
-
-    # Stages 3+: every 7d after the last wake.
-    if 2 <= wake_count < _WAKE_MAX_BEFORE_STALE and last_woken_at is not None:
-        if current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS):
-            return ActionItemWakeDecision.WAKE
-
-    # Past the 4th unanswered wake: write stale.
-    if wake_count >= _WAKE_MAX_BEFORE_STALE and last_woken_at is not None:
-        if current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS):
-            return ActionItemWakeDecision.STALE
-
-    return ActionItemWakeDecision.SKIP
-
-
-def scan_pending_action_items(
-    action_items: list[dict[str, Any]],
-    *,
-    persona_agent_id: str | None,
-    now: datetime | None = None,
-) -> list[tuple[str, ActionItemWakeDecision]]:
-    """Filter the ``action_items`` todo payload through ``should_wake_action_item``.
-
-    Returns a list of ``(action_item_id, decision)`` pairs. Only items
-    owned by ``persona_agent_id`` are considered — the waker must never
-    wake another agent's action_item even if it shows up in the
-    cross-project listing. Items whose owner doesn't match are skipped
-    silently (not raised) — the per-persona todos feed already scopes
-    this but we re-check defensively against potential payload leakage.
-    """
-    decisions: list[tuple[str, ActionItemWakeDecision]] = []
-    for item in action_items or []:
-        if not isinstance(item, dict):
-            continue
-        item_id = str(item.get("id") or "")
-        if not item_id:
-            continue
-        if persona_agent_id and str(item.get("owner_agent_id") or "") != str(persona_agent_id):
-            continue
-        decisions.append((item_id, should_wake_action_item(item, now=now)))
-    return decisions
 
 # Codex wake: inject dispatcher + shared collab + persona skills (deduped, file order).
 WAKE_SKILL_CHAIN: dict[str, tuple[str, ...]] = {
@@ -411,11 +295,7 @@ class WakeEvent:
     payload: dict[str, Any] | None = None
 
 
-@dataclass
-class WakeResult:
-    session_id: str | None = None
-    response_text: str | None = None
-    skipped: bool = False
+# NOTE: ``WakeResult`` 已迁至 :mod:`cli.wake_backend`，本模块顶部 re-export。
 
 
 @dataclass
@@ -553,89 +433,7 @@ class WakeBackend(Protocol):
         ...
 
 
-class PersonaAgentWakeBackend:
-    """Long-lived Claude backend: one PersonaAgentClient per waker process."""
-
-    def __init__(
-        self,
-        *,
-        project_root: Path,
-        persona: str,
-        get_agent_state: Callable[[], dict[str, Any]],
-        save_state_fn: Callable[[], None],
-        model: str | None = None,
-        runtime_home: Path | None = None,
-        agent_client: PersonaAgentClient | None = None,
-    ) -> None:
-        self.project_root = project_root
-        self.persona = persona
-        self._get_agent_state = get_agent_state
-        self._save_state_fn = save_state_fn
-        self.model = model
-        self.runtime_home = runtime_home
-        self._agent_client = agent_client
-
-    async def connect(self) -> None:
-        if self._agent_client is None:
-            if self.runtime_home is not None:
-                sync_runtime_skills(project_root=self.project_root, runtime_home=self.runtime_home)
-            extra_env: dict[str, str] = {"MAP_RUNTIME_WAKER_PERSONA": self.persona}
-            if self.runtime_home is not None:
-                extra_env["HOME"] = str(self.runtime_home)
-            self._agent_client = PersonaAgentClient(
-                persona=self.persona,
-                state=self._get_agent_state(),
-                save_state_fn=self._save_state_fn,
-                project_root=self.project_root,
-                extra_env=extra_env,
-                model=self.model,
-                integration="waker",
-            )
-        await self._agent_client.connect()
-
-    async def wake_async(
-        self,
-        *,
-        prompt: str,
-        event_id: str | None = None,
-        event_source: str = "polling",
-        fingerprint: str | None = None,
-    ) -> WakeResult:
-        await self.connect()
-        assert self._agent_client is not None
-        status = await self._agent_client.wake_up(
-            prompt,
-            event_id=event_id,
-            event_source=event_source,
-            fingerprint=fingerprint,
-        )
-        state = self._get_agent_state()
-        session_id = state.get("claude_session_id")
-        if session_id:
-            state["runtime_session_id"] = session_id
-            self._save_state_fn()
-        if status == "error":
-            raise WorkerError(f"Claude wake failed with status={status!r}")
-        return WakeResult(session_id=session_id)
-
-    async def disconnect(self) -> None:
-        if self._agent_client is not None:
-            await self._agent_client.disconnect()
-
-    async def reset_session(self) -> None:
-        """Disconnect so the next wake reconnects without resuming the prior session."""
-        if self._agent_client is not None:
-            await self._agent_client.disconnect()
-
-    def wake(
-        self,
-        *,
-        persona: str,
-        prompt: str,
-        session_id: str | None,
-    ) -> WakeResult:
-        del persona, session_id
-        return asyncio.run(self.wake_async(prompt=prompt))
+# NOTE: ``PersonaAgentWakeBackend`` 已迁至 :mod:`cli.wake_backend`，本模块顶部 re-export。
 
 
 class CodexSdkWakeBackend:
@@ -1772,35 +1570,8 @@ def _round_robin_by_kind(events: list[WakeEvent], limit: int) -> list[WakeEvent]
     return selected
 
 
-# Todo buckets mirrored from web TodosPage section order (GET /agents/me/todos).
-TODO_WAKE_BUCKETS: tuple[str, ...] = (
-    "mentions",
-    "pending_topic_replies",
-    "action_items",
-    "pending_plan_revisions",
-    "pending_reviews",
-    "pending_result_reviews",
-    "pending_replies",
-    "pending_round_acks",
-    "pending_advance_rounds",
-    "my_open_experiments",
-    "my_open_topics",
-)
-
-TODO_BUCKET_UI_LABELS: dict[str, str] = {
-    "mentions": "你有未处理的 @提及",
-    "pending_topic_replies": "你有话题待回复",
-    "action_items": "你有待跟进行动项",
-    "pending_plan_revisions": "你有实验计划待修订",
-    "pending_reviews": "你有实验待评审",
-    "pending_result_reviews": "你有实验结果待审批",
-    "pending_replies": "你有评审待回复",
-    "pending_round_acks": "你有 Round Summary 待 ack",
-    "pending_advance_rounds": "你有话题待推进轮次（ack 已齐）",
-    "my_open_experiments": "你有进行中的实验需关注",
-    "my_open_topics": "你有进行中的话题需关注",
-    "notification": "你有未读通知",
-}
+# NOTE: ``TODO_WAKE_BUCKETS`` / ``TODO_BUCKET_UI_LABELS`` 已迁至
+# :mod:`cli.wake_backend`，本模块顶部 re-export。
 
 
 def _todo_item_title(bucket: str, item: dict[str, Any]) -> str | None:
@@ -2093,27 +1864,7 @@ def _wake_command_hints(
     return [f"→ `{command} todos`"]
 
 
-def sync_runtime_skills(*, project_root: Path, runtime_home: Path) -> None:
-    source_root = project_root / ".cursor" / "skills"
-    if not source_root.is_dir():
-        return
-    target_root = runtime_home / ".claude" / "skills"
-    target_root.mkdir(parents=True, exist_ok=True)
-    source_names: set[str] = set()
-    for source in sorted(source_root.iterdir()):
-        if not source.is_dir() or not (source / "SKILL.md").is_file():
-            continue
-        source_names.add(source.name)
-        target = target_root / source.name
-        if target.exists() or target.is_symlink():
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
-            else:
-                target.unlink()
-        shutil.copytree(source, target)
-    for existing in target_root.iterdir():
-        if existing.is_dir() and existing.name not in source_names:
-            shutil.rmtree(existing)
+# NOTE: ``sync_runtime_skills`` 已迁至 :mod:`cli.wake_backend`，本模块顶部 re-export。
 
 
 def _parse_datetime(value: str) -> datetime | None:

@@ -53,6 +53,37 @@ class FakeMapClient(MapCommandClient):
     def notifications_unread(self) -> list[dict[str, Any]]:
         return self._notifications
 
+    # v0.10：simple-waker remind 后写聚合 inbound_event + action_item escalation。
+    # 测试 stub 不实际调 CLI，返回 True（已记录）/ None 即可。
+    def inbound_event_record(
+        self,
+        *,
+        event_id: str,
+        fingerprint: str,
+        event_type: str,
+        source: str = "polling",
+    ) -> bool:
+        self._inbound_events = getattr(self, "_inbound_events", [])
+        self._inbound_events.append(
+            {
+                "event_id": event_id,
+                "fingerprint": fingerprint,
+                "event_type": event_type,
+                "source": source,
+            }
+        )
+        return True
+
+    def action_mark_wake_sent(self, action_item_id: str) -> dict[str, Any] | None:
+        self._wake_sent = getattr(self, "_wake_sent", [])
+        self._wake_sent.append(action_item_id)
+        return {"id": action_item_id, "ok": True}
+
+    def action_mark_stale(self, action_item_id: str) -> dict[str, Any] | None:
+        self._stale = getattr(self, "_stale", [])
+        self._stale.append(action_item_id)
+        return {"id": action_item_id, "ok": True}
+
 
 def test_summarize_pending_work_counts_buckets_and_notifications() -> None:
     todos = {

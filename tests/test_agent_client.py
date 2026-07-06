@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +115,7 @@ def _make_client(
     state: dict[str, Any],
     project_root: Path,
     messages: list[Any] | None = None,
+    wake_timeout: float | None = None,
 ) -> tuple[PersonaAgentClient, FakeClaudeClient]:
     fake = FakeClaudeClient(messages=messages)
     save_calls: list[int] = []
@@ -121,7 +123,7 @@ def _make_client(
     def save() -> None:
         save_calls.append(1)
 
-    agent = PersonaAgentClient(
+    agent_kwargs: dict[str, Any] = dict(
         persona="host",
         state=state,
         save_state_fn=save,
@@ -130,6 +132,9 @@ def _make_client(
         model="claude-test-model",
         _client_factory=lambda options: _capture_then_return(options, fake),
     )
+    if wake_timeout is not None:
+        agent_kwargs["wake_timeout"] = wake_timeout
+    agent = PersonaAgentClient(**agent_kwargs)
     return agent, fake
 
 
@@ -471,6 +476,144 @@ def test_wake_up_session_log_defaults_event_source_to_polling(tmp_path: Path) ->
     assert result_entry["event_source"] == "polling"
     assert result_entry["event_id"] is None
     assert result_entry["fingerprint"] is None
+
+
+# --- wake_timeout (P2 hang guard) -------------------------------------------
+
+
+class HangingReceive:
+    """Async iterator that blocks forever on each ``__anext__``.
+
+    Drives ``wake_timeout``: production ``wake_up`` wraps each ``__anext__`` in
+    ``asyncio.wait_for(..., timeout=wake_timeout)``, so an iterator that
+    genuinely blocks is the only way to exercise that path.
+    """
+
+    def __init__(self, hang_for: float = 60.0) -> None:
+        self._hang_for = hang_for
+
+    def __aiter__(self) -> "HangingReceive":
+        return self
+
+    async def __anext__(self) -> Any:
+        await asyncio.sleep(self._hang_for)
+        raise StopAsyncIteration  # unreachable when hang_for > wake_timeout
+
+
+class PartialThenHangingReceive:
+    """Async iterator that yields ``messages`` then blocks on the next call.
+
+    Models the realistic failure mode: SDK emits a few messages then the
+    agent process crashes mid-turn and stops emitting.
+    """
+
+    def __init__(self, messages: list[Any], hang_for: float = 60.0) -> None:
+        self._messages = list(messages)
+        self._hang_for = hang_for
+
+    def __aiter__(self) -> "PartialThenHangingReceive":
+        self._iter = iter(self._messages)
+        return self
+
+    async def __anext__(self) -> Any:
+        try:
+            return next(self._iter)
+        except StopIteration:
+            await asyncio.sleep(self._hang_for)
+            raise StopAsyncIteration  # unreachable when hang_for > wake_timeout
+
+
+def test_wake_up_aborts_with_no_response_when_receive_response_hangs(tmp_path: Path) -> None:
+    """When the SDK never emits a message, wake_timeout must fire and the
+    wake must end with status="no_response" rather than blocking the waker
+    forever.
+    """
+    state = {"topics": {}, "experiments": {}}
+    agent, fake = _make_client(
+        state=state,
+        project_root=tmp_path,
+        messages=None,
+        wake_timeout=0.1,
+    )
+    fake.receive_response = lambda: HangingReceive(hang_for=60.0)
+
+    import asyncio
+    import time
+
+    start = time.monotonic()
+    status = asyncio.run(agent.wake_up("stuck agent"))
+    elapsed = time.monotonic() - start
+
+    assert status == "no_response"
+    assert state["last_wakeup_status"] == "no_response"
+    # The 60s hang was not waited out — we returned shortly after wake_timeout.
+    assert elapsed < 5.0, f"wake_up did not respect wake_timeout (elapsed={elapsed:.2f}s)"
+    # query() was still called before the hang — only the receive side aborts.
+    assert fake.query_calls == ["stuck agent"]
+
+
+def test_wake_up_logs_timeout_event_when_receive_response_hangs(tmp_path: Path) -> None:
+    """A timed-out wake leaves a ``timeout`` event in the session jsonl with
+    the configured wake_timeout in the summary, so postmortem can distinguish
+    'agent stopped emitting' from 'agent returned cleanly with no message'.
+    """
+    state = {"topics": {}, "experiments": {}, "claude_session_id": "sid-hang"}
+    log_dir = tmp_path / "session-logs"
+    agent, fake = _make_client(
+        state=state,
+        project_root=tmp_path,
+        messages=None,
+        wake_timeout=0.1,
+    )
+    fake.receive_response = lambda: HangingReceive(hang_for=60.0)
+    agent.session_log_dir = log_dir
+
+    import asyncio
+    import json
+
+    asyncio.run(agent.wake_up("stuck"))
+
+    entries = [
+        json.loads(line)
+        for line in resolve_session_log_path(log_dir, "sid-hang", "host")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()
+    ]
+    events = [e.get("event") for e in entries if "event" in e]
+    assert events[0] == "wake"
+    assert "timeout" in events, f"expected timeout event, got {events}"
+    timeout_entry = next(e for e in entries if e.get("event") == "timeout")
+    assert "0.1" in timeout_entry["summary"]
+
+
+def test_wake_up_aborts_when_messages_stop_mid_stream(tmp_path: Path) -> None:
+    """Realistic failure mode: SDK emits some messages then goes silent
+    (agent process crashes mid-turn). wake_timeout must still fire and the
+    wake must end cleanly rather than block on the next ``__anext__``.
+    """
+    state = {"topics": {}, "experiments": {}}
+    partial = [FakeAssistantMessage(FakeTextBlock("started then went silent"))]
+    agent, fake = _make_client(
+        state=state,
+        project_root=tmp_path,
+        messages=None,
+        wake_timeout=0.1,
+    )
+    fake.receive_response = lambda: PartialThenHangingReceive(partial, hang_for=60.0)
+
+    import asyncio
+    import time
+
+    events: list[dict[str, Any]] = []
+    start = time.monotonic()
+    status = asyncio.run(agent.wake_up("dies mid-stream", on_event=events.append))
+    elapsed = time.monotonic() - start
+
+    assert status == "no_response"
+    # The text event landed before the hang; no result event after.
+    assert [e["type"] for e in events] == ["text"]
+    assert elapsed < 5.0, f"mid-stream hang was not aborted (elapsed={elapsed:.2f}s)"
 
 
 # --- disconnect --------------------------------------------------------------

@@ -23,6 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+pytestmark = pytest.mark.slow
+
 from cli.runtime_waker import (
     RuntimeWakerConfig,
     RuntimeWakerStats,

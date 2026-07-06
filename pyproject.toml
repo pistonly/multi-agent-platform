@@ -5,29 +5,32 @@ description = "Multi-Agent experiment collaboration platform"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
-    "sqlalchemy>=2.0.36",
-    "alembic>=1.14.0",
-    "pydantic>=2.10.0",
-    "pydantic-settings>=2.6.0",
-    "bcrypt>=4.2.0",
-    "python-multipart>=0.0.17",
-    "typer>=0.15.0",
-    "httpx>=0.28.0",
-    "pyyaml>=6.0",
+    # 0.x 库约束到下个 minor（0.x 阶段每个 minor 都可能 breaking），
+    # 1.x+ 库约束到下个 major（语义化版本）。
+    "fastapi>=0.115.0,<0.116",
+    "uvicorn[standard]>=0.32.0,<0.41",
+    "sqlalchemy>=2.0.36,<2.1",
+    "alembic>=1.14.0,<2.0",
+    "pydantic>=2.10.0,<2.12",
+    "pydantic-settings>=2.6.0,<2.9",
+    "bcrypt>=4.2.0,<6.0",
+    "python-multipart>=0.0.17,<0.1",
+    "typer>=0.15.0,<0.17",
+    "httpx>=0.28.0,<0.29",
+    "pyyaml>=6.0,<7.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "httpx>=0.28.0",
-    "mcp>=1.26.0",
-    "ruff>=0.8.0",
+    "pytest>=8.3.0,<9.0",
+    "pytest-asyncio>=0.24.0,<1.0",
+    "pytest-cov>=5.0.0,<7.0",
+    "httpx>=0.28.0,<0.29",
+    "mcp>=1.26.0,<2.0",
+    "ruff>=0.8.0,<1.0",
 ]
 mcp = [
-    "mcp>=1.26.0",
+    "mcp>=1.26.0,<2.0",
 ]
 codex-runtime = [
     "openai-codex",
@@ -55,6 +58,20 @@ include = ["server*", "cli*", "map_client*", "map_mcp*", "map_types*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# 测试分层（详见 tests/README.md）：
+# - unit：默认，纯 in-memory sqlite + TestClient + mock，秒级
+# - slow：单测耗时 >1s，含多线程 / SSE / file-backed sqlite / phase1 acceptance
+# - integration：多进程 / 真 httpx / 真 systemd / 压力测试，分钟级
+# - claude_cli：真调用 `claude --print` 子进程（需登录），integration 子集
+# 默认 addopts 排除 slow/integration/claude_cli，本地 PR 用 `pytest` 即可；
+# `pytest -m integration` 跑集成；`pytest -m claude_cli` 跑真 CLI；
+# `pytest --marker-all` 或 `pytest -m ""` 跑全量。
+addopts = "-m 'not slow and not integration and not claude_cli'"
+markers = [
+    "slow: 单测耗时 >1s 或使用多线程/SSE/file-backed sqlite（本地默认 skip）",
+    "integration: 多进程/真 httpx/真 systemd/压力测试，应在 CI nightly 跑",
+    "claude_cli: 真调用 `claude --print` 子进程，需 claude CLI 登录态；integration 子集",
+]
 
 [tool.ruff]
 line-length = 120
@@ -64,3 +81,28 @@ extend-exclude = ["reference", "tmp"]
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402"]
+
+[tool.coverage.run]
+# 关注生产代码的覆盖率；测试脚本、迁移、SDK 生成代码不计入。
+source = ["server", "cli", "map_client", "map_mcp"]
+branch = true
+omit = [
+    # alembic migrations 是 DDL 声明，没有可测的分支
+    "alembic/*",
+    # SDK 类型由 pydantic 模型生成
+    "sdk/python/map_types/__init__.py",
+]
+
+[tool.coverage.report]
+# CI 上覆盖率低于此阈值则 fail，避免覆盖率无声下滑。
+fail_under = 60
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

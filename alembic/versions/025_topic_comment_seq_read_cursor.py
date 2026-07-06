@@ -59,7 +59,13 @@ def upgrade() -> None:
                 )
                 """
             )
-        op.alter_column("topic_comments", "comment_seq", nullable=False)
+        # sqlite 不支持 ``ALTER COLUMN ... SET NOT NULL``，用 batch mode
+        # 重建表（alembic 标准 sqlite DDL 处理方式）。PG 直接 alter_column。
+        if bind.dialect.name == "sqlite":
+            with op.batch_alter_table("topic_comments") as batch_op:
+                batch_op.alter_column("comment_seq", nullable=False)
+        else:
+            op.alter_column("topic_comments", "comment_seq", nullable=False)
 
     if "topic_read_cursors" not in tables:
         op.create_table(

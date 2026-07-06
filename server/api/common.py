@@ -1,12 +1,10 @@
 import uuid
 
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import get_background_tasks
 from server.domain.models import Agent
 from server.services import audit_service, notification_service, webhook_service
-from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError, UnauthorizedError
 
 
 def emit(

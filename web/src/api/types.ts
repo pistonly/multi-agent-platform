@@ -34,6 +34,7 @@ export interface Project {
 
 export type ExperimentBlockedOn =
   | "awaiting_non_creator_review"
+  | "awaiting_review_for_current_plan_version"
   | "awaiting_result_approval"
   | "open_unreasonable_item"
   | "awaiting_addressed_item_ack"

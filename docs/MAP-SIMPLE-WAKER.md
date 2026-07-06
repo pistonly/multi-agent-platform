@@ -1,19 +1,23 @@
 # MAP Simple Waker
 
-`map-simple-waker` is a thin alternative to `map-runtime-waker`. It polls
+`map-simple-waker` is the default MAP waker. It polls
 `GET /agents/me/work` (unified snapshot: whoami + topic-progress + todos +
 wakeable notifications) on a fixed cadence and sends one unified remind prompt
-to a long-lived Agent Runtime session when work exists.
+to a long-lived Agent Runtime session when work exists. After each successful
+remind it writes an aggregated `inbound_event` audit row and advances the
+`action_item` escalation timeline (WAKE → `mark-wake-sent`, STALE → `mark-stale`).
 
 ## Design
 
-| | `runtime-waker` | `simple-waker` |
-| --- | --- | --- |
-| Trigger | SSE + per-item fingerprints | Poll `GET /agents/me/work` (topic-progress + todos + wakeable notifications) |
-| Prompt | Per-item wake hint + kind routing | Single remind with **work_items kinds + unread excerpts** |
-| Session | Context reset per MAP object | One session per persona |
-| Agent rule | One item per wake | Batch until `map work`（或 topic progress + todos）clear or blocked |
-| State file | `.map/runtime-waker-state-*.json` | `.map/simple-waker-state-*.json` |
+| Property | Value |
+| --- | --- |
+| Trigger | Poll `GET /agents/me/work` (topic-progress + todos + wakeable notifications) |
+| Prompt | Single remind with **work_items kinds + unread excerpts** |
+| Session | One session per persona |
+| Agent rule | Batch until `map work`（或 topic progress + todos）clear or blocked |
+| State file | `.map/simple-waker-state-*.json` |
+| Audit | Aggregated `inbound_event` per remind (fingerprint=`simple-remind:{persona}:{ts}`) |
+| action_item escalation | Scans `todos.action_items` before remind: WAKE → `action mark-wake-sent`, STALE → `action mark-stale`, SKIP → skip |
 
 The waker does **not** write MAP, run experiments, or make business decisions.
 The resumed agent reads Skills and uses `map --persona <name>` CLI.
@@ -86,9 +90,18 @@ On remind, the agent should:
 5. Finish when `map work`（或 topic progress + todos）is empty or every item has a documented blocker
 6. Never skip work based on session memory
 
-## When to use which waker
+## Legacy runtime-waker (deprecated)
 
-- **simple-waker** (default via `./scripts/start-all-wakers.sh`): local dogfood, topic work items driven participation, agent-driven batching
-- **runtime-waker** (legacy): `MAP_USE_LEGACY_WAKER=1 ./scripts/start-all-wakers.sh` or `./scripts/start-all-wakers-legacy.sh` — SSE latency, per-item `inbound_event` audit, action_item escalation hooks
+`cli/runtime_waker.py` 保留作为 re-export 兼容层，原 SSE + 逐项 fingerprint +
+`inbound_event` 审计的启动路径已退役：
 
-Both can coexist during migration; use separate state files per persona.
+- `scripts/start-runtime-waker-claude.sh`、`scripts/start-all-wakers-legacy.sh` 已删除
+- `MAP_USE_LEGACY_WAKER=1` 不再生效（`start-all-wakers.sh` / `start-runtime-waker.sh`
+  现直接调用 simple-waker）
+- `docs/MAP-RUNTIME-WAKER.md` 已删除
+- 原 `ActionItemWakeDecision` / `should_wake_action_item` /
+  `scan_pending_action_items` 已迁至 `cli/action_item_escalation.py`
+- 原 `PersonaAgentWakeBackend` / `sync_runtime_skills` / `TODO_WAKE_BUCKETS` /
+  `TODO_BUCKET_UI_LABELS` 已迁至 `cli/wake_backend.py`
+- 既有 `from cli.runtime_waker import ...` 仍可用（re-export），新代码请直接
+  导入新模块

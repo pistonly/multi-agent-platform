@@ -43,6 +43,8 @@ from typing import Any
 import httpx
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from cli.runtime_waker import (
     MapCommandClient,
     PersonaAgentWakeBackend,

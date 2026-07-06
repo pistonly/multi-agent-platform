@@ -1,3 +1,10 @@
+import uuid
+
+from sqlalchemy import select
+
+from server.domain.models import TopicComment
+
+
 def _create_topic(client, headers, project, **overrides):
     payload = {"title": "讨论：换不换方案", "description": "要不要切到新 pipeline"}
     payload.update(overrides)
@@ -139,6 +146,38 @@ def test_topic_comments_tree(client, auth_headers, project):
 
     detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
     assert detail.json()["comment_count"] == 2
+
+
+def test_topic_detail_backfills_legacy_null_comment_seq(client, auth_headers, project, db_session):
+    topic = _create_topic(client, auth_headers, project)
+    first = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "legacy top-level"},
+    )
+    assert first.status_code == 201
+    second = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "legacy reply", "parent_id": first.json()["id"]},
+    )
+    assert second.status_code == 201
+
+    rows = list(
+        db_session.scalars(
+            select(TopicComment)
+            .where(TopicComment.topic_id == uuid.UUID(topic["id"]))
+            .order_by(TopicComment.created_at.asc(), TopicComment.id.asc())
+        )
+    )
+    rows[0].comment_seq = None
+    rows[1].comment_seq = None
+
+    detail = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+    assert detail.status_code == 200, detail.text
+    root = detail.json()["comments"][0]
+    seqs = [root["comment_seq"], root["children"][0]["comment_seq"]]
+    assert sorted(seqs) == [1, 2]
 
 
 def test_topic_resolve_records_decision_and_action_items(client, auth_headers, reviewer, project):
@@ -755,4 +794,3 @@ def test_archived_topic_advance_rejected(client, auth_headers, project):
     resp = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
     assert resp.status_code == 409
     assert resp.json()["reason"] == "archived_topic"
-

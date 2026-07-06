@@ -89,7 +89,7 @@ def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
     assert experiments[0]["id"] == experiment["id"]
 
 
-def test_cli_complete_submits_result_review(runner, patched_cli, project, tmp_path: Path):
+def test_cli_complete_submits_result_review(runner, patched_cli, project, reviewer, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
     plan_file.write_text("## CLI plan", encoding="utf-8")
     result = runner.invoke(
@@ -108,13 +108,16 @@ def test_cli_complete_submits_result_review(runner, patched_cli, project, tmp_pa
     experiment = yaml.safe_load(result.output)
     exp_id = experiment["id"]
 
-    client = cli_main.MAPClient.from_env(transport=cli_main._transport)
+    creator_client = cli_main.MAPClient.from_env(transport=cli_main._transport)
+    reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
+    reviewer_client = cli_main.MAPClient("http://test", reviewer_token, transport=cli_main._transport)
     try:
-        client.create_review(exp_id, cli_main.ReviewCreate(reasonable_items=["OK"]))
-        client.approve_experiment(exp_id)
-        client.start_experiment(exp_id)
+        reviewer_client.create_review(exp_id, cli_main.ReviewCreate(reasonable_items=["OK"]))
+        creator_client.approve_experiment(exp_id)
+        creator_client.start_experiment(exp_id)
     finally:
-        client.close()
+        creator_client.close()
+        reviewer_client.close()
 
     log_file = tmp_path / "result.md"
     log_file.write_text("结果内容", encoding="utf-8")

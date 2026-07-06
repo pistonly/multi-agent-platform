@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-import ast
+import pytest
+
+pytestmark = pytest.mark.slow
+
 import importlib.util
 import textwrap
 from pathlib import Path

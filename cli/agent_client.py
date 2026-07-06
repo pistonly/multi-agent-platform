@@ -8,6 +8,7 @@ persisted in local state so the next restart resumes the same Claude session
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -85,6 +86,7 @@ class PersonaAgentClient:
         integration: IntegrationMode = "bridge",
         session_log_dir: Path | None = None,
         _client_factory: Callable[[Any], PersonaAgentLike] | None = None,
+        wake_timeout: float = 1800.0,
     ) -> None:
         self.persona = persona
         self.state = state
@@ -95,6 +97,11 @@ class PersonaAgentClient:
         self.allowed_tools = list(allowed_tools or DEFAULT_ALLOWED_TOOLS)
         self.integration = integration
         self.session_log_dir = session_log_dir
+        # 单次 wake 内，两条 agent 消息之间的最大间隔（秒）。超过则判定 Agent
+        # Runtime 卡死并中断，避免 bridge / waker 永久阻塞在 receive_response()
+        # 上。合法长任务期间 Agent 会持续流式发消息，不会触发；真正挂起（网络
+        # 掉线、SDK 无响应）才会被超时打断。
+        self.wake_timeout = wake_timeout
         self._client_factory = _client_factory
         self._client: PersonaAgentLike | None = None
         self._connected = False
@@ -157,7 +164,28 @@ class PersonaAgentClient:
         await self._client.query(prompt)
         result: ResultMessage | None = None
         response_parts: list[str] = []
-        async for msg in self._client.receive_response():
+        _response_iter = self._client.receive_response().__aiter__()
+        while True:
+            # 单步超时：两条 agent 消息之间最多等 wake_timeout 秒。Agent 流式
+            # 响应期间持续有消息；只有真正卡死（无任何消息）才超时中断，
+            # 防止 bridge / waker 永久阻塞在 receive_response() 上。
+            try:
+                msg = await asyncio.wait_for(
+                    _response_iter.__anext__(), timeout=self.wake_timeout
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                self._log_event(
+                    log_path,
+                    event="timeout",
+                    summary=f"no agent message for {self.wake_timeout}s; aborting wake",
+                    event_id=event_id,
+                    event_source=event_source,
+                    fingerprint=fingerprint,
+                )
+                result = None
+                break
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):

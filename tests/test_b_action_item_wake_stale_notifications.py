@@ -22,6 +22,10 @@ by ``test_b_action_item_wake_endpoints.py``.
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.slow
+
 import uuid
 
 from sqlalchemy import select

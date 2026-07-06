@@ -51,6 +51,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = [pytest.mark.integration, pytest.mark.claude_cli]
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
@@ -70,7 +72,7 @@ PROMPT_LABEL = "[a1b-ping]"
     shutil.which(CLAUDE_BIN) is None,
     reason=f"claude CLI not on PATH (looked for {CLAUDE_BIN!r})",
 )
-def test_real_claude_cli_subprocess_startup() -> None:
+def test_real_claude_cli_subprocess_startup(claude_cli_env: dict[str, str]) -> None:
     """Cold-start wall clock for ``claude --print``.
 
     A1b's lower bound: spawning Claude CLI + a trivial turn. The waker
@@ -100,6 +102,7 @@ def test_real_claude_cli_subprocess_startup() -> None:
             timeout=60,
             check=False,
             cwd=str(PROJECT_ROOT),
+            env=claude_cli_env,
         )
         t1 = time.perf_counter()
         delta_ms = (t1 - t0) * 1000.0
@@ -303,7 +306,7 @@ async def test_wake_async_path_overhead_with_stub_backend(
 
 
 @pytest.mark.asyncio
-async def test_a1b_baseline_emitted(tmp_path: Path) -> None:
+async def test_a1b_baseline_emitted(tmp_path: Path, claude_cli_env: dict[str, str]) -> None:
     """Write A1b baseline to tmp_path for I6 consolidation.
 
     Re-uses the stub backend test (which doesn't need Claude CLI) to
@@ -334,6 +337,7 @@ async def test_a1b_baseline_emitted(tmp_path: Path) -> None:
             timeout=60,
             check=False,
             cwd=str(PROJECT_ROOT),
+            env=claude_cli_env,
         )
         t1 = time.perf_counter()
         summary["real_claude_cold_ms"] = (t1 - t0) * 1000.0

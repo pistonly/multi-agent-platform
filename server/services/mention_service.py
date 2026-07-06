@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -248,7 +248,7 @@ def _apply_mention_dismiss_cascade(
 
     if not mentions:
         return 0
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     touched: list[Mention] = []
     for mention in mentions:
         if mention.dismissed_at is not None:

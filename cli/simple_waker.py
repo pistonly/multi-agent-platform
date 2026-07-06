@@ -8,20 +8,25 @@ Waker logic stays minimal: the platform serves ``GET /agents/me/work``
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import typer
 
+from cli.action_item_escalation import (
+    ActionItemWakeDecision,
+    scan_pending_action_items,
+)
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient
-from cli.runtime_waker import (
-    PersonaAgentWakeBackend,
+from cli.wake_backend import (
     TODO_BUCKET_UI_LABELS,
     TODO_WAKE_BUCKETS,
+    PersonaAgentWakeBackend,
     sync_runtime_skills,
 )
 from cli.worker_cycle_log import log_cycle_summary
@@ -101,6 +106,22 @@ class SimpleWakerStats:
     remind_skips_cooldown: int = 0
     remind_errors: int = 0
     dry_run_actions: int = 0
+    # v0.10：每次 remind 后写一条聚合 inbound_event（fingerprint=
+    # ``simple-remind:{persona}:{cycle_ts}``）作为可观测性审计。
+    # ``duplicate`` = 服务端 409（同一 cycle 已写过，理论上不会发生）；
+    # ``skipped`` = client 没有 inbound_event_record 方法（测试 mock）。
+    inbound_events_recorded: int = 0
+    inbound_events_duplicate: int = 0
+    inbound_events_skipped: int = 0
+    # v0.10：action_item escalation（移植自 legacy runtime-waker）。
+    # simple-waker 在 remind 前扫描 open + owner=persona 的 action_items：
+    # - STALE → 调 ``action mark-stale`` 标记过期（waker 职责，非 Agent）
+    # - WAKE → 调 ``action mark-wake-sent`` 推进 wake_count，再 remind
+    # - SKIP → 跳过
+    action_items_wake: int = 0
+    action_items_stale: int = 0
+    action_items_skip: int = 0
+    action_items_errors: int = 0
 
     def add(self, other: SimpleWakerStats) -> None:
         self.cycles += other.cycles
@@ -111,6 +132,13 @@ class SimpleWakerStats:
         self.remind_skips_cooldown += other.remind_skips_cooldown
         self.remind_errors += other.remind_errors
         self.dry_run_actions += other.dry_run_actions
+        self.inbound_events_recorded += other.inbound_events_recorded
+        self.inbound_events_duplicate += other.inbound_events_duplicate
+        self.inbound_events_skipped += other.inbound_events_skipped
+        self.action_items_wake += other.action_items_wake
+        self.action_items_stale += other.action_items_stale
+        self.action_items_skip += other.action_items_skip
+        self.action_items_errors += other.action_items_errors
 
 
 def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntry, ...]:
@@ -367,6 +395,13 @@ class SimpleWaker:
                         "remind_skips_cooldown",
                         "remind_errors",
                         "dry_run_actions",
+                        "inbound_events_recorded",
+                        "inbound_events_duplicate",
+                        "inbound_events_skipped",
+                        "action_items_wake",
+                        "action_items_stale",
+                        "action_items_skip",
+                        "action_items_errors",
                     ],
                 )
                 if self.config.once:
@@ -434,6 +469,11 @@ class SimpleWaker:
             self._save_state_if_needed()
             return stats, next_sleep_seconds(context, self.config)
 
+        # v0.10：action_item escalation（移植自 legacy runtime-waker）。
+        # 在 remind 前扫描 open + owner=persona 的 action_items，推进
+        # wake_count（WAKE）或标记过期（STALE）。失败不阻塞 remind。
+        self._apply_action_item_escalation(stats, todos=todos, now=now)
+
         self._inflight = True
         try:
             await self.backend.wake_async(prompt=prompt, event_source="simple-waker")
@@ -442,6 +482,10 @@ class SimpleWaker:
             persona_state["last_remind_topic_count"] = context.topic_update_count
             self._state_dirty = True
             stats.reminds_sent = 1
+            # v0.10：写一条聚合 inbound_event 作为可观测性审计。
+            # fingerprint 含 cycle 时间戳，确保每个 remind cycle 唯一；
+            # 同一 cycle 内 min_remind_seconds 已防重，409 仅作并发兜底。
+            self._record_remind_inbound_event(stats, now=now, work_count=context.total_items)
         except WorkerError as exc:
             stats.remind_errors = 1
             persona_state["last_remind_error"] = str(exc)
@@ -452,6 +496,101 @@ class SimpleWaker:
             self._inflight = False
             self._save_state_if_needed(force=True)
         return stats, next_sleep_seconds(context, self.config)
+
+    def _record_remind_inbound_event(
+        self,
+        stats: SimpleWakerStats,
+        *,
+        now: datetime,
+        work_count: int,
+    ) -> None:
+        """写一条聚合 inbound_event 审计行（fingerprint=simple-remind:{persona}:{ts}）。
+
+        服务端 ``POST /agents/me/inbound-events`` 的 ``UNIQUE(fingerprint)``
+        约束保证同一 cycle 不会被并发进程重复记录。失败不阻塞主流程。
+        """
+        record_fn = getattr(self.client, "inbound_event_record", None)
+        if record_fn is None:
+            # 测试 mock 可能不实现此方法；统计但不上报。
+            stats.inbound_events_skipped = 1
+            return
+        fingerprint = f"simple-remind:{self.config.persona}:{now.strftime('%Y%m%dT%H%M%S%fZ')}"
+        event_id = str(uuid.uuid4())
+        try:
+            recorded = record_fn(
+                event_id=event_id,
+                fingerprint=fingerprint,
+                event_type="simple-waker.remind",
+                source="simple-waker",
+            )
+            if recorded:
+                stats.inbound_events_recorded = 1
+            else:
+                stats.inbound_events_duplicate = 1
+        except WorkerError as exc:
+            # 审计写入失败不影响主流程；记录到 state 供运维排查。
+            typer.echo(f"[simple-waker:inbound_event] {exc}", err=True)
+            stats.inbound_events_skipped = 1
+            persona_state = self._persona_state(self.config.persona)
+            persona_state["last_inbound_event_error"] = str(exc)
+            persona_state["last_inbound_event_error_at"] = now.isoformat()
+            self._state_dirty = True
+
+    def _apply_action_item_escalation(
+        self,
+        stats: SimpleWakerStats,
+        *,
+        todos: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        """推进 action_item 升级时间线（WAKE → mark-wake-sent，STALE → mark-stale）。
+
+        simple-waker 是批量 remind，不像 legacy runtime-waker 逐项 fingerprint
+        wake。但 action_item 的 ``wake_count`` 仍需在 remind 时推进，否则
+        永远停在第一阶段。STALE 项标记后从下次 remind 候选里消失（服务端
+        ``action_items`` todo 只返回 ``stale_at IS NULL`` 的项）。
+        """
+        items = todos.get("action_items") if isinstance(todos, dict) else None
+        if not isinstance(items, list) or not items:
+            return
+        # 取 persona agent_id 用于 owner 过滤。whoami 已在 _ensure_identity 调过，
+        # 这里复用 client 缓存。测试 mock 可能不实现 whoami，跳过即可。
+        me = getattr(self.client, "whoami", lambda: {})() or {}
+        persona_agent_id = str(me.get("id") or "") or None
+        decisions = scan_pending_action_items(
+            items,
+            persona_agent_id=persona_agent_id,
+            now=now,
+        )
+        if not decisions:
+            return
+        mark_wake_fn = getattr(self.client, "action_mark_wake_sent", None)
+        mark_stale_fn = getattr(self.client, "action_mark_stale", None)
+        for item_id, decision in decisions:
+            if decision == ActionItemWakeDecision.SKIP:
+                stats.action_items_skip += 1
+                continue
+            if decision == ActionItemWakeDecision.STALE:
+                if self.config.dry_run or mark_stale_fn is None:
+                    stats.action_items_stale += 1
+                    continue
+                try:
+                    mark_stale_fn(item_id)
+                    stats.action_items_stale += 1
+                except WorkerError as exc:
+                    typer.echo(f"[simple-waker:mark-stale] {exc}", err=True)
+                    stats.action_items_errors += 1
+                continue
+            # WAKE
+            if self.config.dry_run or mark_wake_fn is None:
+                stats.action_items_wake += 1
+                continue
+            try:
+                mark_wake_fn(item_id)
+                stats.action_items_wake += 1
+            except WorkerError as exc:
+                typer.echo(f"[simple-waker:mark-wake-sent] {exc}", err=True)
+                stats.action_items_errors += 1
 
     def _ensure_identity(self) -> None:
         me = self.client.whoami()
@@ -470,7 +609,6 @@ class SimpleWaker:
     def _save_state_if_needed(self, *, force: bool = False) -> None:
         if not force and not self._state_dirty:
             return
-        from cli.bridge_state import save_bridge_state
 
         save_bridge_state(self.config.state_file, self.state)
         self._state_dirty = False

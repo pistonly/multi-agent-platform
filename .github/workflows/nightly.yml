@@ -1,0 +1,72 @@
+name: Nightly
+
+# 跑全量测试套件（slow + integration + alembic 全链路 + 覆盖率），
+# 默认 PR/push 触发的 CI 只跑 unit 子集（快反馈），nightly 兜底跑慢路径。
+# claude_cli marker 仍排除（需要登录态，无法在 CI 跑）。
+
+on:
+  schedule:
+    # 每天 UTC 02:30（北京时间 10:30）跑一次
+    - cron: "30 2 * * *"
+  workflow_dispatch: # 允许手动触发，便于发版前 / hotfix 后手动跑全量
+
+jobs:
+  full-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev,mcp]"
+
+      - name: Ruff
+        run: ruff check server cli sdk tests
+
+      - name: Alembic migrations (full upgrade path)
+        run: |
+          tmpdb="$(mktemp /tmp/map-nightly-XXXXXX.db)"
+          MAP_DATABASE_URL="sqlite:///$tmpdb" alembic upgrade head
+          # 顺便验证降级路径可逆（最后一个 migration 至少能回退一格）
+          MAP_DATABASE_URL="sqlite:///$tmpdb" alembic downgrade -1
+          rm -f "$tmpdb"
+
+      - name: Pytest full suite (slow + integration, no claude_cli)
+        # -m "" 表示不应用 marker 过滤（跑全部）；
+        # 再用 --deselect 之类排除 claude_cli 不通用，故用 -m "not claude_cli"
+        # 让 marker 显式排除。slow / integration 这两个 marker 在 nightly 必须跑。
+        run: pytest -m "not claude_cli" --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build

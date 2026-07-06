@@ -424,7 +424,7 @@ def test_no_write_on_repeated_todos(client, auth_headers, reviewer, project, db_
     """Repeated GET /todos must not UPDATE mentions (T1 A/E)."""
     import uuid
 
-    from sqlalchemy import select, update
+    from sqlalchemy import select
 
     from server.domain.models import Mention
 

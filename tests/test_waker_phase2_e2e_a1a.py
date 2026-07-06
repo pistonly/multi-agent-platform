@@ -32,6 +32,8 @@ from typing import AsyncIterator
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.integration
 import yaml
 
 
