@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,44 +38,68 @@ class MapCommandClient:
             args.extend(["--project-root", str(self.project_root)])
         return args
 
-    def _run(self, args: list[str], *, parse_yaml: bool = True) -> Any:
+    def _run(self, args: list[str], *, parse_yaml: bool = True, retryable: bool = False) -> Any:
         cmd = self._base_args() + args
         if self.dry_run and _is_write_command(args):
             typer.echo("[dry-run] " + " ".join(cmd))
             return None
-        try:
-            result = subprocess.run(
-                cmd,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-                timeout=self.cmd_timeout,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise WorkerError(
-                f"Command timed out after {self.cmd_timeout}s: {' '.join(cmd)}"
-            ) from exc
-        if result.returncode != 0:
+        attempts = _RETRY_ATTEMPTS if retryable else 1
+        result: subprocess.CompletedProcess[str] | None = None
+        for attempt in range(attempts):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=self.cmd_timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                if retryable and attempt < attempts - 1:
+                    self._retry_backoff(attempt, cmd, reason="timeout")
+                    continue
+                raise WorkerError(
+                    f"Command timed out after {self.cmd_timeout}s: {' '.join(cmd)}"
+                ) from exc
+            if result.returncode == 0:
+                break
             detail = result.stderr.strip() or result.stdout.strip()
-            raise WorkerError(f"Command failed ({result.returncode}): {' '.join(cmd)}\n{detail}")
+            # 仅对幂等读命令、且失败特征为瞬时（API 5xx / 网络抖动 / 超时）时退避重试；
+            # 401/403/404 等确定性错误或写命令失败立即抛出，避免无谓重试。
+            if retryable and attempt < attempts - 1 and _is_transient_failure(detail):
+                self._retry_backoff(attempt, cmd, reason=detail)
+                continue
+            raise WorkerError(
+                f"Command failed ({result.returncode}): {' '.join(cmd)}\n{detail}"
+            )
+        assert result is not None  # 循环只在 returncode == 0 时 break
         if not parse_yaml:
             return result.stdout
         if not result.stdout.strip():
             return None
         return yaml.safe_load(result.stdout)
 
+    def _retry_backoff(self, attempt: int, cmd: list[str], *, reason: str) -> None:
+        delay = _RETRY_BACKOFF_BASE * (2**attempt)
+        typer.echo(
+            f"[map-client] transient failure (attempt {attempt + 1}/{_RETRY_ATTEMPTS}), "
+            f"retrying in {delay:.0f}s: {' '.join(cmd)} :: {reason[:200]}",
+            err=True,
+        )
+        time.sleep(delay)
+
     def whoami(self) -> dict[str, Any]:
-        return self._run(["persona", "whoami"])
+        return self._run(["persona", "whoami"], retryable=True)
 
     def todos(self) -> dict[str, Any]:
-        return self._run(["todos"])
+        return self._run(["todos"], retryable=True)
 
     def work(self) -> dict[str, Any]:
-        return self._run(["work"])
+        return self._run(["work"], retryable=True)
 
     def topic_progress(self) -> dict[str, Any]:
-        return self._run(["topic", "progress"])
+        return self._run(["topic", "progress"], retryable=True)
 
     def notifications_unread(
         self,
@@ -85,7 +110,7 @@ class MapCommandClient:
         args = ["notification", "list", "--unread-only", "--limit", str(limit)]
         if category is not None:
             args.extend(["--category", category])
-        data = self._run(args)
+        data = self._run(args, retryable=True)
         if not isinstance(data, dict):
             return []
         items = data.get("items")
@@ -98,10 +123,10 @@ class MapCommandClient:
         return self._run(["mention", "dismiss-all"])
 
     def topic_show(self, topic_id: str) -> dict[str, Any]:
-        return self._run(["topic", "show", "--id", topic_id])
+        return self._run(["topic", "show", "--id", topic_id], retryable=True)
 
     def topic_list_open(self) -> list[dict[str, Any]]:
-        rows = self._run(["topic", "list", "--status", "open"])
+        rows = self._run(["topic", "list", "--status", "open"], retryable=True)
         return list(rows or []) if isinstance(rows, list) else []
 
     def topic_comment(self, topic_id: str, body: str, parent_id: str | None = None) -> dict[str, Any] | None:
@@ -172,13 +197,13 @@ class MapCommandClient:
         return self._run(args)
 
     def experiment_status(self, experiment_id: str) -> dict[str, Any]:
-        return self._run(["experiment", "status", "--id", experiment_id])
+        return self._run(["experiment", "status", "--id", experiment_id], retryable=True)
 
     def experiment_submit_review(self, experiment_id: str) -> dict[str, Any] | None:
         return self._run(["experiment", "submit-review", "--id", experiment_id])
 
     def experiment_reviews_list(self, experiment_id: str) -> list[dict[str, Any]]:
-        data = self._run(["experiment", "review", "list", "--id", experiment_id])
+        data = self._run(["experiment", "review", "list", "--id", experiment_id], retryable=True)
         return list(data or [])
 
     def plan_revise(
@@ -404,3 +429,21 @@ def _is_write_command(args: list[str]) -> bool:
     if len(args) >= 3 and tuple(args[:3]) in _WRITE_COMMANDS_3:
         return True
     return tuple(args[:2]) in _WRITE_COMMANDS_2
+
+
+# 瞬时失败特征：stderr/stdout 含这些子串时视为可重试（API 5xx / 网络抖动 / 超时）。
+# 401/403/404 等确定性错误不在其中——对幂等读命令重试它们只是浪费几次快速失败。
+_TRANSIENT_FAILURE_MARKERS: tuple[str, ...] = (
+    "5xx", "500", "502", "503", "504",
+    "timeout", "timed out",
+    "connection", "connect", "reset", "refused", "unreachable",
+    "temporarily", "retry", "overloaded",
+)
+
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_BASE = 2.0
+
+
+def _is_transient_failure(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(marker in lowered for marker in _TRANSIENT_FAILURE_MARKERS)
