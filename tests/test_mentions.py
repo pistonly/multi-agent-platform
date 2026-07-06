@@ -52,6 +52,49 @@ def test_mention_in_topic_comment(client, auth_headers, reviewer, project):
     assert any(m["topic_id"] == topic["id"] for m in todos["mentions"])
 
 
+def test_mention_in_topic_description_creates_work_and_notification(
+    client, auth_headers, reviewer, project
+):
+    reviewer_headers = reviewer["headers"]
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={
+            "title": "Mention on create",
+            "description": "@reviewer-agent 请从开题内容参与讨论",
+        },
+    ).json()
+
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
+    topic_mentions = [m for m in todos["mentions"] if m["topic_id"] == topic["id"]]
+    assert len(topic_mentions) == 1
+    assert topic_mentions[0]["source_type"] == "topic"
+    assert topic_mentions[0]["source_id"] == topic["id"]
+
+    progress = client.get(
+        "/api/v1/agents/me/topic-progress", headers=reviewer_headers
+    ).json()
+    mention_items = [
+        work_item
+        for item in progress["items"]
+        if item["topic_id"] == topic["id"]
+        for work_item in item["work_items"]
+        if work_item["kind"] == "mention"
+    ]
+    assert len(mention_items) == 1
+    assert mention_items[0]["idempotency_key"] == f"mention:{topic_mentions[0]['id']}"
+
+    notifs = client.get("/api/v1/agents/me/notifications", headers=reviewer_headers).json()
+    mentioned = [
+        n
+        for n in notifs["items"]
+        if n["event"] == "agent.mentioned" and n["target_id"] == topic["id"]
+    ]
+    assert len(mentioned) == 1
+    assert mentioned[0]["target_type"] == "topic"
+    assert mentioned[0]["payload_json"]["topic_id"] == topic["id"]
+
+
 def test_self_mention_ignored(client, auth_headers, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",

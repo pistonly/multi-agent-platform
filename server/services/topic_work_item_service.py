@@ -482,15 +482,13 @@ def topic_progress_item_from_work_items(
 
     if comments is None:
         comments = _topic_comments(db, topic.id)
-    if not comments:
-        return None
-    last_comment = comments[-1]
+    last_comment = comments[-1] if comments else None
     my_comments = [c for c in comments if c.author_agent_id == agent.id]
     my_last = my_comments[-1] if my_comments else None
 
     author_names = _agent_names_by_ids(
         db,
-        {last_comment.author_agent_id}
+        ({last_comment.author_agent_id} if last_comment is not None else set())
         | {c.author_agent_id for c in comments if c.author_agent_id != agent.id},
     )
 
@@ -518,8 +516,8 @@ def topic_progress_item_from_work_items(
         topic_id=topic.id,
         topic_title=topic.title,
         discussion_round=topic.discussion_round,
-        last_comment_author_agent_id=last_comment.author_agent_id,
-        last_comment_author_name=author_names.get(last_comment.author_agent_id),
+        last_comment_author_agent_id=last_comment.author_agent_id if last_comment is not None else None,
+        last_comment_author_name=author_names.get(last_comment.author_agent_id) if last_comment is not None else None,
         my_last_comment_id=my_last.id if my_last is not None else None,
         new_comments=new_comments,
         new_comment_count=len(new_comments),

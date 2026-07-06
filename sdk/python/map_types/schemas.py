@@ -519,7 +519,7 @@ class TopicProgressItemRead(BaseModel):
     topic_id: uuid.UUID
     topic_title: str
     discussion_round: TopicDiscussionRound
-    last_comment_author_agent_id: uuid.UUID
+    last_comment_author_agent_id: uuid.UUID | None = None
     last_comment_author_name: str | None = None
     my_last_comment_id: uuid.UUID | None = None
     new_comments: list[TopicProgressCommentRead] = Field(default_factory=list)

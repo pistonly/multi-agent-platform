@@ -222,6 +222,69 @@ def process_topic_comment_mentions(
     return unresolved
 
 
+def process_topic_mentions(
+    db: Session,
+    *,
+    topic: Topic,
+    author: Agent,
+    commit: bool = True,
+) -> list[str]:
+    """Create mention todos/notifications from a topic's initial description."""
+    body = topic.description or ""
+    names = extract_mention_names(body)
+    agents, unresolved = partition_mention_names(db, names)
+    if agents:
+        excerpt = _excerpt(body)
+        recipient_ids: list[uuid.UUID] = []
+        for agent in agents:
+            if agent.id == author.id:
+                continue
+            mention = Mention(
+                mentioned_agent_id=agent.id,
+                author_agent_id=author.id,
+                source_type=MentionSourceType.topic,
+                source_id=topic.id,
+                project_id=topic.project_id,
+                experiment_id=None,
+                topic_id=topic.id,
+                excerpt=excerpt,
+            )
+            db.add(mention)
+            recipient_ids.append(agent.id)
+
+        if recipient_ids:
+            if commit:
+                db.commit()
+            notification_service.enqueue_for_agents(
+                db,
+                recipient_agent_ids=recipient_ids,
+                project_id=topic.project_id,
+                actor_id=author.id,
+                event="agent.mentioned",
+                summary=f"{author.name} 在话题「{topic.title}」中提及了你",
+                target_type="topic",
+                target_id=topic.id,
+                payload={
+                    "topic_id": str(topic.id),
+                    "author_name": author.name,
+                    "excerpt": excerpt,
+                },
+            )
+
+    if unresolved:
+        notify_unresolved_mentions(
+            db,
+            author=author,
+            project_id=topic.project_id,
+            unresolved=unresolved,
+            target_type="topic",
+            target_id=topic.id,
+            context_label=f"话题「{topic.title}」",
+            payload={"topic_id": str(topic.id)},
+        )
+    return unresolved
+
+
 def list_mentions_for_agent(
     db: Session,
     agent_id: uuid.UUID,
@@ -410,7 +473,9 @@ def dismiss_mentions_answered_by_participation(
         filters.extend(
             [
                 Mention.topic_id == topic_id,
-                Mention.source_type == MentionSourceType.topic_comment,
+                Mention.source_type.in_(
+                    [MentionSourceType.topic, MentionSourceType.topic_comment]
+                ),
             ]
         )
     elif experiment_id is not None:
@@ -498,6 +563,20 @@ def auto_dismiss_mentions_for_author_in_thread(
     count = _apply_mention_dismiss_cascade(
         db, actor_agent_id=new_comment_author.id, mentions=mentions
     )
+    if topic_id is not None:
+        topic_mentions = list(
+            db.scalars(
+                select(Mention).where(
+                    Mention.mentioned_agent_id == new_comment_author.id,
+                    Mention.source_type == MentionSourceType.topic,
+                    Mention.topic_id == topic_id,
+                    Mention.dismissed_at.is_(None),
+                )
+            )
+        )
+        count += _apply_mention_dismiss_cascade(
+            db, actor_agent_id=new_comment_author.id, mentions=topic_mentions
+        )
     if commit and count:
         db.commit()
     return count

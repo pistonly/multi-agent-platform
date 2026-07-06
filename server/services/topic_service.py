@@ -21,7 +21,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
-from server.services import action_item_service, audit_service, notification_service, topic_ack_service
+from server.services import action_item_service, audit_service, mention_service, notification_service, topic_ack_service
 from server.services import topic_comment_service
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 from server.services.permissions import is_admin
@@ -391,6 +391,9 @@ def create_topic(
     payload: TopicCreate,
 ) -> Topic:
     get_project(db, project_id)
+    creator = db.get(Agent, creator_agent_id)
+    if creator is None:
+        raise NotFoundError("Creator agent not found")
     topic = Topic(
         project_id=project_id,
         creator_agent_id=creator_agent_id,
@@ -399,6 +402,8 @@ def create_topic(
         status=TopicStatus.open,
     )
     db.add(topic)
+    db.flush()
+    mention_service.process_topic_mentions(db, topic=topic, author=creator, commit=False)
     db.commit()
     db.refresh(topic)
     return topic

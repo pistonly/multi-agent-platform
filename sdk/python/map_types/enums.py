@@ -70,6 +70,7 @@ class ActionItemCategory(str, enum.Enum):
 
 class MentionSourceType(str, enum.Enum):
     experiment_comment = "experiment_comment"
+    topic = "topic"
     topic_comment = "topic_comment"
 
 

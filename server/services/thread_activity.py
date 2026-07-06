@@ -8,7 +8,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from server.domain.models import Comment, Mention, MentionSourceType, TopicComment
+from server.domain.models import Comment, Mention, MentionSourceType, Topic, TopicComment
 
 
 def topic_comment_sort_key(comment: TopicComment) -> tuple:
@@ -99,6 +99,24 @@ def comment_after(
     agent_id: uuid.UUID,
 ) -> bool:
     """True when ``agent_id`` posted in the same container after the mention source."""
+    if mention.source_type == MentionSourceType.topic and mention.topic_id is not None:
+        topic = db.get(Topic, mention.topic_id)
+        if topic is None:
+            return False
+        return (
+            db.scalar(
+                select(TopicComment.id)
+                .where(
+                    TopicComment.topic_id == mention.topic_id,
+                    TopicComment.author_agent_id == agent_id,
+                    TopicComment.created_at >= topic.created_at,
+                )
+                .order_by(*topic_comment_order_clauses())
+                .limit(1)
+            )
+            is not None
+        )
+
     if mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
         comments = list(
             db.scalars(
