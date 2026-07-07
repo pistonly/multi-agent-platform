@@ -338,6 +338,22 @@ def get_todos(
     pending_advance_rounds = list_pending_advance_rounds(db, agent)
     pending_plan_revisions = list_pending_plan_revisions(db, agent)
 
+    action_item_rows = list(
+        db.scalars(
+            select(TopicActionItem)
+            .options(joinedload(TopicActionItem.topic))
+            .where(
+                TopicActionItem.owner_agent_id == agent.id,
+                TopicActionItem.status == TopicActionItemStatus.open,
+            )
+            .order_by(TopicActionItem.updated_at.desc())
+        )
+    )
+    # 批量预取 linked experiment phase，避免序列化时 N+1；同时让 todos 消费者
+    # 能区分"等 reviewer 审批"（phase=result_review）与"host 自身待办"。
+    from server.services.topic_service import _linked_experiment_phases_batch
+
+    phase_map = _linked_experiment_phases_batch(db, action_item_rows)
     action_items = [
         TopicActionItemTodoRead(
             id=item.id,
@@ -350,6 +366,7 @@ def get_todos(
             status=item.status,
             due_at=item.due_at,
             linked_experiment_id=item.linked_experiment_id,
+            linked_experiment_phase=phase_map.get(item.id),
             wake_count=item.wake_count,
             first_open_at=item.first_open_at,
             last_woken_at=item.last_woken_at,
@@ -357,15 +374,7 @@ def get_todos(
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
-        for item in db.scalars(
-            select(TopicActionItem)
-            .options(joinedload(TopicActionItem.topic))
-            .where(
-                TopicActionItem.owner_agent_id == agent.id,
-                TopicActionItem.status == TopicActionItemStatus.open,
-            )
-            .order_by(TopicActionItem.updated_at.desc())
-        )
+        for item in action_item_rows
     ]
 
     return TodoRead(

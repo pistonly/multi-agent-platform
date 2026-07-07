@@ -526,3 +526,126 @@ def test_a2_11_link_done_experiment_succeeds(
         params={"experiment_id": other_exp},
     )
     assert reject.status_code == 409
+
+
+# ---------- A2-13: action_item 暴露 linked_experiment_phase -------------------
+# 话题 [体验优化] action_item 与 linked experiment 状态缺少同步解释：
+# host complete 后 action_item 仍为 open，用户无法判断"在等谁"。
+# 修复：action_item schema 暴露 linked_experiment_phase，让 todos / list / detail
+# 消费者能区分"等 reviewer 审批"（result_review）与"host 自身待办"。
+
+def test_a2_13_action_item_exposes_linked_experiment_phase_across_transitions(
+    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+):
+    """linked_experiment_phase 跟随实验阶段变化；result_review 时 item 仍 open。
+
+    覆盖三条读路径：
+    - GET /projects/{id}/action-items  (list_action_items 批量预取)
+    - GET /agents/me/todos             (todo_service 批量预取)
+    - GET /topics/{id}                 (topic_decision_read 批量预取)
+    """
+    topic = _create_topic(client, auth_headers, project)
+    exp_id = _create_and_approve_experiment(
+        client, auth_headers, reviewer["headers"], project, title="A2-13 phase-sync exp"
+    )
+    item_id = _resolve_with_linked_item(
+        client, auth_headers, topic["id"],
+        title="A2-13 phase-sync item",
+        owner_agent_id=reviewer["id"],
+        linked_experiment_id=exp_id,
+    )
+
+    def _list_item():
+        resp = client.get(
+            f"/api/v1/projects/{project['id']}/action-items",
+            headers=auth_headers,
+            params={"status": "open"},
+        )
+        assert resp.status_code == 200, resp.text
+        items = [it for it in resp.json() if it["id"] == item_id]
+        assert items, f"item {item_id} not in open action-items list"
+        return items[0]
+
+    def _todo_item():
+        # reviewer 是 owner，用 reviewer 的 headers 读 todos
+        resp = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"])
+        assert resp.status_code == 200, resp.text
+        items = [it for it in resp.json().get("action_items") or [] if it["id"] == item_id]
+        assert items, f"item {item_id} not in todos action_items"
+        return items[0]
+
+    def _topic_item():
+        resp = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        decisions = resp.json().get("decision") or {}
+        items = decisions.get("action_items") or []
+        matched = [it for it in items if it["id"] == item_id]
+        assert matched, f"item {item_id} not in topic decision action_items"
+        return matched[0]
+
+    # approved 阶段：item open, phase=approved
+    listed = _list_item()
+    assert listed["status"] == "open"
+    assert listed["linked_experiment_id"] == exp_id
+    assert listed["linked_experiment_phase"] == "approved"
+    todo_item = _todo_item()
+    assert todo_item["linked_experiment_phase"] == "approved"
+    topic_item = _topic_item()
+    assert topic_item["linked_experiment_phase"] == "approved"
+
+    # 进入 running：phase=running
+    started = client.post(f"/api/v1/experiments/{exp_id}/start", headers=auth_headers)
+    assert started.status_code == 200
+    assert _list_item()["linked_experiment_phase"] == "running"
+    assert _todo_item()["linked_experiment_phase"] == "running"
+
+    # host complete -> result_review：item 仍 open，但 phase=result_review
+    # （话题核心场景：用户看到 open + result_review 就知道在等 reviewer）
+    completed = client.post(
+        f"/api/v1/experiments/{exp_id}/complete",
+        headers=auth_headers,
+        json={
+            "summary": "完成",
+            "content_md": "## 结果\nphase-sync 验证",
+            "metadata": {"pytest_summary": "unit passed"},
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["phase"] == "result_review"
+    listed_after = _list_item()
+    assert listed_after["status"] == "open"  # 尚未级联
+    assert listed_after["linked_experiment_phase"] == "result_review"
+    assert _todo_item()["linked_experiment_phase"] == "result_review"
+    assert _topic_item()["linked_experiment_phase"] == "result_review"
+
+    # accept-result -> done：item 级联 done，phase=done
+    _run_experiment_to_done(
+        client, auth_headers, reviewer["headers"], exp_id,
+        accept_summary="A2-13 accept",
+    )
+    done_resp = client.get(
+        f"/api/v1/projects/{project['id']}/action-items",
+        headers=auth_headers,
+        params={"status": "done"},
+    )
+    done_items = [it for it in done_resp.json() if it["id"] == item_id]
+    assert done_items, "item should be done after accept-result"
+    assert done_items[0]["linked_experiment_phase"] == "done"
+
+
+def test_a2_13_unlinked_action_item_has_null_phase(
+    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+):
+    """无 linked_experiment 的 action_item：linked_experiment_phase 为 None。"""
+    topic = _create_topic(client, auth_headers, project)
+    payload = {
+        "decision": "d",
+        "action_items": [
+            {"title": "A2-13 unlinked", "owner_agent_id": reviewer["id"]},
+        ],
+    }
+    resp = client.post(f"/api/v1/topics/{topic['id']}/resolve", headers=auth_headers, json=payload)
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["action_items"][0]
+    assert item["linked_experiment_id"] is None
+    assert item["linked_experiment_phase"] is None

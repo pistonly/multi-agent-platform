@@ -430,6 +430,9 @@ class TopicActionItemRead(BaseModel):
     status: TopicActionItemStatus
     due_at: datetime | None = None
     linked_experiment_id: uuid.UUID | None = None
+    # 当前关联实验所处阶段。当 action_item 仍为 open 但实验已进入
+    # result_review 时，用户可据此判断"在等 reviewer 审批"而非 host 待办。
+    linked_experiment_phase: ExperimentPhase | None = None
     category: ActionItemCategory | None = None
     cancel_reason: str | None = None
     suggested_linked_experiment_id: uuid.UUID | None = None
@@ -653,6 +656,9 @@ class TopicActionItemTodoRead(BaseModel):
     status: TopicActionItemStatus
     due_at: datetime | None = None
     linked_experiment_id: uuid.UUID | None = None
+    # 同 TopicActionItemRead.linked_experiment_phase：让 todos 消费者（CLI /
+    # waker / Web）能区分"等 reviewer 审批"与"host 自身待办"。
+    linked_experiment_phase: ExperimentPhase | None = None
     # Wake / stale escalation fields (experiment B). The waker applies
     # should_wake_action_item() directly to this payload — see
     # cli/action_item_escalation.py scan_pending_action_items() for the caller.

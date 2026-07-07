@@ -369,11 +369,41 @@ def _suggest_linked_experiments_batch(
     return result
 
 
+def _linked_experiment_phases_batch(
+    db: Session, items: list[TopicActionItem]
+) -> dict[uuid.UUID, ExperimentPhase | None]:
+    """Batch-fetch ``linked_experiment_phase`` for a list of action items.
+
+    Returns a mapping ``{item.id: phase | None}``. Items without a linked
+    experiment map to ``None`` without hitting the DB. Used by list / todos
+    read paths to avoid an N+1 when serializing many action items.
+    """
+    result: dict[uuid.UUID, ExperimentPhase | None] = {}
+    linked_ids: list[uuid.UUID] = []
+    for item in items:
+        if item.linked_experiment_id is not None:
+            linked_ids.append(item.linked_experiment_id)
+        else:
+            result[item.id] = None
+    if not linked_ids:
+        return result
+    rows = db.execute(
+        select(Experiment.id, Experiment.phase).where(Experiment.id.in_(linked_ids))
+    ).all()
+    phase_by_id: dict[uuid.UUID, ExperimentPhase] = {row[0]: row[1] for row in rows}
+    for item in items:
+        if item.linked_experiment_id is not None:
+            result[item.id] = phase_by_id.get(item.linked_experiment_id)
+    return result
+
+
 def _action_item_read(
     db: Session,
     item: TopicActionItem,
     *,
     suggested: tuple[uuid.UUID | None, str | None] | None = None,
+    linked_experiment_phase: ExperimentPhase | None = None,
+    linked_experiment_phase_provided: bool = False,
 ) -> TopicActionItemRead:
     owner_name = None
     if item.owner_agent_id is not None:
@@ -385,6 +415,13 @@ def _action_item_read(
     suggested_id, suggested_title = (
         suggested if suggested is not None else _suggest_linked_experiment(db, item)
     )
+    # 同上：批量预取 phase 时直接用；否则单条 fallback 查询。
+    if not linked_experiment_phase_provided:
+        if item.linked_experiment_id is not None:
+            exp = db.get(Experiment, item.linked_experiment_id)
+            linked_experiment_phase = exp.phase if exp else None
+        else:
+            linked_experiment_phase = None
     return TopicActionItemRead(
         id=item.id,
         decision_id=item.decision_id,
@@ -397,6 +434,7 @@ def _action_item_read(
         status=item.status,
         due_at=item.due_at,
         linked_experiment_id=item.linked_experiment_id,
+        linked_experiment_phase=linked_experiment_phase,
         category=item.category,
         cancel_reason=item.cancel_reason,
         suggested_linked_experiment_id=suggested_id,
@@ -426,6 +464,7 @@ def topic_decision_read(db: Session, decision: TopicDecision) -> TopicDecisionRe
         topic_title = topic.title
 
     suggested_map = _suggest_linked_experiments_batch(db, list(decision.action_items))
+    phase_map = _linked_experiment_phases_batch(db, list(decision.action_items))
     return TopicDecisionRead(
         id=decision.id,
         project_id=decision.project_id,
@@ -439,7 +478,13 @@ def topic_decision_read(db: Session, decision: TopicDecision) -> TopicDecisionRe
         open_questions=decision.open_questions,
         no_decision_reason=decision.no_decision_reason,
         action_items=[
-            _action_item_read(db, item, suggested=suggested_map.get(item.id))
+            _action_item_read(
+                db,
+                item,
+                suggested=suggested_map.get(item.id),
+                linked_experiment_phase=phase_map.get(item.id),
+                linked_experiment_phase_provided=True,
+            )
             for item in decision.action_items
         ],
         created_at=decision.created_at,
@@ -718,8 +763,15 @@ def list_action_items(
         stmt = stmt.where(TopicActionItem.status == status)
     items = list(db.scalars(stmt))
     suggested_map = _suggest_linked_experiments_batch(db, items)
+    phase_map = _linked_experiment_phases_batch(db, items)
     return [
-        _action_item_read(db, item, suggested=suggested_map.get(item.id))
+        _action_item_read(
+            db,
+            item,
+            suggested=suggested_map.get(item.id),
+            linked_experiment_phase=phase_map.get(item.id),
+            linked_experiment_phase_provided=True,
+        )
         for item in items
     ]
 
