@@ -40,6 +40,10 @@ def test_start_complete_result_review_accept_flow(client, auth_headers, reviewer
     started = client.post(f"/api/v1/experiments/{exp_id}/start", headers=auth_headers)
     assert started.status_code == 200
     assert started.json()["phase"] == "running"
+    # Phase transition responses must reflect post-transaction log state
+    # (regression: complete/accept-result responses used to show log_count=0).
+    assert started.json()["log_count"] == 0
+    assert started.json()["latest_log_summary"] is None
 
     interim_log = client.post(
         f"/api/v1/experiments/{exp_id}/logs",
@@ -60,6 +64,10 @@ def test_start_complete_result_review_accept_flow(client, auth_headers, reviewer
     )
     assert completed.status_code == 200
     assert completed.json()["phase"] == "result_review"
+    # complete appends a result log; response must reflect it immediately
+    # (regression: previously log_count=0 / latest_log_summary=None here).
+    assert completed.json()["log_count"] == 2
+    assert completed.json()["latest_log_summary"] == "实验完成"
 
     self_accept = client.post(
         f"/api/v1/experiments/{exp_id}/accept-result",
@@ -79,6 +87,9 @@ def test_start_complete_result_review_accept_flow(client, auth_headers, reviewer
     )
     assert accepted.status_code == 200
     assert accepted.json()["phase"] == "done"
+    # accept-result appends an approval log; response must reflect it immediately
+    assert accepted.json()["log_count"] == 3
+    assert accepted.json()["latest_log_summary"] == "结果审批通过"
 
     logs = client.get(f"/api/v1/experiments/{exp_id}/logs", headers=auth_headers)
     assert logs.status_code == 200

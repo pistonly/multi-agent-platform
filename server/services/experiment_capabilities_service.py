@@ -11,6 +11,7 @@ from server.domain.models import (
     Agent,
     AgentRole,
     Experiment,
+    ExperimentLog,
     ExperimentPhase,
     Review,
     ReviewItem,
@@ -149,12 +150,25 @@ def experiment_summary_for_actor(
     *,
     extra_updates: dict | None = None,
 ) -> ExperimentSummaryRead:
+    from server.services.log_service import get_latest_log
+
     actions, blocked_on = compute_experiment_capabilities(db, experiment, actor)
     legacy = compute_legacy_self_review(db, experiment)
+    log_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ExperimentLog)
+            .where(ExperimentLog.experiment_id == experiment.id)
+        )
+        or 0
+    )
+    latest_log = get_latest_log(db, experiment.id)
     update: dict = {
         "actions": actions,
         "blocked_on": blocked_on,
         "legacy_self_review": legacy,
+        "log_count": log_count,
+        "latest_log_summary": latest_log.summary if latest_log else None,
     }
     if extra_updates:
         update.update(extra_updates)
