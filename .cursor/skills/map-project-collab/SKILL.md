@@ -2,7 +2,7 @@
 name: map-project-collab
 description: >-
   Collaborate on MAP (Multi-Agent Platform) from a code repo using project-local
-  .map/ personas instead of Cursor MCP token switching. Use when the user asks
+  .map/ personas. Use when the user asks
   to bootstrap MAP, choose host/participant/reviewer identity, list open topics,
   join topic discussions, check todos, action_items, pending_topic_replies,
   topic resolve, archive topics/experiments, submit platform feedback or suggestions,
@@ -11,7 +11,7 @@ description: >-
 
 # MAP 项目协作（Skill）
 
-通过 **`.map/` 本地身份文件 + `map` CLI** 协作。**MCP（`map-agent` / `map-admin`）计划停用**；本仓库以 Skill + persona 为准，不再通过 MCP 切换 token。
+通过 **`.map/` 本地身份文件 + `map` CLI** 协作。历史背景：Cursor MCP（`map-agent` / `map-admin`）曾用于早期验证，自 v0.7 起停用，本仓库以 Skill + persona 为准。
 
 与 [topic-host](../topic-host/SKILL.md) 分工：本 Skill 管 persona/CLI 通用协作；主持两轮讨论与开实验门禁见 topic-host。
 
@@ -39,12 +39,11 @@ waker 守护进程：`./scripts/start-all-wakers.sh`（详见 [MAP-RUNTIME-WAKER
 
 ## 硬性规则
 
-1. **禁止**使用 Cursor MCP 的 `map-agent` / `map-admin` 访问 MAP（已弃用，后续移除）
-2. **禁止**手写 `httpx`/`curl` 调 MAP API；统一用 **`map [--persona <name>]` CLI**
-3. **首次操作或切换 persona 时**执行 `map [--persona <name>] persona whoami`，向用户确认身份
-4. 用户未指定 persona 时：用 `.map/config.yaml` 的 `default_persona`（通常 `host`）；此时可省略 `--persona`
-5. **host** 才能创建/关闭话题、从话题开实验、推进实验生命周期；**participant** 参与讨论；**reviewer** 评审实验计划
-6. **实验必须由 host persona 创建**（`map --persona host experiment create`），否则 `creator_agent_id` 与 host 不一致会导致 submit/approve/start/complete 返回 403
+1. **禁止**手写 `httpx`/`curl` 调 MAP API；统一用 **`map [--persona <name>]` CLI**
+2. **首次操作或切换 persona 时**执行 `map [--persona <name>] persona whoami`，向用户确认身份
+3. 用户未指定 persona 时：用 `.map/config.yaml` 的 `default_persona`（通常 `host`）；此时可省略 `--persona`
+4. **host** 才能创建/关闭话题、从话题开实验、推进实验生命周期；**participant** 参与讨论；**reviewer** 评审实验计划
+5. **实验必须由 host persona 创建**（`map --persona host experiment create`），否则 `creator_agent_id` 与 host 不一致会导致 submit/approve/start/complete 返回 403
 
 全局选项：`--project-root <path>` 指定含 `.map/` 的仓库根（默认从 cwd 向上查找）。
 
@@ -348,7 +347,7 @@ map feedback submit \
 | 找不到 `.map/` | 在本仓库根运行 `map bootstrap` |
 | Unknown persona | `map persona list` |
 | 403 开实验 | 确认 `--persona host` 且是话题 creator |
-| 403 submit/approve/complete | 实验须由 **当前 host persona** 创建；勿用已弃用的 MCP `map-agent` |
+| 403 submit/approve/complete | 实验须由 **当前 host persona** 创建 |
 | Admin bootstrap 失败 | 检查 `MAP_ADMIN_TOKEN` / `~/.map/admin.yaml` |
 | token 丢失（409 跳过） | 保留原 `agents.local.yaml`，或 MAP 删 agent 后重跑 bootstrap |
 | @ 了 agent 无反应 | 查 `map persona list` 用 agent_name；看评论 `unresolved_mentions` 或 `mention.unresolved` 通知 |

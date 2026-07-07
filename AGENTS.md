@@ -60,7 +60,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 ## Agent 身份（必读）
 
-**本仓库统一使用 `.map/` 目录中的 persona + `map` CLI。** Cursor MCP（`map-agent` / `map-admin`）曾用于验证，**不如 Skill 方便**；后续将**停用 MCP 访问 MAP**，请勿再依赖。
+**本仓库统一使用 `.map/` 目录中的 persona + `map` CLI。** 历史背景：Cursor MCP（`map-agent` / `map-admin`）曾用于早期验证，自 v0.7 起停用，本仓库以 Skill + persona 为准。
 
 | Persona | Agent 名 | 职责 |
 |---------|----------|------|
@@ -70,13 +70,12 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 ### 硬性规则
 
-1. **禁止**使用 Cursor MCP 的 `map-agent` / `map-admin` 做 MAP 写操作
-2. **禁止**手写 `httpx` / `curl` 调 MAP API；统一用 **`map --persona <name>` CLI**
-3. 操作前执行 `map --persona <name> persona whoami` 确认身份
-4. **实验必须由 host persona 创建**——平台只允许 `creator_agent_id` 提交评审、批准、启动、完成；若用其他 Agent（如历史 `map-agent`）创建会 403
-5. 主持话题、开实验门禁见 [.cursor/skills/topic-host/SKILL.md](.cursor/skills/topic-host/SKILL.md)；通用协作见 [.cursor/skills/map-project-collab/SKILL.md](.cursor/skills/map-project-collab/SKILL.md)
+1. **禁止**手写 `httpx` / `curl` 调 MAP API；统一用 **`map --persona <name>` CLI**
+2. 操作前执行 `map --persona <name> persona whoami` 确认身份
+3. **实验必须由 host persona 创建**——平台只允许 `creator_agent_id` 提交评审、批准、启动、完成；若用其他非 host Agent 创建会 403
+4. 主持话题、开实验门禁见 [.cursor/skills/topic-host/SKILL.md](.cursor/skills/topic-host/SKILL.md)；通用协作见 [.cursor/skills/map-project-collab/SKILL.md](.cursor/skills/map-project-collab/SKILL.md)
 
-身份与 token 存在 **`.map/`** 目录（见 `.map/*.example`）。**不使用** Cursor MCP 切换 token。
+身份与 token 存在 **`.map/`** 目录（见 `.map/*.example`）。
 
 ## 首次接入
 
