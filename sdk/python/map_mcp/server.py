@@ -336,7 +336,7 @@ def build_server(
         metadata: dict[str, Any] | None = None,
         token: Token = None,
     ) -> dict[str, Any]:
-        """Submit running experiment results for review and attach an execution log."""
+        """Submit running experiment results for review; metadata must include deployment/test evidence."""
         with resolver.use(token) as (c, _ctx):
             payload = ExperimentComplete(summary=summary, content_md=content_md, metadata=metadata)
             return dump(c.complete_experiment(parse_uuid(experiment_id, "experiment_id"), payload))

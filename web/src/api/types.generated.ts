@@ -5,6 +5,7 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
+export type AcceptanceType = "migration" | "smoke" | "unit_test" | "integration" | "manual";
 /**
  * Drives the cancel-reason minimum-length threshold (see ActionItemCancel).
  */
@@ -53,6 +54,13 @@ export type TopicCommentKind = "user" | "system";
 export type TopicCommentKind1 = "user" | "system";
 export type TopicDiscussionRound2 = "round1" | "round2" | "ready";
 
+export interface AcceptanceStatusRead {
+  id: string;
+  description: string;
+  acceptance_type: AcceptanceType;
+  evidence_provided?: boolean;
+  reviewer_verdict?: string | null;
+}
 /**
  * Body of ``POST /api/v1/action-items/{id}/cancel`` and ``map action cancel``.
  */
@@ -433,6 +441,7 @@ export interface ExperimentDetailRead {
   current_plan?: PlanVersionRead | null;
   plan_version_count?: number;
   review_count?: number;
+  acceptance_status?: AcceptanceStatusRead[];
 }
 export interface PlanVersionRead {
   id: string;
@@ -505,6 +514,10 @@ export interface ExperimentLockRead {
   ttl_seconds?: number | null;
   next_attempt_at?: string | null;
   skip_count?: number;
+}
+export interface ExperimentLockStalledScanRead {
+  notification_ids: string[];
+  emitted_count: number;
 }
 export interface ExperimentLogCreate {
   summary: string;

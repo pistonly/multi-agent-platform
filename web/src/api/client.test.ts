@@ -7,6 +7,7 @@ import {
   fetchProjectDecisions,
   fetchProjectExperiments,
   fetchTopics,
+  markTopicRead,
   parseTotalCount,
   submitFeedback,
   streamNotifications,
@@ -60,6 +61,20 @@ describe("paginated list fetchers", () => {
       },
     });
     expect(result).toEqual({ items: [{ id: "t1" }], total: 15 });
+  });
+
+  it("markTopicRead posts to the per-agent topic read cursor endpoint", async () => {
+    const post = vi.spyOn(api, "post").mockResolvedValue({
+      data: {},
+      headers: {},
+      status: 200,
+      statusText: "OK",
+      config: {} as never,
+    });
+
+    await markTopicRead("topic-1");
+
+    expect(post).toHaveBeenCalledWith("/agents/me/topics/topic-1/read");
   });
 
   it("fetchProjectExperiments sends phase filter and total", async () => {

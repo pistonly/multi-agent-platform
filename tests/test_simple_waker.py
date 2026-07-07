@@ -31,6 +31,7 @@ class FakeMapClient(MapCommandClient):
         self._todos = todos
         self._notifications = notifications or []
         self._topic_progress = topic_progress or {"items": [], "total": 0}
+        self._calls: list[str] = []
 
     def whoami(self) -> dict[str, Any]:
         return {"id": f"{self.persona}-agent", "name": self.persona}
@@ -39,6 +40,7 @@ class FakeMapClient(MapCommandClient):
         return self._todos
 
     def work(self) -> dict[str, Any]:
+        self._calls.append("work")
         return {
             "agent": self.whoami(),
             "topic_progress": self._topic_progress,
@@ -83,6 +85,10 @@ class FakeMapClient(MapCommandClient):
         self._stale = getattr(self, "_stale", [])
         self._stale.append(action_item_id)
         return {"id": action_item_id, "ok": True}
+
+    def experiment_scan_stalled_locks(self) -> dict[str, Any]:
+        self._calls.append("scan_stalled")
+        return {"notification_ids": ["n1", "n2"], "emitted_count": 2}
 
 
 def test_summarize_pending_work_counts_buckets_and_notifications() -> None:
@@ -150,6 +156,18 @@ def test_summarize_pending_work_idle_when_empty() -> None:
     summary = summarize_pending_work({}, notifications=[])
     assert summary.has_work is False
     assert summary.total_items == 0
+
+
+def test_map_command_client_work_requests_wakeable(monkeypatch) -> None:
+    seen: dict[str, list[str]] = {}
+
+    def fake_run(self, args, *, parse_yaml=True, retryable=False):
+        seen["args"] = args
+        return {}
+
+    monkeypatch.setattr(MapCommandClient, "_run", fake_run)
+    MapCommandClient(persona="host").work()
+    assert seen["args"] == ["work", "--notification-category", "wakeable"]
 
 
 def test_should_send_remind_requires_work_and_respects_cooldown() -> None:
@@ -236,6 +254,7 @@ def test_run_once_dry_run_does_not_wake_backend(tmp_path: Path) -> None:
     stats = waker.run_once()
     assert stats.dry_run_actions == 1
     assert stats.reminds_sent == 0
+    assert "scan_stalled" not in client._calls
     backend.wake_async.assert_not_called()
 
 
@@ -296,6 +315,8 @@ def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     waker = SimpleWaker(client=client, config=config, backend=backend)
     stats = waker.run_once()
     assert stats.reminds_sent == 1
+    assert stats.stalled_lock_notifications == 2
+    assert client._calls[:2] == ["scan_stalled", "work"]
     backend.wake_async.assert_awaited_once()
     prompt = backend.wake_async.await_args.kwargs["prompt"]
     assert "话题 work items" in prompt

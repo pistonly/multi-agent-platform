@@ -105,6 +105,32 @@ def test_creator_blocked_after_plan_revise_without_rereview(
     assert pending["actions"] == ["review_add"]
 
 
+def test_same_content_plan_revise_noops_after_clean_review(
+    client, auth_headers, reviewer, project
+):
+    exp_id = _create_experiment_in_review(client, auth_headers, project)
+
+    review = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"reasonable_items": ["v1 looks good"]},
+    )
+    assert review.status_code == 201, review.text
+
+    revise = client.post(
+        f"/api/v1/experiments/{exp_id}/plans",
+        headers=auth_headers,
+        json={"content_md": "## plan", "change_note": "note only"},
+    )
+    assert revise.status_code == 201, revise.text
+    assert revise.json()["version"] == 1
+
+    detail = client.get(f"/api/v1/experiments/{exp_id}", headers=auth_headers).json()
+    assert detail["current_plan_version"] == 1
+    assert detail["blocked_on"] == "none"
+    assert detail["actions"] == ["approve", "withdraw"]
+
+
 def test_creator_first_review_still_awaiting_non_creator(
     client, auth_headers, project
 ):

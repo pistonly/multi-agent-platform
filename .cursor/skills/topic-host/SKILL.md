@@ -44,6 +44,18 @@ description: >-
 
 Reviewer 在 `addressed_review_item` wake 时自行 `review resolve-item`；host 不负责代 resolve。
 
+## 快速判断
+
+```bash
+map --persona host persona whoami
+map --persona host work --notification-category wakeable
+```
+
+- 优先处理 `pending_topic_replies` / `pending_advance_rounds` / topic work item obligation。
+- 只有 `my_open_topics` 时，通常只是 contextual：没有他人新评论就等待、`topic dismiss`，或在用户明确要求时创建/补充话题。
+- 每次主持只做一个可验证推进：回复、Round Summary、advance-round、resolve、create experiment 之一。
+- 收尾再跑 `map --persona host work --notification-category wakeable`，确认 obligation 清空或写明 blocker。
+
 ## 硬性规则
 
 1. 操作前确认身份：`map --persona host persona whoami`（**禁止**使用 MCP `get_me`）
@@ -58,6 +70,19 @@ Reviewer 在 `addressed_review_item` wake 时自行 `review resolve-item`；host
          → Round 2 未决项 → 回复 → Round 2 Summary → 门禁决策
          → topic resolve + create_experiment(topic_id) 或 close_topic
 ```
+
+## 新建体验优化话题模板
+
+当用户要求把 MAP 使用体验、CLI、Skill、Web、waker 问题开成话题时，用短描述，避免直接开实验：
+
+```text
+背景：<这次实际遇到的操作场景>
+问题：<不顺畅或风险>
+期望讨论：<需要 participant/reviewer 评估的方案边界>
+建议输出：<复现路径 / 契约 / 最小测试 / 是否开实验>
+```
+
+纯体验反馈先开 topic；只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment。
 
 ## 开实验 Rubric（四门，全部满足）
 
@@ -116,6 +141,15 @@ map --persona host topic comment \
   --id <topic-uuid> \
   --body "..." \
   --parent <comment-uuid>   # 回复 thread 内评论时设置
+```
+
+长回复建议先写入文件再发送，避免 shell quoting 问题：
+
+```bash
+map --persona host topic comment \
+  --id <topic-uuid> \
+  --file ./reply.md \
+  --parent <comment-uuid>
 ```
 
 thread 级判定：主持在同一 `thread_root_id` 子树下有过回复即视为已回应整 thread。

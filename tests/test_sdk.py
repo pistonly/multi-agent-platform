@@ -37,6 +37,26 @@ def test_sdk_project_and_experiment(map_client: MAPClient, project: dict):
     assert len(bundle.plans) == 1
 
 
+def test_sdk_experiment_acceptance_status_round_trip(map_client: MAPClient, project: dict):
+    experiment = map_client.create_experiment(
+        uuid.UUID(project["id"]),
+        ExperimentCreate(
+            title="SDK acceptance",
+            plan=PlanInput(
+                content_md="- [acceptance_type: smoke] map experiment status shows acceptance"
+            ),
+        ),
+    )
+
+    detail = map_client.get_experiment(experiment.id)
+
+    assert len(detail.acceptance_status) == 1
+    status = detail.acceptance_status[0]
+    assert status.acceptance_type.value == "smoke"
+    assert status.description == "map experiment status shows acceptance"
+    assert status.evidence_provided is False
+
+
 def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: dict, admin_headers):
     reviewer = client.post(
         "/api/v1/agents",
@@ -65,7 +85,11 @@ def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: 
 
     submitted = map_client.complete_experiment(
         exp.id,
-        ExperimentComplete(summary="done", content_md="result"),
+        ExperimentComplete(
+            summary="done",
+            content_md="result",
+            metadata={"pytest_summary": "unit passed"},
+        ),
     )
     assert submitted.phase == ExperimentPhase.result_review
 

@@ -380,6 +380,10 @@ export async function fetchTopic(topicId: string): Promise<TopicRead> {
   return data;
 }
 
+export async function markTopicRead(topicId: string): Promise<void> {
+  await api.post(`/agents/me/topics/${topicId}/read`);
+}
+
 export async function resolveTopic(topicId: string, payload: TopicResolvePayload): Promise<TopicDecision> {
   const { data } = await api.post<TopicDecision>(`/topics/${topicId}/resolve`, payload);
   return data;

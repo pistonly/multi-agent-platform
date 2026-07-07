@@ -37,6 +37,7 @@ from server.services import topic_service
 # ``get_project`` 下沉到 ``_lookups`` 以打破 project_service ↔ topic_service 循环 import；
 # 这里 re-export 保持 ``from server.services.project_service import get_project`` 兼容。
 from server.services._lookups import get_project
+from server.services.acceptance_service import parse_acceptance_status
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 
 _ACTIVE_TOPIC_EXPERIMENT_PHASES = (
@@ -379,6 +380,8 @@ def get_experiment_detail(
 
     experiment = get_experiment(db, experiment_id)
     current_plan = None
+    acceptance_status = []
+    latest = get_latest_log(db, experiment.id)
     if experiment.current_plan_version > 0:
         plan_stmt = select(PlanVersion).where(
             PlanVersion.experiment_id == experiment.id,
@@ -387,8 +390,11 @@ def get_experiment_detail(
         plan = db.scalar(plan_stmt)
         if plan:
             current_plan = PlanVersionRead.model_validate(plan)
+            acceptance_status = parse_acceptance_status(
+                plan.content_md,
+                completion_metadata=latest.metadata_json if latest else None,
+            )
 
-    latest = get_latest_log(db, experiment.id)
     plan_version_count = db.scalar(
         select(func.count()).select_from(PlanVersion).where(PlanVersion.experiment_id == experiment.id)
     ) or 0
@@ -415,6 +421,7 @@ def get_experiment_detail(
         plan_version_count=plan_version_count,
         open_unreasonable_count=count_open_unreasonable_for_experiment(db, experiment.id),
         review_count=review_count,
+        acceptance_status=acceptance_status,
         log_count=log_count,
         latest_log_summary=latest.summary if latest else None,
         lock_holder_experiment_id=experiment.lock_holder_experiment_id,

@@ -1,6 +1,7 @@
 """Shared API types for MAP server, SDK, and MCP."""
 
 from map_types.enums import (
+    AcceptanceType,
     ActionItemCategory,
     AgentRole,
     CommentAnchorType,
@@ -17,6 +18,7 @@ from map_types.enums import (
     TopicStatus,
 )
 from map_types.schemas import (
+    AcceptanceStatusRead,
     ActionItemCancel,
     AgentCreateResponse,
     AgentRead,
@@ -32,6 +34,7 @@ from map_types.schemas import (
     ExperimentCreate,
     ExperimentDetailRead,
     ExperimentLockRead,
+    ExperimentLockStalledScanRead,
     ExperimentLogCreate,
     ExperimentLogRead,
     ExperimentResultDecision,
@@ -88,8 +91,10 @@ from map_types.schemas import (
 
 __all__ = [
     "ActionItemCancel",
+    "AcceptanceStatusRead",
     "ActionItemCategory",
     "AgentRole",
+    "AcceptanceType",
     "CommentAnchorType",
     "ExperimentPhase",
     "FeedbackCategory",
@@ -116,6 +121,7 @@ __all__ = [
     "ExperimentDetailRead",
     "ExperimentBundleRead",
     "ExperimentLockRead",
+    "ExperimentLockStalledScanRead",
     "ExperimentLogCreate",
     "ExperimentLogRead",
     "ExperimentResultDecision",

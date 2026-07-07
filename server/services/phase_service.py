@@ -8,6 +8,7 @@ from server.domain.schemas import ExperimentComplete, ExperimentLogCreate, Exper
 from server.domain.state_machine import validate_phase_transition
 from server.services import audit_service, topic_service
 from server.services.errors import ForbiddenError, StateTransitionError
+from server.services.evidence_service import EVIDENCE_METADATA_KEYS, metadata_has_completion_evidence
 from server.services.log_service import append_log
 from server.services.project_service import get_experiment
 from server.services.review_service import assert_approve_eligibility
@@ -78,6 +79,12 @@ def complete_experiment(
     if experiment.creator_agent_id != actor.id and actor.role != AgentRole.admin:
         raise ForbiddenError("Only the creator can complete the experiment")
     validate_phase_transition(experiment.phase, ExperimentPhase.result_review)
+    if not metadata_has_completion_evidence(payload.metadata):
+        keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
+        raise StateTransitionError(
+            "Experiment complete requires deployment/test evidence metadata "
+            f"(accepted keys include: {keys}; or evidence/allow_missing_evidence)."
+        )
     append_log(
         db,
         experiment_id,

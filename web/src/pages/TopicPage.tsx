@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { closeTopic, createTopicComment, fetchTopic, reopenTopic, resolveTopic, updateTopic } from "../api/client";
+import { closeTopic, createTopicComment, fetchTopic, markTopicRead, reopenTopic, resolveTopic, updateTopic } from "../api/client";
 import type { TopicCommentTreeNode, TopicDecision } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
@@ -35,6 +35,7 @@ export function TopicPage() {
   const [reply, setReply] = useState("");
   const [showCreateExp, setShowCreateExp] = useState(false);
   const [showResolve, setShowResolve] = useState(false);
+  const markedReadTopicIdRef = useRef<string | null>(null);
 
   const query = useQuery({
     queryKey: ["topic", topicId],
@@ -44,6 +45,24 @@ export function TopicPage() {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["topic", topicId] });
+
+  const markReadMutation = useMutation({
+    mutationFn: () => markTopicRead(topicId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work"] });
+      queryClient.invalidateQueries({ queryKey: ["todos"] });
+    },
+  });
+
+  const markRead = markReadMutation.mutate;
+  const markReadPending = markReadMutation.isPending;
+
+  useEffect(() => {
+    if (!topicId || !query.data || markReadPending) return;
+    if (markedReadTopicIdRef.current === topicId) return;
+    markedReadTopicIdRef.current = topicId;
+    markRead();
+  }, [topicId, query.data?.id, markRead, markReadPending]);
 
   const commentMutation = useMutation({
     mutationFn: () => createTopicComment(topicId!, { body: reply.trim() }),

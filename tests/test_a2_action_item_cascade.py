@@ -88,7 +88,11 @@ def _run_experiment_to_done(
     completed = client.post(
         f"/api/v1/experiments/{exp_id}/complete",
         headers=headers,
-        json={"summary": "实验完成", "content_md": "## 结果\ncascade 准备就绪"},
+        json={
+            "summary": "实验完成",
+            "content_md": "## 结果\ncascade 准备就绪",
+            "metadata": {"pytest_summary": "unit passed"},
+        },
     )
     assert completed.status_code == 200
     accepted = client.post(
@@ -148,7 +152,11 @@ def test_a2_2_atomic_rollback_on_audit_failure(
     completed = client.post(
         f"/api/v1/experiments/{exp_id}/complete",
         headers=auth_headers,
-        json={"summary": "实验完成", "content_md": "result"},
+        json={
+            "summary": "实验完成",
+            "content_md": "result",
+            "metadata": {"pytest_summary": "unit passed"},
+        },
     )
     assert completed.status_code == 200
     assert completed.json()["phase"] == "result_review"

@@ -92,6 +92,15 @@ map --persona participant topic comment \
   --parent <comment-uuid>   # 回复 thread 时设置
 ```
 
+长评论建议先写入文件：
+
+```bash
+map --persona participant topic comment \
+  --id <topic-uuid> \
+  --file ./comment.md \
+  --parent <comment-uuid>
+```
+
 ## @提及
 
 `@` 必须使用 `map persona list` 中的 **`agent_name` 全名**（如 `@multi-agents-platform-host`），不要写 `@host` / `@reviewer` 等 persona 短名。

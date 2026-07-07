@@ -23,6 +23,7 @@ from map_types import (
     ExperimentCreate,
     ExperimentDetailRead,
     ExperimentLockRead,
+    ExperimentLockStalledScanRead,
     ExperimentLogCreate,
     ExperimentLogRead,
     ExperimentPhase,
@@ -497,6 +498,10 @@ class MAPClient:
             json={"next_attempt_at": next_attempt_at},
         )
         return ExperimentLockRead.model_validate(data)
+
+    def scan_stalled_experiment_locks(self) -> ExperimentLockStalledScanRead:
+        data = self._json("POST", "/experiments/lock/scan-stalled")
+        return ExperimentLockStalledScanRead.model_validate(data)
 
     # --- plans ---
 

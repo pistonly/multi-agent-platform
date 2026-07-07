@@ -91,6 +91,34 @@ def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
     assert experiments[0]["id"] == experiment["id"]
 
 
+def test_cli_experiment_status_outputs_acceptance_status(runner, patched_cli, tmp_path: Path):
+    plan_file = tmp_path / "plan.md"
+    plan_file.write_text(
+        "- [acceptance_type: integration] map experiment status shows acceptance",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "create",
+            "--title",
+            "CLI acceptance",
+            "--plan-file",
+            str(plan_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    experiment = yaml.safe_load(result.output)
+
+    result = runner.invoke(app, ["experiment", "status", "--id", experiment["id"]])
+
+    assert result.exit_code == 0, result.output
+    detail = yaml.safe_load(result.output)
+    assert detail["acceptance_status"][0]["acceptance_type"] == "integration"
+    assert detail["acceptance_status"][0]["description"] == "map experiment status shows acceptance"
+
+
 def test_cli_complete_submits_result_review(runner, patched_cli, project, reviewer, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
     plan_file.write_text("## CLI plan", encoding="utf-8")
@@ -123,9 +151,25 @@ def test_cli_complete_submits_result_review(runner, patched_cli, project, review
 
     log_file = tmp_path / "result.md"
     log_file.write_text("结果内容", encoding="utf-8")
+    metadata_file = tmp_path / "evidence.yaml"
+    metadata_file.write_text(
+        yaml.safe_dump({"pytest_summary": "1 passed"}, allow_unicode=True),
+        encoding="utf-8",
+    )
     result = runner.invoke(
         app,
-        ["experiment", "complete", "--id", exp_id, "--summary", "提交结果", "--file", str(log_file)],
+        [
+            "experiment",
+            "complete",
+            "--id",
+            exp_id,
+            "--summary",
+            "提交结果",
+            "--file",
+            str(log_file),
+            "--metadata",
+            str(metadata_file),
+        ],
     )
     assert result.exit_code == 0, result.output
     assert yaml.safe_load(result.output)["phase"] == "result_review"
@@ -136,7 +180,118 @@ def test_cli_complete_submits_result_review(runner, patched_cli, project, review
     assert logs[-1]["summary"] == "提交结果"
 
 
-def test_cli_topic_flow(runner, patched_cli, project):
+def test_cli_complete_requires_metadata_evidence(runner, patched_cli, tmp_path: Path):
+    log_file = tmp_path / "result.md"
+    log_file.write_text("结果内容", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "complete",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--summary",
+            "提交结果",
+            "--file",
+            str(log_file),
+        ],
+    )
+    assert result.exit_code == 2
+    assert "requires --metadata with deployment/test evidence" in result.output
+
+
+def test_cli_topic_mark_seen_alias_advances_read_cursor(
+    runner, patched_cli, client, auth_headers, reviewer, project
+):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "mark-seen alias", "description": "d"},
+    ).json()
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer["headers"],
+        json={"body": "reviewer update"},
+    )
+
+    result = runner.invoke(app, ["topic", "mark-seen", "--id", topic["id"]])
+
+    assert result.exit_code == 0, result.output
+    cursor = yaml.safe_load(result.output)
+    assert cursor["topic_id"] == topic["id"]
+    assert cursor["last_read_comment_seq"] >= 1
+
+
+def test_cli_pre_complete_validates_metadata_before_api_call(runner, patched_cli, tmp_path: Path):
+    metadata_file = tmp_path / "evidence.yaml"
+    metadata_file.write_text("note: no evidence\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "pre-complete",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--metadata",
+            str(metadata_file),
+        ],
+    )
+    assert result.exit_code == 2
+    assert "missing completion evidence metadata" in result.output
+
+
+def test_cli_pre_complete_outputs_jsonable_phase(
+    runner, patched_cli, project, reviewer, tmp_path: Path
+):
+    plan_file = tmp_path / "plan.md"
+    plan_file.write_text("## plan", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "create",
+            "--title",
+            "pre-complete enum",
+            "--plan-file",
+            str(plan_file),
+            "--submit-for-review",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    exp_id = yaml.safe_load(result.output)["id"]
+
+    creator_client = cli_main.MAPClient.from_env(transport=cli_main._transport)
+    reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
+    reviewer_client = cli_main.MAPClient("http://test", reviewer_token, transport=cli_main._transport)
+    try:
+        reviewer_client.create_review(exp_id, cli_main.ReviewCreate(reasonable_items=["OK"]))
+        creator_client.approve_experiment(exp_id)
+        creator_client.start_experiment(exp_id)
+    finally:
+        creator_client.close()
+        reviewer_client.close()
+
+    metadata_file = tmp_path / "evidence.yaml"
+    metadata_file.write_text("pytest_summary: 1 passed\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "pre-complete",
+            "--id",
+            exp_id,
+            "--metadata",
+            str(metadata_file),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = yaml.safe_load(result.output)
+    assert payload["phase"] == "running"
+    assert payload["ok"] is True
+
+
+def test_cli_topic_flow(runner, patched_cli, project, tmp_path: Path):
     result = runner.invoke(app, ["topic", "create", "--title", "CLI话题", "--description", "desc"])
     assert result.exit_code == 0, result.output
     topic = yaml.safe_load(result.output)
@@ -146,10 +301,15 @@ def test_cli_topic_flow(runner, patched_cli, project):
     result = runner.invoke(app, ["topic", "comment", "--id", topic_id, "--body", "评论"])
     assert result.exit_code == 0, result.output
 
+    comment_file = tmp_path / "comment.md"
+    comment_file.write_text("文件评论", encoding="utf-8")
+    result = runner.invoke(app, ["topic", "comment", "--id", topic_id, "--file", str(comment_file)])
+    assert result.exit_code == 0, result.output
+
     result = runner.invoke(app, ["topic", "show", "--id", topic_id])
     assert result.exit_code == 0, result.output
     detail = yaml.safe_load(result.output)
-    assert detail["comment_count"] == 1
+    assert detail["comment_count"] == 2
     assert detail["discussion_round"] == "round1"
 
     result = runner.invoke(app, ["topic", "advance-round", "--id", topic_id])

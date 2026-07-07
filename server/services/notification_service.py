@@ -1,11 +1,11 @@
 import uuid
 from datetime import UTC, datetime
 
-from map_types.enums import NotificationCategory, NotificationFingerprintVersion
+from map_types.enums import ExperimentPhase, NotificationCategory, NotificationFingerprintVersion
 from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
-from server.domain.models import Agent, AgentRole, Notification, TopicActionItem
+from server.domain.models import Agent, AgentRole, Experiment, ExperimentLog, Notification, TopicActionItem
 from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
 
@@ -34,6 +34,7 @@ PERSONA_AGENT_NAMES: dict[str, str] = {
 WAKEABLE_NOTIFICATION_EVENTS: set[str] = {
     "experiment.lifecycle.withdrawn",
     "experiment.lifecycle.cancelled",
+    "experiment.lock.no_progress",
     "review_item.status_changed",
     "system.runtime_attention",
     "topic.lifecycle.closed",
@@ -812,3 +813,125 @@ def notify_admin_action_item_stale(
         wakeable=True,
         exclude_actor=False,
     )
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+def _latest_experiment_log_at(db: Session, experiment_id: uuid.UUID) -> datetime | None:
+    return db.scalar(
+        select(func.max(ExperimentLog.created_at)).where(ExperimentLog.experiment_id == experiment_id)
+    )
+
+
+def _project_agent_ids(db: Session, project_id: uuid.UUID, *, exclude: set[uuid.UUID]) -> list[uuid.UUID]:
+    rows = db.scalars(
+        select(Agent.id).where(
+            Agent.project_id == project_id,
+            Agent.id.notin_(exclude) if exclude else True,
+        )
+    ).all()
+    return list(rows)
+
+
+def notify_stalled_experiment_locks(
+    db: Session,
+    *,
+    project_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+    progress_threshold: float = 0.5,
+    wake_threshold: float = 0.8,
+    commit: bool = True,
+) -> list[uuid.UUID]:
+    """Notify when a running experiment holds the execution lock without progress.
+
+    D experiment slice:
+    - holder/host gets a wakeable notification once the lock has consumed at
+      least ``wake_threshold`` of its TTL without a new execution log.
+    - project members get a digest notification once the lock has consumed at
+      least ``progress_threshold`` of its TTL without a new execution log.
+
+    Notification grouping keeps repeated scans from creating many rows; wakeable
+    upserts still bump ``wake_version`` so waker fingerprints can advance.
+    """
+    reference = now or datetime.now(UTC)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    emitted: list[uuid.UUID] = []
+    filters = [
+        Experiment.phase == ExperimentPhase.running,
+        Experiment.lock_holder_experiment_id.is_not(None),
+        Experiment.lock_acquired_at.is_not(None),
+    ]
+    if project_id is not None:
+        filters.append(Experiment.project_id == project_id)
+    experiments = db.scalars(select(Experiment).where(*filters)).all()
+    for experiment in experiments:
+        acquired_at = _aware(experiment.lock_acquired_at)
+        if acquired_at is None:
+            continue
+        ttl_seconds = int(experiment.lock_ttl_seconds or 0)
+        if ttl_seconds <= 0:
+            continue
+        elapsed = max(0.0, (reference - acquired_at).total_seconds())
+        ratio = elapsed / ttl_seconds
+        if ratio < progress_threshold:
+            continue
+        last_log_at = _aware(_latest_experiment_log_at(db, experiment.id))
+        if last_log_at is not None and last_log_at > acquired_at:
+            continue
+        payload: dict[str, object] = {
+            "experiment_id": str(experiment.id),
+            "lock_holder_experiment_id": str(experiment.lock_holder_experiment_id),
+            "lock_acquired_at": acquired_at.isoformat(),
+            "lock_ttl_seconds": ttl_seconds,
+            "elapsed_seconds": int(elapsed),
+            "threshold_ratio": ratio,
+            "last_log_at": last_log_at.isoformat() if last_log_at else None,
+        }
+        summary = f"实验锁长时间无进展：{experiment.title}"
+        holder_ids = [experiment.creator_agent_id]
+        if ratio >= wake_threshold:
+            emitted.extend(
+                enqueue_for_agents(
+                    db,
+                    recipient_agent_ids=holder_ids,
+                    project_id=experiment.project_id,
+                    actor_id=experiment.creator_agent_id,
+                    event="experiment.lock.no_progress",
+                    summary=summary,
+                    target_type="experiment",
+                    target_id=experiment.id,
+                    payload=payload,
+                    wakeable=True,
+                    exclude_actor=False,
+                    commit=False,
+                )
+            )
+        digest_recipients = _project_agent_ids(db, experiment.project_id, exclude=set(holder_ids))
+        emitted.extend(
+            enqueue_for_agents(
+                db,
+                recipient_agent_ids=digest_recipients,
+                project_id=experiment.project_id,
+                actor_id=experiment.creator_agent_id,
+                event="experiment.lock.no_progress",
+                summary=summary,
+                target_type="experiment",
+                target_id=experiment.id,
+                payload=payload,
+                wakeable=False,
+                exclude_actor=False,
+                commit=False,
+            )
+        )
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    return emitted

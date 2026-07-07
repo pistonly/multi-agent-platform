@@ -8,6 +8,7 @@ from server.domain.models import (
     AgentRole,
     ExperimentPhase,
     PlanVersion,
+    Review,
     ReviewItem,
     ReviewItemKind,
     ReviewItemStatus,
@@ -40,6 +41,26 @@ def get_plan_version(db: Session, experiment_id: uuid.UUID, version: int) -> Pla
     return plan
 
 
+def _count_unclosed_unreasonable_items(db: Session, experiment_id: uuid.UUID) -> int:
+    stmt = (
+        select(ReviewItem)
+        .join(Review)
+        .where(
+            Review.experiment_id == experiment_id,
+            ReviewItem.kind == ReviewItemKind.unreasonable,
+            ReviewItem.status.in_(
+                (
+                    ReviewItemStatus.open,
+                    ReviewItemStatus.addressed,
+                    ReviewItemStatus.rebutted,
+                    ReviewItemStatus.escalated,
+                )
+            ),
+        )
+    )
+    return len(list(db.scalars(stmt)))
+
+
 def revise_plan(
     db: Session,
     experiment_id: uuid.UUID,
@@ -57,6 +78,20 @@ def revise_plan(
         raise StateTransitionError(
             "Plan can only be revised in draft, review, or running phase"
         )
+
+    if not payload.addressed_item_ids and experiment.current_plan_version > 0:
+        current_plan = db.scalar(
+            select(PlanVersion).where(
+                PlanVersion.experiment_id == experiment.id,
+                PlanVersion.version == experiment.current_plan_version,
+            )
+        )
+        if (
+            current_plan is not None
+            and current_plan.content_md == payload.content_md
+            and _count_unclosed_unreasonable_items(db, experiment.id) == 0
+        ):
+            return current_plan
 
     new_version = experiment.current_plan_version + 1
     plan = PlanVersion(

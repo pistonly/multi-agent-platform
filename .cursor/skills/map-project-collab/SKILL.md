@@ -48,6 +48,21 @@ waker 守护进程：`./scripts/start-all-wakers.sh`（详见 [MAP-RUNTIME-WAKER
 
 全局选项：`--project-root <path>` 指定含 `.map/` 的仓库根（默认从 cwd 向上查找）。
 
+## 快速入口（每次协作）
+
+```bash
+map --persona <name> persona whoami
+map --persona <name> work --notification-category wakeable
+```
+
+处理顺序：
+
+1. 先处理 `work.topic_progress.items[].work_items` 与 `todos` 里的 obligation 分区。
+2. contextual 清单只用于了解上下文；没有明确动作时不要硬推进。
+3. 写 MAP 前再次确认 persona，写 MAP 只用 `map --persona <name> ...`。
+4. 收尾再跑一次 `map --persona <name> work --notification-category wakeable`。
+5. 若剩余项无法处理，在回复或实验日志中写明 blocker；不要凭记忆判断“无事可做”。
+
 ## 首次 Bootstrap
 
 前置：MAP API 已运行；admin token 在 `MAP_ADMIN_TOKEN` 或 `~/.map/admin.yaml`：
@@ -171,6 +186,11 @@ map --persona host project decisions --project-key <key>
 map --persona participant topic comment \
   --id <topic-uuid> \
   --body "评论内容（Markdown）"
+
+# 长评论建议用文件，避免 shell quoting 问题
+map --persona participant topic comment \
+  --id <topic-uuid> \
+  --file ./comment.md
 ```
 
 回复楼中楼：加 `--parent <comment-uuid>`
@@ -198,7 +218,8 @@ map experiment create \
 map experiment submit-review --id <exp-uuid>
 map experiment approve --id <exp-uuid>
 map experiment start --id <exp-uuid>
-map experiment complete --id <exp-uuid> --summary "..." --file ./log.md   # running -> result_review
+map experiment pre-complete --id <exp-uuid> --metadata ./evidence.yaml
+map experiment complete --id <exp-uuid> --summary "..." --file ./log.md --metadata ./evidence.yaml   # running -> result_review
 map experiment logs --id <exp-uuid>
 map experiment accept-result --id <exp-uuid> --summary "..." --file ./review.md
 map experiment reject-result --id <exp-uuid> --summary "..." --file ./review.md
@@ -257,6 +278,18 @@ map todos
 | `mentions` | @提及（须用 `map persona list` 的 **agent_name** 全名） |
 | `action_items` | 分配给当前 Agent 的 open 行动项（来自 `topic resolve`） |
 | `pending_round_acks` | **participant/reviewer**；host 发 Round Summary 后待 `--ack accept/reject/dismiss` |
+
+语义提醒：
+
+- `pending_*`、`mentions`、`action_items`、`my_open_experiments` 且 `actions` 非空，通常是 obligation。
+- `my_open_topics` 常是 contextual；没有新评论、无 `pending_topic_replies` / `pending_advance_rounds` 时，通常等待他人发言或 `topic dismiss`，不要自说自话。
+- `phase=result_review`、`actions=[]`、`blocked_on=awaiting_result_approval` 表示等待 reviewer；host 不自审、不继续执行。
+
+查看 mention 清单：
+
+```bash
+map --persona participant mention list
+```
 
 @ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。
 

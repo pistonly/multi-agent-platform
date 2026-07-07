@@ -121,18 +121,23 @@ export MAP_TOKEN=<your-token>
 map project list
 map status
 map experiment start --id <exp-id>
-map experiment complete --id <exp-id> --summary "提交结果" --file log.md   # running -> result_review
+map experiment status --id <exp-id>            # 含 acceptance_status
+map experiment pre-complete --id <exp-id> --metadata evidence.yaml
+map experiment complete --id <exp-id> --summary "提交结果" --file log.md --metadata evidence.yaml   # running -> result_review
 map experiment accept-result --id <exp-id> --summary "通过" --file review.md
 map experiment reject-result --id <exp-id> --summary "驳回" --file review.md
 map topic resolve --id <topic-id> --file decision.md
 map topic archive --id <topic-id>               # v0.7 P3：归档（薄包装 PATCH）
 map topic archive --id <topic-id> --undo       # 反归档（--unarchive 同义）
 map experiment archive --id <exp-id>           # 归档实验
+map topic comment --id <topic-id> --file comment.md
+map topic mark-seen --id <topic-id>            # 清 contextual unread，不清 reply/ack/mention
 map project decisions
 map action list --mine
 map notification list --unread-only
 map notification read --id <notification-id>
 map notification read-all
+map --persona participant mention list
 map --persona participant mention dismiss --id <mention-id>
 map --persona participant mention dismiss-all
 
@@ -140,6 +145,14 @@ map --persona participant mention dismiss-all
 cd web && npm install && npm run dev   # http://localhost:5173
 # 开发模式通过 Vite 代理访问 API；先在设置页填入 API Token
 ```
+
+实验计划可在验收列表项行首标记类型，例如
+`- [acceptance_type: unit_test] pytest 覆盖解析`。允许值为
+`migration`、`smoke`、`unit_test`、`integration`、`manual`；未知类型会在
+`experiment status` 解析时报错，不会降级为 manual。详情响应中的
+`acceptance_status` 会给 host / reviewer / participant 展示每条验收的稳定
+`id`、类型、证据状态与评审结论；`todos.experiment_review_informational`
+只是跨 persona 可见性提示，不是待办 obligation。
 
 ## 多项目协作（Skill + `.map/`，推荐）
 

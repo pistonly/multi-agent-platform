@@ -19,6 +19,7 @@ from server.domain.schemas import (
     ExperimentCreate,
     ExperimentDetailRead,
     ExperimentLockRead,
+    ExperimentLockStalledScanRead,
     ExperimentLogCreate,
     ExperimentLogRead,
     ExperimentResultDecision,
@@ -42,7 +43,10 @@ from server.services import (
 )
 from server.services import permissions as perm
 from server.services import project_service as svc
+from server.services.errors import ForbiddenError
 from server.services.experiment_capabilities_service import experiment_summary_for_actor
+
+HOST_AGENT_NAME = "multi-agents-platform-host"
 
 
 def _summary_for_agent(db: Session, experiment, agent: Agent, **extra) -> ExperimentSummaryRead:
@@ -286,18 +290,20 @@ def revise_plan(
     agent: Agent = Depends(get_current_agent),
 ) -> PlanVersionRead:
     experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    previous_version = experiment.current_plan_version
     plan = plan_service.revise_plan(db, experiment_id, agent, payload)
-    emit(
-        db,
-        agent,
-        action="plan.revised",
-        target_type="plan_version",
-        target_id=plan.id,
-        project_id=experiment.project_id,
-        summary=f"修订计划 v{plan.version}",
-        event="plan.revised",
-        event_payload={"experiment_id": str(experiment_id), "version": plan.version},
-    )
+    if plan.version != previous_version:
+        emit(
+            db,
+            agent,
+            action="plan.revised",
+            target_type="plan_version",
+            target_id=plan.id,
+            project_id=experiment.project_id,
+            summary=f"修订计划 v{plan.version}",
+            event="plan.revised",
+            event_payload={"experiment_id": str(experiment_id), "version": plan.version},
+        )
     return PlanVersionRead.model_validate(plan)
 
 
@@ -650,3 +656,23 @@ def record_experiment_lock_skip_endpoint(
         next_attempt_at=payload.next_attempt_at,
     )
     return ExperimentLockRead.model_validate(result)
+
+
+@experiments_router.post(
+    "/experiments/lock/scan-stalled",
+    response_model=ExperimentLockStalledScanRead,
+)
+def scan_stalled_experiment_locks_endpoint(
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> ExperimentLockStalledScanRead:
+    if not (perm.is_admin(agent) or agent.name == HOST_AGENT_NAME):
+        raise ForbiddenError("Only host or admin can scan stalled experiment locks")
+    notification_ids = notification_service.notify_stalled_experiment_locks(
+        db,
+        project_id=None if perm.is_admin(agent) else agent.project_id,
+    )
+    return ExperimentLockStalledScanRead(
+        notification_ids=notification_ids,
+        emitted_count=len(notification_ids),
+    )

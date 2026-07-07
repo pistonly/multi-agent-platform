@@ -125,6 +125,7 @@ class SimpleWakerStats:
     # 单次 cycle 因瞬时错误（API 5xx / 子进程失败 / 身份解析失败）而未能完成。
     # 长驻 waker 兜底跳过该 cycle 并在下一周期重试，此计数仅用于可观测性。
     cycle_errors: int = 0
+    stalled_lock_notifications: int = 0
 
     def add(self, other: SimpleWakerStats) -> None:
         self.cycles += other.cycles
@@ -143,6 +144,7 @@ class SimpleWakerStats:
         self.action_items_skip += other.action_items_skip
         self.action_items_errors += other.action_items_errors
         self.cycle_errors += other.cycle_errors
+        self.stalled_lock_notifications += other.stalled_lock_notifications
 
 
 def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntry, ...]:
@@ -439,6 +441,7 @@ class SimpleWaker:
     async def _run_once_async(self) -> tuple[SimpleWakerStats, float]:
         self._ensure_identity()
         stats = SimpleWakerStats(cycles=1)
+        self._scan_stalled_experiment_locks(stats)
         work = self.client.work() or {}
         topic_progress_data = work.get("topic_progress") or {}
         todos = work.get("todos") or {}
@@ -515,6 +518,20 @@ class SimpleWaker:
             self._inflight = False
             self._save_state_if_needed(force=True)
         return stats, next_sleep_seconds(context, self.config)
+
+    def _scan_stalled_experiment_locks(self, stats: SimpleWakerStats) -> None:
+        """Ask the platform to materialize stalled-lock notifications before polling work."""
+        scan_fn = getattr(self.client, "experiment_scan_stalled_locks", None)
+        if scan_fn is None or self.config.dry_run:
+            return
+        try:
+            result = scan_fn() or {}
+        except WorkerError as exc:
+            stats.cycle_errors += 1
+            typer.echo(f"[simple-waker:stalled-lock-scan] {exc}", err=True)
+            return
+        if isinstance(result, dict):
+            stats.stalled_lock_notifications += int(result.get("emitted_count") or 0)
 
     def _record_remind_inbound_event(
         self,

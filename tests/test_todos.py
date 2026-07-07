@@ -99,7 +99,11 @@ def test_pending_result_reviews(client, auth_headers, reviewer, project):
     client.post(
         f"/api/v1/experiments/{exp_id}/complete",
         headers=auth_headers,
-        json={"summary": "提交结果", "content_md": "结果内容"},
+        json={
+            "summary": "提交结果",
+            "content_md": "结果内容",
+            "metadata": {"pytest_summary": "unit passed"},
+        },
     )
 
     creator_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()

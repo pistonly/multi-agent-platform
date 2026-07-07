@@ -350,6 +350,8 @@ export function ExperimentPage() {
         )}
       </section>
 
+      <AcceptanceStatusPanel statuses={experiment.acceptance_status ?? []} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div ref={planPanelRef}>
           <PlanPanel
@@ -426,5 +428,56 @@ export function ExperimentPage() {
         />
       </section>
     </div>
+  );
+}
+
+function AcceptanceStatusPanel({
+  statuses,
+}: {
+  statuses: {
+    id: string;
+    description: string;
+    acceptance_type: string;
+    evidence_provided?: boolean;
+    reviewer_verdict?: string | null;
+  }[];
+}) {
+  if (statuses.length === 0) return null;
+  return (
+    <section className="card">
+      <h2 className="mb-3 text-lg font-semibold text-white">验收状态</h2>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="text-xs uppercase text-slate-500">
+            <tr>
+              <th className="pb-2 pr-4">类型</th>
+              <th className="pb-2 pr-4">验收项</th>
+              <th className="pb-2 pr-4">证据</th>
+              <th className="pb-2">评审结论</th>
+            </tr>
+          </thead>
+          <tbody>
+            {statuses.map((item) => (
+              <tr key={item.id} className="border-t border-surface-border">
+                <td className="py-2 pr-4 font-mono text-xs text-slate-300">{item.acceptance_type}</td>
+                <td className="py-2 pr-4 text-slate-200">{item.description}</td>
+                <td className="py-2 pr-4">
+                  <span
+                    className={`badge ${
+                      item.evidence_provided
+                        ? "bg-emerald-900/40 text-emerald-200"
+                        : "bg-slate-800 text-slate-300"
+                    }`}
+                  >
+                    {item.evidence_provided ? "已提供" : "未提供"}
+                  </span>
+                </td>
+                <td className="py-2 text-slate-300">{item.reviewer_verdict ?? "待评审"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

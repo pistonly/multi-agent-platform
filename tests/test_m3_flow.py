@@ -55,7 +55,7 @@ def test_start_complete_result_review_accept_flow(client, auth_headers, reviewer
         json={
             "summary": "实验完成",
             "content_md": "## 结果\n基线噪声 0.02",
-            "metadata": {"metric": 0.02},
+            "metadata": {"metric": 0.02, "pytest_summary": "unit passed"},
         },
     )
     assert completed.status_code == 200
@@ -103,7 +103,11 @@ def test_reject_result_returns_to_running(client, auth_headers, reviewer, approv
     submitted = client.post(
         f"/api/v1/experiments/{exp_id}/complete",
         headers=auth_headers,
-        json={"summary": "实验完成", "content_md": "结果需要检查"},
+        json={
+            "summary": "实验完成",
+            "content_md": "结果需要检查",
+            "metadata": {"pytest_summary": "unit passed"},
+        },
     )
     assert submitted.status_code == 200
     assert submitted.json()["phase"] == "result_review"
@@ -118,6 +122,19 @@ def test_reject_result_returns_to_running(client, auth_headers, reviewer, approv
 
     logs = client.get(f"/api/v1/experiments/{exp_id}/logs", headers=auth_headers)
     assert [log["summary"] for log in logs.json()][-1] == "结果驳回"
+
+
+def test_complete_requires_evidence_metadata(client, auth_headers, approved_experiment):
+    exp_id = approved_experiment["experiment_id"]
+    client.post(f"/api/v1/experiments/{exp_id}/start", headers=auth_headers)
+
+    response = client.post(
+        f"/api/v1/experiments/{exp_id}/complete",
+        headers=auth_headers,
+        json={"summary": "实验完成", "content_md": "缺少证据"},
+    )
+    assert response.status_code == 422
+    assert "requires deployment/test evidence metadata" in response.json()["detail"]
 
 
 def test_cannot_log_before_running(client, auth_headers, approved_experiment):

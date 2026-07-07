@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from map_types.enums import (
+    AcceptanceType,
     ActionItemCategory,
     AgentRole,
     CommentAnchorType,
@@ -228,10 +229,19 @@ class ExperimentSummaryRead(ORMModel):
     legacy_self_review: bool = False
 
 
+class AcceptanceStatusRead(BaseModel):
+    id: str
+    description: str
+    acceptance_type: AcceptanceType
+    evidence_provided: bool = False
+    reviewer_verdict: str | None = None
+
+
 class ExperimentDetailRead(ExperimentSummaryRead):
     current_plan: PlanVersionRead | None = None
     plan_version_count: int = 0
     review_count: int = 0
+    acceptance_status: list[AcceptanceStatusRead] = Field(default_factory=list)
 
 
 class ExperimentLockRead(ORMModel):
@@ -249,6 +259,11 @@ class ExperimentLockRead(ORMModel):
     ttl_seconds: int | None = None
     next_attempt_at: datetime | None = None
     skip_count: int = 0
+
+
+class ExperimentLockStalledScanRead(BaseModel):
+    notification_ids: list[uuid.UUID]
+    emitted_count: int
 
 
 # --- Log ---

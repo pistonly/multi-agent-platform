@@ -431,7 +431,11 @@ def test_migrate_closed_topic_action_item_cascade_backlog(
     client.post(
         f"/api/v1/experiments/{exp['id']}/complete",
         headers=auth_headers,
-        json={"summary": "done", "content_md": "ok"},
+        json={
+            "summary": "done",
+            "content_md": "ok",
+            "metadata": {"pytest_summary": "unit passed"},
+        },
     )
     client.post(
         f"/api/v1/experiments/{exp['id']}/accept-result",

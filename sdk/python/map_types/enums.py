@@ -16,6 +16,14 @@ class ExperimentPhase(str, enum.Enum):
     cancelled = "cancelled"
 
 
+class AcceptanceType(str, enum.Enum):
+    migration = "migration"
+    smoke = "smoke"
+    unit_test = "unit_test"
+    integration = "integration"
+    manual = "manual"
+
+
 class ReviewItemKind(str, enum.Enum):
     reasonable = "reasonable"
     unreasonable = "unreasonable"

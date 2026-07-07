@@ -41,6 +41,11 @@ map --persona host experiment create --title "..." --plan-file ./plan.md --topic
 
 # participant 视角：评论 / 决策
 map --persona participant topic comment --id <uuid> --body "..."
+map --persona participant topic comment --id <uuid> --file ./comment.md
+
+# 主动清理 contextual unread；不清 reply / ack / mention 等 obligation
+map --persona participant topic read --id <uuid>
+map --persona participant topic mark-seen --id <uuid>   # read 的别名
 ```
 
 ## 归档子命令（v0.7 P3）
@@ -100,9 +105,37 @@ map --persona host experiment archive --id <exp-uuid> --undo
 | `map topic list` | 列出话题（默认排除已归档；`--include-archived` 包含） |
 | `map topic show --id <uuid>` | 显示话题详情（含归档对象） |
 | `map topic close --id <uuid>` / `topic reopen` | 关闭 / 重开话题 |
+| `map topic read --id <uuid>` / `topic mark-seen` | 推进当前 persona 的话题已读 cursor，只清 contextual unread；reply / ack / mention obligation 仍需用对应动作处理 |
 | `map experiment list` / `experiment show` | 实验列表 / 详情 |
+| `map experiment status --id <uuid>` | 实验详情，包含 `acceptance_status` 验收状态投影 |
 | `map experiment submit-review / approve / start / complete / accept-result / reject-result` | 实验生命周期与结果审批 |
 | `map experiment logs --id <uuid>` | 列出实验日志 |
+| `map experiment lock scan-stalled` | 扫描 running 实验锁无进展状态并生成分层通知（host/holder wakeable，其他成员 digest） |
 | `map notification list / read / read-all` | 站内通知 |
+| `map mention list / dismiss / dismiss-all` | 查看或清理 @mention 待办 |
+
+`map work` 的 CLI 默认展示 `notification_category=all`，方便人工看到与
+`map notification list --unread-only` 一致的未读统计；waker 使用
+`--notification-category wakeable`。因此 digest 通知只进入人工收件箱，不会
+单独触发 simple-waker remind。
+
+`map experiment complete` 默认要求 `--metadata` 携带至少一项部署/测试证据
+（例如 `pytest_summary`、`alembic_current`、`api_health`、`image_digest` 或
+`evidence`）。如确属非部署型实验，可显式加 `--allow-missing-evidence`。
+
+实验计划的验收项可写成 Markdown 列表项 marker：
+
+```markdown
+- [acceptance_type: unit_test] pytest 覆盖解析
+- [acceptance_type: manual] 人工确认 CLI 输出
+```
+
+允许类型：`migration`、`smoke`、`unit_test`、`integration`、`manual`。
+未知类型会让 `experiment status` 返回错误并提示允许值；普通段落中的示例
+marker 不会被当作验收项。`acceptance_status` 至少包含 `id`、
+`description`、`acceptance_type`、`evidence_provided`、`reviewer_verdict`。
+`todos.experiment_review_informational` 是状态可见性分区，不代表当前 persona
+有审批或执行义务；真正待办仍以 `pending_reviews`、`pending_result_reviews`
+和 `my_open_experiments` 为准。
 
 完整子命令列表请运行 `map --help`。

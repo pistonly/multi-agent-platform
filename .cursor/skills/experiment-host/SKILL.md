@@ -23,6 +23,20 @@ description: >-
 5. 实验须由本 host persona 创建，否则 approve/start/complete 会 403
 6. `complete` 只表示**提交结果待审批**（`running -> result_review`），不是最终完成；host 禁止自审结果
 
+## 快速入口
+
+```bash
+map --persona host persona whoami
+map --persona host work --notification-category wakeable
+map --persona host experiment status --id <exp-uuid>
+```
+
+判断顺序：
+
+1. `phase=running`：先 acquire lock，再改仓库、跑测试、写 log。
+2. `phase=result_review` 且 `actions=[]` / `blocked_on=awaiting_result_approval`：等待 reviewer，不继续执行、不 accept/reject。
+3. 收尾必须 release lock（若已 acquire），再刷新 `experiment status` 和 `work`。
+
 ## Git
 
 你是直接改仓库的 Agent（**用户未禁止时可自行 commit**；若用户要求不提交 git，只改文件并在 `experiment log` 中说明即可）：
@@ -100,8 +114,55 @@ map --persona host experiment log \
   --file ./path/to/log.md
 ```
 
-6. 若 plan 定义的**全部 acceptance** 已满足，调用 `map experiment complete` 提交最终结果日志，实验进入 `result_review`；否则结束本次 wake，等待下次 `experiment_lifecycle` wake 继续下一子项
+6. 若 plan 定义的**全部 acceptance** 已满足，先准备 evidence metadata（例如 `.map/generated-plans/experiment-<id>-evidence.yaml`，包含 `pytest_summary` / `alembic_current` / `api_health` / `image_digest` / `evidence` 等至少一项），执行 `map experiment pre-complete --metadata ...`，再调用 `map experiment complete --metadata ...` 提交最终结果日志，实验进入 `result_review`；否则结束本次 wake，等待下次 `experiment_lifecycle` wake 继续下一子项
 7. **`experiment lock release --id <id>`**（若步骤 0 已 acquire）
+
+```bash
+map --persona host experiment pre-complete \
+  --id <exp-uuid> \
+  --metadata ./path/to/evidence.yaml
+
+map --persona host experiment complete \
+  --id <exp-uuid> \
+  --summary "结果提交：…" \
+  --file ./path/to/log.md \
+  --metadata ./path/to/evidence.yaml
+```
+
+### running 收尾模板
+
+```bash
+map --persona host experiment pre-complete \
+  --id <exp-uuid> \
+  --metadata .map/generated-plans/experiment-<short-id>-evidence.yaml
+
+map --persona host experiment complete \
+  --id <exp-uuid> \
+  --summary "结果提交：..." \
+  --file .map/generated-plans/experiment-<short-id>-result.md \
+  --metadata .map/generated-plans/experiment-<short-id>-evidence.yaml
+
+map --persona host experiment lock release --id <exp-uuid>
+map --persona host experiment status --id <exp-uuid>
+map --persona host work --notification-category wakeable
+```
+
+失败时按阶段停下：
+
+- `pre-complete` 失败：修 metadata 或验证证据，不要 complete。
+- `complete` 失败：实验仍在 `running`，保留锁或释放前写明 blocker。
+- `release` 失败：先查 `experiment status` 的 lock 字段，必要时记录 blocker。
+- `status` 显示 `result_review`：host 工作结束，等待 reviewer 审批。
+
+## 常见错误处理
+
+| 现象 | 处理 |
+|------|------|
+| metadata 文件不存在 / YAML 读失败 | 先创建或修正 evidence 文件，再重跑 `pre-complete`；不要把 traceback 当作 MAP 已写入 |
+| `complete` 缺 evidence | metadata 至少包含 `pytest_summary`、`alembic_current`、`api_health`、`image_digest` 或 `evidence`；非部署型才显式 `--allow-missing-evidence` |
+| lock busy | 用 `experiment status` 看 holder；必要时 `lock skip --next-attempt-at <ISO8601>` 退避 |
+| `403` lifecycle | 核对实验是否由当前 host persona 创建；不要换 MCP/admin 代跑 |
+| `result_review` 仍出现在清单 | 这是等待 reviewer 的可见性，不是 host 可执行项 |
 
 结果审批命令由 reviewer 或 admin 执行：
 

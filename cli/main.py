@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ from server.domain.schemas import (
     ReviewCreate,
     TopicAdvanceRound,
     TopicResolve,
+)
+from server.services.phase_service import (
+    EVIDENCE_METADATA_KEYS,
+    metadata_has_completion_evidence,
 )
 
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
@@ -79,6 +84,8 @@ def _print_json(data: Any) -> None:
     def to_jsonable(value: Any) -> Any:
         if hasattr(value, "model_dump"):
             return value.model_dump(mode="json")
+        if isinstance(value, Enum):
+            return value.value
         if isinstance(value, list):
             return [to_jsonable(item) for item in value]
         if isinstance(value, tuple):
@@ -364,12 +371,17 @@ def map_todos() -> None:
 def map_work(
     notification_limit: int = typer.Option(50, "--notification-limit", min=1, max=200),
     notification_category: str = typer.Option(
-        "wakeable",
+        "all",
         "--notification-category",
-        help="wakeable (waker default), digest, or all",
+        help="all (human default), wakeable (waker view), or digest",
     ),
 ) -> None:
-    """Unified work snapshot: whoami + topic-progress + todos + unread notifications."""
+    """Unified work snapshot: whoami + topic-progress + todos + unread notifications.
+
+    CLI defaults to ``all`` so humans see the same unread count as
+    ``notification list --unread-only``. Wakers should pass
+    ``--notification-category wakeable`` explicitly.
+    """
 
     def action(c: MAPClient):
         return c.get_agent_work(
@@ -517,16 +529,85 @@ def experiment_start(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> No
     _run(lambda c: c.start_experiment(experiment_id))
 
 
+def _read_yaml_file(path: Path | None) -> Any:
+    if path is None:
+        return None
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _load_complete_metadata(path: Path | None, *, allow_missing_evidence: bool) -> dict | None:
+    metadata = _read_yaml_file(path)
+    if allow_missing_evidence:
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["allow_missing_evidence"] = True
+        return metadata
+    if not metadata_has_completion_evidence(metadata):
+        keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
+        typer.echo(
+            "Error: experiment complete now requires --metadata with deployment/test evidence "
+            f"(accepted keys include: {keys}). Use --allow-missing-evidence only for explicit exceptions.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    return metadata
+
+
+@experiment_app.command("pre-complete")
+def experiment_pre_complete(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    metadata_file: Path | None = typer.Option(
+        None,
+        "--metadata",
+        help="YAML evidence file with keys such as alembic_current, api_health, pytest_summary, image_digest.",
+    ),
+) -> None:
+    """Validate local completion evidence before `experiment complete`.
+
+    This is intentionally local and side-effect free: it checks that the
+    experiment exists and that the supplied metadata carries at least one
+    deploy/test evidence field.
+    """
+
+    metadata = _read_yaml_file(metadata_file)
+    if not metadata_has_completion_evidence(metadata):
+        keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
+        typer.echo(
+            "Error: missing completion evidence metadata. "
+            f"Accepted keys include: {keys}.",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    def _action(client: MAPClient):
+        exp = client.get_experiment(experiment_id)
+        return {
+            "experiment_id": str(exp.id),
+            "phase": exp.phase,
+            "current_plan_version": exp.current_plan_version,
+            "evidence_keys": sorted(str(key) for key in metadata) if isinstance(metadata, dict) else [],
+            "ok": True,
+        }
+
+    _run(_action)
+
+
 @experiment_app.command("complete")
 def experiment_complete(
     experiment_id: uuid.UUID = typer.Option(..., "--id"),
     summary: str = typer.Option(..., "--summary"),
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
+    allow_missing_evidence: bool = typer.Option(
+        False,
+        "--allow-missing-evidence",
+        help="Bypass metadata evidence check for non-deployment experiments.",
+    ),
 ) -> None:
-    metadata = None
-    if metadata_file:
-        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    metadata = _load_complete_metadata(
+        metadata_file,
+        allow_missing_evidence=allow_missing_evidence,
+    )
     payload = ExperimentComplete(
         summary=summary,
         content_md=log_file.read_text(encoding="utf-8"),
@@ -542,9 +623,7 @@ def experiment_accept_result(
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
 ) -> None:
-    metadata = None
-    if metadata_file:
-        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    metadata = _read_yaml_file(metadata_file)
     payload = ExperimentResultDecision(
         summary=summary,
         content_md=log_file.read_text(encoding="utf-8"),
@@ -560,9 +639,7 @@ def experiment_reject_result(
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
 ) -> None:
-    metadata = None
-    if metadata_file:
-        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    metadata = _read_yaml_file(metadata_file)
     payload = ExperimentResultDecision(
         summary=summary,
         content_md=log_file.read_text(encoding="utf-8"),
@@ -578,9 +655,7 @@ def experiment_log(
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
 ) -> None:
-    metadata = None
-    if metadata_file:
-        metadata = yaml.safe_load(metadata_file.read_text(encoding="utf-8"))
+    metadata = _read_yaml_file(metadata_file)
     payload = ExperimentLogCreate(
         summary=summary,
         content_md=log_file.read_text(encoding="utf-8"),
@@ -717,6 +792,13 @@ def experiment_lock_skip(
     next_attempt_at: str = typer.Option(..., "--next-attempt-at"),
 ) -> None:
     _run(lambda c: c.record_experiment_lock_skip(experiment_id, next_attempt_at=next_attempt_at))
+
+
+@lock_app.command("scan-stalled")
+def experiment_lock_scan_stalled() -> None:
+    """Scan running experiment locks and emit no-progress notifications."""
+
+    _run(lambda c: c.scan_stalled_experiment_locks())
 
 
 review_app = typer.Typer(help="Review commands")
@@ -923,6 +1005,12 @@ def mention_dismiss(
     _run(lambda c: c.dismiss_mention(mention_id))
 
 
+@mention_app.command("list")
+def mention_list() -> None:
+    """List open @mentions for the current persona."""
+    _run(lambda c: c.get_todos().mentions)
+
+
 @mention_app.command("dismiss-all")
 def mention_dismiss_all() -> None:
     """Dismiss all open @mentions for the current persona."""
@@ -1080,12 +1168,20 @@ def topic_advance_round(
 @topic_app.command("comment")
 def topic_comment(
     topic_id: uuid.UUID = typer.Option(..., "--id"),
-    body: str = typer.Option(..., "--body"),
+    body: str | None = typer.Option(None, "--body"),
+    body_file: Path | None = typer.Option(None, "--file"),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
 ) -> None:
     from server.domain.schemas import TopicCommentCreate
 
-    payload = TopicCommentCreate(body=body, parent_id=parent)
+    if body is None and body_file is None:
+        typer.echo("Error: either --body or --file is required", err=True)
+        raise typer.Exit(2)
+    if body is not None and body_file is not None:
+        typer.echo("Error: use only one of --body or --file", err=True)
+        raise typer.Exit(2)
+    content = body if body is not None else body_file.read_text(encoding="utf-8")
+    payload = TopicCommentCreate(body=content, parent_id=parent)
     _run(lambda c: c.create_topic_comment(topic_id, payload))
 
 
@@ -1107,7 +1203,13 @@ def topic_dismiss(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
 
 @topic_app.command("read")
 def topic_read(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    """Mark all comments in a topic as read (advances per-agent comment_seq cursor)."""
+    """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling."""
+    _run(lambda c: c.mark_topic_read(topic_id))
+
+
+@topic_app.command("mark-seen")
+def topic_mark_seen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+    """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations."""
     _run(lambda c: c.mark_topic_read(topic_id))
 
 

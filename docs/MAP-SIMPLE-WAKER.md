@@ -18,9 +18,22 @@ remind it writes an aggregated `inbound_event` audit row and advances the
 | State file | `.map/simple-waker-state-*.json` |
 | Audit | Aggregated `inbound_event` per remind (fingerprint=`simple-remind:{persona}:{ts}`) |
 | action_item escalation | Scans `todos.action_items` before remind: WAKE → `action mark-wake-sent`, STALE → `action mark-stale`, SKIP → skip |
+| experiment lock alert | Calls `map experiment lock scan-stalled` before polling work; stalled running locks materialize as wakeable notifications for holder/host and digest notifications for other project members |
 
 The waker does **not** write MAP, run experiments, or make business decisions.
 The resumed agent reads Skills and uses `map --persona <name>` CLI.
+
+### Experiment lock no-progress alerts
+
+`simple-waker` asks the platform to scan stalled running experiment locks before
+each `map work` poll. The platform owns the threshold and recipient policy:
+
+- holder/host receives `experiment.lock.no_progress` as `wakeable`, so
+  `map work --notification-category wakeable` can remind the responsible runtime.
+- participant/reviewer/project members receive the same event as `digest`, so
+  they can inspect it manually without being woken as an obligation.
+- released locks, experiments no longer in `running`, or locks with execution
+  logs after `lock_acquired_at` do not emit no-progress notifications.
 
 ### Topic progress (platform)
 

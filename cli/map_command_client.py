@@ -95,7 +95,7 @@ class MapCommandClient:
         return self._run(["todos"], retryable=True)
 
     def work(self) -> dict[str, Any]:
-        return self._run(["work"], retryable=True)
+        return self._run(["work", "--notification-category", "wakeable"], retryable=True)
 
     def topic_progress(self) -> dict[str, Any]:
         return self._run(["topic", "progress"], retryable=True)
@@ -235,18 +235,27 @@ class MapCommandClient:
         return self._run(["experiment", "start", "--id", experiment_id])
 
     def experiment_complete(self, experiment_id: str, *, summary: str, log_file: Path) -> dict[str, Any] | None:
-        return self._run(
-            [
-                "experiment",
-                "complete",
-                "--id",
-                experiment_id,
-                "--summary",
-                summary,
-                "--file",
-                str(log_file),
-            ]
-        )
+        metadata = {"evidence": {"worker_log": str(log_file)}}
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", encoding="utf-8", delete=False) as fh:
+            yaml.safe_dump(metadata, fh, allow_unicode=True, sort_keys=False)
+            metadata_file = Path(fh.name)
+        try:
+            return self._run(
+                [
+                    "experiment",
+                    "complete",
+                    "--id",
+                    experiment_id,
+                    "--summary",
+                    summary,
+                    "--file",
+                    str(log_file),
+                    "--metadata",
+                    str(metadata_file),
+                ]
+            )
+        finally:
+            metadata_file.unlink(missing_ok=True)
 
     # --- experiment execution lock (CP-3) -------------------------------------
 
@@ -296,6 +305,9 @@ class MapCommandClient:
                 next_attempt_at,
             ]
         )
+
+    def experiment_scan_stalled_locks(self) -> dict[str, Any] | None:
+        return self._run(["experiment", "lock", "scan-stalled"])
 
     # --- inbound event (D6 server gate) ------------------------------------
 
@@ -372,6 +384,7 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("topic", "resolve"),
     ("topic", "archive"),
     ("topic", "read"),
+    ("topic", "mark-seen"),
     # experiment
     ("experiment", "create"),
     ("experiment", "submit-review"),
@@ -417,6 +430,7 @@ _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {
     ("experiment", "lock", "release"),
     ("experiment", "lock", "force-release"),
     ("experiment", "lock", "skip"),
+    ("experiment", "lock", "scan-stalled"),
     # project Current Status MD 修订
     ("project", "status", "revise"),
 }

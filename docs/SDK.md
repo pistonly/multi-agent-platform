@@ -112,6 +112,18 @@ SDK 返回值使用 `server.domain.schemas` 中的 Pydantic 模型，与 API JSO
 
 请求体同样使用 schema 类：`ExperimentCreate`、`ReviewCreate`、`PlanRevise` 等。
 
+`ExperimentDetailRead.acceptance_status` 来自当前 plan 中的验收列表项 marker：
+
+```markdown
+- [acceptance_type: smoke] map experiment status shows acceptance
+```
+
+允许类型为 `migration`、`smoke`、`unit_test`、`integration`、`manual`。
+返回项包含稳定 `id`、`description`、`acceptance_type`、
+`evidence_provided` 与 `reviewer_verdict`；未知类型严格报错，避免绕过证据校验。
+`TodoRead.experiment_review_informational` 仅用于 host/participant 看到评审状态，
+不是 obligation 分区。
+
 ## 错误处理
 
 ```python

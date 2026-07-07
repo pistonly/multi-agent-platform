@@ -60,6 +60,28 @@ def test_mention_dismiss_cli(client, auth_headers, reviewer, project, monkeypatc
     assert todos["mentions"] == []
 
 
+def test_mention_list_cli(client, auth_headers, reviewer, project, monkeypatch):
+    reviewer_headers = reviewer["headers"]
+    token = reviewer_headers["Authorization"].removeprefix("Bearer ")
+    mention_id = _create_mention_for_reviewer(client, auth_headers, reviewer_headers, project)
+
+    monkeypatch.setenv("MAP_TOKEN", token)
+    monkeypatch.setenv("MAP_API_URL", "http://test")
+    monkeypatch.setattr(cli_main, "_transport", MAPTestClientTransport(client))
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(project_config, "find_map_dir", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "map_client.config.load_config",
+        lambda *args, **kwargs: {"api_url": "http://test", "token": token, "project_key": None},
+    )
+
+    result = CliRunner().invoke(app, ["mention", "list"])
+    assert result.exit_code == 0, result.output
+    payload = yaml.safe_load(result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["id"] == mention_id
+
+
 def test_mention_dismiss_all_cli(client, auth_headers, reviewer, project, monkeypatch):
     reviewer_headers = reviewer["headers"]
     token = reviewer_headers["Authorization"].removeprefix("Bearer ")

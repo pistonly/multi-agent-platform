@@ -1,0 +1,103 @@
+// @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { TopicRead } from "../api/types";
+import { TopicPage } from "./TopicPage";
+
+const mocks = vi.hoisted(() => ({
+  fetchTopic: vi.fn(),
+  markTopicRead: vi.fn(),
+}));
+
+vi.mock("../api/client", async () => {
+  const actual = await vi.importActual<typeof import("../api/client")>("../api/client");
+  return {
+    ...actual,
+    fetchTopic: mocks.fetchTopic,
+    markTopicRead: mocks.markTopicRead,
+    closeTopic: vi.fn(),
+    createTopicComment: vi.fn(),
+    reopenTopic: vi.fn(),
+    resolveTopic: vi.fn(),
+    updateTopic: vi.fn(),
+  };
+});
+
+vi.mock("../context/AuthContext", () => ({
+  useAuth: () => ({
+    agent: {
+      id: "agent-host",
+      name: "host",
+      role: "agent",
+      project_id: "project-1",
+      project_key: "project",
+      created_at: "2026-01-01T00:00:00Z",
+    },
+    isAdmin: false,
+  }),
+}));
+
+afterEach(() => {
+  cleanup();
+  mocks.fetchTopic.mockReset();
+  mocks.markTopicRead.mockReset();
+});
+
+const topicFixture: TopicRead = {
+  id: "topic-1",
+  project_id: "project-1",
+  creator_agent_id: "agent-host",
+  creator_name: "host",
+  title: "Topic read cursor",
+  description: "description",
+  status: "open",
+  pinned: false,
+  discussion_round: "round1",
+  round_summary_count: 0,
+  comment_count: 0,
+  experiment_count: 0,
+  last_comment_id: null,
+  last_comment_author_agent_id: null,
+  last_comment_author_name: null,
+  last_comment_excerpt: null,
+  my_comment_count: 0,
+  dismissed_at: null,
+  advance_round_pending_since: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  archived_at: null,
+  experiments: [],
+  comments: [],
+  decision: null,
+};
+
+function renderTopicPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/topics/topic-1"]}>
+        <Routes>
+          <Route path="/topics/:topicId" element={<TopicPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("TopicPage", () => {
+  it("marks contextual unread as seen when the topic detail loads", async () => {
+    mocks.fetchTopic.mockResolvedValue(topicFixture);
+
+    renderTopicPage();
+
+    expect(await screen.findByText("Topic read cursor")).toBeTruthy();
+    await waitFor(() => expect(mocks.markTopicRead).toHaveBeenCalledWith("topic-1"));
+  });
+});
