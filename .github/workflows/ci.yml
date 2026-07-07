@@ -63,3 +63,34 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  gen-types:
+    # 校验 web/src/api/types.generated.ts 与 sdk schemas 一致：改了 schema 必须
+    # 跑 `python scripts/gen_types.py` 重新生成并提交，否则 git diff 非零 fail。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Regenerate types.generated.ts
+        run: python scripts/gen_types.py
+
+      - name: Verify generated file is up to date
+        run: git diff --exit-code -- web/src/api/types.generated.ts

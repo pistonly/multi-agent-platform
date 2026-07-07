@@ -82,8 +82,8 @@ export function ReviewSummary({
     },
   });
 
-  const reasonable = reviews.flatMap((r) => r.items.filter((i) => i.kind === "reasonable"));
-  const unreasonable = reviews.flatMap((r) => r.items.filter((i) => i.kind === "unreasonable"));
+  const reasonable = reviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "reasonable"));
+  const unreasonable = reviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "unreasonable"));
   const openCount = unreasonable.filter(
     (i) => i.status && ["open", "addressed", "rebutted", "escalated"].includes(i.status)
   ).length;
@@ -176,5 +176,5 @@ export function ReviewSummary({
 }
 
 export function getUnreasonableItems(reviews: Review[]) {
-  return reviews.flatMap((r) => r.items.filter((i) => i.kind === "unreasonable"));
+  return reviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "unreasonable"));
 }

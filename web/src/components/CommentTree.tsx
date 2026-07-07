@@ -104,7 +104,7 @@ function CommentNode({
           </button>
         </div>
       ) : null}
-      {node.children.map((child) => (
+      {(node.children ?? []).map((child) => (
         <CommentNode
           key={child.id}
           node={child}

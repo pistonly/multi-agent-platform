@@ -78,9 +78,9 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
       <section className="card">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">进行中话题</h2>
-          <span className="text-xs text-slate-500">{open_topics.length} 个</span>
+          <span className="text-xs text-slate-500">{(open_topics ?? []).length} 个</span>
         </div>
-        <OpenTopicList topics={open_topics} emptyLabel="暂无进行中的话题" />
+        <OpenTopicList topics={open_topics ?? []} emptyLabel="暂无进行中的话题" />
       </section>
 
       <section className="card">
@@ -107,7 +107,7 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
           <StatusEditor
             projectId={projectId}
             currentContent={status_md ?? ""}
-            currentVersion={data.status_version}
+            currentVersion={data.status_version ?? 0}
           />
         </section>
       )}
@@ -119,10 +119,10 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
         viewAllHref={`/projects/${projectId}/topics`}
       />
 
-      {active_experiments.length > 0 && (
+      {(active_experiments ?? []).length > 0 && (
         <section className="card">
           <h2 className="mb-3 text-lg font-semibold text-white">活跃实验</h2>
-          <ActiveExperimentTable experiments={active_experiments} />
+          <ActiveExperimentTable experiments={active_experiments ?? []} />
         </section>
       )}
 
@@ -168,8 +168,8 @@ function DecisionList({ decisions }: { decisions: TopicDecision[] }) {
           <p className="mt-1 line-clamp-2 text-sm text-slate-300">
             {decision.decision ?? decision.no_decision_reason ?? "暂无结论正文"}
           </p>
-          {decision.action_items.length > 0 && (
-            <p className="mt-1 text-xs text-slate-500">{decision.action_items.length} 个行动项</p>
+          {(decision.action_items ?? []).length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">{(decision.action_items ?? []).length} 个行动项</p>
           )}
         </li>
       ))}

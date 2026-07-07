@@ -9,14 +9,14 @@ import type { TodoRead } from "../api/types";
  */
 export function sumTodos(data: TodoRead): number {
   return (
-    data.pending_plan_revisions.length +
-    data.pending_reviews.length +
-    data.pending_result_reviews.length +
-    data.pending_replies.length +
-    data.pending_topic_replies.length +
-    data.pending_round_acks.length +
-    data.pending_advance_rounds.length +
-    data.mentions.length +
-    data.action_items.length
+    (data.pending_plan_revisions ?? []).length +
+    (data.pending_reviews ?? []).length +
+    (data.pending_result_reviews ?? []).length +
+    (data.pending_replies ?? []).length +
+    (data.pending_topic_replies ?? []).length +
+    (data.pending_round_acks ?? []).length +
+    (data.pending_advance_rounds ?? []).length +
+    (data.mentions ?? []).length +
+    (data.action_items ?? []).length
   );
 }

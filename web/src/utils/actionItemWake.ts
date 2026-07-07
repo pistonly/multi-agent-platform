@@ -67,7 +67,7 @@ export function isStale(item: Pick<TopicActionItemTodo, "stale_at">): boolean {
  */
 export function wakeBadge(item: TopicActionItemTodo): WakeBadge {
   if (isStale(item)) return STALE_BADGE;
-  const stage = STAGE_BADGES[item.wake_count];
+  const stage = item.wake_count !== undefined ? STAGE_BADGES[item.wake_count] : undefined;
   if (stage) return stage;
   // wake_count > 4（理论上 mark_stale 之后不再递增，但 UI 兜底）
   return {

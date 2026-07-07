@@ -28,6 +28,9 @@ dev = [
     "httpx>=0.28.0,<0.29",
     "mcp>=1.26.0,<2.0",
     "ruff>=0.8.0,<1.0",
+    # codegen：从 Pydantic schema 生成 web/src/api/types.generated.ts
+    # （配合 web 的 json-schema-to-typescript 提供 json2ts CLI，见 scripts/gen_types.py）。
+    "pydantic-to-typescript>=2.0.0,<3.0",
 ]
 mcp = [
     "mcp>=1.26.0,<2.0",

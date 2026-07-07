@@ -112,7 +112,7 @@ export function ExperimentPage() {
       if (!bundle) throw new Error("实验数据未加载");
       const v = planVersion ?? bundle.experiment.current_plan_version ?? 0;
       const plan =
-        bundle.plans.find((p) => p.version === v) ?? bundle.experiment.current_plan ?? null;
+        (bundle.plans ?? []).find((p) => p.version === v) ?? bundle.experiment.current_plan ?? null;
       if (!plan) throw new Error("No active plan to anchor the comment");
       return createComment(experimentId!, {
         anchor_type: "plan",
@@ -136,7 +136,7 @@ export function ExperimentPage() {
   // once the comment tree first mounts.
   const { highlightedId } = useCommentAnchor(
     anchorCommentId,
-    bundleQuery.data?.comments.length,
+    bundleQuery.data?.comments?.length,
   );
 
   if (bundleQuery.isLoading) return <p className="text-slate-400">加载实验…</p>;
@@ -144,13 +144,18 @@ export function ExperimentPage() {
     return <p className="text-red-400">实验不存在或加载失败</p>;
   }
 
-  const { experiment, plans, reviews, comments, logs } = bundleQuery.data;
+  const bundle = bundleQuery.data;
+  const experiment = bundle.experiment;
+  const plans = bundle.plans ?? [];
+  const reviews = bundle.reviews ?? [];
+  const comments = bundle.comments ?? [];
+  const logs = bundle.logs ?? [];
   const actions = experiment.actions ?? [];
   const blockedMessage = shouldShowBlockedBanner(actions, experiment.blocked_on)
     ? blockedOnMessage(experiment.blocked_on)
     : null;
   const version = planVersion ?? experiment.current_plan_version;
-  const selectedPlan = plans.find((p) => p.version === version) ?? experiment.current_plan;
+  const selectedPlan = plans.find((p) => p.version === version) ?? experiment.current_plan ?? null;
   const unreasonable = getUnreasonableItems(reviews);
   const canAppendLog =
     experiment.phase === "running" || experiment.phase === "result_review" || experiment.phase === "done";

@@ -165,7 +165,7 @@ function NotificationRow({
           <span className={`badge ${n.category === "wakeable" ? "bg-amber-500/10 text-amber-300" : "bg-surface text-slate-400"}`}>
             {n.category}
           </span>
-          {n.event_count > 1 && <span className="badge bg-surface text-slate-400">×{n.event_count}</span>}
+          {(n.event_count ?? 0) > 1 && <span className="badge bg-surface text-slate-400">×{n.event_count ?? 0}</span>}
           {unread && <span className="badge bg-accent-muted text-accent">未读</span>}
         </div>
         <p className="text-sm text-slate-200">{n.summary}</p>

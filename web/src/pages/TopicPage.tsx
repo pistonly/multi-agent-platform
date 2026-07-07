@@ -85,8 +85,12 @@ export function TopicPage() {
   if (query.error || !query.data) return <p className="text-red-400">话题不存在或无权访问</p>;
 
   const topic = query.data;
+  const experiments = topic.experiments ?? [];
+  const comments = topic.comments ?? [];
+  const decision = topic.decision ?? null;
+  const discussionRound = topic.discussion_round ?? "round1";
   const isTopicHost = !!agent && (agent.id === topic.creator_agent_id || isAdmin);
-  const hasActiveExperiment = topic.experiments.some((e) => ACTIVE_EXPERIMENT_PHASES.has(e.phase));
+  const hasActiveExperiment = experiments.some((e) => ACTIVE_EXPERIMENT_PHASES.has(e.phase));
   const canCreateExperiment = topic.status === "open" && !hasActiveExperiment && isTopicHost;
   const createExperimentTitle = !canCreateExperiment
     ? !isTopicHost
@@ -109,8 +113,8 @@ export function TopicPage() {
           >
             {topic.status === "open" ? "进行中" : "已关闭"}
           </span>
-          <span className={`badge ${ROUND_COLORS[topic.discussion_round]}`}>
-            {ROUND_LABELS[topic.discussion_round]} · {topic.round_summary_count}
+          <span className={`badge ${ROUND_COLORS[discussionRound]}`}>
+            {ROUND_LABELS[discussionRound]} · {topic.round_summary_count}
           </span>
           {topic.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>
@@ -177,13 +181,13 @@ export function TopicPage() {
         </div>
       </div>
 
-      <TopicDecisionPanel decision={topic.decision} />
+      <TopicDecisionPanel decision={decision} />
 
-      {topic.experiments.length > 0 && (
+      {experiments.length > 0 && (
         <section className="card">
           <h2 className="mb-3 text-lg font-semibold text-white">关联实验</h2>
           <ul className="space-y-1 text-sm">
-            {topic.experiments.map((e) => (
+            {experiments.map((e) => (
               <li key={e.id} className="flex flex-wrap items-center gap-2">
                 <Link to={`/experiments/${e.id}`} className="text-accent hover:underline">
                   {e.title}
@@ -201,9 +205,9 @@ export function TopicPage() {
 
       <section className="card">
         <h2 className="mb-4 text-lg font-semibold text-white">讨论</h2>
-        {topic.comments.length > 0 ? (
+        {comments.length > 0 ? (
           <TopicCommentNodes
-            nodes={topic.comments}
+            nodes={comments}
             topicId={topicId!}
             anchorCommentId={anchorCommentId}
             onUpdated={invalidate}
@@ -242,10 +246,10 @@ export function TopicPage() {
         </Modal>
       )}
       {showResolve && (
-        <Modal title={topic.decision ? "修订话题结论" : "沉淀话题结论"} onClose={() => setShowResolve(false)}>
+        <Modal title={decision ? "修订话题结论" : "沉淀话题结论"} onClose={() => setShowResolve(false)}>
           <ResolveTopicForm
             topicId={topic.id}
-            decision={topic.decision}
+            decision={decision}
             onCancel={() => setShowResolve(false)}
             onSaved={() => {
               setShowResolve(false);
@@ -298,11 +302,11 @@ function TopicDecisionPanel({ decision }: { decision: TopicDecision | null }) {
       {decision.open_questions ? (
         <DecisionSubsection title="开放问题" content={decision.open_questions} />
       ) : null}
-      {decision.action_items.length > 0 && (
+      {(decision.action_items ?? []).length > 0 && (
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-semibold text-slate-300">行动项</h3>
           <ul className="space-y-2 text-sm">
-            {decision.action_items.map((item) => (
+            {(decision.action_items ?? []).map((item) => (
               <li key={item.id} className="rounded border border-surface-border bg-surface/60 px-3 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium text-white">{item.title}</span>
@@ -360,7 +364,7 @@ function ResolveTopicForm({
   const [rejectedOptions, setRejectedOptions] = useState(decision?.rejected_options ?? "");
   const [openQuestions, setOpenQuestions] = useState(decision?.open_questions ?? "");
   const [noDecisionReason, setNoDecisionReason] = useState(decision?.no_decision_reason ?? "");
-  const [actionLines, setActionLines] = useState(decision?.action_items.map((item) => item.title).join("\n") ?? "");
+  const [actionLines, setActionLines] = useState((decision?.action_items ?? []).map((item) => item.title).join("\n"));
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -551,9 +555,9 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth =
                 </button>
               </div>
             ) : null}
-            {n.children.length > 0 && (
+            {(n.children ?? []).length > 0 && (
               <TopicCommentNodes
-                nodes={n.children}
+                nodes={n.children ?? []}
                 topicId={topicId}
                 anchorCommentId={anchorCommentId}
                 onUpdated={onUpdated}

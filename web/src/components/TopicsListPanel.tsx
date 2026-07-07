@@ -127,7 +127,7 @@ function TopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?
             </span>
             {t.archived_at && <span className="text-amber-500/80">已归档</span>}
             <span>{t.comment_count} 评论</span>
-            {t.experiment_count > 0 && <span>{t.experiment_count} 实验</span>}
+            {(t.experiment_count ?? 0) > 0 && <span>{t.experiment_count ?? 0} 实验</span>}
           </div>
         </li>
       ))}

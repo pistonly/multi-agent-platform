@@ -61,9 +61,9 @@ export function identityFromAgent(agent: Agent, token: string, now = new Date())
     agentId: agent.id,
     agentName: agent.name,
     role: agent.role,
-    projectId: agent.project_id,
-    projectKey: agent.project_key,
-    createdAt: agent.created_at,
+    projectId: agent.project_id ?? null,
+    projectKey: agent.project_key ?? null,
+    createdAt: agent.created_at ?? null,
     savedAt: timestamp,
     lastUsedAt: timestamp,
   };

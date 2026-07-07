@@ -1,36 +1,54 @@
-export type ExperimentPhase =
-  | "draft"
-  | "review"
-  | "approved"
-  | "running"
-  | "result_review"
-  | "done"
-  | "cancelled";
+// 前端类型。Pydantic 派生类型由 scripts/gen_types.py 从 schemas.py 自动生成；
+// 改 schema 后重跑该脚本并提交更新后的 types.generated.ts。
+//
+// 勿手改 generated 文件里的字段——它是 schemas.py 的 TS 镜像。本文件只保留：
+//  - 前端惯用别名（去 Read 后缀 / Payload 命名），保持现有 import 兼容；
+//  - 非派生自 Pydantic 的业务类型（无 schema，手维护）。
 
-export type AgentRole = "agent" | "admin";
+// generated 模型以命名空间导入，用于下方定义别名；同时 re-export 全部给消费者。
+import type * as Schemas from "./types.generated";
+export * from "./types.generated";
 
-export type ReviewItemKind = "reasonable" | "unreasonable";
+// 前端惯用别名（generated 用 schemas 的 class 名，带 Read 后缀；前端历史用简短名）。
+export type Project = Schemas.ProjectRead;
+export type ExperimentSummary = Schemas.ExperimentSummaryRead;
+export type ExperimentDetail = Schemas.ExperimentDetailRead;
+export type ExperimentBundle = Schemas.ExperimentBundleRead;
+export type PlanVersion = Schemas.PlanVersionRead;
+export type Agent = Schemas.AgentRead;
+export type Review = Schemas.ReviewRead;
+export type ReviewItem = Schemas.ReviewItemRead;
+export type Comment = Schemas.CommentRead;
+export type ExperimentLog = Schemas.ExperimentLogRead;
+export type ProjectStatus = Schemas.ProjectStatusRead;
+export type ProjectStatusVersion = Schemas.ProjectStatusVersionRead;
+export type GlobalStatus = Schemas.GlobalStatusRead;
+export type TopicSummary = Schemas.TopicSummaryRead;
+export type TopicComment = Schemas.TopicCommentRead;
+export type TopicActionItem = Schemas.TopicActionItemRead;
+export type TopicDecision = Schemas.TopicDecisionRead;
+export type PendingReply = Schemas.PendingReplyRead;
+export type PendingPlanRevision = Schemas.PendingPlanRevisionRead;
+export type MentionTodo = Schemas.MentionTodoRead;
+export type PendingTopicReplyTodo = Schemas.PendingTopicReplyTodoRead;
+export type PendingRoundAckTodo = Schemas.PendingRoundAckTodoRead;
+export type PendingAdvanceRoundTodo = Schemas.PendingAdvanceRoundTodoRead;
+export type TopicActionItemTodo = Schemas.TopicActionItemTodoRead;
+export type ExperimentReviewInformational = Schemas.ExperimentReviewInformationalRead;
+export type Notification = Schemas.NotificationRead;
+export type NotificationList = Schemas.NotificationListRead;
+export type TopicProgressList = Schemas.TopicProgressListRead;
+export type PlatformFeedback = Schemas.PlatformFeedbackRead;
 
-export type ReviewItemStatus =
-  | "open"
-  | "addressed"
-  | "rebutted"
-  | "resolved"
-  | "withdrawn"
-  | "escalated";
+// Payload 别名（前端历史用 *Payload 后缀；schemas 用 *Create / *Revise / *Update）。
+export type ProjectCreatePayload = Schemas.ProjectCreate;
+export type ExperimentCreatePayload = Schemas.ExperimentCreate;
+export type TopicCreatePayload = Schemas.TopicCreate;
+export type TopicResolvePayload = Schemas.TopicResolve;
+export type FeedbackCreatePayload = Schemas.PlatformFeedbackCreate;
+export type FeedbackUpdatePayload = Schemas.PlatformFeedbackUpdate;
 
-export type CommentAnchorType = "plan" | "review" | "review_item" | "comment";
-
-export interface Project {
-  id: string;
-  project_key: string;
-  name: string;
-  workspace_path: string;
-  description: string | null;
-  current_status_version: number;
-  created_at: string;
-  archived_at: string | null;
-}
+// --- 非派生自 Pydantic 的业务类型（无 schema，手维护） ---
 
 export type ExperimentBlockedOn =
   | "awaiting_non_creator_review"
@@ -40,451 +58,8 @@ export type ExperimentBlockedOn =
   | "awaiting_addressed_item_ack"
   | "none";
 
-export interface ExperimentSummary {
-  id: string;
-  project_id: string;
-  creator_agent_id: string;
-  title: string;
-  description: string | null;
-  phase: ExperimentPhase;
-  current_plan_version: number;
-  topic_id: string | null;
-  warnings: string[];
-  created_at: string;
-  updated_at: string;
-  archived_at: string | null;
-  // --- execution lock (per-project) ---
-  lock_holder_experiment_id: string | null;
-  lock_acquired_at: string | null;
-  lock_ttl_seconds: number | null;
-  next_attempt_at: string | null;
-  lock_skip_count: number;
-  open_unreasonable_count: number;
-  log_count: number;
-  latest_log_summary: string | null;
-  actions: string[];
-  blocked_on: string | null;
-  legacy_self_review: boolean;
-}
-
-export interface PlanVersion {
-  id: string;
-  experiment_id: string;
-  version: number;
-  content_md: string;
-  author_agent_id: string;
-  change_note: string | null;
-  created_at: string;
-}
-
-export interface ExperimentDetail extends ExperimentSummary {
-  current_plan: PlanVersion | null;
-  plan_version_count: number;
-  open_unreasonable_count: number;
-  review_count: number;
-  log_count: number;
-  latest_log_summary: string | null;
-}
-
-export interface ExperimentBundle {
-  experiment: ExperimentDetail;
-  plans: PlanVersion[];
-  reviews: Review[];
-  comments: CommentTreeNode[];
-  logs: ExperimentLog[];
-}
-
-export interface ReviewItem {
-  id: string;
-  review_id: string;
-  kind: ReviewItemKind;
-  content: string;
-  status: ReviewItemStatus | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Review {
-  id: string;
-  experiment_id: string;
-  reviewer_agent_id: string;
-  plan_version: number;
-  created_at: string;
-  items: ReviewItem[];
-}
-
-export interface Comment {
-  id: string;
-  experiment_id: string;
-  anchor_type: CommentAnchorType;
-  anchor_id: string;
-  parent_comment_id: string | null;
-  author_agent_id: string;
-  author_name: string | null;
-  body: string;
-  created_at: string;
-}
-
-export interface CommentTreeNode extends Comment {
-  children: CommentTreeNode[];
-}
-
-export interface ExperimentLog {
-  id: string;
-  experiment_id: string;
-  author_agent_id: string;
-  summary: string;
-  content_md: string;
-  metadata_json: Record<string, unknown> | null;
-  created_at: string;
-}
-
-export interface ProjectStatus {
-  project: Project;
-  experiment_counts_by_phase: Record<string, number>;
-  active_experiments: ExperimentSummary[];
-  recent_experiments: ExperimentSummary[];
-  open_topics: TopicSummary[];
-  status_version: number;
-  status_md: string | null;
-  status_updated_at: string | null;
-}
-
-export interface ProjectStatusVersion {
-  id: string;
-  project_id: string;
-  version: number;
-  content_md: string;
-  author_agent_id: string;
-  change_note: string | null;
-  created_at: string;
-}
-
-export interface GlobalStatus {
-  total_experiments_by_phase: Record<string, number>;
-  projects: ProjectStatus[];
-  recent_experiments: ExperimentSummary[];
-}
-
-export interface Agent {
-  id: string;
-  name: string;
-  role: AgentRole;
-  project_id: string | null;
-  project_key: string | null;
-  created_at: string;
-}
-
-export interface ProjectCreatePayload {
-  project_key: string;
-  name: string;
-  workspace_path: string;
-  description?: string | null;
-}
-
-export interface ExperimentCreatePayload {
-  title: string;
-  description?: string | null;
-  plan: { content_md: string; change_note?: string | null };
-  submit_for_review?: boolean;
-  topic_id?: string | null;
-}
-
-export interface TopicCreatePayload {
-  title: string;
-  description?: string | null;
-}
-
-export type TopicStatus = "open" | "closed";
-export type TopicDiscussionRound = "round1" | "round2" | "ready";
-export type TopicActionItemStatus = "open" | "done" | "cancelled";
-export type TopicCommentKind = "user" | "system";
-export type ActionItemCategory = "implementation" | "decision" | "unspecified";
-
-export interface TopicSummary {
-  id: string;
-  project_id: string;
-  creator_agent_id: string;
-  creator_name: string | null;
-  title: string;
-  description: string | null;
-  status: TopicStatus;
-  pinned: boolean;
-  discussion_round: TopicDiscussionRound;
-  round_summary_count: number;
-  comment_count: number;
-  experiment_count: number;
-  last_comment_id: string | null;
-  last_comment_author_agent_id: string | null;
-  last_comment_author_name: string | null;
-  last_comment_excerpt: string | null;
-  my_comment_count: number | null;
-  dismissed_at: string | null;
-  advance_round_pending_since: string | null;
-  created_at: string;
-  updated_at: string;
-  archived_at: string | null;
-}
-
-export interface TopicComment {
-  id: string;
-  topic_id: string;
-  author_agent_id: string;
-  author_name: string | null;
-  parent_comment_id: string | null;
-  body: string;
-  kind: TopicCommentKind;
-  comment_seq: number;
-  created_at: string;
-  unresolved_mentions: string[];
-}
-
-export interface TopicCommentTreeNode extends TopicComment {
-  children: TopicCommentTreeNode[];
-}
-
-export interface TopicActionItem {
-  id: string;
-  decision_id: string;
-  project_id: string;
-  topic_id: string;
-  title: string;
-  description: string | null;
-  owner_agent_id: string | null;
-  owner_name: string | null;
-  status: TopicActionItemStatus;
-  due_at: string | null;
-  linked_experiment_id: string | null;
-  category: ActionItemCategory | null;
-  cancel_reason: string | null;
-  suggested_linked_experiment_id: string | null;
-  suggested_linked_experiment_title: string | null;
-  wake_count: number;
-  first_open_at: string | null;
-  last_woken_at: string | null;
-  stale_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TopicDecision {
-  id: string;
-  project_id: string;
-  topic_id: string;
-  topic_title: string | null;
-  author_agent_id: string;
-  author_name: string | null;
-  decision: string | null;
-  rationale: string | null;
-  rejected_options: string | null;
-  open_questions: string | null;
-  no_decision_reason: string | null;
-  action_items: TopicActionItem[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TopicResolvePayload {
-  decision?: string | null;
-  rationale?: string | null;
-  rejected_options?: string | null;
-  open_questions?: string | null;
-  no_decision_reason?: string | null;
-  action_items?: {
-    title: string;
-    description?: string | null;
-    owner_agent_id?: string | null;
-    due_at?: string | null;
-    linked_experiment_id?: string | null;
-  }[];
-}
-
-export interface TopicRead extends TopicSummary {
-  experiments: ExperimentSummary[];
-  comments: TopicCommentTreeNode[];
-  decision: TopicDecision | null;
-}
-
-export interface PendingReply {
-  item_id: string;
-  experiment_id: string;
-  experiment_title: string;
-  content: string;
-  status: ReviewItemStatus;
-  updated_at: string;
-}
-
-export interface PendingPlanRevision {
-  experiment_id: string;
-  experiment_title: string;
-  current_plan_version: number;
-  open_unreasonable_count: number;
-  blocked_on: string;
-  actions: string[];
-  updated_at: string;
-}
-
-export interface MentionTodo {
-  id: string;
-  mentioned_agent_id: string;
-  author_agent_id: string;
-  author_name: string | null;
-  source_type: string;
-  source_id: string;
-  project_id: string;
-  experiment_id: string | null;
-  topic_id: string | null;
-  excerpt: string;
-  created_at: string;
-  dismissed_at: string | null;
-}
-
-export interface PendingTopicReplyTodo {
-  topic_id: string;
-  topic_title: string;
-  comment_id: string;
-  parent_comment_id: string | null;
-  thread_root_id: string;
-  author_agent_id: string;
-  author_name: string | null;
-  excerpt: string;
-  created_at: string;
-}
-
-export interface PendingRoundAckTodo {
-  topic_id: string;
-  topic_title: string;
-  discussion_round: TopicDiscussionRound;
-  round_summary_count: number;
-  summary_comment_id: string | null;
-  summary_excerpt: string | null;
-  advance_round_pending_since: string | null;
-  updated_at: string;
-}
-
-export interface PendingAdvanceRoundTodo {
-  topic_id: string;
-  topic_title: string;
-  discussion_round: TopicDiscussionRound;
-  round_summary_count: number;
-  advance_round_pending_since: string | null;
-  updated_at: string;
-}
-
-export interface TopicActionItemTodo {
-  id: string;
-  decision_id: string;
-  project_id: string;
-  topic_id: string;
-  topic_title: string;
-  title: string;
-  description: string | null;
-  status: TopicActionItemStatus;
-  due_at: string | null;
-  linked_experiment_id: string | null;
-  // Wake / stale escalation fields (experiment B). Server returns these on
-  // every todo row; runtime-waker also consumes them via the SDK schema.
-  // Mirror `sdk/python/map_types/schemas.py::TopicActionItemTodoRead`.
-  wake_count: number;
-  first_open_at: string | null;
-  last_woken_at: string | null;
-  stale_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ExperimentReviewInformational {
-  experiment_title: string;
-  phase: ExperimentPhase;
-  updated_at: string;
-  review_progress: string;
-}
-
-export interface TodoRead {
-  my_open_experiments: ExperimentSummary[];
-  pending_reviews: ExperimentSummary[];
-  pending_result_reviews: ExperimentSummary[];
-  experiment_review_informational?: ExperimentReviewInformational[];
-  pending_replies: PendingReply[];
-  pending_plan_revisions: PendingPlanRevision[];
-  pending_topic_replies: PendingTopicReplyTodo[];
-  pending_round_acks: PendingRoundAckTodo[];
-  pending_advance_rounds: PendingAdvanceRoundTodo[];
-  my_open_topics: TopicSummary[];
-  mentions: MentionTodo[];
-  action_items: TopicActionItemTodo[];
-}
-
-export interface Notification {
-  id: string;
-  recipient_agent_id: string;
-  project_id: string | null;
-  event: string;
-  summary: string;
-  target_type: string;
-  target_id: string | null;
-  payload_json: Record<string, unknown> | null;
-  category: "wakeable" | "digest";
-  group_key: string | null;
-  wake_version: number;
-  event_count: number;
-  first_event_at: string | null;
-  last_event_at: string | null;
-  fingerprint_version: "v1" | "v2";
-  read_at: string | null;
-  created_at: string;
-  updated_at: string | null;
-}
-
-export interface NotificationList {
-  items: Notification[];
-  total: number;
-  unread_count: number;
-}
-
-export interface TopicProgressList {
-  items: Record<string, unknown>[];
-  total: number;
-}
-
-export interface AgentWorkRead {
-  agent: Agent;
-  topic_progress: TopicProgressList;
-  todos: TodoRead;
-  notifications: NotificationList;
-}
-
 export interface NotificationStreamEvent {
   type: "notification.created";
   event: string;
   notification_id: string;
-}
-
-export type FeedbackCategory = "bug" | "suggestion" | "question" | "other";
-export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
-
-export interface PlatformFeedback {
-  id: string;
-  author_agent_id: string;
-  author_name: string | null;
-  project_id: string | null;
-  body: string;
-  category: FeedbackCategory | null;
-  status: FeedbackStatus;
-  metadata_json: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
-  archived_at: string | null;
-}
-
-export interface FeedbackCreatePayload {
-  body: string;
-  project_id?: string | null;
-  category?: FeedbackCategory | null;
-}
-
-export interface FeedbackUpdatePayload {
-  status?: FeedbackStatus;
-  category?: FeedbackCategory | null;
-  archived?: boolean;
 }

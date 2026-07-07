@@ -42,6 +42,23 @@ export function TodosPage() {
 
   const data = work.todos;
 
+  // types.generated.ts marks list fields with defaults as optional, but the
+  // API always returns them populated. Destructure with empty-array fallbacks
+  // once so the JSX below treats them as defined arrays.
+  const {
+    mentions = [],
+    pending_topic_replies = [],
+    pending_round_acks = [],
+    pending_advance_rounds = [],
+    action_items = [],
+    pending_plan_revisions = [],
+    pending_reviews = [],
+    pending_result_reviews = [],
+    pending_replies = [],
+    my_open_experiments = [],
+    my_open_topics = [],
+  } = data;
+
   const empty = sumTodos(data) === 0;
 
   return (
@@ -49,9 +66,9 @@ export function TodosPage() {
       <h1 className="text-2xl font-bold text-white">待办</h1>
       {empty && <p className="text-slate-500">暂无待办，一切就绪 🎉</p>}
 
-      {data.mentions.length > 0 && (
+      {mentions.length > 0 && (
         <Section
-          title={`@提及我（${data.mentions.length}）`}
+          title={`@提及我（${mentions.length}）`}
           action={
             <button
               type="button"
@@ -64,7 +81,7 @@ export function TodosPage() {
             </button>
           }
         >
-          {data.mentions.map((m) => {
+          {mentions.map((m) => {
             const baseHref = m.experiment_id
               ? `/experiments/${m.experiment_id}`
               : m.topic_id
@@ -112,9 +129,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {(data.pending_topic_replies?.length ?? 0) > 0 && (
-        <Section title={`话题待回复（${data.pending_topic_replies.length}）`}>
-          {data.pending_topic_replies.map((r) => (
+      {pending_topic_replies.length > 0 && (
+        <Section title={`话题待回复（${pending_topic_replies.length}）`}>
+          {pending_topic_replies.map((r) => (
             <Row key={r.comment_id} to={withCommentAnchor(`/topics/${r.topic_id}`, r.comment_id)}>
               <div>
                 <div className="text-accent hover:underline">{r.topic_title}</div>
@@ -135,9 +152,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {(data.pending_round_acks?.length ?? 0) > 0 && (
-        <Section title={`Round Summary 待 ack（${data.pending_round_acks.length}）`}>
-          {data.pending_round_acks.map((r) => (
+      {pending_round_acks.length > 0 && (
+        <Section title={`Round Summary 待 ack（${pending_round_acks.length}）`}>
+          {pending_round_acks.map((r) => (
             <Row key={`${r.topic_id}:${r.summary_comment_id ?? "pending"}`} to={`/topics/${r.topic_id}`}>
               <div>
                 <div className="text-accent hover:underline">{r.topic_title}</div>
@@ -151,9 +168,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {(data.pending_advance_rounds?.length ?? 0) > 0 && (
-        <Section title={`话题待推进轮次（${data.pending_advance_rounds.length}）`}>
-          {data.pending_advance_rounds.map((r) => (
+      {pending_advance_rounds.length > 0 && (
+        <Section title={`话题待推进轮次（${pending_advance_rounds.length}）`}>
+          {pending_advance_rounds.map((r) => (
             <Row key={r.topic_id} to={`/topics/${r.topic_id}`}>
               <div>
                 <div className="text-accent hover:underline">{r.topic_title}</div>
@@ -165,9 +182,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {(data.action_items?.length ?? 0) > 0 && (
-        <Section title={`待唤醒行动项（${data.action_items.length}）`}>
-          {data.action_items.map((item) => {
+      {action_items.length > 0 && (
+        <Section title={`待唤醒行动项（${action_items.length}）`}>
+          {action_items.map((item) => {
             const badge = wakeBadge(item);
             const elapsed = formatElapsed(item.first_open_at);
             return (
@@ -200,9 +217,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {data.pending_plan_revisions.length > 0 && (
-        <Section title={`计划待修订（${data.pending_plan_revisions.length}）`}>
-          {data.pending_plan_revisions.map((r) => (
+      {pending_plan_revisions.length > 0 && (
+        <Section title={`计划待修订（${pending_plan_revisions.length}）`}>
+          {pending_plan_revisions.map((r) => (
             <Row key={r.experiment_id} to={`/experiments/${r.experiment_id}`}>
               <div>
                 <div className="text-accent hover:underline">{r.experiment_title}</div>
@@ -216,9 +233,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {data.pending_reviews.length > 0 && (
-        <Section title={`待评审（${data.pending_reviews.length}）`}>
-          {data.pending_reviews.map((e) => (
+      {pending_reviews.length > 0 && (
+        <Section title={`待评审（${pending_reviews.length}）`}>
+          {pending_reviews.map((e) => (
             <Row key={e.id} to={`/experiments/${e.id}`}>
               <span className="text-accent hover:underline">{e.title}</span>
               <PhaseBadge phase={e.phase} />
@@ -227,9 +244,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {data.pending_result_reviews.length > 0 && (
-        <Section title={`结果待审批（${data.pending_result_reviews.length}）`}>
-          {data.pending_result_reviews.map((e) => (
+      {pending_result_reviews.length > 0 && (
+        <Section title={`结果待审批（${pending_result_reviews.length}）`}>
+          {pending_result_reviews.map((e) => (
             <Row key={e.id} to={`/experiments/${e.id}`}>
               <span className="text-accent hover:underline">{e.title}</span>
               <PhaseBadge phase={e.phase} />
@@ -238,9 +255,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {data.pending_replies.length > 0 && (
-        <Section title={`待回复（${data.pending_replies.length}）`}>
-          {data.pending_replies.map((r) => (
+      {pending_replies.length > 0 && (
+        <Section title={`待回复（${pending_replies.length}）`}>
+          {pending_replies.map((r) => (
             <Row key={r.item_id} to={`/experiments/${r.experiment_id}`}>
               <div>
                 <div className="text-accent hover:underline">{r.experiment_title}</div>
@@ -252,9 +269,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {data.my_open_experiments.length > 0 && (
-        <Section title={`我发起的实验（${data.my_open_experiments.length}）`}>
-          {data.my_open_experiments.map((e) => (
+      {my_open_experiments.length > 0 && (
+        <Section title={`我发起的实验（${my_open_experiments.length}）`}>
+          {my_open_experiments.map((e) => (
             <Row key={e.id} to={`/experiments/${e.id}`}>
               <span className="text-accent hover:underline">{e.title}</span>
               <div className="flex items-center gap-2">
@@ -270,9 +287,9 @@ export function TodosPage() {
         </Section>
       )}
 
-      {data.my_open_topics.length > 0 && (
-        <Section title={`我发起的话题（${data.my_open_topics.length}，参考 topic-progress）`}>
-          {data.my_open_topics.map((t) => (
+      {my_open_topics.length > 0 && (
+        <Section title={`我发起的话题（${my_open_topics.length}，参考 topic-progress）`}>
+          {my_open_topics.map((t) => (
             <Row key={t.id} to={`/topics/${t.id}`}>
               <span className="text-accent hover:underline">{t.title}</span>
               <div className="flex items-center gap-3">
