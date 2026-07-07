@@ -132,6 +132,41 @@ def count_open_status_unreasonable_for_experiment(
     return db.scalar(stmt) or 0
 
 
+def _prior_version_reviews_fully_resolved(db: Session, experiment) -> bool:
+    """True when a non-creator review on an older plan version raised at least
+    one unreasonable item and all such items are now ``resolved``.
+
+    Reviewer resolving every unreasonable item they raised on a prior plan
+    version counts as explicit acceptance of the revision, so the creator may
+    approve without waiting for a fresh review on the current plan version.
+    Reviews with no unreasonable items do not qualify — the reviewer has not
+    acknowledged the revision, so a fresh review on the current version is
+    still required.
+    """
+    prior_reviews = list(
+        db.scalars(
+            select(Review)
+            .where(
+                Review.experiment_id == experiment.id,
+                Review.plan_version < experiment.current_plan_version,
+            )
+            .options(joinedload(Review.items))
+        ).unique()
+    )
+    prior_non_creator = _qualifying_non_creator_reviews(
+        prior_reviews, experiment.creator_agent_id
+    )
+    has_unreasonable = False
+    for review in prior_non_creator:
+        for item in review.items:
+            if item.kind != ReviewItemKind.unreasonable:
+                continue
+            has_unreasonable = True
+            if item.status != ReviewItemStatus.resolved:
+                return False
+    return has_unreasonable
+
+
 def assert_approve_eligibility(db: Session, experiment) -> None:
     reviews = list(
         db.scalars(
@@ -142,7 +177,10 @@ def assert_approve_eligibility(db: Session, experiment) -> None:
         )
     )
     non_creator_reviews = _qualifying_non_creator_reviews(reviews, experiment.creator_agent_id)
-    if not non_creator_reviews:
+    # Carve-out: a prior-version review whose unreasonable items have all
+    # been explicitly ``resolved`` stands in for a fresh current-version
+    # review (reviewer has accepted the revision).
+    if not non_creator_reviews and not _prior_version_reviews_fully_resolved(db, experiment):
         if not reviews:
             if has_review_on_older_plan_version(db, experiment):
                 raise ApproveEligibilityError(

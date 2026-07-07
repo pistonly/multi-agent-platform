@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any
 from unittest.mock import patch
@@ -37,9 +38,17 @@ def patched_cli(monkeypatch, client, auth_headers):
     monkeypatch.setattr(cli_main, "_transport", MAPTestClientTransport(client))
     monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
     monkeypatch.setattr(project_config, "find_map_dir", lambda *args, **kwargs: None)
+    # Honor ``MAP_TOKEN`` at call time so tests can swap personas via
+    # ``monkeypatch.setenv("MAP_TOKEN", ...)`` (matches real ``load_config``
+    # which reads the env var). Without this, a later fixture's patch would
+    # pin the token and silently defeat persona switching.
     monkeypatch.setattr(
         "map_client.config.load_config",
-        lambda *args, **kwargs: {"api_url": "http://test", "token": token, "project_key": None},
+        lambda *args, **kwargs: {
+            "api_url": "http://test",
+            "token": os.environ.get("MAP_TOKEN", token),
+            "project_key": None,
+        },
     )
 
 
@@ -54,7 +63,11 @@ def patched_reviewer_cli(monkeypatch, client, reviewer):
     monkeypatch.setattr(project_config, "find_map_dir", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "map_client.config.load_config",
-        lambda *args, **kwargs: {"api_url": "http://test", "token": token, "project_key": None},
+        lambda *args, **kwargs: {
+            "api_url": "http://test",
+            "token": os.environ.get("MAP_TOKEN", token),
+            "project_key": None,
+        },
     )
 
 

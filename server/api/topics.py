@@ -102,7 +102,15 @@ def update_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    perm.ensure_topic_host_or_admin(db, agent, topic_id)
+    # Archive/undo is a project-level operation: any project member may archive
+    # or restore a topic (docs/CLI.md archive spec — mirrors the experiment side
+    # which uses ``ensure_experiment_access``). Other field edits (title /
+    # description / pinned) remain host/admin-only.
+    changed_fields = payload.model_dump(exclude_unset=True)
+    if set(changed_fields) <= {"archived"}:
+        perm.ensure_topic_access(db, agent, topic_id)
+    else:
+        perm.ensure_topic_host_or_admin(db, agent, topic_id)
     topic = topic_service.update_topic(db, topic_id, payload)
     return topic_service.topic_summary(db, topic)
 
