@@ -240,7 +240,7 @@ def _resolve_creator_agent_id(
 
 
 def _load_topic_resolve_payload(path: Path) -> TopicResolve:
-    text = path.read_text(encoding="utf-8")
+    text = _read_text_file(path, kind="resolve")
     if path.suffix.lower() in {".yaml", ".yml"}:
         raw = yaml.safe_load(text) or {}
         if not isinstance(raw, dict):
@@ -431,7 +431,7 @@ def project_status_revise(
     project_key: str | None = typer.Option(None, "--project-key"),
     note: str | None = typer.Option(None, "--note"),
 ) -> None:
-    payload = ProjectStatusRevise(content_md=status_file.read_text(encoding="utf-8"), change_note=note)
+    payload = ProjectStatusRevise(content_md=_read_text_file(status_file, kind="status"), change_note=note)
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
@@ -469,7 +469,7 @@ def experiment_create(
     submit_for_review: bool = typer.Option(False, "--submit-for-review"),
     topic_id: uuid.UUID | None = typer.Option(None, "--topic-id"),
 ) -> None:
-    content = plan_file.read_text(encoding="utf-8")
+    content = _read_text_file(plan_file, kind="plan")
     payload = ExperimentCreate(
         title=title,
         description=description,
@@ -529,10 +529,27 @@ def experiment_start(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> No
     _run(lambda c: c.start_experiment(experiment_id))
 
 
-def _read_yaml_file(path: Path | None) -> Any:
+def _read_text_file(path: Path, *, kind: str) -> str:
+    """Read a required ``--file``/``--metadata`` argument.
+
+    Converts missing-file and not-a-file OS errors into a clean CLI error
+    (exit code 2) instead of letting Python emit a raw traceback, so that
+    user-facing mistakes like ``--metadata ./missing.yaml`` stay legible.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        typer.echo(f"Error: {kind} file not found: {path}", err=True)
+        raise typer.Exit(2)
+    except IsADirectoryError:
+        typer.echo(f"Error: {kind} path is a directory, not a file: {path}", err=True)
+        raise typer.Exit(2)
+
+
+def _read_yaml_file(path: Path | None, *, kind: str = "metadata") -> Any:
     if path is None:
         return None
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return yaml.safe_load(_read_text_file(path, kind=kind))
 
 
 def _load_complete_metadata(path: Path | None, *, allow_missing_evidence: bool) -> dict | None:
@@ -610,7 +627,7 @@ def experiment_complete(
     )
     payload = ExperimentComplete(
         summary=summary,
-        content_md=log_file.read_text(encoding="utf-8"),
+        content_md=_read_text_file(log_file, kind="log"),
         metadata=metadata,
     )
     _run(lambda c: c.complete_experiment(experiment_id, payload))
@@ -626,7 +643,7 @@ def experiment_accept_result(
     metadata = _read_yaml_file(metadata_file)
     payload = ExperimentResultDecision(
         summary=summary,
-        content_md=log_file.read_text(encoding="utf-8"),
+        content_md=_read_text_file(log_file, kind="log"),
         metadata=metadata,
     )
     _run(lambda c: c.accept_experiment_result(experiment_id, payload))
@@ -642,7 +659,7 @@ def experiment_reject_result(
     metadata = _read_yaml_file(metadata_file)
     payload = ExperimentResultDecision(
         summary=summary,
-        content_md=log_file.read_text(encoding="utf-8"),
+        content_md=_read_text_file(log_file, kind="log"),
         metadata=metadata,
     )
     _run(lambda c: c.reject_experiment_result(experiment_id, payload))
@@ -658,7 +675,7 @@ def experiment_log(
     metadata = _read_yaml_file(metadata_file)
     payload = ExperimentLogCreate(
         summary=summary,
-        content_md=log_file.read_text(encoding="utf-8"),
+        content_md=_read_text_file(log_file, kind="log"),
         metadata=metadata,
     )
     _run(lambda c: c.create_log(experiment_id, payload))
@@ -810,7 +827,7 @@ def review_add(
     experiment_id: uuid.UUID = typer.Option(..., "--id"),
     review_file: Path = typer.Option(..., "--review"),
 ) -> None:
-    raw = yaml.safe_load(review_file.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(_read_text_file(review_file, kind="review"))
     payload = ReviewCreate.model_validate(raw)
     _run(lambda c: c.create_review(experiment_id, payload))
 
@@ -831,7 +848,7 @@ def plan_revise(
     ),
 ) -> None:
     payload = PlanRevise(
-        content_md=plan_file.read_text(encoding="utf-8"),
+        content_md=_read_text_file(plan_file, kind="plan"),
         change_note=note,
         addressed_item_ids=list(addressed_item),
     )
@@ -947,7 +964,7 @@ def inbound_event_record(
     if payload_file is not None:
         import json
 
-        extra_payload = json.loads(payload_file.read_text(encoding="utf-8"))
+        extra_payload = json.loads(_read_text_file(payload_file, kind="payload"))
     payload = InboundEventCreate(
         event_id=event_id,
         event_type=event_type,
@@ -1180,7 +1197,7 @@ def topic_comment(
     if body is not None and body_file is not None:
         typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
-    content = body if body is not None else body_file.read_text(encoding="utf-8")
+    content = body if body is not None else _read_text_file(body_file, kind="comment")
     payload = TopicCommentCreate(body=content, parent_id=parent)
     _run(lambda c: c.create_topic_comment(topic_id, payload))
 

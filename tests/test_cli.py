@@ -377,3 +377,128 @@ def test_cli_persona_list_missing_map_dir(runner, monkeypatch, tmp_path: Path):
     assert result.exit_code == 1, result.output
     assert "map bootstrap" in result.output
     assert "config.yaml" in result.output
+
+
+@pytest.mark.parametrize(
+    "argv, kind",
+    [
+        # pre-complete --metadata: 话题起源场景
+        (
+            [
+                "experiment", "pre-complete",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--metadata", "MISSING",
+            ],
+            "metadata",
+        ),
+        # complete --metadata
+        (
+            [
+                "experiment", "complete",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--summary", "x",
+                "--file", "MISSING_LOG",
+                "--metadata", "MISSING",
+            ],
+            "metadata",  # metadata 先于 log 解析
+        ),
+        # complete --file (log)
+        (
+            [
+                "experiment", "complete",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--summary", "x",
+                "--file", "MISSING_LOG",
+                "--allow-missing-evidence",
+            ],
+            "log",
+        ),
+        # experiment log --file
+        (
+            [
+                "experiment", "log",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--summary", "x",
+                "--file", "MISSING_LOG",
+            ],
+            "log",
+        ),
+        # experiment create --plan-file
+        (
+            [
+                "experiment", "create",
+                "--title", "t",
+                "--plan-file", "MISSING_PLAN",
+            ],
+            "plan",
+        ),
+        # experiment plan revise --plan-file
+        (
+            [
+                "experiment", "plan", "revise",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--plan-file", "MISSING_PLAN",
+            ],
+            "plan",
+        ),
+        # experiment review add --review
+        (
+            [
+                "experiment", "review", "add",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--review", "MISSING_REVIEW",
+            ],
+            "review",
+        ),
+        # topic comment --file
+        (
+            [
+                "topic", "comment",
+                "--id", "00000000-0000-0000-0000-000000000001",
+                "--file", "MISSING_COMMENT",
+            ],
+            "comment",
+        ),
+    ],
+)
+def test_cli_missing_file_args_emit_clean_error_not_traceback(
+    runner, patched_cli, tmp_path: Path, argv, kind
+):
+    """File-reading commands must convert missing-file OS errors into a clean
+    CLI error (exit 2) and never surface a Python traceback.
+
+    Regression for topic: pre-complete metadata 文件不存在时不应输出 Python traceback.
+    """
+    # Replace MISSING placeholders with non-existent paths inside tmp_path.
+    missing_path = tmp_path / f"missing_{kind}.yaml"
+    assert not missing_path.exists()
+    real_argv = [missing_path.as_posix() if a.startswith("MISSING") else a for a in argv]
+
+    result = runner.invoke(app, real_argv)
+
+    assert result.exit_code == 2, result.output
+    # Friendly message names the kind of file and the path.
+    assert f"{kind} file not found" in result.output
+    assert str(missing_path) in result.output
+    # No Python traceback should leak to stdout/stderr.
+    assert "Traceback (most recent call last)" not in result.output
+    assert "FileNotFoundError" not in result.output
+
+
+def test_cli_pre_complete_missing_metadata_directory_error(
+    runner, patched_cli, tmp_path: Path
+):
+    """Passing a directory as --metadata must also produce a clean exit 2."""
+    directory = tmp_path / "is-a-dir"
+    directory.mkdir()
+    result = runner.invoke(
+        app,
+        [
+            "experiment", "pre-complete",
+            "--id", "00000000-0000-0000-0000-000000000001",
+            "--metadata", str(directory),
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "metadata path is a directory" in result.output
+    assert "Traceback" not in result.output
