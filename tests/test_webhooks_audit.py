@@ -1,8 +1,4 @@
-import pytest
-
 import server.services.webhook_service as webhook_service
-
-pytestmark = pytest.mark.slow
 
 
 def test_webhook_admin_only(client, auth_headers):

@@ -22,10 +22,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from map_types.enums import AgentRole, TopicCommentKind
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from map_types.enums import AgentRole, TopicCommentKind
 from server.domain.models import Agent, Topic, TopicComment
 from server.domain.schemas import (
     TopicCommentCreate,
@@ -33,9 +33,9 @@ from server.domain.schemas import (
     TopicCommentTreeNode,
 )
 from server.services import mention_service, topic_ack_service
-from server.services.topic_comment_kind import resolve_topic_comment_kind
 from server.services.errors import NotFoundError
 from server.services.thread_activity import topic_comment_order_clauses
+from server.services.topic_comment_kind import resolve_topic_comment_kind
 
 
 def _get_topic(db: Session, topic_id: uuid.UUID) -> Topic:

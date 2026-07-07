@@ -1,10 +1,10 @@
 import pytest
 import yaml
+from map_client.testing import MAPTestClientTransport
 from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
-from map_client.testing import MAPTestClientTransport
 
 
 @pytest.fixture

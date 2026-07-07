@@ -1,12 +1,21 @@
 import uuid
 from datetime import UTC, datetime
 
+from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
-from server.domain.models import Agent, AgentRole, Experiment, ExperimentPhase, PlanVersion, Project, ProjectStatusVersion, Topic
+from server.domain.models import (
+    Agent,
+    AgentRole,
+    Experiment,
+    ExperimentPhase,
+    PlanVersion,
+    Project,
+    ProjectStatusVersion,
+    Topic,
+)
 from server.domain.schemas import (
     ExperimentBundleRead,
     ExperimentCreate,
@@ -22,12 +31,13 @@ from server.domain.schemas import (
     TopicActionItemRead,
     TopicDecisionRead,
 )
-from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 from server.services import project_status_service as status_doc_service
 from server.services import topic_service
+
 # ``get_project`` 下沉到 ``_lookups`` 以打破 project_service ↔ topic_service 循环 import；
 # 这里 re-export 保持 ``from server.services.project_service import get_project`` 兼容。
 from server.services._lookups import get_project
+from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 
 _ACTIVE_TOPIC_EXPERIMENT_PHASES = (
     ExperimentPhase.draft,

@@ -1,8 +1,7 @@
 import pytest
-from mcp.server.fastmcp.exceptions import ToolError
-
 from map_client.testing import MAPTestClientTransport
 from map_mcp.server import build_server
+from mcp.server.fastmcp.exceptions import ToolError
 
 pytestmark = pytest.mark.slow
 

@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from map_types.enums import FeedbackCategory, FeedbackStatus
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from map_types.enums import FeedbackCategory, FeedbackStatus
 from server.domain.models import Agent, PlatformFeedback
 from server.domain.schemas import (
     PlatformFeedbackCreate,

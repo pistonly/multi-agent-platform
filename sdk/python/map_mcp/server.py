@@ -3,16 +3,8 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
 from map_client.client import MAPClient
 from map_client.config import load_config
-from map_mcp._utils import dump, dumps_json, parse_uuid
-from map_mcp.auth import BearerTokenMiddleware
-from map_mcp.session import ClientResolver, token_param
 from map_types import (
     CommentAnchorType,
     CommentCreate,
@@ -30,6 +22,14 @@ from map_types import (
     TopicCreate,
     TopicStatus,
 )
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from map_mcp._utils import dump, dumps_json, parse_uuid
+from map_mcp.auth import BearerTokenMiddleware
+from map_mcp.session import ClientResolver, token_param
 
 Token = Annotated[str | None, token_param()]
 

@@ -45,8 +45,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 pytestmark = pytest.mark.slow
-from sqlalchemy import select
-
 from map_types.enums import (
     AgentRole,
     NotificationCategory,
@@ -54,6 +52,8 @@ from map_types.enums import (
     TopicDiscussionRound,
     TopicStatus,
 )
+from sqlalchemy import select
+
 from server.domain.models import (
     Agent,
     AuditLog,
@@ -75,7 +75,6 @@ from server.services.notification_service import (
     notify_admin_action_item_stale,
     notify_owner_action_item_wake,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures — local copies (the other B-* files use the same pattern)
@@ -272,6 +271,7 @@ def test_b7_cancel_after_stale_preserves_trail(db_session, b10_seed):
     mark_stale(db_session, action_item_id=item.id, now=stale_at)
 
     from map_types.schemas import ActionItemCancel
+
     from server.services.topic_service import cancel_action_item
 
     cancel_action_item(
@@ -406,7 +406,7 @@ def test_b9_skew_tolerated_for_decision_boundary(db_session, b10_seed):
     24h boundary in both directions. The drift never pushes the trigger
     more than 5 minutes off — that's the plan §4 "acceptable skew" envelope.
     """
-    from cli.runtime_waker import (
+    from cli.action_item_escalation import (
         ActionItemWakeDecision,
         should_wake_action_item,
     )
@@ -610,7 +610,7 @@ def test_b10_thresholds_match_plan_section_three():
 
     Catches the failure mode where one side of the boundary (waker vs
     service) drifts while the other stays put. If you ever bump the
-    numbers, update both ``cli/runtime_waker.py`` and
+    numbers, update both ``cli/action_item_escalation.py`` and
     ``server/services/action_item_service.py`` together.
     """
     assert WAKE_STAGE_THRESHOLDS == ((1, 24), (2, 72))

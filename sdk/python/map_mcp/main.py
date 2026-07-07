@@ -26,6 +26,7 @@ def _ensure_mcp_installed() -> None:
 def _run_server(settings: MCPServerSettings) -> None:
     from map_client import MAPClient
     from map_client.config import load_config
+
     from map_mcp.server import build_server
 
     cfg = load_config()

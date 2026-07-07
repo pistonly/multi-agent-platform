@@ -1,9 +1,6 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from map_types.enums import (
     AgentRole,
     CommentAnchorType,
@@ -22,6 +19,22 @@ from map_types.enums import (
     TopicDiscussionRound,
     TopicStatus,
 )
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from server.db.base import Base
 
 

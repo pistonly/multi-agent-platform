@@ -1,11 +1,11 @@
 import uuid
 from datetime import UTC, datetime
 
+from map_types.enums import NotificationCategory, NotificationFingerprintVersion
 from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole, Notification, TopicActionItem
-from map_types.enums import NotificationCategory, NotificationFingerprintVersion
 from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
 

@@ -4,11 +4,12 @@ Covers A2-1 through A2-11 service-level guarantees; A2-12 (full regression) is
 implicit in the 372-test suite passing locally.
 """
 
+import contextlib
+
 import pytest
 
 pytestmark = pytest.mark.slow
 from fastapi.testclient import TestClient
-
 
 # ---------- helpers ----------------------------------------------------------
 
@@ -167,32 +168,28 @@ def test_a2_2_atomic_rollback_on_audit_failure(
     from server.services import phase_service
     monkeypatch.setattr(phase_service.audit_service, "_log_no_commit", faulty_log)
 
-    # TestClient 默认会再抛 server exception — 用 try/except 吞 RuntimeError，验证 state
-    try:
+    # TestClient 默认会再抛 server exception — 用 contextlib.suppress 吞 RuntimeError，验证 state
+    with contextlib.suppress(RuntimeError):  # 预期：故障注入导致 service 层抛 RuntimeError，FastAPI 转 500
         client.post(
             f"/api/v1/experiments/{exp_id}/accept-result",
             headers=reviewer["headers"],
             json={"summary": "结果审批", "content_md": "fail injection"},
         )
-    except RuntimeError:
-        pass  # 预期：故障注入导致 service 层抛 RuntimeError，FastAPI 转 500
 
     # 关键验证：DB 真实持久化状态。conftest 的 db_session 与 FastAPI 共用同一个 session，
     # 强制 rollback 共享 session（模拟生产代码 db.commit() 失败 → SQLAlchemy 自动 rollback）
     # 然后用 fresh session 直接查 DB。
     import uuid as _uuid
-    from server.db.session import SessionLocal as test_session_local
-    from server.domain.models import Experiment, TopicActionItem, AuditLog
 
     # 通过 dependency override 拿到共享 session（同一对象）并 rollback
     from server.api.deps import get_db
+    from server.db.session import SessionLocal as test_session_local
+    from server.domain.models import AuditLog, Experiment, TopicActionItem
     shared_session_gen = client.app.dependency_overrides[get_db]()
     shared_session = next(shared_session_gen)
     shared_session.rollback()
-    try:
+    with contextlib.suppress(Exception):
         shared_session_gen.close()
-    except Exception:
-        pass
 
     fresh_db = test_session_local()
     try:

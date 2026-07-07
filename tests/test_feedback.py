@@ -1,11 +1,10 @@
+import pytest
 from map_types import (
     FeedbackCategory,
     FeedbackStatus,
     PlatformFeedbackCreate,
     PlatformFeedbackUpdate,
 )
-
-import pytest
 
 pytestmark = pytest.mark.slow
 

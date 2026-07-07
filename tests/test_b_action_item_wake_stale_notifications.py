@@ -28,9 +28,9 @@ pytestmark = pytest.mark.slow
 
 import uuid
 
+from map_types.enums import NotificationCategory
 from sqlalchemy import select
 
-from map_types.enums import NotificationCategory
 from server.domain.models import Notification
 
 
@@ -356,8 +356,8 @@ def test_wake_notification_helper_skips_unassigned_items(db_session):
     without an owner (shouldn't happen — ``mark_wake_sent`` rejects
     unassigned items upstream), the helper returns [] rather than 500.
     """
-    from server.services.notification_service import notify_owner_action_item_wake
     from server.domain.models import TopicActionItem
+    from server.services.notification_service import notify_owner_action_item_wake
 
     fake_item = TopicActionItem(
         id=uuid.uuid4(),

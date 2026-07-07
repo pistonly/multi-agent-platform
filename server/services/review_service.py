@@ -1,10 +1,10 @@
 import uuid
 from datetime import UTC, datetime
 
+from map_types.enums import ReviewSubstituteKind
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-from map_types.enums import ReviewSubstituteKind
 from server.domain.models import (
     Agent,
     AgentRole,

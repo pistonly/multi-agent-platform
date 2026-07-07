@@ -14,9 +14,9 @@ wrappers which run the access check + commit + read-back.
 import uuid
 
 from fastapi import APIRouter, Depends, status
+from map_types.schemas import ActionItemCancel, TopicActionItemRead
 from sqlalchemy.orm import Session
 
-from map_types.schemas import ActionItemCancel, TopicActionItemRead
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent

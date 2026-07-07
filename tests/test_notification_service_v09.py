@@ -30,14 +30,14 @@ the host's wiring relies on:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-
-from sqlalchemy import select
+from datetime import UTC, datetime
 
 from map_types.enums import (
     NotificationCategory,
     NotificationFingerprintVersion,
 )
+from sqlalchemy import select
+
 from server.domain.models import (
     Agent,
     AgentRole,
@@ -52,7 +52,6 @@ from server.services.notification_service import (
     notify_topic_comment_created,
     v2_fingerprint,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -276,7 +275,7 @@ def test_digest_read_at_reset_increments_unread_count_without_sse(
     assert captured == [], "first digest emit must not publish SSE frame"
 
     # Mark as read — simulates the user clicking the notification.
-    rows[0].read_at = datetime.now(timezone.utc)
+    rows[0].read_at = datetime.now(UTC)
     db_session.commit()
 
     # Second emit on the same target — aggregation path. Must:
@@ -350,7 +349,7 @@ def test_wakeable_wake_version_strictly_monotonic_and_atomic_read_at_reset(
     assert notif.fingerprint_version == NotificationFingerprintVersion.v2
 
     # Mark as read (the waker would have acked).
-    notif.read_at = datetime.now(timezone.utc)
+    notif.read_at = datetime.now(UTC)
     db_session.commit()
 
     # Second wakeable hit — must bump wake_version AND reset read_at in the
@@ -414,7 +413,7 @@ def test_v2_fingerprint_is_canonical_format():
     assert fp == "participant:notification:00000000-0000-0000-0000-000000000001:7"
 
     # Confirm the waker-side builder matches.
-    from cli.runtime_waker import _todo_item_stable_id  # noqa: F401
+    from cli.wake_backend import _todo_item_stable_id  # noqa: F401
 
     # Direct format check: 4 colon-separated segments, persona + literal
     # "notification" + uuid + int wake_version.

@@ -10,16 +10,17 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import typer
+from map_client.project_config import find_map_dir
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_types import WorkerError
 from cli.wake_backend import sync_runtime_skills
-from map_client.project_config import find_map_dir
 
 DEFAULT_STATE_TEMPLATE = ".map/runtime-waker-state-{persona}.json"
 DEFAULT_RUNTIME_HOME_TEMPLATE = ".map/claude-runtime-home-{persona}"
@@ -85,10 +86,10 @@ def resolve_session_id(
 
 
 def find_runtime_waker_pids(persona: str) -> list[int]:
-    # simple-waker 已取代 legacy runtime-waker，实际进程是
-    # `python3 -m cli.simple_waker --persona <persona>`；同时保留对 legacy
-    # `cli.runtime_waker` 的匹配，直到 legacy SSE 路径彻底下线。
-    pattern = rf"cli\.(runtime_waker|simple_waker).*--persona {persona}"
+    # simple-waker 是默认 waker，实际进程是
+    # `python3 -m cli.simple_waker --persona <persona>`（legacy runtime-waker
+    # SSE 路径已下线）。
+    pattern = rf"cli\.simple_waker.*--persona {persona}"
     result = subprocess.run(
         ["pgrep", "-f", pattern],
         check=False,

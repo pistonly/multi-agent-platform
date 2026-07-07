@@ -175,7 +175,7 @@ class PersonaAgentClient:
                 )
             except StopAsyncIteration:
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._log_event(
                     log_path,
                     event="timeout",

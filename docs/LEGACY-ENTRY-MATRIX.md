@@ -21,8 +21,13 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 | `map-server` | `server.main` | 主路径 | API 服务 |
 | `map-participant-bridge` | `cli.participant_worker` | deprecated | 旧 participant bridge；用 simple-waker + participant Skill |
 | `map-reviewer-bridge` | `cli.reviewer_worker` | deprecated | 旧 reviewer bridge；用 simple-waker + reviewer Skill |
-| `map-runtime-waker` | `cli.runtime_waker` | legacy-facade | 模块为 re-export 兼容层；默认 waker 为 `cli.simple_waker` |
 | `map-mcp` | `map_mcp.main` | 独立线 | MCP 验证路径，不在本实验退役范围 |
+
+> **已退役**（v0.10）：`map-runtime-waker` console entry、`cli/runtime_waker.py`
+> 模块、`cli/host_worker*.py` 整套及配套测试（`tests/test_runtime_waker*.py`、
+> `tests/test_waker_phase2_*.py`、`tests/test_host_worker.py`、
+> `tests/test_host_experiment_lifecycle.py`）已删除。默认 waker 为
+> `cli.simple_waker`（`./scripts/start-all-wakers.sh`）。
 
 ## scripts/*.sh
 
@@ -50,8 +55,7 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 | 区域 | 分类 | 说明 |
 |------|------|------|
 | `tests/test_simple_waker*.py` | 主路径 | simple-waker 行为 |
-| `tests/test_runtime_waker*.py` | legacy-facade | 兼容层 / 迁移期测试 |
-| bridge / host_worker 相关 | legacy-facade | 保留至模块拆分完成 |
+| `tests/test_b_waker_should_wake_action_item.py` 等 | 主路径 | escalation 决策测试，已改从 `cli.action_item_escalation` 导入 |
 
 ## CI manifest（check-deprecated.sh）
 

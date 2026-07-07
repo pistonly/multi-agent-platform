@@ -1,11 +1,10 @@
 import httpx
 import pytest
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-
 from map_client.testing import MAPTestClientTransport
 from map_mcp.config import MCPServerSettings
 from map_mcp.server import build_server
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 
 def test_mcp_settings_defaults():
@@ -37,16 +36,18 @@ async def test_mcp_streamable_http_bearer_auth(client, agent_token):
     async with session_manager.run():
         transport = httpx.ASGITransport(app=app)
         headers = {"Authorization": f"Bearer {token}"}
-        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8080", headers=headers) as http_client:
-            async with streamable_http_client("http://127.0.0.1:8080/mcp", http_client=http_client) as (
+        async with (
+            httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8080", headers=headers) as http_client,
+            streamable_http_client("http://127.0.0.1:8080/mcp", http_client=http_client) as (
                 read,
                 write,
                 _,
-            ):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = await session.list_tools()
-                    assert any(tool.name == "get_me" for tool in tools.tools)
-                    result = await session.call_tool("get_me", {})
-                    assert result.structuredContent is not None
-                    assert result.structuredContent["name"] == "test-agent"
+            ),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            tools = await session.list_tools()
+            assert any(tool.name == "get_me" for tool in tools.tools)
+            result = await session.call_tool("get_me", {})
+            assert result.structuredContent is not None
+            assert result.structuredContent["name"] == "test-agent"

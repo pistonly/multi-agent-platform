@@ -6,10 +6,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from map_types.enums import TopicCommentKind
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from map_types.enums import TopicCommentKind
 from server.domain.models import Agent, Mention, MentionSourceType, Topic, TopicComment, TopicReadCursor, TopicStatus
 from server.domain.schemas import (
     MentionTodoRead,
@@ -20,12 +20,14 @@ from server.domain.schemas import (
     TopicWorkItemRead,
 )
 from server.services import mention_service, topic_ack_service
+from server.services.text_utils import excerpt as _excerpt
 from server.services.thread_activity import (
     host_replied_after as _host_replied_after,
-    topic_comment_order_clauses,
-    thread_root_id,
 )
-from server.services.text_utils import excerpt as _excerpt
+from server.services.thread_activity import (
+    thread_root_id,
+    topic_comment_order_clauses,
+)
 from server.services.topic_service import _agent_names_by_ids
 
 _CLEAR_ACTION_BY_KIND = {
@@ -276,10 +278,8 @@ def _include_topic_for_agent(
         return True
     if topic_ack_service.agent_needs_round_ack(db, topic, agent.id):
         return True
-    if any(item.kind == "mention" for item in items):
-        return True
     # Cold-start: contextual-only for never-participated agents (reviewer filter).
-    return False
+    return any(item.kind == "mention" for item in items)
 
 
 def topic_work_items_for_topic(

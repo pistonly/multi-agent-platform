@@ -40,9 +40,8 @@ def forbidden_imports(path: Path) -> list[str]:
         if not mod:
             continue
         if mod.startswith("server.services."):
-            if not any(mod == prefix or mod.startswith(prefix + ".") for prefix in ALLOWED_SERVER_SERVICE_PREFIXES):
-                if mod != "server.services.notification_stream":
-                    violations.append(mod)
+            if not any(mod == prefix or mod.startswith(prefix + ".") for prefix in ALLOWED_SERVER_SERVICE_PREFIXES) and mod != "server.services.notification_stream":
+                violations.append(mod)
             continue
         if mod.startswith("server."):
             violations.append(mod)

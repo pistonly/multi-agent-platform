@@ -9,8 +9,8 @@ from server.domain.models import Agent
 from server.domain.schemas import (
     GlobalStatusRead,
 )
-from server.services import status_service
 from server.services import permissions as perm
+from server.services import status_service
 from server.services.errors import ForbiddenError
 
 status_router = APIRouter(prefix="/status", tags=["status"])

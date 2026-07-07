@@ -18,7 +18,6 @@ from claude_agent_sdk import (
 from cli.agent_client import PersonaAgentClient, make_wakeup_prompt
 from cli.session_wake_log import resolve_session_log_path
 
-
 # --- Fakes -------------------------------------------------------------------
 
 
@@ -71,15 +70,15 @@ class FakeReceive:
     def __init__(self, messages: list[Any]) -> None:
         self._messages = list(messages)
 
-    def __aiter__(self) -> "FakeReceive":
+    def __aiter__(self) -> FakeReceive:
         self._iter = iter(self._messages)
         return self
 
     async def __anext__(self) -> Any:
         try:
             return next(self._iter)
-        except StopIteration as exc:  # noqa: F841
-            raise StopAsyncIteration
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
 
 
 class FakeClaudeClient:
@@ -492,7 +491,7 @@ class HangingReceive:
     def __init__(self, hang_for: float = 60.0) -> None:
         self._hang_for = hang_for
 
-    def __aiter__(self) -> "HangingReceive":
+    def __aiter__(self) -> HangingReceive:
         return self
 
     async def __anext__(self) -> Any:
@@ -511,16 +510,16 @@ class PartialThenHangingReceive:
         self._messages = list(messages)
         self._hang_for = hang_for
 
-    def __aiter__(self) -> "PartialThenHangingReceive":
+    def __aiter__(self) -> PartialThenHangingReceive:
         self._iter = iter(self._messages)
         return self
 
     async def __anext__(self) -> Any:
         try:
             return next(self._iter)
-        except StopIteration:
+        except StopIteration as exc:
             await asyncio.sleep(self._hang_for)
-            raise StopAsyncIteration  # unreachable when hang_for > wake_timeout
+            raise StopAsyncIteration from exc  # unreachable when hang_for > wake_timeout
 
 
 def test_wake_up_aborts_with_no_response_when_receive_response_hangs(tmp_path: Path) -> None:

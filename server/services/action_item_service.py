@@ -36,7 +36,6 @@ from sqlalchemy.orm import Session
 from server.domain.models import TopicActionItem
 from server.services import audit_service
 
-
 # Wake-history window from plan §3. Mirrored here so service-level callers
 # (admin scripts, dogfood) can introspect the same numbers the waker uses
 # without re-parsing the plan markdown.

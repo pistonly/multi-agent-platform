@@ -12,7 +12,7 @@ The lock intentionally operates at the *project* level: the same ``project_id``
 may only have **one** experiment whose ``phase == running`` AND
 ``lock_holder_experiment_id`` set at a time. Other host workers running
 ``execute_experiment`` against the same project will receive a ``lock_busy``
-result and follow the skip-backoff policy (see ``cli/host_experiment_lifecycle``).
+result and follow the skip-backoff policy (host execute_experiment callers).
 """
 
 from __future__ import annotations
@@ -24,10 +24,11 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger("map.experiment_lock")
 
@@ -291,9 +292,7 @@ class ExperimentLockManager:
         state = self.backend.get_lock_state(project_id)
         if not state.is_held:
             return False
-        if state.is_expired():
-            return False
-        return True
+        return not state.is_expired()
 
     def force_release(self, *, project_id: str, reason: str, actor: str | None = None) -> LockState:
         """Operator override: clear the lock unconditionally and audit-log it."""
@@ -350,7 +349,7 @@ class ExperimentLockManager:
     # ---- env toggles ----
 
     @classmethod
-    def from_env(cls, backend: LockBackend) -> "ExperimentLockManager":
+    def from_env(cls, backend: LockBackend) -> ExperimentLockManager:
         disabled = os.environ.get("MAP_HOST_NO_LOCK") == "1"
         dry_run = os.environ.get("MAP_HOST_LOCK_DRY_RUN") == "1"
         if disabled:

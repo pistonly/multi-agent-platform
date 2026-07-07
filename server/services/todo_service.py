@@ -19,17 +19,16 @@ from server.domain.models import (
 from server.domain.schemas import (
     ExperimentSummaryRead,
     MentionTodoRead,
+    PendingAdvanceRoundTodoRead,
     PendingPlanRevisionRead,
     PendingReplyRead,
     PendingRoundAckTodoRead,
-    PendingAdvanceRoundTodoRead,
     PendingTopicReplyTodoRead,
-    TopicActionItemTodoRead,
     TodoRead,
+    TopicActionItemTodoRead,
 )
-from server.services import mention_service
+from server.services import mention_service, topic_ack_service
 from server.services import permissions as perm
-from server.services import topic_ack_service
 from server.services.topic_service import topic_summaries_for_topics
 
 if TYPE_CHECKING:
@@ -288,8 +287,8 @@ def get_todos(
         for item in db.scalars(reply_stmt)
     ]
 
-    from server.services import topic_work_item_service as work_items
     from server.services import todo_persona_filter as persona_filter
+    from server.services import topic_work_item_service as work_items
 
     shows_review_obligations = persona_filter.agent_sees_review_obligations(
         agent, include_all_partitions=include_all_partitions

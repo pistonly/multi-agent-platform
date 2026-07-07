@@ -105,7 +105,7 @@ def test_summarize_pending_work_ignores_my_open_topics_alone() -> None:
 
 
 def test_build_wake_context_topic_progress_triggers_wake() -> None:
-    from cli.simple_waker import build_wake_context, build_remind_prompt
+    from cli.simple_waker import build_remind_prompt, build_wake_context
 
     context = build_wake_context(
         topic_progress_data={

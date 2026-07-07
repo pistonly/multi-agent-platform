@@ -23,12 +23,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from cli.runtime_waker import (
+from cli.action_item_escalation import (
     ActionItemWakeDecision,
     scan_pending_action_items,
     should_wake_action_item,
 )
-
 
 NOW = datetime(2026, 7, 3, 12, 0, 0, tzinfo=UTC)
 OWNER = "8ab78cfc-8289-442e-ae63-fa0df4d2cd68"
@@ -234,10 +233,11 @@ def test_scan_skips_entries_without_id():
 
 def test_thresholds_match_plan_section_three():
     """Locks the decision thresholds to plan §3 numbers. If the plan moves,
-    update both ``cli/runtime_waker.py`` and ``server/services/action_item_service.py``
-    together; the canonical service test already cross-checks them.
+    update both ``cli/action_item_escalation.py`` and
+    ``server/services/action_item_service.py`` together; the canonical service
+    test already cross-checks them.
     """
-    from cli.runtime_waker import (
+    from cli.action_item_escalation import (
         _WAKE_MAX_BEFORE_STALE,
         _WAKE_REPEAT_DAYS,
         _WAKE_STAGE_HOURS,

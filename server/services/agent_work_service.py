@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from map_types.enums import NotificationCategory
 from sqlalchemy.orm import Session
 
-from map_types.enums import NotificationCategory
 from server.domain.models import Agent
 from server.domain.schemas import (
     AgentRead,
@@ -12,8 +12,8 @@ from server.domain.schemas import (
     NotificationListRead,
     NotificationRead,
 )
-from server.services import notification_service, project_service as svc
-from server.services import todo_service, topic_progress_service
+from server.services import notification_service, todo_service, topic_progress_service
+from server.services import project_service as svc
 from server.services import topic_work_item_service as work_items
 
 

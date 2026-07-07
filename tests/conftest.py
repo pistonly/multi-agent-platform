@@ -6,16 +6,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from map_client import MAPClient
+from map_client.testing import MAPTestClientTransport
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from map_client import MAPClient
-from map_client.testing import MAPTestClientTransport
 from server.db.base import Base
 from server.db.session import get_db
 from server.main import create_app
-
 
 # ---------------------------------------------------------------------------
 # claude_cli marker：未登录时 skip 而非 fail

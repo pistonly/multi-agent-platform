@@ -5,7 +5,6 @@
 """
 
 import pytest
-
 from map_client.exceptions import (
     MAPAuthenticationError,
     MAPClientError,

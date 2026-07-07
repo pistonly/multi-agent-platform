@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from map_types.schemas import ActionItemStalePayload
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from map_types.schemas import ActionItemStalePayload
 from server.domain.models import AuditLog, TopicActionItem
 from server.domain.schemas import AuditLogRead
 

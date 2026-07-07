@@ -130,7 +130,7 @@ class WorkerStats:
     lock_skipped: int = 0
     lock_force_released: int = 0
 
-    def add(self, other: "WorkerStats") -> None:
+    def add(self, other: WorkerStats) -> None:
         self.cycles += other.cycles
         self.replies_created += other.replies_created
         self.summaries_created += other.summaries_created

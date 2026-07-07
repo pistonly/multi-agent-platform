@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from map_types.enums import ExperimentPhase
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from map_types.enums import ExperimentPhase
 from server.domain.models import Agent, AgentRole, Experiment
 from server.domain.schemas import ExperimentReviewInformationalRead
 from server.services.experiment_capabilities_service import _reviews_for_current_plan
@@ -32,9 +32,7 @@ def agent_sees_review_obligations(
         return True
     if agent.role == AgentRole.admin:
         return True
-    if agent.name in _NON_REVIEWER_PERSONA_NAMES:
-        return False
-    return True
+    return agent.name not in _NON_REVIEWER_PERSONA_NAMES
 
 
 def list_experiment_review_informational(

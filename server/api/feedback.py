@@ -1,9 +1,9 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from map_types.enums import FeedbackCategory, FeedbackStatus
 from sqlalchemy.orm import Session
 
-from map_types.enums import FeedbackCategory, FeedbackStatus
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent

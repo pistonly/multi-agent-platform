@@ -108,14 +108,20 @@ def should_wake_action_item(
             return ActionItemWakeDecision.WAKE
 
     # Stages 3+: every 7d after the last wake.
-    if 2 <= wake_count < _WAKE_MAX_BEFORE_STALE and last_woken_at is not None:
-        if current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS):
-            return ActionItemWakeDecision.WAKE
+    if (
+        2 <= wake_count < _WAKE_MAX_BEFORE_STALE
+        and last_woken_at is not None
+        and current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS)
+    ):
+        return ActionItemWakeDecision.WAKE
 
     # Past the 4th unanswered wake: write stale.
-    if wake_count >= _WAKE_MAX_BEFORE_STALE and last_woken_at is not None:
-        if current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS):
-            return ActionItemWakeDecision.STALE
+    if (
+        wake_count >= _WAKE_MAX_BEFORE_STALE
+        and last_woken_at is not None
+        and current - last_woken_at >= timedelta(days=_WAKE_REPEAT_DAYS)
+    ):
+        return ActionItemWakeDecision.STALE
 
     return ActionItemWakeDecision.SKIP
 
@@ -159,7 +165,7 @@ class EscalationDecisionCounts:
     @classmethod
     def from_decisions(
         cls, decisions: list[tuple[str, ActionItemWakeDecision]]
-    ) -> "EscalationDecisionCounts":
+    ) -> EscalationDecisionCounts:
         wake = stale = skip = 0
         for _, decision in decisions:
             if decision is ActionItemWakeDecision.WAKE:

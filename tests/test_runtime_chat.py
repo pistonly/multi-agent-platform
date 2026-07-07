@@ -72,9 +72,8 @@ def test_format_session_banner_includes_resume_mode() -> None:
 
 
 def test_ensure_waker_not_running_raises_when_pgrep_finds_pids() -> None:
-    with patch("cli.runtime_chat.find_runtime_waker_pids", return_value=[12345]):
-        with pytest.raises(WorkerError, match="runtime waker"):
-            ensure_waker_not_running(persona="host", ignore_waker=False)
+    with patch("cli.runtime_chat.find_runtime_waker_pids", return_value=[12345]), pytest.raises(WorkerError, match="runtime waker"):
+        ensure_waker_not_running(persona="host", ignore_waker=False)
 
 
 def test_ensure_waker_not_running_ignored_with_flag() -> None:

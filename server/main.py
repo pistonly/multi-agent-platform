@@ -13,10 +13,12 @@ from server.api.router import (
     experiments_router,
     feedback_router,
     notifications_router,
-    router as projects_router,
     status_router,
     topics_router,
     webhooks_router,
+)
+from server.api.router import (
+    router as projects_router,
 )
 from server.config import get_settings
 from server.db.session import init_db

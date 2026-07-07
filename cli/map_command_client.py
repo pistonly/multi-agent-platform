@@ -50,8 +50,7 @@ class MapCommandClient:
                 result = subprocess.run(
                     cmd,
                     text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     check=False,
                     timeout=self.cmd_timeout,
                 )
@@ -335,8 +334,7 @@ class MapCommandClient:
             result = subprocess.run(
                 cmd,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 check=False,
                 timeout=self.cmd_timeout,
             )
@@ -395,6 +393,7 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     # action item
     ("action", "complete"),
     ("action", "cancel"),
+    ("action", "deliver"),
     ("action", "link"),
     ("action", "mark-wake-sent"),
     ("action", "mark-stale"),

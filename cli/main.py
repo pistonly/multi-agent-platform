@@ -1,15 +1,17 @@
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import httpx
 import typer
 import yaml
+from map_client.bootstrap import bootstrap_project_map
 from map_client.client import MAPClient
 from map_client.exceptions import MAPConflictError, MAPHTTPError, MAPNotFoundError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
-from map_client.bootstrap import bootstrap_project_map
+
 from server.domain.models import AgentRole
 from server.domain.schemas import (
     ExperimentComplete,
@@ -856,6 +858,7 @@ def inbound_event_record(
     409 as "already woken" and skips resume.
     """
     from map_types.enums import InboundEventSource
+
     from server.domain.schemas import InboundEventCreate
 
     extra_payload: dict | None = None
@@ -1391,6 +1394,7 @@ def feedback_submit(
     ),
 ) -> None:
     from map_types.enums import FeedbackCategory
+
     from server.domain.schemas import PlatformFeedbackCreate
 
     payload = PlatformFeedbackCreate(
@@ -1439,6 +1443,7 @@ def feedback_update(
     archived: bool | None = typer.Option(None, "--archived/--no-archived"),
 ) -> None:
     from map_types.enums import FeedbackCategory, FeedbackStatus
+
     from server.domain.schemas import PlatformFeedbackUpdate
 
     payload = PlatformFeedbackUpdate(

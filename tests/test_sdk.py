@@ -2,9 +2,9 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-
 from map_client import MAPClient, MAPHTTPError
 from map_client.testing import MAPTestClientTransport
+
 from server.domain.models import ExperimentPhase
 from server.domain.schemas import (
     ExperimentComplete,
@@ -250,8 +250,9 @@ def test_sdk_action_item_wake_fields_round_trip(
     Drives: create topic → resolve with action_item → ``list_project_action_items``
     → assert each wake field is present and parseable.
     """
-    from server.domain.schemas import TopicCreate
     from map_types.enums import TopicActionItemStatus
+
+    from server.domain.schemas import TopicCreate
 
     project_id = uuid.UUID(project["id"])
     me = map_client.get_me()

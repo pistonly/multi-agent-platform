@@ -1,13 +1,21 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import joinedload
-
 from map_types.enums import AgentRole, ExperimentPhase, TopicActionItemStatus, TopicDiscussionRound
 from map_types.schemas import ActionItemCancel
-from server.domain.models import Agent, Experiment, Topic, TopicActionItem, TopicComment, TopicDecision, TopicReadCursor, TopicStatus
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, joinedload
+
+from server.domain.models import (
+    Agent,
+    Experiment,
+    Topic,
+    TopicActionItem,
+    TopicComment,
+    TopicDecision,
+    TopicReadCursor,
+    TopicStatus,
+)
 from server.domain.schemas import (
     ExperimentSummaryRead,
     TopicActionItemRead,
@@ -21,13 +29,19 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
-from server.services import action_item_service, audit_service, mention_service, notification_service, topic_ack_service
-from server.services import topic_comment_service
+from server.services import (
+    action_item_service,
+    audit_service,
+    mention_service,
+    notification_service,
+    topic_ack_service,
+    topic_comment_service,
+)
+from server.services._lookups import get_project
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError, StateTransitionError
 from server.services.permissions import is_admin
-from server.services._lookups import get_project
-from server.services.thread_activity import topic_comment_order_clauses, topic_comment_order_clauses_desc
 from server.services.text_utils import excerpt
+from server.services.thread_activity import topic_comment_order_clauses, topic_comment_order_clauses_desc
 
 
 def _get_topic(db: Session, topic_id: uuid.UUID) -> Topic:

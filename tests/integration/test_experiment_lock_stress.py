@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -89,7 +89,7 @@ def test_ttl_self_heals_after_crash(tmp_path: Path) -> None:
     backend.states["proj-1"] = LockState(
         project_id="proj-1",
         lock_holder_experiment_id="crashed",
-        lock_acquired_at=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+        lock_acquired_at=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
         lock_ttl_seconds=1800,
     )
     manager = ExperimentLockManager(backend=backend, local_lock_dir=tmp_path)
@@ -102,7 +102,7 @@ def test_ttl_active_lock_is_not_reclaimed(tmp_path: Path) -> None:
     backend.states["proj-1"] = LockState(
         project_id="proj-1",
         lock_holder_experiment_id="active",
-        lock_acquired_at=datetime.now(timezone.utc).isoformat(),
+        lock_acquired_at=datetime.now(UTC).isoformat(),
         lock_ttl_seconds=1800,
     )
     manager = ExperimentLockManager(backend=backend, local_lock_dir=tmp_path)

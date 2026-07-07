@@ -18,7 +18,6 @@ from server.domain.models import Webhook, WebhookDelivery
 from server.domain.schemas import WebhookCreate, WebhookUpdate
 from server.services.errors import NotFoundError
 
-
 logger = logging.getLogger(__name__)
 
 # 单次投递最多尝试次数（含首次）。重试间隔为 2 ** (attempt-1) 秒，即 1s / 2s。

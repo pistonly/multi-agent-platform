@@ -2,12 +2,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from map_client import project_config
+from map_client.testing import MAPTestClientTransport
 from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
-from map_client import project_config
-from map_client.testing import MAPTestClientTransport
 
 pytestmark = pytest.mark.slow
 

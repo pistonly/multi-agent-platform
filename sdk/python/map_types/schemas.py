@@ -638,9 +638,9 @@ class TopicActionItemTodoRead(BaseModel):
     status: TopicActionItemStatus
     due_at: datetime | None = None
     linked_experiment_id: uuid.UUID | None = None
-    # Wake / stale escalation fields (experiment B). The runtime-waker
-    # applies should_wake_action_item() directly to this payload — see
-    # cli/runtime_waker.py scan_pending_action_items() for the caller.
+    # Wake / stale escalation fields (experiment B). The waker applies
+    # should_wake_action_item() directly to this payload — see
+    # cli/action_item_escalation.py scan_pending_action_items() for the caller.
     wake_count: int = 0
     first_open_at: datetime | None = None
     last_woken_at: datetime | None = None

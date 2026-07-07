@@ -2,13 +2,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
+from map_types.enums import NotificationCategory
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.api.deps import get_current_agent, get_optional_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, AgentRole, Project
-from map_types.enums import NotificationCategory
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
@@ -24,16 +24,18 @@ from server.domain.schemas import (
     TopicProgressListRead,
     TopicReadCursorRead,
 )
+from server.services import (
+    agent_work_service,
+    inbound_event_service,
+    mention_service,
+    notification_service,
+    todo_service,
+    topic_service,
+)
 from server.services import auth as auth_service
-from server.services import agent_work_service
-from server.services import inbound_event_service
-from server.services import mention_service
-from server.services import notification_service
-from server.services import todo_service
-from server.services import topic_service
-from server.services.notification_stream import notification_sse_response
 from server.services import permissions as perm
 from server.services import project_service as svc
+from server.services.notification_stream import notification_sse_response
 
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
 

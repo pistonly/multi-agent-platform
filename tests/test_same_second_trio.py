@@ -6,12 +6,11 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 import yaml
 from sqlalchemy import select
 
 from server.domain.models import TopicComment
-
-import pytest
 
 pytestmark = pytest.mark.slow
 

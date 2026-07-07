@@ -13,8 +13,8 @@ from server.domain.schemas import (
     WebhookRead,
     WebhookUpdate,
 )
-from server.services import webhook_service
 from server.services import permissions as perm
+from server.services import webhook_service
 
 webhooks_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 

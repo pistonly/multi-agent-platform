@@ -21,9 +21,9 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from map_types.enums import AgentRole, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from sqlalchemy import select
 
-from map_types.enums import AgentRole, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from server.domain.models import Agent, AuditLog, Project, Topic, TopicActionItem, TopicDecision
 from server.services.action_item_service import (
     WAKE_MAX_COUNT_BEFORE_STALE,
@@ -32,7 +32,6 @@ from server.services.action_item_service import (
     mark_stale_no_commit,
     mark_wake_sent_no_commit,
 )
-
 
 # Sentinel for "argument not supplied" so we can distinguish a defaulted field
 # from an explicitly-None argument (Python's normal default-argument semantics

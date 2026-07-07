@@ -126,6 +126,7 @@ def test_wakeable_enqueue_publishes_sse_frame_with_v2_fingerprint(
     HTTP-driven lifecycle events target only host/participant.
     """
     from map_types.enums import NotificationCategory
+
     from server.services import notification_service
 
     reviewer_id = uuid.UUID(reviewer["id"])

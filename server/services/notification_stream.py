@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import threading
 import uuid
@@ -76,10 +77,8 @@ def publish(agent_id: uuid.UUID, event: dict[str, Any]) -> None:
         queues = list(_subscribers.get(agent_id, []))
     frame = f"id: {event_id}\ndata: {payload}\n\n"
     for queue in queues:
-        try:
+        with contextlib.suppress(Exception):
             queue.put_nowait(frame)
-        except Exception:
-            pass
 
 
 def publish_many(agent_ids: list[uuid.UUID], event: dict[str, Any]) -> None:

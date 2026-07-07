@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from map_types import AgentCreateResponse
 
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
@@ -21,7 +22,6 @@ from map_client.project_config import (
     ProjectMapConfig,
     _read_yaml,
 )
-from map_types import AgentCreateResponse
 
 DEFAULT_PERSONAS: dict[str, dict[str, str]] = {
     "host": {

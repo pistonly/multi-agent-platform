@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from map_client.client import MAPClient
+
 from map_mcp.auth import get_request_bearer
 from map_mcp.context import AgentContext
 

@@ -22,16 +22,15 @@ import pytest
 
 from cli.experiment_lock import (
     DEFAULT_LOCK_TTL_SECONDS,
+    LOG_FORCE,
+    LOG_STUCK,
     ExperimentLockError,
     ExperimentLockManager,
     InMemoryLockBackend,
-    LOG_FORCE,
-    LOG_STUCK,
     LockBusy,
     LockConfig,
     LockState,
 )
-
 
 # ---------------------------------------------------------------------------
 # Config + construction
@@ -131,7 +130,7 @@ def test_compute_backoff_grows_then_caps_at_1800s():
     _, manager = _manager()
     values = [manager.compute_backoff(skip_count=i) for i in range(1, 12)]
     # Strictly non-decreasing until cap.
-    for previous, current in zip(values, values[1:]):
+    for previous, current in zip(values, values[1:], strict=False):
         assert current >= previous
     assert values[-1] == 1800
 
@@ -153,7 +152,7 @@ def test_record_skip_emits_lock_stuck_at_threshold(tmp_path: Path, caplog):
     fixed_now = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
     caplog.set_level("WARNING", logger="map.experiment_lock")
     # First 9 failures do not trigger.
-    for i in range(1, 10):
+    for _ in range(1, 10):
         manager.record_skip(project_id="p1", experiment_id="e1", now=fixed_now)
     # 10th failure crosses threshold -> emit lock_stuck
     manager.record_skip(project_id="p1", experiment_id="e1", now=fixed_now)

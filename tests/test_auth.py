@@ -1,6 +1,7 @@
 from server.domain.models import AgentRole
 from server.services.auth import TOKEN_PREFIX_LEN, create_agent, get_agent_by_token, hash_token, token_prefix
 
+
 def test_token_prefix_length():
     assert TOKEN_PREFIX_LEN == 8
 

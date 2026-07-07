@@ -15,11 +15,11 @@ import pytest
 from cli.agent_client import make_wakeup_prompt
 from cli.host_worker_types import WorkerError
 from cli.reviewer_worker import (
+    VALID_AGENT_BACKENDS,
     ReviewerMapClient,
     ReviewerWorker,
     ReviewerWorkerConfig,
     ReviewerWorkerStats,
-    VALID_AGENT_BACKENDS,
 )
 
 

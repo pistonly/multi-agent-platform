@@ -33,16 +33,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
+from map_types.enums import InboundEventSource
+from map_types.schemas import InboundEventCreate
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
-from map_types.enums import InboundEventSource
-from map_types.schemas import InboundEventCreate
 from server.db.base import Base
 from server.db.session import get_db
 from server.main import create_app
-
 
 # --- A2 helper: per-thread DB -------------------------------------------------
 

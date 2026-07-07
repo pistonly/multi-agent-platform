@@ -3,6 +3,7 @@ import pytest
 from server.domain.models import ExperimentPhase, ReviewItem, ReviewItemKind, ReviewItemStatus
 from server.domain.state_machine import (
     ReviewItemTransitionContext,
+    StateMachineError,
     can_approve,
     count_open_unreasonable,
     validate_phase_transition,
@@ -16,7 +17,7 @@ def test_phase_transitions():
     validate_phase_transition(ExperimentPhase.running, ExperimentPhase.result_review)
     validate_phase_transition(ExperimentPhase.result_review, ExperimentPhase.done)
     validate_phase_transition(ExperimentPhase.result_review, ExperimentPhase.running)
-    with pytest.raises(Exception):
+    with pytest.raises(StateMachineError):
         validate_phase_transition(ExperimentPhase.draft, ExperimentPhase.approved)
 
 

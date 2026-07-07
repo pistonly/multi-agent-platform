@@ -2,23 +2,23 @@
   "phase": "phase1-polling",
   "iterations_per_kind": 25,
   "p50_seconds_by_kind": {
-    "mentions": 0.0006930828094482422,
-    "pending_reviews": 0.0005109310150146484,
-    "pending_topic_replies": 0.0004239082336425781,
-    "my_open_experiments": 0.0003559589385986328
+    "mentions": 0.001497030258178711,
+    "pending_reviews": 0.0008881092071533203,
+    "pending_topic_replies": 0.0006859302520751953,
+    "my_open_experiments": 0.0006220340728759766
   },
   "p95_seconds_by_kind": {
-    "mentions": 0.0009202957153320312,
-    "pending_reviews": 0.0006139278411865234,
-    "pending_topic_replies": 0.00048069953918457027,
-    "my_open_experiments": 0.00038967132568359377
+    "mentions": 0.0018722057342529296,
+    "pending_reviews": 0.0010611534118652342,
+    "pending_topic_replies": 0.000771045684814453,
+    "my_open_experiments": 0.0007051467895507811
   },
   "p99_seconds_by_kind": {
-    "mentions": 0.0011146831512451167,
-    "pending_reviews": 0.0006330108642578125,
-    "pending_topic_replies": 0.0004941654205322265,
-    "my_open_experiments": 0.0005214214324951169
+    "mentions": 0.00200103759765625,
+    "pending_reviews": 0.0011109542846679686,
+    "pending_topic_replies": 0.0007820320129394531,
+    "my_open_experiments": 0.000919570922851562
   },
-  "captured_at": "2026-07-02T22:18:35.237495+00:00",
+  "captured_at": "2026-07-07T02:11:16.301711+00:00",
   "note": "jsonl-append-only baseline; A4 is informational, no threshold. Phase 2 SSE overlay should re-run this test and diff."
 }

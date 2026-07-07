@@ -16,12 +16,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from map_types.enums import AgentRole, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from sqlalchemy import select
 
-from map_types.enums import AgentRole, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from server.domain.models import Agent, AuditLog, Project, Topic, TopicActionItem, TopicDecision
 from server.services.audit_service import ACTION_ITEM_STALE, log_action_item_stale
-
 
 # Sentinel for "argument not supplied" so we can distinguish a defaulted field
 # from an explicitly-None argument (Python defaults can't do that on their own).
