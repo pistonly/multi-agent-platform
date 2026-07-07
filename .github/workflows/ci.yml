@@ -29,17 +29,11 @@ jobs:
           MAP_DATABASE_URL="sqlite:///$tmpdb" alembic upgrade head
           rm -f "$tmpdb"
 
-      - name: Pytest with coverage
-        # 默认 addopts 已排除 slow/integration/claude_cli，与 PR 上跑的子集一致。
-        # --cov 配置见 pyproject.toml [tool.coverage]；fail_under=60 阈值兜底。
-        run: pytest --cov --cov-report=xml --cov-report=term
-
-      - name: Upload coverage to Codecov
-        if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
+      - name: Pytest (unit subset)
+        # PR 只跑 unit 子集（fast gate，默认 addopts 排除 slow/integration/claude_cli）求快反馈。
+        # coverage 改由 nightly 跑全量时统计——fast gate unit 覆盖(~29%)不足以代表整体，
+        # 在 PR 强制 fail_under=60 会持续误报。见 .github/workflows/nightly.yml。
+        run: pytest
 
   frontend:
     runs-on: ubuntu-latest
