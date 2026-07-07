@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole, Notification, TopicActionItem
@@ -87,6 +87,69 @@ def _emit_created(
                 "fingerprint_version": fp_version.value,
             },
         )
+
+
+_PENDING_SSE_KEY = "map_pending_notification_created_sse"
+_PendingSseFrame = tuple[
+    list[uuid.UUID],
+    list[uuid.UUID],
+    str,
+    list[NotificationCategory],
+    list[int],
+    list[NotificationFingerprintVersion],
+]
+
+
+def _queue_created_after_commit(
+    db: Session,
+    recipient_ids: list[uuid.UUID],
+    notification_ids: list[uuid.UUID],
+    *,
+    event: str,
+    categories: list[NotificationCategory],
+    wake_versions: list[int],
+    fingerprint_versions: list[NotificationFingerprintVersion],
+) -> None:
+    """Publish notification SSE frames only after the DB transaction commits."""
+    if not notification_ids:
+        return
+    pending = db.info.setdefault(_PENDING_SSE_KEY, [])
+    pending.append(
+        (
+            list(recipient_ids),
+            list(notification_ids),
+            event,
+            list(categories),
+            list(wake_versions),
+            list(fingerprint_versions),
+        )
+    )
+
+
+@event.listens_for(Session, "after_commit")
+def _publish_pending_created_after_commit(db: Session) -> None:
+    pending: list[_PendingSseFrame] = db.info.pop(_PENDING_SSE_KEY, [])
+    for (
+        recipient_ids,
+        notification_ids,
+        event_name,
+        categories,
+        wake_versions,
+        fingerprint_versions,
+    ) in pending:
+        _emit_created(
+            recipient_ids,
+            notification_ids,
+            event=event_name,
+            categories=categories,
+            wake_versions=wake_versions,
+            fingerprint_versions=fingerprint_versions,
+        )
+
+
+@event.listens_for(Session, "after_rollback")
+def _discard_pending_created_after_rollback(db: Session) -> None:
+    db.info.pop(_PENDING_SSE_KEY, None)
 
 
 def _resolve_persona_agent_ids(
@@ -392,19 +455,19 @@ def enqueue_from_event(
         categories.append(notification.category)
         wake_versions.append(notification.wake_version)
         fingerprint_versions.append(notification.fingerprint_version)
+    _queue_created_after_commit(
+        db,
+        recipient_ids,
+        notification_ids,
+        event=event,
+        categories=categories,
+        wake_versions=wake_versions,
+        fingerprint_versions=fingerprint_versions,
+    )
     if commit:
         db.commit()
     else:
         db.flush()
-    if notification_ids:
-        _emit_created(
-            recipient_ids,
-            notification_ids,
-            event=event,
-            categories=categories,
-            wake_versions=wake_versions,
-            fingerprint_versions=fingerprint_versions,
-        )
     return notification_ids
 
 
@@ -494,11 +557,8 @@ def enqueue_for_agents(
         wake_versions.append(notification.wake_version)
         fingerprint_versions.append(notification.fingerprint_version)
     if notification_ids:
-        if commit:
-            db.commit()
-        else:
-            db.flush()
-        _emit_created(
+        _queue_created_after_commit(
+            db,
             recipient_ids,
             notification_ids,
             event=event,
@@ -506,6 +566,10 @@ def enqueue_for_agents(
             wake_versions=wake_versions,
             fingerprint_versions=fingerprint_versions,
         )
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     return notification_ids
 
 

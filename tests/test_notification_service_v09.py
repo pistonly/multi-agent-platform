@@ -553,3 +553,58 @@ def test_new_notifications_default_to_v2_fingerprint(db_session, monkeypatch):
     assert any(
         frame.get("fingerprint_version") == "v2" for frame in captured
     ), f"wakeable SSE frame must carry fingerprint_version=v2, got {captured}"
+
+
+def test_commit_false_wakeable_sse_publishes_only_after_outer_commit(db_session, monkeypatch):
+    """commit=False joins the caller's transaction, so SSE must wait for commit."""
+    captured = _spy_stream_publish(monkeypatch)
+    project = _make_project(db_session)
+    actor = _make_agent(db_session, name="actor", project_id=project.id)
+    recipient = _make_agent(db_session, name="recipient", project_id=project.id)
+
+    enqueue_for_agents(
+        db_session,
+        recipient_agent_ids=[recipient.id],
+        project_id=project.id,
+        actor_id=actor.id,
+        event="action_item.wake_sent",
+        summary="wake",
+        target_type="topic_action_item",
+        target_id=uuid.uuid4(),
+        payload=None,
+        wakeable=True,
+        commit=False,
+    )
+
+    assert captured == []
+    db_session.commit()
+
+    assert len(captured) == 1
+    assert captured[0]["event"] == "action_item.wake_sent"
+    assert captured[0]["category"] == NotificationCategory.wakeable.value
+
+
+def test_commit_false_wakeable_sse_discarded_on_rollback(db_session, monkeypatch):
+    """A rolled-back notification must not leave a phantom SSE frame behind."""
+    captured = _spy_stream_publish(monkeypatch)
+    project = _make_project(db_session)
+    actor = _make_agent(db_session, name="actor", project_id=project.id)
+    recipient = _make_agent(db_session, name="recipient", project_id=project.id)
+
+    enqueue_for_agents(
+        db_session,
+        recipient_agent_ids=[recipient.id],
+        project_id=project.id,
+        actor_id=actor.id,
+        event="action_item.wake_sent",
+        summary="wake",
+        target_type="topic_action_item",
+        target_id=uuid.uuid4(),
+        payload=None,
+        wakeable=True,
+        commit=False,
+    )
+
+    db_session.rollback()
+
+    assert captured == []
