@@ -176,7 +176,8 @@ def test_build_wake_context_drain_topics_wakes_on_open_topics() -> None:
     assert context.open_topic_count == 1
     prompt = build_remind_prompt("host", context)
     assert "Drain topics 模式" in prompt
-    assert "topic dismiss" in prompt
+    assert "主动推动话题进展" in prompt
+    assert "行动项" in prompt
     assert "Open topic" in prompt
 
 
@@ -389,5 +390,6 @@ def test_run_once_drain_topics_sends_remind_for_open_topics(tmp_path: Path) -> N
     client.topic_list_open.assert_called_once()
     prompt = backend.wake_async.await_args.kwargs["prompt"]
     assert "Drain topics 模式" in prompt
-    assert "topic dismiss" in prompt
+    assert "主动推动话题进展" in prompt
+    assert "明确结论" in prompt
     assert "T" in prompt

@@ -51,9 +51,10 @@ map --persona host persona whoami
 map --persona host work --notification-category wakeable
 ```
 
+- 主持人的默认职责是**主动推动话题进展、积极解决问题**：澄清问题、邀请相关 persona 参与、推动 Round Summary、沉淀结论/action items，并在边界清楚时开实验或给出有依据的关闭理由。
 - 优先处理 `pending_topic_replies` / `pending_advance_rounds` / topic work item obligation；`stale_open_topics` 表示 host open topic 已 30 分钟无活动，需要复盘并推进、resolve/close，或在等待他人时 `topic dismiss`。
 - 只有 `my_open_topics` 时，通常只是 contextual：没有他人新评论就等待、`topic dismiss`，或在用户明确要求时创建/补充话题。
-- 若 remind 明确写有 **Drain topics 模式**：目标是 open topic 归零，`topic dismiss` 只会隐藏待办、不会完成目标；必须逐个 `topic show` 后推进到 `topic resolve` / `topic close`，或写明无法关闭的 blocker。
+- 若 remind 明确写有 **Drain topics 模式**：按上述主持职责逐个复盘 open topic，优先推动讨论和问题解决；不要把清理列表当成目标，收尾时让每个话题有明确的下一步、结论、实验边界或关闭理由。
 - 每次主持只做一个可验证推进：回复、Round Summary、advance-round、resolve、create experiment 之一。
 - 收尾再跑 `map --persona host work --notification-category wakeable`，确认 obligation 清空或写明 blocker。
 
@@ -83,7 +84,7 @@ map --persona host work --notification-category wakeable
 建议输出：<复现路径 / 契约 / 最小测试 / 是否开实验>
 ```
 
-纯体验反馈先开 topic；只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment。
+纯体验反馈先开 topic；host 应主动推动澄清、分诊和收敛。只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment；若最终不推进，也要留下可理解的关闭理由。
 
 ## 开实验 Rubric（四门，全部满足）
 

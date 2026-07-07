@@ -83,8 +83,9 @@ MAP_SIMPLE_PERSONA=reviewer ./scripts/start-simple-waker.sh
 `map topic list --status open` until the open-topic count reaches zero, then
 stops the wakers. It does not embed topic-hosting policy: the resumed agents
 still read Skills and use `map` CLI to comment, advance rounds, resolve, or
-close topics. In this mode, `topic dismiss` only hides a todo and does **not**
-count as progress because the topic remains open. Timeout defaults to 7200 seconds and can be changed with
+close topics. In this mode, the host should actively drive open topics toward
+discussion, clarification, decisions, action items, experiment boundaries, or a
+well-grounded close reason. Timeout defaults to 7200 seconds and can be changed with
 `MAP_WAKER_DRAIN_TIMEOUT_SECONDS`; check cadence defaults to 60 seconds and can
 be changed with `MAP_WAKER_DRAIN_CHECK_INTERVAL_SECONDS`.
 

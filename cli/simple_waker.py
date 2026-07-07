@@ -312,9 +312,9 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
         lines.extend(
             [
                 "## Drain topics 模式",
-                f"- 当前仍有 {context.open_topic_count} 个 open topic；`topic dismiss` 不算完成。",
-                "- 目标是让 open topic 归零：逐个 topic show 后，按讨论状态 comment / Round Summary / advance-round / resolve / close。",
-                "- 如果 topic 只是体验反馈清单且无需继续讨论，请 close；若已有明确实验边界，请 resolve 后创建实验。",
+                f"- 当前仍有 {context.open_topic_count} 个 open topic。",
+                "- 请主动推动话题进展，逐个 topic show 后促成讨论、澄清问题、沉淀结论，并按状态 comment / Round Summary / advance-round / resolve / close。",
+                "- 目标不是清理列表，而是尽量把问题推进到明确结论、行动项、实验边界或合理关闭理由。",
             ]
         )
         for raw in context.open_topic_samples:

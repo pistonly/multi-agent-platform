@@ -66,9 +66,8 @@ reviewer 的核心义务是实验评审（`pending_reviews` / `pending_result_re
 | `my_open_topics` | 推进话题或 `map topic dismiss --id <uuid>`（与 UI ✕ 相同） | [topic-host](../topic-host/SKILL.md) |
 | `notification` | `map notification read --id <uuid>` | 按通知类型选 Skill |
 
-若 remind 写有 **Drain topics 模式**，`topic dismiss` 不算完成，因为它不会减少
-`map topic list --status open`；host 必须推进到 `topic resolve` / `topic close`，
-或在收尾日志中写出具体 blocker。
+若 remind 写有 **Drain topics 模式**，host 应主动推动 open topic 的进展：
+澄清问题、邀请相关 persona、推进 Round Summary、沉淀结论/action items，并让每个话题形成明确的下一步、实验边界或有依据的关闭理由。
 
 ## Persona 默认 Skill
 
