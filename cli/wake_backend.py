@@ -36,6 +36,7 @@ class WakeResult:
 TODO_WAKE_BUCKETS: tuple[str, ...] = (
     "mentions",
     "pending_topic_replies",
+    "stale_open_topics",
     "action_items",
     "pending_plan_revisions",
     "pending_reviews",
@@ -50,6 +51,7 @@ TODO_WAKE_BUCKETS: tuple[str, ...] = (
 TODO_BUCKET_UI_LABELS: dict[str, str] = {
     "mentions": "你有未处理的 @提及",
     "pending_topic_replies": "你有话题待回复",
+    "stale_open_topics": "你有久未推进的开放话题",
     "action_items": "你有待跟进行动项",
     "pending_plan_revisions": "你有实验计划待修订",
     "pending_reviews": "你有实验待评审",

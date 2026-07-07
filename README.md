@@ -174,6 +174,9 @@ map --persona host status              # 查看 open_topics
 # 三 persona 各起一个 waker（默认 simple-waker，active interval=30s）
 ./scripts/start-all-wakers.sh
 
+# 一键推进话题：持续运行三 persona waker，直到 open topic 为 0 后自动退出
+./scripts/start-all-wakers.sh --drain-topics
+
 # 单 persona
 ./scripts/start-simple-waker.sh --persona host
 ./scripts/start-simple-waker.sh --persona participant
@@ -184,6 +187,8 @@ map --persona host status              # 查看 open_topics
 ```
 
 状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳，勿提交 Git）。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
+
+`--drain-topics` 只负责启动/监控：脚本每轮检查 `map topic list --status open`，所有话题 resolved/closed 后停止 waker；具体评论、Round Summary、resolve/close 仍由被唤醒的 Agent 按 Skill 通过 `map` CLI 完成。
 
 Legacy bridge / 旧 console entry 分类见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
 

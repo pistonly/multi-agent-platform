@@ -62,6 +62,9 @@ class WakeContext:
     topic_progress: tuple[TopicProgressEntry, ...] = ()
     todo_buckets: tuple[PendingBucket, ...] = ()
     notification_count: int = 0
+    open_topic_count: int = 0
+    open_topic_samples: tuple[dict[str, Any], ...] = ()
+    drain_topics: bool = False
 
     @property
     def topic_update_count(self) -> int:
@@ -73,7 +76,12 @@ class WakeContext:
 
     @property
     def total_items(self) -> int:
-        return self.topic_update_count + self.todo_item_count + self.notification_count
+        return (
+            self.topic_update_count
+            + self.todo_item_count
+            + self.notification_count
+            + self.open_topic_count
+        )
 
     @property
     def has_work(self) -> bool:
@@ -94,6 +102,7 @@ class SimpleWakerConfig:
     model: str | None = None
     runtime_home: Path | None = None
     min_remind_seconds: float = 30.0
+    drain_topics: bool = False
 
 
 @dataclass
@@ -214,6 +223,8 @@ def build_wake_context(
     todos: dict[str, Any],
     notifications: list[dict[str, Any]] | None = None,
     persona: str | None = None,
+    drain_topics: bool = False,
+    open_topics: list[dict[str, Any]] | None = None,
 ) -> WakeContext:
     filtered_progress = _filter_topic_progress_for_persona(
         persona,
@@ -224,6 +235,9 @@ def build_wake_context(
         topic_progress=parse_topic_progress(filtered_progress),
         todo_buckets=summarize_actionable_todos(todos),
         notification_count=len(notifications or []),
+        open_topic_count=len(open_topics or []) if drain_topics and persona == "host" else 0,
+        open_topic_samples=tuple((open_topics or [])[:10]) if drain_topics and persona == "host" else (),
+        drain_topics=drain_topics,
     )
 
 
@@ -293,6 +307,25 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
         "4. 按 work_items.kind 逐项处理（obligation 优先）；host 回复 thread 与推进轮次",
         "",
     ]
+
+    if context.drain_topics and persona == "host":
+        lines.extend(
+            [
+                "## Drain topics 模式",
+                f"- 当前仍有 {context.open_topic_count} 个 open topic；`topic dismiss` 不算完成。",
+                "- 目标是让 open topic 归零：逐个 topic show 后，按讨论状态 comment / Round Summary / advance-round / resolve / close。",
+                "- 如果 topic 只是体验反馈清单且无需继续讨论，请 close；若已有明确实验边界，请 resolve 后创建实验。",
+            ]
+        )
+        for raw in context.open_topic_samples:
+            topic_id = raw.get("id") or raw.get("topic_id")
+            title = raw.get("title") or raw.get("topic_title") or ""
+            round_name = raw.get("discussion_round") or ""
+            comments = raw.get("comment_count")
+            lines.append(f"- {title} (`{topic_id}`) · {round_name} · comments={comments}")
+        if context.open_topic_count > len(context.open_topic_samples):
+            lines.append(f"- … 另有 {context.open_topic_count - len(context.open_topic_samples)} 个 open topic")
+        lines.append("")
 
     if context.topic_progress:
         lines.append("## 话题 work items（topic-progress）")
@@ -451,11 +484,16 @@ class SimpleWaker:
             if isinstance(notifications_payload, dict)
             else []
         )
+        open_topics: list[dict[str, Any]] = []
+        if self.config.drain_topics and self.config.persona == "host":
+            open_topics = self.client.topic_list_open()
         context = build_wake_context(
             topic_progress_data=topic_progress_data,
             todos=todos,
             notifications=notifications,
             persona=self.config.persona,
+            drain_topics=self.config.drain_topics,
+            open_topics=open_topics,
         )
         if context.has_work:
             stats.polls_with_work = 1
@@ -521,6 +559,8 @@ class SimpleWaker:
 
     def _scan_stalled_experiment_locks(self, stats: SimpleWakerStats) -> None:
         """Ask the platform to materialize stalled-lock notifications before polling work."""
+        if self.config.persona != "host":
+            return
         scan_fn = getattr(self.client, "experiment_scan_stalled_locks", None)
         if scan_fn is None or self.config.dry_run:
             return
@@ -557,7 +597,7 @@ class SimpleWaker:
                 event_id=event_id,
                 fingerprint=fingerprint,
                 event_type="simple-waker.remind",
-                source="simple-waker",
+                source="polling",
             )
             if recorded:
                 stats.inbound_events_recorded = 1
@@ -676,6 +716,11 @@ def run(
     once: bool = typer.Option(False, "--once", help="Run one cycle and exit."),
     max_cycles: int | None = typer.Option(None, "--max-cycles", min=1, help="Stop after N cycles."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print remind actions without invoking runtime."),
+    drain_topics: bool = typer.Option(
+        False,
+        "--drain-topics",
+        help="Host mode: keep reminding while any open topic exists; dismiss does not count as done.",
+    ),
     state_file: Path | None = typer.Option(
         Path(".map/simple-waker-state.json"),
         "--state-file",
@@ -707,6 +752,7 @@ def run(
         model=model,
         runtime_home=resolved_runtime_home,
         min_remind_seconds=min_remind_seconds,
+        drain_topics=drain_topics,
     )
     waker = SimpleWaker(client=client, config=config)
     waker.run_forever()

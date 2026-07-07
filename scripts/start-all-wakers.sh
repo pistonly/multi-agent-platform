@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/start-all-wakers.sh
 #   ./scripts/start-all-wakers.sh --once --dry-run
+#   ./scripts/start-all-wakers.sh --drain-topics
 #   MAP_SIMPLE_ACTIVE_INTERVAL=60 ./scripts/start-all-wakers.sh
 #
 # Logs: .map/waker-logs/{host,participant,reviewer}.log

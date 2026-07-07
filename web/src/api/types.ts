@@ -33,6 +33,7 @@ export type MentionTodo = Schemas.MentionTodoRead;
 export type PendingTopicReplyTodo = Schemas.PendingTopicReplyTodoRead;
 export type PendingRoundAckTodo = Schemas.PendingRoundAckTodoRead;
 export type PendingAdvanceRoundTodo = Schemas.PendingAdvanceRoundTodoRead;
+export type StaleOpenTopicTodo = Schemas.StaleOpenTopicTodoRead;
 export type TopicActionItemTodo = Schemas.TopicActionItemTodoRead;
 export type ExperimentReviewInformational = Schemas.ExperimentReviewInformationalRead;
 export type Notification = Schemas.NotificationRead;

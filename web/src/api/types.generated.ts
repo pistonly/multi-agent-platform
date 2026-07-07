@@ -183,6 +183,7 @@ export interface TodoRead {
   pending_topic_replies?: PendingTopicReplyTodoRead[];
   pending_round_acks?: PendingRoundAckTodoRead[];
   pending_advance_rounds?: PendingAdvanceRoundTodoRead[];
+  stale_open_topics?: StaleOpenTopicTodoRead[];
   my_open_topics?: TopicSummaryRead[];
   mentions?: MentionTodoRead[];
   action_items?: TopicActionItemTodoRead[];
@@ -270,6 +271,17 @@ export interface PendingAdvanceRoundTodoRead {
   advance_round_pending_since?: string | null;
   updated_at: string;
 }
+/**
+ * Host-owned open topic that has had no activity for the stale threshold.
+ */
+export interface StaleOpenTopicTodoRead {
+  topic_id: string;
+  topic_title: string;
+  discussion_round: TopicDiscussionRound;
+  round_summary_count?: number;
+  stale_since: string;
+  updated_at: string;
+}
 export interface TopicSummaryRead {
   id: string;
   project_id: string;
@@ -319,6 +331,7 @@ export interface TopicActionItemTodoRead {
   status: TopicActionItemStatus;
   due_at?: string | null;
   linked_experiment_id?: string | null;
+  linked_experiment_phase?: ExperimentPhase | null;
   wake_count?: number;
   first_open_at?: string | null;
   last_woken_at?: string | null;
@@ -712,6 +725,7 @@ export interface TopicActionItemRead {
   status: TopicActionItemStatus;
   due_at?: string | null;
   linked_experiment_id?: string | null;
+  linked_experiment_phase?: ExperimentPhase | null;
   category?: ActionItemCategory | null;
   cancel_reason?: string | null;
   suggested_linked_experiment_id?: string | null;

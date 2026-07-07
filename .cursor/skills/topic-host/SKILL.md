@@ -51,8 +51,9 @@ map --persona host persona whoami
 map --persona host work --notification-category wakeable
 ```
 
-- 优先处理 `pending_topic_replies` / `pending_advance_rounds` / topic work item obligation。
+- 优先处理 `pending_topic_replies` / `pending_advance_rounds` / topic work item obligation；`stale_open_topics` 表示 host open topic 已 30 分钟无活动，需要复盘并推进、resolve/close，或在等待他人时 `topic dismiss`。
 - 只有 `my_open_topics` 时，通常只是 contextual：没有他人新评论就等待、`topic dismiss`，或在用户明确要求时创建/补充话题。
+- 若 remind 明确写有 **Drain topics 模式**：目标是 open topic 归零，`topic dismiss` 只会隐藏待办、不会完成目标；必须逐个 `topic show` 后推进到 `topic resolve` / `topic close`，或写明无法关闭的 blocker。
 - 每次主持只做一个可验证推进：回复、Round Summary、advance-round、resolve、create experiment 之一。
 - 收尾再跑 `map --persona host work --notification-category wakeable`，确认 obligation 清空或写明 blocker。
 

@@ -614,6 +614,17 @@ class PendingAdvanceRoundTodoRead(BaseModel):
     updated_at: datetime
 
 
+class StaleOpenTopicTodoRead(BaseModel):
+    """Host-owned open topic that has had no activity for the stale threshold."""
+
+    topic_id: uuid.UUID
+    topic_title: str
+    discussion_round: TopicDiscussionRound
+    round_summary_count: int = 0
+    stale_since: datetime
+    updated_at: datetime
+
+
 class MentionTodoRead(BaseModel):
     id: uuid.UUID
     mentioned_agent_id: uuid.UUID
@@ -691,6 +702,7 @@ class TodoRead(BaseModel):
     pending_topic_replies: list[PendingTopicReplyTodoRead] = Field(default_factory=list)
     pending_round_acks: list[PendingRoundAckTodoRead] = Field(default_factory=list)
     pending_advance_rounds: list[PendingAdvanceRoundTodoRead] = Field(default_factory=list)
+    stale_open_topics: list[StaleOpenTopicTodoRead] = Field(default_factory=list)
     my_open_topics: list[TopicSummaryRead] = Field(default_factory=list)
     mentions: list[MentionTodoRead] = Field(default_factory=list)
     action_items: list[TopicActionItemTodoRead] = Field(default_factory=list)

@@ -74,6 +74,9 @@ DEPRECATED: cli/reviewer_worker.py
 # 默认：三 persona waker
 ./scripts/start-all-wakers.sh
 
+# 一键推进话题直到 open topic 清零
+./scripts/start-all-wakers.sh --drain-topics
+
 # 单 persona
 ./scripts/start-simple-waker.sh --persona host
 ```

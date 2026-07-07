@@ -94,14 +94,16 @@ class FakeMapClient(MapCommandClient):
 def test_summarize_pending_work_counts_buckets_and_notifications() -> None:
     todos = {
         "pending_topic_replies": [{"comment_id": "c1"}, {"comment_id": "c2"}],
+        "stale_open_topics": [{"topic_id": "t2"}],
         "my_open_topics": [{"id": "t1"}],
     }
     notifications = [{"id": "n1"}]
     summary = summarize_pending_work(todos, notifications=notifications)
     assert summary.has_work is True
-    assert summary.total_items == 3
+    assert summary.total_items == 4
     assert summary.todo_buckets[0].kind == "pending_topic_replies"
     assert summary.todo_buckets[0].count == 2
+    assert summary.todo_buckets[1].kind == "stale_open_topics"
 
 
 def test_summarize_pending_work_ignores_my_open_topics_alone() -> None:
@@ -150,6 +152,32 @@ def test_build_wake_context_host_caught_up_when_no_progress_and_no_todos() -> No
         todos={"my_open_topics": [{"id": "t1"}]},
     )
     assert context.has_work is False
+
+
+def test_build_wake_context_drain_topics_wakes_on_open_topics() -> None:
+    from cli.simple_waker import build_remind_prompt, build_wake_context
+
+    context = build_wake_context(
+        topic_progress_data={"items": [], "total": 0},
+        todos={},
+        persona="host",
+        drain_topics=True,
+        open_topics=[
+            {
+                "id": "t1",
+                "title": "Open topic",
+                "discussion_round": "round1",
+                "comment_count": 0,
+            }
+        ],
+    )
+
+    assert context.has_work is True
+    assert context.open_topic_count == 1
+    prompt = build_remind_prompt("host", context)
+    assert "Drain topics 模式" in prompt
+    assert "topic dismiss" in prompt
+    assert "Open topic" in prompt
 
 
 def test_summarize_pending_work_idle_when_empty() -> None:
@@ -219,12 +247,16 @@ def test_should_send_remind_skips_when_inflight() -> None:
 
 def test_build_remind_prompt_lists_buckets() -> None:
     summary = summarize_pending_work(
-        {"pending_topic_replies": [{"comment_id": "c1"}]},
+        {
+            "pending_topic_replies": [{"comment_id": "c1"}],
+            "stale_open_topics": [{"topic_id": "t1"}],
+        },
         notifications=[{"id": "n1"}],
     )
     prompt = build_remind_prompt("host", summary)
     assert "MAP 协作提醒 · host" in prompt
     assert "pending_topic_replies: 1" in prompt
+    assert "stale_open_topics: 1" in prompt
     assert "notification: 1" in prompt
     assert "topic progress" in prompt
 
@@ -254,6 +286,24 @@ def test_run_once_dry_run_does_not_wake_backend(tmp_path: Path) -> None:
     stats = waker.run_once()
     assert stats.dry_run_actions == 1
     assert stats.reminds_sent == 0
+    assert "scan_stalled" not in client._calls
+    backend.wake_async.assert_not_called()
+
+
+def test_non_host_run_once_does_not_scan_stalled_locks(tmp_path: Path) -> None:
+    client = FakeMapClient(persona="participant", todos={})
+    backend = MagicMock()
+    backend.wake_async = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="participant",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+
+    stats = waker.run_once()
+
+    assert stats.polls_idle == 1
     assert "scan_stalled" not in client._calls
     backend.wake_async.assert_not_called()
 
@@ -318,5 +368,26 @@ def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     assert stats.stalled_lock_notifications == 2
     assert client._calls[:2] == ["scan_stalled", "work"]
     backend.wake_async.assert_awaited_once()
+
+
+def test_run_once_drain_topics_sends_remind_for_open_topics(tmp_path: Path) -> None:
+    client = FakeMapClient(persona="host", todos={})
+    client.topic_list_open = MagicMock(return_value=[{"id": "t1", "title": "T"}])  # type: ignore[method-assign]
+    backend = MagicMock()
+    backend.wake_async = AsyncMock(return_value=MagicMock(session_id="sess-1", skipped=False))
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        drain_topics=True,
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+
+    stats = waker.run_once()
+
+    assert stats.reminds_sent == 1
+    client.topic_list_open.assert_called_once()
     prompt = backend.wake_async.await_args.kwargs["prompt"]
-    assert "话题 work items" in prompt
+    assert "Drain topics 模式" in prompt
+    assert "topic dismiss" in prompt
+    assert "T" in prompt

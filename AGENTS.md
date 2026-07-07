@@ -26,7 +26,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 | action_item 升级 | remind 前扫描 `todos.action_items`，WAKE → `action mark-wake-sent`，STALE → `action mark-stale` |
 | 文档 | [MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md) |
 
-`my_open_topics` 为被动清单，**alone 不触发** simple-waker remind；话题参与看 **topic work items**（`map work` / `topic progress`）。
+`my_open_topics` 为被动清单，**alone 不触发** simple-waker remind；超过 30 分钟无活动的 host open topic 会派生为 `stale_open_topics` 待办来触发复盘。话题参与看 **topic work items**（`map work` / `topic progress`）。
 
 ### 职责边界
 
@@ -48,6 +48,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
    - `pending_topic_replies` → 回复 thread（服务端重算后消失）
    - `pending_advance_rounds` → `map topic advance-round --id <uuid>`
    - `pending_round_acks` → `map topic advance-round --id <uuid> --ack accept|reject|dismiss`
+   - `stale_open_topics` → 复盘并推进话题；若只是等待他人则 `map topic dismiss --id <uuid>`
    - `my_open_topics` 且无动作 → `map topic dismiss --id <uuid>`（与 UI ✕ 相同）
    - 实验/评审类 → 完成对应 lifecycle 动作（见 experiment-host / experiment-reviewer Skill）
 

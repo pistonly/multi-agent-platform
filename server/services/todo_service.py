@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import exists, func, or_, select
@@ -24,6 +25,7 @@ from server.domain.schemas import (
     PendingReplyRead,
     PendingRoundAckTodoRead,
     PendingTopicReplyTodoRead,
+    StaleOpenTopicTodoRead,
     TodoRead,
     TopicActionItemTodoRead,
 )
@@ -42,6 +44,7 @@ _ACTIVE_PHASES = (
     ExperimentPhase.result_review,
 )
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
+STALE_OPEN_TOPIC_THRESHOLD = timedelta(minutes=30)
 
 
 def list_pending_topic_replies(
@@ -106,6 +109,60 @@ def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanc
             )
         )
     return pending
+
+
+def list_stale_open_topics(
+    db: Session,
+    agent: Agent,
+    *,
+    pending_topic_replies: list[PendingTopicReplyTodoRead] | None = None,
+    pending_advance_rounds: list[PendingAdvanceRoundTodoRead] | None = None,
+    now: datetime | None = None,
+) -> list[StaleOpenTopicTodoRead]:
+    """Host-owned open topics that need periodic follow-up."""
+    if agent.project_id is None:
+        return []
+
+    now = now or datetime.now(UTC)
+    cutoff = now - STALE_OPEN_TOPIC_THRESHOLD
+    suppressed_topic_ids = {
+        item.topic_id for item in (pending_topic_replies or [])
+    } | {
+        item.topic_id for item in (pending_advance_rounds or [])
+    }
+    open_topics = list(
+        db.scalars(
+            select(Topic)
+            .where(
+                Topic.creator_agent_id == agent.id,
+                Topic.project_id == agent.project_id,
+                Topic.deleted_at.is_(None),
+                Topic.archived_at.is_(None),
+                Topic.status == TopicStatus.open,
+                Topic.updated_at <= cutoff,
+                or_(
+                    Topic.dismissed_at.is_(None),
+                    Topic.updated_at > Topic.dismissed_at,
+                ),
+            )
+            .order_by(Topic.updated_at.asc())
+        )
+    )
+    rows: list[StaleOpenTopicTodoRead] = []
+    for topic in open_topics:
+        if topic.id in suppressed_topic_ids:
+            continue
+        rows.append(
+            StaleOpenTopicTodoRead(
+                topic_id=topic.id,
+                topic_title=topic.title,
+                discussion_round=topic.discussion_round,
+                round_summary_count=int(topic.round_summary_count or 0),
+                stale_since=topic.updated_at,
+                updated_at=topic.updated_at,
+            )
+        )
+    return rows
 
 
 def _experiment_summary_with_open_unreasonable(
@@ -336,6 +393,12 @@ def get_todos(
     pending_topic_replies = list_pending_topic_replies(db, agent, work_items=all_work_items)
     pending_round_acks = list_pending_round_acks(db, agent, work_items=all_work_items)
     pending_advance_rounds = list_pending_advance_rounds(db, agent)
+    stale_open_topics = list_stale_open_topics(
+        db,
+        agent,
+        pending_topic_replies=pending_topic_replies,
+        pending_advance_rounds=pending_advance_rounds,
+    )
     pending_plan_revisions = list_pending_plan_revisions(db, agent)
 
     action_item_rows = list(
@@ -387,6 +450,7 @@ def get_todos(
         pending_topic_replies=pending_topic_replies,
         pending_round_acks=pending_round_acks,
         pending_advance_rounds=pending_advance_rounds,
+        stale_open_topics=stale_open_topics,
         my_open_topics=my_open_topics,
         mentions=mentions,
         action_items=action_items,

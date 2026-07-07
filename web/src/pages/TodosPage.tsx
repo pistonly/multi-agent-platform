@@ -50,6 +50,7 @@ export function TodosPage() {
     pending_topic_replies = [],
     pending_round_acks = [],
     pending_advance_rounds = [],
+    stale_open_topics = [],
     action_items = [],
     pending_plan_revisions = [],
     pending_reviews = [],
@@ -177,6 +178,24 @@ export function TodosPage() {
                 <div className="text-xs text-slate-400">participant ack 已齐，待 host advance-round</div>
               </div>
               <span className="text-xs text-slate-500">{r.discussion_round}</span>
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {stale_open_topics.length > 0 && (
+        <Section title={`开放话题待复盘（${stale_open_topics.length}）`}>
+          {stale_open_topics.map((t) => (
+            <Row key={t.topic_id} to={`/topics/${t.topic_id}`}>
+              <div>
+                <div className="text-accent hover:underline">{t.topic_title}</div>
+                <div className="text-xs text-slate-400">
+                  {t.discussion_round} · {t.round_summary_count} 次 summary
+                </div>
+              </div>
+              <span className="text-xs text-slate-500">
+                {new Date(t.updated_at).toLocaleString()}
+              </span>
             </Row>
           ))}
         </Section>

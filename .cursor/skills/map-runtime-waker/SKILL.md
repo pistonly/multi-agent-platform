@@ -59,11 +59,16 @@ reviewer 的核心义务是实验评审（`pending_reviews` / `pending_result_re
 | `pending_topic_replies` | 回复 thread 后服务端重算消失 | [topic-host](../topic-host/SKILL.md) |
 | `pending_advance_rounds` | `map topic advance-round --id <uuid>` | [topic-host](../topic-host/SKILL.md) |
 | `pending_round_acks` | `map topic advance-round --id <uuid> --ack accept/reject/dismiss` | [topic-participant](../topic-participant/SKILL.md) / [experiment-reviewer](../experiment-reviewer/SKILL.md) |
+| `stale_open_topics` | 复盘并推进话题，若只是等待他人则 `map topic dismiss --id <uuid>` | [topic-host](../topic-host/SKILL.md) |
 | `action_items` | 完成/关闭 action item | [topic-host](../topic-host/SKILL.md) |
 | `pending_reviews` / `pending_result_reviews` / `pending_replies` | 评审/回复流程完成 | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
 | `my_open_experiments` | 实验 phase 推进或结束 | [experiment-host](../experiment-host/SKILL.md) |
 | `my_open_topics` | 推进话题或 `map topic dismiss --id <uuid>`（与 UI ✕ 相同） | [topic-host](../topic-host/SKILL.md) |
 | `notification` | `map notification read --id <uuid>` | 按通知类型选 Skill |
+
+若 remind 写有 **Drain topics 模式**，`topic dismiss` 不算完成，因为它不会减少
+`map topic list --status open`；host 必须推进到 `topic resolve` / `topic close`，
+或在收尾日志中写出具体 blocker。
 
 ## Persona 默认 Skill
 

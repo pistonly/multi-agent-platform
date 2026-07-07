@@ -125,8 +125,29 @@ class MapCommandClient:
         return self._run(["topic", "show", "--id", topic_id], retryable=True)
 
     def topic_list_open(self) -> list[dict[str, Any]]:
-        rows = self._run(["topic", "list", "--status", "open"], retryable=True)
-        return list(rows or []) if isinstance(rows, list) else []
+        page = 1
+        page_size = 100
+        all_rows: list[dict[str, Any]] = []
+        while True:
+            rows = self._run(
+                [
+                    "topic",
+                    "list",
+                    "--status",
+                    "open",
+                    "--page",
+                    str(page),
+                    "--page-size",
+                    str(page_size),
+                ],
+                retryable=True,
+            )
+            page_rows = list(rows or []) if isinstance(rows, list) else []
+            all_rows.extend(r for r in page_rows if isinstance(r, dict))
+            if len(page_rows) < page_size:
+                break
+            page += 1
+        return all_rows
 
     def topic_comment(self, topic_id: str, body: str, parent_id: str | None = None) -> dict[str, Any] | None:
         args = ["topic", "comment", "--id", topic_id, "--body", body]

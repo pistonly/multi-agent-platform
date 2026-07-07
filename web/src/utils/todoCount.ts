@@ -16,6 +16,7 @@ export function sumTodos(data: TodoRead): number {
     (data.pending_topic_replies ?? []).length +
     (data.pending_round_acks ?? []).length +
     (data.pending_advance_rounds ?? []).length +
+    (data.stale_open_topics ?? []).length +
     (data.mentions ?? []).length +
     (data.action_items ?? []).length
   );

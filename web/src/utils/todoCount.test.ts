@@ -12,6 +12,7 @@ function emptyTodos(): TodoRead {
     pending_topic_replies: [],
     pending_round_acks: [],
     pending_advance_rounds: [],
+    stale_open_topics: [],
     my_open_topics: [],
     mentions: [],
     action_items: [],
@@ -41,10 +42,11 @@ describe("sumTodos", () => {
       pending_topic_replies: [{}] as never,
       pending_round_acks: [{}] as never,
       pending_advance_rounds: [{}] as never,
+      stale_open_topics: [{}] as never,
       my_open_topics: [{}] as never,
       mentions: [{}] as never,
       action_items: [{}] as never,
     };
-    expect(sumTodos(data)).toBe(9);
+    expect(sumTodos(data)).toBe(10);
   });
 });

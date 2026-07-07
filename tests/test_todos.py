@@ -1,4 +1,9 @@
+import uuid
+from datetime import UTC, datetime, timedelta
+
 import pytest
+
+from server.domain.models import Topic
 
 pytestmark = pytest.mark.slow
 
@@ -174,6 +179,68 @@ def test_new_topic_comment_resurrects_dismissed_topic(
     matching = [t for t in resurface["my_open_topics"] if t["id"] == topic["id"]]
     assert len(matching) == 1
     assert matching[0]["dismissed_at"] is not None  # still flagged, but visible
+
+
+def test_stale_open_topics_surface_after_threshold(
+    client, auth_headers, project, db_session
+):
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "久未推进的话题"},
+    ).json()
+    stale_at = datetime.now(UTC) - timedelta(minutes=31)
+    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row.updated_at = stale_at
+    db_session.commit()
+
+    todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+
+    stale = [t for t in todos["stale_open_topics"] if t["topic_id"] == topic["id"]]
+    assert len(stale) == 1
+    assert stale[0]["topic_title"] == "久未推进的话题"
+    assert stale[0]["stale_since"] is not None
+
+
+def test_stale_open_topics_respects_dismiss_and_stronger_obligations(
+    client, auth_headers, reviewer, project, db_session
+):
+    host_headers = auth_headers
+    topic = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=host_headers,
+        json={"title": "待回复优先"},
+    ).json()
+    stale_at = datetime.now(UTC) - timedelta(minutes=31)
+    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row.updated_at = stale_at
+    db_session.commit()
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=reviewer["headers"],
+        json={"body": "先回复这个"},
+    )
+    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row.updated_at = stale_at
+    db_session.commit()
+
+    with_reply = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert any(p["topic_id"] == topic["id"] for p in with_reply["pending_topic_replies"])
+    assert not any(t["topic_id"] == topic["id"] for t in with_reply["stale_open_topics"])
+
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=host_headers,
+        json={"body": "已回复"},
+    )
+    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row.updated_at = stale_at
+    db_session.commit()
+
+    client.post(f"/api/v1/topics/{topic['id']}/dismiss", headers=host_headers)
+    dismissed = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert not any(t["topic_id"] == topic["id"] for t in dismissed["stale_open_topics"])
 
 
 def test_pending_plan_revisions_three_states(client, auth_headers, reviewer, project):
