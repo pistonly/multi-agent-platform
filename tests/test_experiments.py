@@ -209,3 +209,60 @@ def test_project_status_with_experiments(client, auth_headers, project):
     assert len(body["recent_experiments"]) == 1
     assert len(body["active_experiments"]) == 1
     assert body["status_version"] == 1
+
+
+def test_project_status_excludes_archived_experiments(client, auth_headers, project):
+    create = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "归档实验不进入快照",
+            "plan": {"content_md": "a"},
+            "submit_for_review": True,
+        },
+    )
+    assert create.status_code == 201
+    exp_id = create.json()["id"]
+    cancelled = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=auth_headers)
+    assert cancelled.status_code == 200
+    archived = client.patch(
+        f"/api/v1/experiments/{exp_id}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+
+    status = client.get(f"/api/v1/projects/{project['id']}/status", headers=auth_headers)
+    assert status.status_code == 200
+    body = status.json()
+    assert body["experiment_counts_by_phase"]["cancelled"] == 0
+    assert body["recent_experiments"] == []
+    assert body["active_experiments"] == []
+
+
+def test_global_status_excludes_archived_experiments(client, auth_headers, project):
+    create = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "归档实验不进入全局快照",
+            "plan": {"content_md": "a"},
+            "submit_for_review": True,
+        },
+    )
+    assert create.status_code == 201
+    exp_id = create.json()["id"]
+    cancelled = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=auth_headers)
+    assert cancelled.status_code == 200
+    archived = client.patch(
+        f"/api/v1/experiments/{exp_id}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+
+    global_status = client.get(f"/api/v1/status?project_id={project['id']}", headers=auth_headers)
+    assert global_status.status_code == 200
+    body = global_status.json()
+    assert body["total_experiments_by_phase"]["cancelled"] == 0
+    assert body["recent_experiments"] == []

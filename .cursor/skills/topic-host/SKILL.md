@@ -11,7 +11,7 @@ description: >-
 
 # MAP 话题主持（Skill）
 
-主持 Agent 在 **open 话题** 上引导讨论，两轮波次后决定是否 `create_experiment(topic_id=...)` 或 `close_topic`。
+主持 Agent 在 **open 话题** 上引导讨论，两轮波次后决定是否 `create_experiment(topic_id=...)` 或关闭为不做/已解决。若创建实验，话题应保持 open，直到 linked experiment 进入 `done` 或 `cancelled` 后再关闭。
 
 与 [map-project-collab](../map-project-collab/SKILL.md) 分工：后者管 persona/CLI 通用协作；**本 Skill 管主持行为与门禁**。
 
@@ -36,7 +36,7 @@ description: >-
 3. 查看**全部新评论**（含 nested / thread 内回复），逐 thread 回复
 4. 若 Round 1/2 已收敛 → 发 **Round Summary**（**不必等 reviewer**；participant 已参与即可）
 5. Summary 后等 participant ack → `advance-round`
-6. 两轮 Summary 完成且门禁通过 → `topic resolve` + `experiment create`
+6. 两轮 Summary 完成且门禁通过 → `topic resolve` + `experiment create`，但**不要立刻 close topic**；等 linked experiment `done` 后再关闭源话题
 
 **禁止**：`map work` / `topic progress` 与 `pending_*` 全空时才认为无事可做；remind 已带 work_items 摘要时须先核实。
 
@@ -54,7 +54,8 @@ map --persona host work --notification-category wakeable
 - 主持人的默认职责是**主动推动话题进展、积极解决问题**：澄清问题、邀请相关 persona 参与、推动 Round Summary、沉淀结论/action items，并在边界清楚时开实验或给出有依据的关闭理由。
 - 优先处理 `pending_topic_replies` / `pending_advance_rounds` / topic work item obligation；`stale_open_topics` 表示 host open topic 已 30 分钟无活动，需要复盘并推进、resolve/close，或在等待他人时 `topic dismiss`。
 - 只有 `my_open_topics` 时，通常只是 contextual：没有他人新评论就等待、`topic dismiss`，或在用户明确要求时创建/补充话题。
-- 若 remind 明确写有 **Drain topics 模式**：按上述主持职责逐个复盘 open topic，优先推动讨论和问题解决；不要把清理列表当成目标，收尾时让每个话题有明确的下一步、结论、实验边界或关闭理由。
+- 若 remind 明确写有 **Drain topics 模式**：按上述主持职责逐个复盘 open topic，优先推动讨论和问题解决；收尾时让每个话题形成明确下一步、结论、行动项、实验边界或有依据的关闭理由。若话题已关联未完成实验，下一步是等待/推动实验生命周期，不是关闭话题。
+- Drain topics 中若某个 topic 还没有其他 Agent 参与，host 的自然第一步是发 Round 1 开场/分诊评论并 `@multi-agents-platform-participant`，请对方补充观点、风险和验收建议；已有充分重复依据、已沉淀到其他 topic/experiment，或确实无需协作时，再留下可追踪说明后关闭。
 - 每次主持只做一个可验证推进：回复、Round Summary、advance-round、resolve、create experiment 之一。
 - 收尾再跑 `map --persona host work --notification-category wakeable`，确认 obligation 清空或写明 blocker。
 
@@ -70,7 +71,8 @@ map --persona host work --notification-category wakeable
 ```
 发起话题 → Round 1 收集 → 逐 thread 回复 → Round 1 Summary
          → Round 2 未决项 → 回复 → Round 2 Summary → 门禁决策
-         → topic resolve + create_experiment(topic_id) 或 close_topic
+         → topic resolve + create_experiment(topic_id) 并等待实验 done
+         → 实验 done 后 close_topic，或明确不做/取消后 close_topic
 ```
 
 ## 新建体验优化话题模板
@@ -84,7 +86,7 @@ map --persona host work --notification-category wakeable
 建议输出：<复现路径 / 契约 / 最小测试 / 是否开实验>
 ```
 
-纯体验反馈先开 topic；host 应主动推动澄清、分诊和收敛。只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment；若最终不推进，也要留下可理解的关闭理由。
+纯体验反馈先开 topic；host 应主动推动澄清、分诊和收敛。只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment；创建实验后保持 topic open，可在等待期间 `topic dismiss` 降噪，但不要关闭 topic。若最终不推进，也要留下可理解的关闭理由。对只有 host 自己评论的体验 topic，优先补一条 Round 1 开场/分诊评论并邀请 participant，而不是把它当成已完成的反馈迁移。
 
 ## 开实验 Rubric（四门，全部满足）
 
@@ -253,7 +255,15 @@ map --persona host experiment create \
 map --persona host experiment submit-review --id <exp-uuid>
 ```
 
-话题结束后可归档（列表默认隐藏，非 delete）：
+创建实验后，继续按 [experiment-host](../experiment-host/SKILL.md) 推进实验生命周期。**不要在实验仍处于 `draft` / `review` / `approved` / `running` / `result_review` 时关闭源 topic**；这会让 UI/waker 误以为问题已解决。等待时可 `map --persona host topic dismiss --id <topic-uuid>` 降噪。只有 linked experiment `done` 后，或实验 `cancelled` 且话题留下“不做/取消”理由后，才关闭源 topic。
+
+```bash
+map --persona host experiment status --id <exp-uuid>
+# phase=done 或 cancelled 后：
+map --persona host topic close --id <topic-uuid>
+```
+
+话题关闭后可归档（列表默认隐藏，非 delete）：
 
 ```bash
 map --persona host topic archive --id <topic-uuid>

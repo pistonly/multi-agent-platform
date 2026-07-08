@@ -160,6 +160,7 @@ export function ExperimentPage() {
   const canAppendLog =
     experiment.phase === "running" || experiment.phase === "result_review" || experiment.phase === "done";
   const isTerminal = experiment.phase === "done" || experiment.phase === "cancelled";
+  const canToggleArchive = isTerminal || !!experiment.archived_at;
   const isCreator = !!agent && agent.id === experiment.creator_agent_id;
 
   const scrollToPlanRevise = () => {
@@ -231,7 +232,7 @@ export function ExperimentPage() {
 
       <section className="card">
         <PhaseStepper phase={experiment.phase} />
-        {isCreator && (
+        {isCreator && canToggleArchive && (
           <div className="mt-3">
             <button
               type="button"

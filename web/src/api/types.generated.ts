@@ -31,7 +31,16 @@ export type NotificationCategory = "wakeable" | "digest";
 export type NotificationFingerprintVersion = "v1" | "v2";
 export type CommentAnchorType = "plan" | "review" | "review_item" | "comment";
 export type ReviewSubstituteKind = "none" | "admin_for_others" | "admin_self_substitute";
+export type ReviewArchivedReason = "auto" | "manual" | "superseded";
 export type ReviewItemKind = "reasonable" | "unreasonable";
+/**
+ * Reviewer's per-item verdict on experiment acceptance.
+ *
+ * Drives ``experiment.result_review`` structured verdict files and the
+ * R6 verdict breakdown in ``experiment_logs.metadata_json``. Parallel
+ * pattern to ``31793f90`` ``pre_schema_log``.
+ */
+export type ReviewVerdict = "passed" | "failed" | "waived";
 /**
  * Origin channel through which the runtime-waker received a notification.
  *
@@ -172,6 +181,11 @@ export interface TopicWorkItemRead {
   excerpt: string;
   created_at: string;
   discussion_round?: string | null;
+  stale_since?: string | null;
+  /**
+   * DEPRECATED alias for stale_since.
+   */
+  advance_round_pending_since: string | null;
 }
 export interface TodoRead {
   my_open_experiments?: ExperimentSummaryRead[];
@@ -257,8 +271,12 @@ export interface PendingRoundAckTodoRead {
   round_summary_count?: number;
   summary_comment_id?: string | null;
   summary_excerpt?: string | null;
-  advance_round_pending_since?: string | null;
+  stale_since?: string | null;
   updated_at: string;
+  /**
+   * DEPRECATED alias for stale_since.
+   */
+  advance_round_pending_since: string | null;
 }
 /**
  * Host-owned topics where participant acks are complete and advance-round is due.
@@ -268,8 +286,12 @@ export interface PendingAdvanceRoundTodoRead {
   topic_title: string;
   discussion_round: TopicDiscussionRound;
   round_summary_count?: number;
-  advance_round_pending_since?: string | null;
+  stale_since?: string | null;
   updated_at: string;
+  /**
+   * DEPRECATED alias for stale_since.
+   */
+  advance_round_pending_since: string | null;
 }
 /**
  * Host-owned open topic that has had no activity for the stale threshold.
@@ -301,10 +323,17 @@ export interface TopicSummaryRead {
   last_comment_excerpt?: string | null;
   my_comment_count?: number | null;
   dismissed_at?: string | null;
-  advance_round_pending_since?: string | null;
+  /**
+   * When this topic's pending action started waiting (round ack, reply, etc.). Renamed from advance_round_pending_since in N=2; old name remains readable until N=2.
+   */
+  stale_since?: string | null;
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
+  /**
+   * DEPRECATED alias for stale_since — kept readable for clients still using the old name.
+   */
+  advance_round_pending_since: string | null;
 }
 export interface MentionTodoRead {
   id: string;
@@ -364,6 +393,61 @@ export interface NotificationRead {
   last_event_at?: string | null;
   read_at: string | null;
   created_at: string;
+  updated_at?: string | null;
+}
+/**
+ * 6-bucket by_kind summary returned by ``map work --summary``.
+ *
+ * Compact view intended for waker quick-scans and the Web /work top card.
+ * Full per-partition detail stays in ``AgentWorkRead``.
+ */
+export interface AgentWorkSummaryRead {
+  agent: AgentRead;
+  buckets?: SummaryBucket[];
+  topics_needing_attention?: number;
+  experiments_needing_attention?: number;
+  /**
+   * f873c287 I1(e): per-phase_owner breakdown of the experiment attention
+   * counter. Keys are PhaseOwner.value strings ("host" / "reviewer" /
+   * "participant" / "admin"). Visibility-filtered: under
+   * `visibility_filter_applied: true` the `host` key is dropped because the
+   * underlying bucket is host_only.
+   */
+  experiments_needing_attention_by_owner?: { [key: string]: number };
+  topics_truncated?: number;
+  experiments_truncated?: number;
+  visibility_filter_applied?: boolean;
+  topics_limit?: number;
+  experiments_limit?: number;
+}
+/**
+ * One of the 6 summary buckets exposed by ``map work --summary``.
+ *
+ * A bucket is a kind-based aggregation of action items / context items so the
+ * UI can render a top-of-page card without scanning the full partition
+ * list.
+ */
+export interface SummaryBucket {
+  kind: "mention" | "round_ack" | "pending_reply" | "explicit_only" | "informational_only" | "action_items";
+  count: number;
+  visibility?: "all" | "host_only" | "reviewer_only" | "participant_only";
+  items?: SummaryBucketItem[];
+  top_excerpt?: string | null;
+  /**
+   * DEPRECATED alias for visibility — kept readable for clients still using the old name.
+   */
+  partition_visibility: "all" | "host_only" | "reviewer_only" | "participant_only";
+}
+/**
+ * A short summary of one item inside a bucket. The full item is in
+ * ``map work``'s ``todos`` and ``topic_progress``; this is the slice
+ * rendered on the /work summary card.
+ */
+export interface SummaryBucketItem {
+  kind: "mention" | "round_ack" | "pending_reply" | "explicit_only" | "informational_only" | "action_items";
+  topic_id?: string | null;
+  topic_title?: string | null;
+  excerpt?: string | null;
   updated_at?: string | null;
 }
 export interface AuditLogRead {
@@ -472,6 +556,8 @@ export interface ReviewRead {
   plan_version: number;
   substitute_kind?: ReviewSubstituteKind;
   created_at: string;
+  archived_at?: string | null;
+  archived_reason?: ReviewArchivedReason | null;
   items?: ReviewItemRead[];
 }
 export interface ReviewItemRead {
@@ -482,6 +568,10 @@ export interface ReviewItemRead {
   status: ReviewItemStatus | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Populated server-side from the latest accept-result verdict_file where verdict='waived' for this item. Read-only convenience field for participant-facing UIs; the source of truth is experiment_logs.metadata_json.verdict_file.
+   */
+  waived_reason?: string | null;
 }
 export interface ExperimentLogRead {
   id: string;
@@ -545,6 +635,28 @@ export interface ExperimentResultDecision {
   metadata?: {
     [k: string]: unknown;
   } | null;
+  /**
+   * Optional structured verdict file (CLI: --review-verdict-file). When provided, server validates item_id.review_id ownership and records pre_schema_accept_result='false' + verdict breakdown in log metadata. Omit (legacy) → pre_schema_accept_result='true' with an info-level warning.
+   */
+  verdict_file?: ReviewVerdictFile | null;
+}
+export interface ReviewVerdictFile {
+  review_id: string;
+  verdicts?: ReviewVerdictItem[];
+  invariants?: ReviewInvariantCheck[];
+}
+export interface ReviewVerdictItem {
+  item_id: string;
+  verdict: ReviewVerdict;
+  /**
+   * Required when verdict == waived; otherwise optional.
+   */
+  reason?: string | null;
+}
+export interface ReviewInvariantCheck {
+  item_id: string;
+  verified: boolean;
+  note?: string | null;
 }
 export interface ExperimentUpdate {
   title?: string | null;
@@ -810,13 +922,20 @@ export interface TopicRead {
   last_comment_excerpt?: string | null;
   my_comment_count?: number | null;
   dismissed_at?: string | null;
-  advance_round_pending_since?: string | null;
+  /**
+   * When this topic's pending action started waiting (round ack, reply, etc.). Renamed from advance_round_pending_since in N=2; old name remains readable until N=2.
+   */
+  stale_since?: string | null;
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
   experiments?: ExperimentSummaryRead[];
   comments?: TopicCommentTreeNode[];
   decision?: TopicDecisionRead | null;
+  /**
+   * DEPRECATED alias for stale_since — kept readable for clients still using the old name.
+   */
+  advance_round_pending_since: string | null;
 }
 export interface TopicReadCursorRead {
   topic_id: string;

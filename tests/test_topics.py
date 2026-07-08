@@ -516,6 +516,59 @@ def test_cannot_create_experiment_on_closed_topic(client, auth_headers, project)
     assert "closed" in resp.json()["detail"].lower()
 
 
+def test_cannot_close_topic_while_linked_experiment_active(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "未完成实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert exp.status_code == 201
+
+    closed = client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+
+    assert closed.status_code == 409
+    assert "linked experiment" in closed.json()["detail"]
+    assert "complete or cancel" in closed.json()["detail"]
+
+
+def test_can_close_topic_after_linked_experiment_cancelled(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project)
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "取消后关话题", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert exp.status_code == 201
+    cancelled = client.post(f"/api/v1/experiments/{exp.json()['id']}/cancel", headers=auth_headers)
+    assert cancelled.status_code == 200
+
+    closed = client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+
+
+def test_can_close_topic_after_linked_experiment_done(client, db_session, auth_headers, project):
+    from server.domain.models import Experiment, ExperimentPhase
+
+    topic = _create_topic(client, auth_headers, project)
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "完成后关话题", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert exp.status_code == 201
+    row = db_session.get(Experiment, uuid.UUID(exp.json()["id"]))
+    row.phase = ExperimentPhase.done
+    db_session.commit()
+
+    closed = client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+
+
 def test_only_topic_host_can_create_experiment_from_topic(client, auth_headers, reviewer, project):
     topic = _create_topic(client, auth_headers, project)
 
@@ -591,7 +644,7 @@ def test_topic_archive_hidden_by_default(client, auth_headers, project):
     assert restored.json()["archived_at"] is None
 
 
-def test_experiment_archive_allows_new_active_on_topic(client, auth_headers, project):
+def test_experiment_archive_rejects_active_phase(client, auth_headers, project):
     topic = _create_topic(client, auth_headers, project, title="归档后重开实验")
     first = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
@@ -600,6 +653,34 @@ def test_experiment_archive_allows_new_active_on_topic(client, auth_headers, pro
     )
     assert first.status_code == 201
     exp_id = first.json()["id"]
+
+    archived = client.patch(
+        f"/api/v1/experiments/{exp_id}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 409
+    assert "complete or cancel" in archived.json()["detail"]
+
+    second = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "第二个", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
+    )
+    assert second.status_code == 409, second.text
+
+
+def test_experiment_archive_allows_new_active_on_topic_after_cancelled(client, auth_headers, project):
+    topic = _create_topic(client, auth_headers, project, title="取消归档后重开实验")
+    first = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "第一个", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+    )
+    assert first.status_code == 201
+    exp_id = first.json()["id"]
+    cancelled = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=auth_headers)
+    assert cancelled.status_code == 200
 
     archived = client.patch(
         f"/api/v1/experiments/{exp_id}",

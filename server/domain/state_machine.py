@@ -23,8 +23,15 @@ def can_approve(phase: ExperimentPhase, unreasonable_items: list[ReviewItem]) ->
         return False
     if not unreasonable_items:
         return True
+    # I1(c): ``closed`` is the new single terminal; legacy rows still carrying
+    # ``resolved`` / ``withdrawn`` are accepted for backward compatibility.
     return all(
-        item.status in (ReviewItemStatus.resolved, ReviewItemStatus.withdrawn)
+        item.status
+        in (
+            ReviewItemStatus.closed,
+            ReviewItemStatus.resolved,
+            ReviewItemStatus.withdrawn,
+        )
         for item in unreasonable_items
         if item.status is not None
     )

@@ -48,7 +48,10 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     assert plan_rev["open_unreasonable_count"] == 1
     assert plan_rev["blocked_on"] == "open_unreasonable_item"
 
-    # 发起者修订计划并标记该不合理项为「已修改」(addressed) → 双方都应看到待回复
+    # 发起者修订计划并标记该不合理项为「已修改」(addressed)。
+    # plan revise 会 auto-archive 旧 plan review；旧 item 进入历史记录，
+    # 不再作为双方的 live pending_replies。reviewer 通过 v2 pending_reviews
+    # 继续评审当前 plan version。
     item = client.get(f"/api/v1/experiments/{exp['id']}/reviews", headers=reviewer_headers).json()[0]
     unreasonable = [i for i in item["items"] if i["kind"] == "unreasonable"][0]
     client.post(
@@ -63,9 +66,14 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
 
     agent_todos2 = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
     assert agent_todos2["pending_plan_revisions"] == []
-    assert any(r["item_id"] == unreasonable["id"] for r in agent_todos2["pending_replies"])
+    assert agent_todos2["pending_replies"] == []
+    creator_exp_v2 = next(e for e in agent_todos2["my_open_experiments"] if e["id"] == exp["id"])
+    assert creator_exp_v2["open_unreasonable_count"] == 0
+    assert creator_exp_v2["actions"] == []
+    assert creator_exp_v2["blocked_on"] == "awaiting_review_for_current_plan_version"
+
     reviewer_todos3 = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
-    assert any(r["item_id"] == unreasonable["id"] for r in reviewer_todos3["pending_replies"])
+    assert reviewer_todos3["pending_replies"] == []
     # 修订计划后应重新出现在 pending_reviews（按 current_plan_version 判定）
     pending_v2 = next(e for e in reviewer_todos3["pending_reviews"] if e["id"] == exp["id"])
     assert pending_v2["current_plan_version"] == 2
@@ -117,6 +125,96 @@ def test_pending_result_reviews(client, auth_headers, reviewer, project):
 
     reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
     assert any(e["id"] == exp_id for e in reviewer_todos["pending_result_reviews"])
+
+
+def test_archived_addressed_review_items_do_not_block_review_progress(
+    client, auth_headers, reviewer, project
+):
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "archived addressed item should not block",
+            "plan": {"content_md": "p v1"},
+            "submit_for_review": True,
+        },
+    ).json()
+    exp_id = exp["id"]
+
+    review = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"unreasonable_items": ["needs detail"]},
+    ).json()
+    unreasonable_id = next(
+        item["id"] for item in review["items"] if item["kind"] == "unreasonable"
+    )
+
+    revise = client.post(
+        f"/api/v1/experiments/{exp_id}/plans",
+        headers=auth_headers,
+        json={
+            "content_md": "p v2 with detail",
+            "change_note": "addressed old review",
+            "addressed_item_ids": [unreasonable_id],
+        },
+    )
+    assert revise.status_code == 201, revise.text
+
+    # The old v1 review is now archived. Its addressed items are historical
+    # state, not live reviewer/host work.
+    host_todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    reviewer_todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    assert host_todos["pending_replies"] == []
+    assert reviewer_todos["pending_replies"] == []
+
+    pending_v2 = next(e for e in reviewer_todos["pending_reviews"] if e["id"] == exp_id)
+    assert pending_v2["actions"] == ["review_add"]
+
+    clean_review = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"reasonable_items": ["v2 looks good"]},
+    )
+    assert clean_review.status_code == 201, clean_review.text
+
+    host_todos_after_review = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    host_exp = next(e for e in host_todos_after_review["my_open_experiments"] if e["id"] == exp_id)
+    assert host_exp["open_unreasonable_count"] == 0
+    assert host_exp["actions"] == ["approve", "withdraw"]
+    assert host_todos_after_review["pending_replies"] == []
+
+    reviewer_todos_after_review = client.get(
+        "/api/v1/agents/me/todos", headers=reviewer["headers"]
+    ).json()
+    assert reviewer_todos_after_review["pending_replies"] == []
+
+    approve = client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
+    assert approve.status_code == 200, approve.text
+    assert approve.json()["phase"] == "approved"
+
+
+def test_archived_experiments_are_excluded_from_my_open_experiments(
+    client, auth_headers, project
+):
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={"title": "归档实验不进待办", "plan": {"content_md": "p"}},
+    ).json()
+
+    before = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert any(e["id"] == exp["id"] for e in before["my_open_experiments"])
+
+    archived = client.patch(
+        f"/api/v1/experiments/{exp['id']}",
+        headers=auth_headers,
+        json={"archived": True},
+    )
+    assert archived.status_code == 200, archived.text
+
+    after = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    assert not any(e["id"] == exp["id"] for e in after["my_open_experiments"])
 
 
 def test_dismiss_topic_hides_from_my_open_topics(client, auth_headers, project):
@@ -200,6 +298,73 @@ def test_stale_open_topics_surface_after_threshold(
     assert len(stale) == 1
     assert stale[0]["topic_title"] == "久未推进的话题"
     assert stale[0]["stale_since"] is not None
+
+
+def test_stale_open_topics_threshold_is_parameterized(
+    client, auth_headers, project, db_session
+):
+    """f873c287 I1(c): ``list_stale_open_topics`` accepts an explicit
+    ``threshold_minutes`` override. Same DB state, different threshold,
+    deterministic difference. We hit the HTTP layer to keep timezone
+    roundtripping consistent with the existing surface-after-threshold
+    test.
+    """
+    # Tight window (1 minute): 5-min-old topic is stale.
+    topic_tight = client.post(
+        f"/api/v1/projects/{project['id']}/topics",
+        headers=auth_headers,
+        json={"title": "tight window"},
+    ).json()
+    row = db_session.get(Topic, uuid.UUID(topic_tight["id"]))
+    row.updated_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_session.commit()
+
+    from server.domain.models import Agent
+    from server.services.todo_service import list_stale_open_topics
+
+    agent_obj = db_session.get(Agent, row.creator_agent_id)
+    db_session.expire_all()
+    stale_tight = list_stale_open_topics(
+        db_session, agent_obj, threshold_minutes=1
+    )
+    assert any(str(t.topic_id) == topic_tight["id"] for t in stale_tight)
+
+    # Generous window (60 minutes): same 5-min-old topic is NOT stale.
+    db_session.expire_all()
+    stale_loose = list_stale_open_topics(
+        db_session, agent_obj, threshold_minutes=60
+    )
+    assert not any(str(t.topic_id) == topic_tight["id"] for t in stale_loose)
+
+
+def test_stale_open_topics_threshold_via_settings_env(
+    client, auth_headers, project, db_session, monkeypatch
+):
+    """f873c287 I1(c): ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES`` env var
+    flows through ``Settings`` into ``list_stale_open_topics``. We force
+    a 1-minute threshold via env, then assert a 5-min-old topic shows up
+    in ``/agents/me/todos`` without any explicit threshold argument (i.e.
+    caller used the default settings-based path).
+    """
+    from server.config import get_settings
+
+    monkeypatch.setenv("MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES", "1")
+    get_settings.cache_clear()
+    try:
+        topic = client.post(
+            f"/api/v1/projects/{project['id']}/topics",
+            headers=auth_headers,
+            json={"title": "settings env 派生话题"},
+        ).json()
+        row = db_session.get(Topic, uuid.UUID(topic["id"]))
+        row.updated_at = datetime.now(UTC) - timedelta(minutes=5)
+        db_session.commit()
+
+        todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+        assert any(t["topic_id"] == topic["id"] for t in todos["stale_open_topics"])
+    finally:
+        # Reset the cache so other tests aren't pinned to the 1-minute override.
+        get_settings.cache_clear()
 
 
 def test_stale_open_topics_respects_dismiss_and_stronger_obligations(

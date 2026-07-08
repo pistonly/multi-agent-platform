@@ -8,13 +8,15 @@ from sqlalchemy.orm import Session
 
 from server.api.deps import get_current_agent, get_optional_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent, AgentRole, Project
+from server.domain.models import Agent, AgentRole, Experiment, Project
 from server.domain.schemas import (
     AgentCreateResponse,
     AgentRead,
     AgentWorkRead,
+    AgentWorkSummaryRead,
     DismissAllMentionsResultRead,
     DismissMentionResultRead,
+    EscalationTargetRead,
     InboundEventCreate,
     InboundEventRead,
     InboundEventRecordResult,
@@ -35,6 +37,10 @@ from server.services import (
 from server.services import auth as auth_service
 from server.services import permissions as perm
 from server.services import project_service as svc
+from server.services.escalation_resolver import (
+    escalation_label,
+    resolve_escalation_target_with_tier,
+)
 from server.services.notification_stream import notification_sse_response
 
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
@@ -142,6 +148,44 @@ def get_me(
     )
 
 
+@agents_router.get("/me/escalation-target", response_model=EscalationTargetRead)
+def get_my_escalation_target(
+    experiment_id: uuid.UUID | None = Query(default=None),
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> EscalationTargetRead:
+    """Resolve the escalation contact for a STATE_MACHINE.* error (I1(c)).
+
+    The CLI calls this endpoint whenever it gets a ``MAPHTTPError`` with
+    a ``STATE_MACHINE_*`` ``error_code`` so it can append an
+    ``Escalation: @<name>`` line to the error output. The server runs
+    the same 3-tier rule documented on ``experiments.escalation_target_agent_id``
+    (override → caller → same-role → admin) and returns the chosen agent
+    + the tier that picked it.
+
+    When ``experiment_id`` is omitted, only the caller + role-based rules
+    apply (no override available).
+    """
+    experiment = None
+    if experiment_id is not None:
+        experiment = db.get(Experiment, experiment_id)
+        # Tolerate missing experiment — fall through to the role-based path
+        # so the caller still gets a useful escalation contact.
+    target_id, tier = resolve_escalation_target_with_tier(
+        db,
+        experiment=experiment,
+        caller_agent_id=agent.id,
+        project_id=agent.project_id,
+    )
+    label = escalation_label(db, escalation_target_id=target_id)
+    return EscalationTargetRead(
+        experiment_id=experiment_id,
+        escalation_target_id=target_id,
+        escalation_label=label,
+        tier=tier,
+    )
+
+
 @agents_router.get("/me/todos", response_model=TodoRead)
 def get_my_todos(
     include_all_partitions: bool = Query(default=False),
@@ -179,6 +223,29 @@ def get_my_work(
         agent,
         notification_limit=notification_limit,
         notification_category=normalized_category,
+    )
+
+
+@agents_router.get("/me/work/summary", response_model=AgentWorkSummaryRead)
+def get_my_work_summary(
+    include_all_personas: bool = Query(default=False),
+    topics_limit: int = Query(default=10, ge=1, le=100),
+    experiments_limit: int = Query(default=5, ge=1, le=50),
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> AgentWorkSummaryRead:
+    """6-bucket by_kind summary of the agent's work.
+
+    Drives the /work top summary card and ``map work --summary``. Defaults
+    filter host-only buckets for non-host personas; pass
+    ``include_all_personas=true`` to opt in.
+    """
+    return agent_work_service.get_agent_work_summary(
+        db,
+        agent,
+        include_all_personas=include_all_personas,
+        topics_limit=topics_limit,
+        experiments_limit=experiments_limit,
     )
 
 

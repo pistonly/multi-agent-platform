@@ -8,6 +8,8 @@ Waker logic stays minimal: the platform serves ``GET /agents/me/work``
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -37,6 +39,29 @@ APP = typer.Typer(add_completion=False)
 SIMPLE_WAKER_PASSIVE_BUCKETS: frozenset[str] = frozenset({"my_open_topics"})
 
 _EXCERPT_IN_PROMPT = 280
+RUNTIME_CONTRACT_VERSION = "simple-waker-runtime-contract-v3"
+RUNTIME_CONTRACT_FILES: tuple[str, ...] = (
+    ".cursor/skills/map-runtime-waker/SKILL.md",
+    ".cursor/skills/map-project-collab/SKILL.md",
+    ".cursor/skills/topic-host/SKILL.md",
+    ".cursor/skills/topic-participant/SKILL.md",
+    ".cursor/skills/experiment-host/SKILL.md",
+    ".cursor/skills/experiment-reviewer/SKILL.md",
+)
+
+
+def runtime_contract_hash(project_root: Path) -> str:
+    """Hash the runtime-facing prompt/Skill contract that may affect agent behavior."""
+    digest = hashlib.sha256()
+    digest.update(RUNTIME_CONTRACT_VERSION.encode("utf-8"))
+    for relative in RUNTIME_CONTRACT_FILES:
+        path = project_root / relative
+        digest.update(relative.encode("utf-8"))
+        if path.is_file():
+            digest.update(path.read_bytes())
+        else:
+            digest.update(b"<missing>")
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -55,6 +80,7 @@ class PendingBucket:
     kind: str
     count: int
     label: str
+    samples: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,6 +129,12 @@ class SimpleWakerConfig:
     runtime_home: Path | None = None
     min_remind_seconds: float = 30.0
     drain_topics: bool = False
+    # f873c287 I1(g): CLI flag → env var → server settings. When set,
+    # the waker exports ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES`` so
+    # subprocess ``map work`` invocations and any in-process server
+    # pick up the override. The server's ``Settings`` already reads the
+    # env var (W21 I1(c)); this flag is just the waker-side entrypoint.
+    stale_threshold_minutes: int | None = None
 
 
 @dataclass
@@ -201,10 +233,15 @@ def summarize_actionable_todos(todos: dict[str, Any]) -> tuple[PendingBucket, ..
     for kind in TODO_WAKE_BUCKETS:
         if kind in SIMPLE_WAKER_PASSIVE_BUCKETS:
             continue
-        items = todos.get(kind) or []
-        if not isinstance(items, list):
+        raw_items = todos.get(kind) or []
+        if not isinstance(raw_items, list):
             continue
-        count = sum(1 for item in items if isinstance(item, dict))
+        items = [
+            item
+            for item in raw_items
+            if isinstance(item, dict) and _todo_item_is_actionable(kind, item)
+        ]
+        count = len(items)
         if count <= 0:
             continue
         buckets.append(
@@ -212,9 +249,41 @@ def summarize_actionable_todos(todos: dict[str, Any]) -> tuple[PendingBucket, ..
                 kind=kind,
                 count=count,
                 label=TODO_BUCKET_UI_LABELS.get(kind, kind),
+                samples=_todo_bucket_samples(kind, items),
             )
         )
     return tuple(buckets)
+
+
+def _todo_item_is_actionable(kind: str, item: dict[str, Any]) -> bool:
+    if kind != "my_open_experiments":
+        return True
+    if item.get("archived_at"):
+        return False
+    # f873c287 I1(f): ``informational_only`` experiments are read-only
+    # for the host (decision authority held by another persona). They
+    # MUST NOT enter the waker obligation bucket even if the legacy
+    # ``actions=[]`` filter happens to keep them in the partition.
+    if item.get("informational_only"):
+        return False
+    actions = item.get("actions") or []
+    return isinstance(actions, list) and any(str(action).strip() for action in actions)
+
+
+def _todo_bucket_samples(kind: str, items: list[dict[str, Any]]) -> tuple[str, ...]:
+    if kind != "my_open_experiments":
+        return ()
+    samples: list[str] = []
+    for item in items[:3]:
+        exp_id = str(item.get("id") or item.get("experiment_id") or "?")
+        title = str(item.get("title") or item.get("experiment_title") or "experiment")
+        phase = str(item.get("phase") or "?")
+        actions = item.get("actions") or []
+        action_text = ", ".join(str(action) for action in actions if str(action).strip()) or "?"
+        samples.append(f"{title} (`{exp_id}`) · phase={phase} · actions={action_text}")
+    if len(items) > len(samples):
+        samples.append(f"… 另有 {len(items) - len(samples)} 个实验")
+    return tuple(samples)
 
 
 def build_wake_context(
@@ -300,11 +369,11 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
     lines = [
         f"MAP 协作提醒 · {persona}",
         "",
-        "平台检测到待处理 work items。请先读 map-runtime-waker、map-project-collab 与 persona Skill，然后：",
+        "平台检测到待处理 work items / todos actions。请先读 map-runtime-waker、map-project-collab 与 persona Skill，然后：",
         f"1. `{command} persona whoami`",
         f"2. `{command} work` 或 `{command} topic progress` — topic work items 统一视图（obligation + contextual；与 todos 话题分区同源）",
         f"3. `{command} todos` — 实验/评审/mention 等待办分区",
-        "4. 按 work_items.kind 逐项处理（obligation 优先）；host 回复 thread 与推进轮次",
+        "4. 按 work_items.kind 或 todos.actions 逐项处理（obligation 优先）；topic 用 topic-host，pending_reviews 用 experiment-reviewer，my_open_experiments 用 experiment-host",
         "",
     ]
 
@@ -313,8 +382,9 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
             [
                 "## Drain topics 模式",
                 f"- 当前仍有 {context.open_topic_count} 个 open topic。",
-                "- 请主动推动话题进展，逐个 topic show 后促成讨论、澄清问题、沉淀结论，并按状态 comment / Round Summary / advance-round / resolve / close。",
-                "- 目标不是清理列表，而是尽量把问题推进到明确结论、行动项、实验边界或合理关闭理由。",
+                "- 请按 topic-host Skill 主持这些话题；host 应主动推动话题进展、积极解决问题。",
+                "- 先逐个 topic show 复盘上下文，再选择下一步：comment / Round Summary / advance-round / resolve。",
+                "- 更细的邀请、收敛、行动项和实验边界判断以 topic-host Skill 为准。",
             ]
         )
         for raw in context.open_topic_samples:
@@ -350,6 +420,8 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
         lines.append("## 其他待办")
         for bucket in context.todo_buckets:
             lines.append(f"- {bucket.kind}: {bucket.count}（{bucket.label}）")
+            for sample in bucket.samples:
+                lines.append(f"  - {sample}")
         if context.notification_count:
             lines.append(
                 f"- notification: {context.notification_count}"
@@ -410,11 +482,14 @@ class SimpleWaker:
             model=self.config.model,
             runtime_home=self.config.runtime_home,
         )
+        self._runtime_contract_hash = runtime_contract_hash(self.config.project_root)
 
     def run_forever(self) -> SimpleWakerStats:
         return asyncio.run(self._run_forever_async())
 
     async def _run_forever_async(self) -> SimpleWakerStats:
+        if not self.config.dry_run:
+            await self._reset_runtime_session_if_contract_changed()
         if not self.config.dry_run:
             await self.backend.connect()
         total = SimpleWakerStats()
@@ -682,6 +757,27 @@ class SimpleWaker:
             personas[persona] = {}
         return personas[persona]
 
+    async def _reset_runtime_session_if_contract_changed(self) -> None:
+        persona_state = self._persona_state(self.config.persona)
+        previous_hash = persona_state.get("runtime_contract_hash")
+        if previous_hash == self._runtime_contract_hash:
+            return
+        has_resume_session = bool(
+            persona_state.get("claude_session_id") or persona_state.get("runtime_session_id")
+        )
+        if previous_hash is not None or has_resume_session:
+            typer.echo(
+                f"[simple-waker] runtime contract changed for {self.config.persona}; "
+                "starting a fresh runtime session",
+                err=True,
+            )
+            await self.backend.reset_session()
+        persona_state["runtime_contract_hash"] = self._runtime_contract_hash
+        persona_state["runtime_contract_version"] = RUNTIME_CONTRACT_VERSION
+        persona_state["runtime_contract_updated_at"] = datetime.now(UTC).isoformat()
+        self._state_dirty = True
+        self._save_state_if_needed(force=True)
+
     def _save_state_if_needed(self, *, force: bool = False) -> None:
         if not force and not self._state_dirty:
             return
@@ -732,12 +828,37 @@ def run(
         "--runtime-home",
         help="Optional HOME for the Claude runtime process.",
     ),
+    stale_threshold_minutes: int | None = typer.Option(
+        None,
+        "--waker-stale-threshold",
+        min=0,
+        help=(
+            "Stale-open-topic threshold (minutes). When set, exports "
+            "MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES so subprocess "
+            "``map work`` invocations and any in-process server pick up "
+            "the override via server.config.Settings (f873c287 I1(g))."
+        ),
+    ),
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
     resolved_runtime_home = runtime_home
     if resolved_runtime_home is not None and not dry_run:
         sync_runtime_skills(project_root=root, runtime_home=resolved_runtime_home)
+    # f873c287 I1(g): apply threshold to env BEFORE any Settings read so
+    # the ``map work`` subprocess (and any in-process server) sees the
+    # override on its first ``get_settings()`` call. We export here even
+    # in dry-run so logs reflect what the value would be in production.
+    if stale_threshold_minutes is not None:
+        os.environ["MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES"] = str(stale_threshold_minutes)
+        # If the server module is already imported in this process (test
+        # fixtures), invalidate the lru_cache so the new value wins.
+        try:
+            from server.config import get_settings
+
+            get_settings.cache_clear()
+        except Exception:
+            pass
     client = MapCommandClient(persona=persona, project_root=root, map_cmd=map_cmd)
     config = SimpleWakerConfig(
         persona=persona,
@@ -753,6 +874,7 @@ def run(
         runtime_home=resolved_runtime_home,
         min_remind_seconds=min_remind_seconds,
         drain_topics=drain_topics,
+        stale_threshold_minutes=stale_threshold_minutes,
     )
     waker = SimpleWaker(client=client, config=config)
     waker.run_forever()

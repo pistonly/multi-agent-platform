@@ -1,5 +1,7 @@
 import uuid
+from datetime import UTC, datetime
 
+from map_types.enums import ReviewArchivedReason
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -61,6 +63,36 @@ def _count_unclosed_unreasonable_items(db: Session, experiment_id: uuid.UUID) ->
     return len(list(db.scalars(stmt)))
 
 
+def _archive_prior_version_reviews(
+    db: Session,
+    *,
+    experiment_id: uuid.UUID,
+    new_version: int,
+) -> int:
+    """Mark every review whose plan_version < new_version as archived.
+
+    Called from ``revise_plan`` after ``experiment.current_plan_version``
+    is bumped. The cascade is idempotent: rows already carrying
+    ``archived_at`` are skipped so manual / superseded archives stay
+    untouched, and the trigger can safely run on repeat bumps without
+    overwriting audit metadata.
+
+    Returns the number of rows newly archived in this call (used by
+    end-to-end tests; service callers may ignore).
+    """
+    now = datetime.now(UTC).replace(tzinfo=None)
+    stmt = select(Review).where(
+        Review.experiment_id == experiment_id,
+        Review.plan_version < new_version,
+        Review.archived_at.is_(None),
+    )
+    rows = list(db.scalars(stmt))
+    for review in rows:
+        review.archived_at = now
+        review.archived_reason = ReviewArchivedReason.auto
+    return len(rows)
+
+
 def revise_plan(
     db: Session,
     experiment_id: uuid.UUID,
@@ -78,6 +110,13 @@ def revise_plan(
         raise StateTransitionError(
             "Plan can only be revised in draft, review, or running phase"
         )
+
+    # a764abf6 I1.(a): enforce plan frontmatter lint at revise time so
+    # missing required fields raise STATE_MACHINE_PLAN_MARKER_MISSING
+    # before any version bump / archive cascade runs.
+    from server.services.plan_marker_service import assert_plan_frontmatter_ok
+
+    assert_plan_frontmatter_ok(payload.content_md)
 
     if not payload.addressed_item_ids and experiment.current_plan_version > 0:
         current_plan = db.scalar(
@@ -103,6 +142,14 @@ def revise_plan(
     )
     db.add(plan)
     experiment.current_plan_version = new_version
+
+    # I1(b) — auto-archive prior reviews: every review whose plan_version
+    # is less than the new current_plan_version is no longer canonical and
+    # should be marked archived_reason='auto' + archived_at=now().
+    # The early-return branch above (line 82-94) skips this on purpose:
+    # when content is unchanged and no items are addressed, no version bump
+    # happens so no archive cascade is appropriate.
+    _archive_prior_version_reviews(db, experiment_id=experiment.id, new_version=new_version)
 
     if payload.addressed_item_ids:
         items_stmt = (

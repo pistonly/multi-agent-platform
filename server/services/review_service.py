@@ -1,13 +1,14 @@
 import uuid
 from datetime import UTC, datetime
 
-from map_types.enums import ReviewSubstituteKind
+from map_types.enums import ResolutionReason, ReviewSubstituteKind, ReviewVerdict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from server.domain.models import (
     Agent,
     AgentRole,
+    ExperimentLog,
     ExperimentPhase,
     Review,
     ReviewItem,
@@ -74,6 +75,7 @@ def get_unreasonable_items(db: Session, experiment_id: uuid.UUID) -> list[Review
         .join(Review)
         .where(
             Review.experiment_id == experiment_id,
+            Review.archived_at.is_(None),
             ReviewItem.kind == ReviewItemKind.unreasonable,
         )
         .options(joinedload(ReviewItem.review))
@@ -88,6 +90,7 @@ def count_open_unreasonable_for_experiment(db: Session, experiment_id: uuid.UUID
         .join(Review)
         .where(
             Review.experiment_id == experiment_id,
+            Review.archived_at.is_(None),
             ReviewItem.kind == ReviewItemKind.unreasonable,
             ReviewItem.status.in_(
                 (
@@ -125,6 +128,7 @@ def count_open_status_unreasonable_for_experiment(
         .join(Review)
         .where(
             Review.experiment_id == experiment_id,
+            Review.archived_at.is_(None),
             ReviewItem.kind == ReviewItemKind.unreasonable,
             ReviewItem.status == ReviewItemStatus.open,
         )
@@ -162,7 +166,15 @@ def _prior_version_reviews_fully_resolved(db: Session, experiment) -> bool:
             if item.kind != ReviewItemKind.unreasonable:
                 continue
             has_unreasonable = True
-            if item.status != ReviewItemStatus.resolved:
+            # I1(c): the canonical "fully resolved" signal is now
+            # ``status=closed`` with ``last_resolution_reason=resolved``.
+            # Legacy rows that still carry ``status=resolved`` are accepted
+            # for backward compatibility.
+            is_fully_resolved = (
+                item.status == ReviewItemStatus.closed
+                and item.last_resolution_reason == ResolutionReason.resolved
+            ) or item.status == ReviewItemStatus.resolved
+            if not is_fully_resolved:
                 return False
     return has_unreasonable
 
@@ -292,6 +304,23 @@ def create_review(
                 status=ReviewItemStatus.open,
             )
         )
+    db.flush()
+
+    # I1(e): emit a ``review_item.mutation`` audit row for each item created
+    # during the review submit so admins can reconstruct the review timeline
+    # from ``map audit list --kind review_item_mutation --experiment <id>``.
+    for item in review.items:
+        audit_service.log_review_item_mutation_no_commit(
+            db,
+            item=item,
+            experiment_id=experiment_id,
+            actor_id=reviewer.id,
+            project_id=experiment.project_id,
+            action="add_item",
+            before_state=None,
+            after_state=item.status.value if item.status is not None else None,
+            reason=None,
+        )
 
     db.commit()
     stmt = select(Review).where(Review.id == review.id).options(joinedload(Review.items))
@@ -318,6 +347,8 @@ def withdraw_review(
     review = db.scalar(stmt)
     if review is None:
         raise NotFoundError("Review not found")
+    # I1(d): withdrawing an archived review is structurally meaningless.
+    _ensure_review_not_archived(review)
     if review.reviewer_agent_id != actor.id and actor.role != AgentRole.admin:
         raise ForbiddenError("Only the review author can withdraw a review")
     if _review_has_item_activity(review):
@@ -329,14 +360,20 @@ def withdraw_review(
     db.commit()
 
 
-def list_reviews(db: Session, experiment_id: uuid.UUID) -> list[Review]:
+def list_reviews(
+    db: Session,
+    experiment_id: uuid.UUID,
+    *,
+    include_archived: bool = False,
+    plan_version: int | None = None,
+) -> list[Review]:
     get_experiment(db, experiment_id)
-    stmt = (
-        select(Review)
-        .where(Review.experiment_id == experiment_id)
-        .options(joinedload(Review.items))
-        .order_by(Review.created_at.asc())
-    )
+    stmt = select(Review).where(Review.experiment_id == experiment_id)
+    if not include_archived:
+        stmt = stmt.where(Review.archived_at.is_(None))
+    if plan_version is not None:
+        stmt = stmt.where(Review.plan_version == plan_version)
+    stmt = stmt.options(joinedload(Review.items)).order_by(Review.created_at.asc())
     return list(db.scalars(stmt).unique())
 
 
@@ -348,6 +385,37 @@ def get_review_item(db: Session, item_id: uuid.UUID) -> ReviewItem:
     return item
 
 
+def _ensure_review_not_archived(review: Review) -> None:
+    """Guard against mutating an archived review.
+
+    I1(d) — once a review row carries ``archived_at`` (set by ``plan_revise``
+    auto-archive, manual admin archive, or the backfill marker from
+    migration 034), it is no longer canonical and resolve / withdraw /
+    update-item flows must refuse with a structured subcode instead of
+    silently mutating stale state. The CLI / SDK use this subcode to
+    surface the recovery hint pointing at ``--include-archived``.
+    """
+    if review.archived_at is None:
+        return
+    reason = (
+        review.archived_reason.value
+        if review.archived_reason is not None
+        else "auto"
+    )
+    raise StateTransitionError(
+        (
+            "Review "
+            f"{review.id} has been archived (reason={reason}); "
+            "resolve / withdraw / update-item flows are not allowed on archived reviews."
+        ),
+        error_code="REVIEW_ALREADY_ARCHIVED",
+        hint=(
+            "查看 --include-archived 历史; 若需要修改 item, 请在新的 plan_version 提交新 review。"
+        ),
+        retryable=False,
+    )
+
+
 def update_review_item(
     db: Session,
     item_id: uuid.UUID,
@@ -357,6 +425,10 @@ def update_review_item(
     item = get_review_item(db, item_id)
     experiment = get_experiment(db, item.review.experiment_id)
 
+    # I1(d): archived reviews are not mutable. Refuse with REVIEW_ALREADY_ARCHIVED
+    # so the CLI / SDK can surface the --include-archived recovery hint.
+    _ensure_review_not_archived(item.review)
+
     if item.kind != ReviewItemKind.unreasonable:
         raise StateTransitionError("Only unreasonable items have mutable status")
     if item.status is None:
@@ -365,6 +437,33 @@ def update_review_item(
     is_creator = experiment.creator_agent_id == actor.id
     is_reviewer = item.review.reviewer_agent_id == actor.id
     is_admin = actor.role == AgentRole.admin
+
+    # I1(d): rebutting a single review item is only meaningful while the
+    # experiment is in the review phase. Once the experiment has reached
+    # ``result_review`` the host creator's intent ("this result should not
+    # be accepted") is structurally modelled by ``reject-result``, not by
+    # a per-item rebuttal. Surface that as the same structured subcode so
+    # the CLI / SDK can route the user to the right command.
+    if (
+        payload.status == ReviewItemStatus.rebutted
+        and is_creator
+        and not is_admin
+        and experiment.phase != ExperimentPhase.review
+    ):
+        raise StateTransitionError(
+            (
+                "Cannot rebut a single review item after the experiment has "
+                "left review phase (current phase: "
+                f"{experiment.phase.value}). 整个实验结果驳回请让 reviewer / admin 调用 "
+                "reject-result。"
+            ),
+            error_code="REVIEW_REJECT_RESULT_MISUSE",
+            hint=(
+                "单 item 驳回仅在 review 阶段有效;实验已过 review, 若要驳回整个 result, "
+                "请让 reviewer / admin 调用 reject-result, host creator 不可拒绝自己的 result。"
+            ),
+            retryable=False,
+        )
 
     ctx = ReviewItemTransitionContext(
         is_creator=is_creator,
@@ -376,14 +475,113 @@ def update_review_item(
     except Exception as exc:
         raise StateTransitionError(str(exc)) from exc
 
-    item.status = payload.status
+    before_state = item.status.value if item.status is not None else None
+    item.status, item.last_resolution_reason = _normalize_terminal_status(payload.status)
     item.updated_at = datetime.now(UTC)
+    after_state = item.status.value
+
+    # I1(e): emit a ``review_item.mutation`` audit row capturing the
+    # before / after state for admin timeline reconstruction. The
+    # ``reason`` field stays ``None`` for resolve-item mutations; the
+    # free-form reason lives in the experiment log.
+    audit_service.log_review_item_mutation_no_commit(
+        db,
+        item=item,
+        experiment_id=experiment.id,
+        actor_id=actor.id,
+        project_id=experiment.project_id,
+        action="resolve_item",
+        before_state=before_state,
+        after_state=after_state,
+        reason=None,
+    )
     db.commit()
     db.refresh(item)
     return item
 
 
-def review_to_read(review: Review) -> ReviewRead:
+# Terminal status values that the I1(c) state migration collapses into
+# ``closed``. Existing callers (CLI ``--status resolved``, review dashboard
+# PATCHes, MCP tools) keep sending the legacy values; the API layer rewrites
+# them on the way to the database so the new ``closed`` terminal becomes the
+# single source of truth.
+#
+# ``rebutted`` is intentionally absent: it is a *mid-cycle* signal (host
+# pushes back on the item while keeping the experiment moving). A reviewer
+# may still transition ``rebutted → resolved`` or ``rebutted → open`` to
+# accept the rebuttal or restart discussion. Collapsing it to ``closed``
+# would break that follow-up path, so the legacy value is preserved as-is
+# at the database layer until a follow-up transition completes.
+_TERMINAL_STATUS_REASONS: dict[ReviewItemStatus, ResolutionReason] = {
+    ReviewItemStatus.resolved: ResolutionReason.resolved,
+    ReviewItemStatus.withdrawn: ResolutionReason.superseded,
+}
+
+
+def _normalize_terminal_status(
+    target: ReviewItemStatus,
+) -> tuple[ReviewItemStatus, ResolutionReason | None]:
+    """Rewrite legacy terminal values to ``closed{reason}``.
+
+    Callers that send ``resolved`` / ``rebutted`` / ``withdrawn`` continue to
+    succeed; the row is stored as ``closed`` with the matching
+    ``last_resolution_reason`` so the new terminal state is the single
+    canonical representation in the database.
+    """
+    reason = _TERMINAL_STATUS_REASONS.get(target)
+    if reason is None:
+        return target, None
+    return ReviewItemStatus.closed, reason
+
+
+def _latest_verdict_reasons_by_item(
+    db: Session, experiment_id: uuid.UUID
+) -> dict[uuid.UUID, str]:
+    """Look up the most recent accept-result verdict_file and return a map of
+    item_id → waived_reason for items where verdict == 'waived'.
+
+    Reads ``experiment_logs.metadata_json.verdict_file`` (written by
+    ``phase_service.accept_result`` when a structured verdict file is
+    supplied). Returns an empty map when no verdict log exists yet.
+    """
+    latest = db.scalar(
+        select(ExperimentLog)
+        .where(
+            ExperimentLog.experiment_id == experiment_id,
+            ExperimentLog.metadata_json.is_not(None),
+        )
+        .order_by(ExperimentLog.created_at.desc())
+        .limit(1)
+    )
+    if latest is None or not isinstance(latest.metadata_json, dict):
+        return {}
+    verdict_file = latest.metadata_json.get("verdict_file")
+    if not isinstance(verdict_file, dict):
+        return {}
+    reasons: dict[uuid.UUID, str] = {}
+    for verdict in verdict_file.get("verdicts", []) or []:
+        if not isinstance(verdict, dict):
+            continue
+        if verdict.get("verdict") != ReviewVerdict.waived.value:
+            continue
+        raw_id = verdict.get("item_id")
+        reason = verdict.get("reason")
+        if not raw_id or not reason:
+            continue
+        try:
+            reasons[uuid.UUID(str(raw_id))] = str(reason)
+        except (ValueError, TypeError):
+            continue
+    return reasons
+
+
+def review_to_read(db: Session, review: Review) -> ReviewRead:
+    reasons = _latest_verdict_reasons_by_item(db, review.experiment_id)
+    items = []
+    for i in review.items:
+        item_read = ReviewItemRead.model_validate(i)
+        item_read.waived_reason = reasons.get(i.id)
+        items.append(item_read)
     return ReviewRead(
         id=review.id,
         experiment_id=review.experiment_id,
@@ -391,5 +589,7 @@ def review_to_read(review: Review) -> ReviewRead:
         plan_version=review.plan_version,
         substitute_kind=review.substitute_kind,
         created_at=review.created_at,
-        items=[ReviewItemRead.model_validate(i) for i in review.items],
+        archived_at=review.archived_at,
+        archived_reason=review.archived_reason,
+        items=items,
     )

@@ -1,9 +1,9 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from map_types.enums import (
     AcceptanceType,
@@ -16,9 +16,13 @@ from map_types.enums import (
     InboundEventSource,
     NotificationCategory,
     NotificationFingerprintVersion,
+    PhaseOwner,
+    ResolutionReason,
+    ReviewArchivedReason,
     ReviewItemKind,
     ReviewItemStatus,
     ReviewSubstituteKind,
+    ReviewVerdict,
     TopicActionItemStatus,
     TopicCommentKind,
     TopicDiscussionRound,
@@ -137,8 +141,18 @@ class ReviewItemRead(ORMModel):
     kind: ReviewItemKind
     content: str
     status: ReviewItemStatus | None
+    last_resolution_reason: ResolutionReason | None = None
     created_at: datetime
     updated_at: datetime
+    waived_reason: str | None = Field(
+        default=None,
+        description=(
+            "Populated server-side from the latest accept-result verdict_file "
+            "where verdict='waived' for this item. Read-only convenience field "
+            "for participant-facing UIs; the source of truth is "
+            "experiment_logs.metadata_json.verdict_file."
+        ),
+    )
 
 
 class ReviewItemUpdate(BaseModel):
@@ -152,6 +166,8 @@ class ReviewRead(ORMModel):
     plan_version: int
     substitute_kind: ReviewSubstituteKind = ReviewSubstituteKind.none
     created_at: datetime
+    archived_at: datetime | None = None
+    archived_reason: ReviewArchivedReason | None = None
     items: list[ReviewItemRead] = Field(default_factory=list)
 
 
@@ -227,6 +243,28 @@ class ExperimentSummaryRead(ORMModel):
     blocked_on: str | None = None
     # Historical annotation: approved/running/done without qualifying non-creator review.
     legacy_self_review: bool = False
+    # --- phase routing (experiment f873c287 I1(b)) -----------------------
+    # Decision-owner role for the current phase. Drives the UI "host
+    # blocked, waiting on {phase_owner}" copy and the
+    # ``informational_only`` partition flag below.
+    phase_owner: PhaseOwner = PhaseOwner.host
+    # Auto-classification (I1(a)): True iff
+    #   actions == [] AND blocked_on != None AND phase_owner != host.
+    # Surfaces in my_open_experiments so waker / web UI can demote the
+    # entry out of the host's actionable obligation bucket. The
+    # partition is "informational only" — host can still see and act
+    # on it; the UI just shows a "waiting on {phase_owner}" copy.
+    informational_only: bool = False
+    # 0db51e10 I3(5d): phase visibility whitelist fold. True iff the
+    # configured whitelist excludes the current phase for the caller's
+    # role. Mirrors ``actions == [] AND blocked_on ==
+    # "hidden_for_current_persona"`` so CLI / web UI can render a
+    # single "folded" copy without leaking actions.
+    hidden_for_current_persona: bool = False
+    # b72d0542 I1.b: 4-段 template soft validation result, populated only
+    # on ``experiment complete`` calls. None on other endpoints (status,
+    # list, etc.) — server sets it explicitly in ``complete_experiment``.
+    template_validation: "TemplateValidationSchema | None" = None
 
 
 class AcceptanceStatusRead(BaseModel):
@@ -273,6 +311,11 @@ class ExperimentLogCreate(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
     content_md: str = Field(min_length=1)
     metadata: dict | None = None
+    # b72d0542 I1.b(2)(e): when the similarity check would emit a warning,
+    # callers can set this to True to acknowledge and skip the soft
+    # warning. Server writes a ``log.force_skip`` audit row when the
+    # warning was actually suppressed (no-op when no warning fired).
+    force_skip_similarity: bool = False
 
 
 class ExperimentLogRead(ORMModel):
@@ -285,16 +328,190 @@ class ExperimentLogRead(ORMModel):
     created_at: datetime
 
 
+# --- 8ac93d4e I1.c — Log create response wrapper with evidence validation ---
+
+EvidenceWarningCode = Literal["MISSING_EVIDENCE_KEY"]
+
+
+class EvidenceWarningSchema(BaseModel):
+    code: EvidenceWarningCode
+    missing_key: str
+    plan_required: bool = True
+    log_provided: bool = False
+
+
+class EvidenceValidationSchema(BaseModel):
+    """Soft validation result for an ``ExperimentLogCreate`` payload.
+
+    The validator never blocks the log save — ``valid`` is always True.
+    ``warnings`` lists evidence_keys declared in plan frontmatter that are
+    missing from the supplied metadata; ``parse_error`` is set when the
+    plan frontmatter existed but its YAML failed to parse.
+    """
+
+    warnings: list[EvidenceWarningSchema] = Field(default_factory=list)
+    parse_error: str | None = None
+    plan_keys: list[str] = Field(default_factory=list)
+    valid: bool = True
+
+
+class LogCreateResponse(BaseModel):
+    """Wrapper returned by ``POST /experiments/{id}/logs`` (8ac93d4e I1.c).
+
+    The persisted ``log`` is unchanged from ``ExperimentLogRead`` so v1
+    consumers can still parse the response by reaching into ``log``. The
+    new ``validation`` field surfaces soft evidence-key warnings without
+    breaking v1 schema.
+
+    b72d0542 I1.b(2)(e): ``similarity_warning`` carries the soft
+    content-similarity check result (always None on endpoints other than
+    ``POST /experiments/{id}/logs``). When the warning fires AND
+    ``force_skip_similarity=True`` was supplied, the warning is suppressed
+    in this response and a ``log.force_skip`` audit row is written
+    instead. ``force_skip`` field echoes whether the caller opted in
+    (False on responses without a similarity check).
+    """
+
+    log: ExperimentLogRead
+    validation: EvidenceValidationSchema
+    similarity_warning: "SimilarityWarningSchema | None" = None
+    force_skip: bool = False
+
+
+# --- b72d0542 I1.b — Result submission 4-段 template validation ---
+
+TemplateWarningCode = Literal[
+    "MISSING_TEMPLATE_SECTION",
+    "NO_LINK_IN_LOG_SECTION",
+    "MALFORMED_MARKDOWN_LINK",
+]
+
+
+class TemplateWarningSchema(BaseModel):
+    code: TemplateWarningCode
+    section: str | None = None
+    detail: str | None = None
+
+
+class TemplateValidationSchema(BaseModel):
+    """Soft validation result for a result submission (b72d0542 I1.b).
+
+    Mirrors :class:`EvidenceValidationSchema` (8ac93d4e I1.c): ``valid``
+    is always True (soft validation never blocks ``experiment complete``).
+    ``warnings`` lists missing 4-段 sections or malformed markdown links
+    detected in the ``## 实施 log`` section body.
+    """
+
+    warnings: list[TemplateWarningSchema] = Field(default_factory=list)
+    sections_present: list[str] = Field(default_factory=list)
+    log_link_count: int = 0
+    valid: bool = True
+
+
+# --- b72d0542 I1.b(2)(e) — Log similarity soft warning ------------------
+
+SimilarityWarningCode = Literal["HIGH_CONTENT_SIMILARITY"]
+
+
+class SimilarityWarningSchema(BaseModel):
+    """Soft warning fired when the new log body is too similar to a
+    previous log on the same experiment (b72d0542 I1.b(2)(b)).
+
+    ``score`` is the cosine similarity in ``[0.0, 1.0]`` between the new
+    log's content embedding and the most-similar previous log on the
+    same experiment. ``threshold`` is the warn threshold (plan default
+    0.7). ``ref_log_id`` points to the previous log the score was
+    computed against. ``model`` is the embedding model id used (e.g.
+    ``sentence-transformers/all-MiniLM-L6-v2``).
+
+    The warning is non-blocking; callers may pass
+    ``force_skip_similarity=True`` to suppress it AND write a
+    ``log.force_skip`` audit row instead.
+    """
+
+    code: SimilarityWarningCode
+    score: float
+    threshold: float
+    ref_log_id: uuid.UUID
+    model: str
+
+
 class ExperimentComplete(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
     content_md: str = Field(min_length=1)
     metadata: dict | None = None
 
 
+# --- Review verdict file (accept-result structured) -----------------------
+
+
+# WaivedReason v2: min_length=50 (Round 2 Summary consensus) +
+# max_length=1000 (v2 expanded to fit waiver four-part rationale:
+# "豁免什么 / 为何豁免 / 影响哪些下游消费方 / 是否有补偿措施").
+WaivedReason = Annotated[
+    str,
+    Field(
+        min_length=50,
+        max_length=1000,
+        description="Waiver rationale (review item verdict == waived).",
+    ),
+]
+
+
+class ReviewVerdictItem(BaseModel):
+    item_id: uuid.UUID
+    verdict: ReviewVerdict
+    reason: WaivedReason | None = Field(
+        default=None,
+        description="Required when verdict == waived; otherwise optional.",
+    )
+
+    @model_validator(mode="after")
+    def _waived_requires_reason(self) -> "ReviewVerdictItem":
+        if self.verdict == ReviewVerdict.waived and not (self.reason and self.reason.strip()):
+            raise ValueError("verdict 'waived' requires non-empty reason (WaivedReason, 50-1000 chars)")
+        return self
+
+
+class ReviewInvariantCheck(BaseModel):
+    item_id: uuid.UUID
+    verified: bool
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ReviewVerdictFile(BaseModel):
+    review_id: uuid.UUID
+    verdicts: list[ReviewVerdictItem] = Field(default_factory=list)
+    invariants: list[ReviewInvariantCheck] = Field(default_factory=list)
+
+    @field_validator("verdicts")
+    @classmethod
+    def _no_duplicate_item_ids(cls, v: list[ReviewVerdictItem]) -> list[ReviewVerdictItem]:
+        seen: set[uuid.UUID] = set()
+        for item in v:
+            if item.item_id in seen:
+                raise ValueError(f"Duplicate item_id in verdicts: {item.item_id}")
+            seen.add(item.item_id)
+        return v
+
+
+# --- Result decision -------------------------------------------------------
+
+
 class ExperimentResultDecision(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
     content_md: str = Field(min_length=1)
     metadata: dict | None = None
+    verdict_file: ReviewVerdictFile | None = Field(
+        default=None,
+        description=(
+            "Optional structured verdict file (CLI: --review-verdict-file). "
+            "When provided, server validates item_id.review_id ownership and "
+            "records pre_schema_accept_result='false' + verdict breakdown in "
+            "log metadata. Omit (legacy) → pre_schema_accept_result='true' with "
+            "an info-level warning."
+        ),
+    )
 
 
 class ExperimentBundleRead(BaseModel):
@@ -466,6 +683,8 @@ class TopicDecisionRead(BaseModel):
 
 
 class TopicSummaryRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: uuid.UUID
     project_id: uuid.UUID
     creator_agent_id: uuid.UUID
@@ -484,10 +703,20 @@ class TopicSummaryRead(BaseModel):
     last_comment_excerpt: str | None = None
     my_comment_count: int | None = None
     dismissed_at: datetime | None = None
-    advance_round_pending_since: datetime | None = None
+    stale_since: datetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("stale_since", "advance_round_pending_since"),
+        description="When this topic's pending action started waiting (round ack, reply, etc.). Renamed from advance_round_pending_since in N=2; old name remains readable until N=2.",
+    )
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def advance_round_pending_since(self) -> datetime | None:
+        """DEPRECATED alias for stale_since — kept readable for clients still using the old name."""
+        return self.stale_since
 
 
 class TopicCommentCreate(BaseModel):
@@ -529,6 +758,8 @@ class TopicProgressCommentRead(ORMModel):
 
 
 class TopicWorkItemRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     kind: str
     priority: str
     topic_id: uuid.UUID
@@ -542,6 +773,16 @@ class TopicWorkItemRead(BaseModel):
     excerpt: str
     created_at: datetime
     discussion_round: str | None = None
+    stale_since: datetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("stale_since", "advance_round_pending_since"),
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def advance_round_pending_since(self) -> datetime | None:
+        """DEPRECATED alias for stale_since."""
+        return self.stale_since
 
 
 class TopicProgressItemRead(BaseModel):
@@ -593,25 +834,47 @@ class PendingTopicReplyTodoRead(BaseModel):
 
 
 class PendingRoundAckTodoRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     topic_id: uuid.UUID
     topic_title: str
     discussion_round: TopicDiscussionRound
     round_summary_count: int = 0
     summary_comment_id: uuid.UUID | None = None
     summary_excerpt: str | None = None
-    advance_round_pending_since: datetime | None = None
+    stale_since: datetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("stale_since", "advance_round_pending_since"),
+    )
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def advance_round_pending_since(self) -> datetime | None:
+        """DEPRECATED alias for stale_since."""
+        return self.stale_since
 
 
 class PendingAdvanceRoundTodoRead(BaseModel):
     """Host-owned topics where participant acks are complete and advance-round is due."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     topic_id: uuid.UUID
     topic_title: str
     discussion_round: TopicDiscussionRound
     round_summary_count: int = 0
-    advance_round_pending_since: datetime | None = None
+    stale_since: datetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("stale_since", "advance_round_pending_since"),
+    )
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def advance_round_pending_since(self) -> datetime | None:
+        """DEPRECATED alias for stale_since."""
+        return self.stale_since
 
 
 class StaleOpenTopicTodoRead(BaseModel):
@@ -747,6 +1010,80 @@ class AgentWorkRead(BaseModel):
     notifications: NotificationListRead
 
 
+BucketVisibility = Literal["all", "host_only", "reviewer_only", "participant_only"]
+SummaryBucketKind = Literal[
+    "mention",
+    "round_ack",
+    "pending_reply",
+    "explicit_only",
+    "informational_only",
+    "action_items",
+]
+
+
+class SummaryBucketItem(BaseModel):
+    """A short summary of one item inside a bucket. The full item is in
+    ``map work``'s ``todos`` and ``topic_progress``; this is the slice
+    rendered on the /work summary card.
+    """
+
+    kind: SummaryBucketKind
+    topic_id: uuid.UUID | None = None
+    topic_title: str | None = None
+    excerpt: str | None = None
+    updated_at: datetime | None = None
+
+
+class SummaryBucket(BaseModel):
+    """One of the 6 summary buckets exposed by ``map work --summary``.
+
+    A bucket is a kind-based aggregation of action items / context items so the
+    UI can render a top-of-page card without scanning the full partition
+    list.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: SummaryBucketKind
+    count: int
+    visibility: BucketVisibility = "all"
+    items: list[SummaryBucketItem] = Field(default_factory=list)
+    top_excerpt: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def partition_visibility(self) -> BucketVisibility:
+        """DEPRECATED alias for visibility — kept readable for clients still using the old name."""
+        return self.visibility
+
+
+class AgentWorkSummaryRead(BaseModel):
+    """6-bucket by_kind summary returned by ``map work --summary``.
+
+    Compact view intended for waker quick-scans and the Web /work top card.
+    Full per-partition detail stays in ``AgentWorkRead``.
+    """
+
+    agent: AgentRead
+    buckets: list[SummaryBucket] = Field(default_factory=list)
+    topics_needing_attention: int = 0
+    experiments_needing_attention: int = 0
+    # f873c287 I1(e): per-phase_owner breakdown of the experiment attention
+    # counter so host can see "3 are mine, 2 are waiting on reviewer" at a
+    # glance. Keys are ``PhaseOwner.value`` strings ("host" / "reviewer" /
+    # "participant" / "admin"). Visibility-filtered: under
+    # ``visibility_filter_applied=True`` the ``host`` key is dropped because
+    # the underlying bucket is host_only.
+    experiments_needing_attention_by_owner: dict[str, int] = Field(
+        default_factory=dict
+    )
+    topics_truncated: int = 0
+    experiments_truncated: int = 0
+    visibility_filter_applied: bool = True
+    topics_limit: int = 10
+    experiments_limit: int = 5
+
+
 # --- InboundEvent ---
 
 
@@ -850,6 +1187,15 @@ class AuditLogRead(ORMModel):
     created_at: datetime
 
 
+# 0db51e10 I2(5e): request body for ``POST /experiments/{id}/cross-persona-call``.
+# Persisted in audit_logs.payload_json alongside caller_agent_id /
+# target_experiment_id / timestamp (created_at column).
+class CrossPersonaCallRecord(BaseModel):
+    visibility_diff: dict[str, Any] = Field(default_factory=dict)
+    result_partition_count: int = Field(default=0, ge=0)
+    diff_size: int = Field(default=0, ge=0)
+
+
 # --- Action Item audit payloads (B I2: waker escalation 三段式) ---
 
 
@@ -935,6 +1281,23 @@ class PlatformFeedbackRead(ORMModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+
+
+# --- STATE_MACHINE.* escalation contact (experiment 156172e9 I1(c)) ---
+
+
+class EscalationTargetRead(ORMModel):
+    """Resolution of a STATE_MACHINE.* error's escalation contact.
+
+    Returned by ``GET /api/v1/agents/me/escalation-target?experiment_id=...``.
+    The CLI uses this on ``MAPHTTPError`` with a STATE_MACHINE.* error_code
+    so the user knows who to ping about a state-machine refusal.
+    """
+
+    experiment_id: uuid.UUID | None
+    escalation_target_id: uuid.UUID | None
+    escalation_label: str  # "@name" or "<no escalation contact>" placeholder
+    tier: str  # "experiment_override" | "current_caller" | "same_role_active" | "admin" | "none"
 
 
 ProjectStatusRead.model_rebuild()

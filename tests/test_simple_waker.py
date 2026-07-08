@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import sys
 from datetime import UTC, datetime, timedelta
@@ -112,6 +113,110 @@ def test_summarize_pending_work_ignores_my_open_topics_alone() -> None:
     assert summary.total_items == 0
 
 
+def test_summarize_pending_work_ignores_non_actionable_open_experiments() -> None:
+    summary = summarize_pending_work(
+        {
+            "my_open_experiments": [
+                {
+                    "id": "archived-approved",
+                    "title": "Archived approved",
+                    "phase": "approved",
+                    "archived_at": "2026-07-08T00:00:00Z",
+                    "actions": ["start"],
+                },
+                {
+                    "id": "waiting-result",
+                    "title": "Waiting result review",
+                    "phase": "result_review",
+                    "blocked_on": "awaiting_result_approval",
+                    "actions": [],
+                },
+            ]
+        }
+    )
+
+    assert summary.has_work is False
+    assert summary.total_items == 0
+
+
+def test_summarize_pending_work_ignores_informational_only_open_experiments() -> None:
+    """f873c287 I1(f): informational_only experiments must NOT enter the
+    waker obligation bucket even when they appear in
+    ``my_open_experiments`` (the partition still surfaces them for UI;
+    only the waker obligation is suppressed).
+    """
+    summary = summarize_pending_work(
+        {
+            "my_open_experiments": [
+                {
+                    "id": "review-no-creator-review",
+                    "title": "Awaiting non-creator review",
+                    "phase": "review",
+                    "blocked_on": "awaiting_non_creator_review",
+                    "phase_owner": "reviewer",
+                    "informational_only": True,
+                    "actions": [],
+                },
+                {
+                    "id": "result-review-waiting",
+                    "title": "Awaiting reviewer result approval",
+                    "phase": "result_review",
+                    "blocked_on": "awaiting_result_approval",
+                    "phase_owner": "reviewer",
+                    "informational_only": True,
+                    "actions": [],
+                },
+                # Counter-example: an actionable experiment that should wake.
+                {
+                    "id": "host-actionable",
+                    "title": "Approved and ready",
+                    "phase": "approved",
+                    "blocked_on": "none",
+                    "phase_owner": "host",
+                    "informational_only": False,
+                    "actions": ["start"],
+                },
+            ]
+        }
+    )
+
+    assert summary.has_work is True
+    assert summary.total_items == 1
+    assert summary.todo_buckets[0].kind == "my_open_experiments"
+    assert summary.todo_buckets[0].count == 1
+    samples = summary.todo_buckets[0].samples
+    assert len(samples) == 1
+    assert "host-actionable" in samples[0]
+    for suppressed in ("review-no-creator-review", "result-review-waiting"):
+        assert all(suppressed not in s for s in samples), (
+            f"informational_only experiment {suppressed} leaked into wake samples"
+        )
+
+
+def test_summarize_pending_work_wakes_on_actionable_open_experiment() -> None:
+    summary = summarize_pending_work(
+        {
+            "my_open_experiments": [
+                {
+                    "id": "draft-exp",
+                    "title": "Draft experiment",
+                    "phase": "draft",
+                    "actions": ["submit_for_review"],
+                }
+            ]
+        }
+    )
+
+    assert summary.has_work is True
+    assert summary.total_items == 1
+    assert summary.todo_buckets[0].kind == "my_open_experiments"
+    prompt = build_remind_prompt("host", summary)
+    assert "Draft experiment" in prompt
+    assert "phase=draft" in prompt
+    assert "submit_for_review" in prompt
+    assert "experiment-host" in prompt
+
+
 def test_build_wake_context_topic_progress_triggers_wake() -> None:
     from cli.simple_waker import build_remind_prompt, build_wake_context
 
@@ -177,6 +282,8 @@ def test_build_wake_context_drain_topics_wakes_on_open_topics() -> None:
     prompt = build_remind_prompt("host", context)
     assert "Drain topics 模式" in prompt
     assert "主动推动话题进展" in prompt
+    assert "积极解决问题" in prompt
+    assert "topic-host Skill" in prompt
     assert "行动项" in prompt
     assert "Open topic" in prompt
 
@@ -335,6 +442,27 @@ def test_run_forever_once_dry_run_skips_backend_connect(tmp_path: Path) -> None:
     backend.wake_async.assert_not_called()
 
 
+def test_runtime_contract_change_resets_existing_session(tmp_path: Path) -> None:
+    client = FakeMapClient(persona="host", todos={})
+    backend = MagicMock()
+    backend.reset_session = AsyncMock()
+    backend.wake_async = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+    persona_state = waker._persona_state("host")
+    persona_state["claude_session_id"] = "old-session"
+
+    asyncio.run(waker._reset_runtime_session_if_contract_changed())
+
+    backend.reset_session.assert_awaited_once()
+    assert persona_state["runtime_contract_hash"] == waker._runtime_contract_hash
+    assert persona_state["runtime_contract_version"] == simple_waker.RUNTIME_CONTRACT_VERSION
+
+
 def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     client = FakeMapClient(
         persona="host",
@@ -391,5 +519,69 @@ def test_run_once_drain_topics_sends_remind_for_open_topics(tmp_path: Path) -> N
     prompt = backend.wake_async.await_args.kwargs["prompt"]
     assert "Drain topics 模式" in prompt
     assert "主动推动话题进展" in prompt
-    assert "明确结论" in prompt
+    assert "topic-host Skill" in prompt
     assert "T" in prompt
+
+
+def test_simple_waker_config_stale_threshold_defaults_to_none() -> None:
+    """f873c287 I1(g): the new ``stale_threshold_minutes`` field defaults to
+    ``None`` so legacy callers that do not opt-in keep the server's
+    default (30 minutes via Settings / env var).
+    """
+    config = SimpleWakerConfig()
+    assert config.stale_threshold_minutes is None
+
+
+def test_simple_waker_run_command_exports_stale_threshold_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """f873c287 I1(g): ``--waker-stale-threshold`` CLI flag exports
+    ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES`` so subprocess ``map work``
+    invocations and any in-process server pick up the override via
+    ``server.config.Settings``.
+
+    The override must reach the env BEFORE the first ``get_settings()``
+    call (the Settings singleton is ``@lru_cache``); this test also
+    forces a ``cache_clear()`` to make sure the new value wins even if
+    Settings was already loaded.
+    """
+    import os
+
+    from typer.testing import CliRunner
+
+    # Pre-clear the env so we can observe the flag-driven write.
+    monkeypatch.delenv("MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES", raising=False)
+    # Touch server.config so the lru_cache has a stale entry; the flag
+    # should still overwrite it after cache_clear.
+    from server.config import get_settings
+
+    get_settings.cache_clear()
+    stale = get_settings().stale_open_topic_threshold_minutes
+    assert stale == 30  # default before any env override
+
+    # Block run_forever so the CLI command returns immediately.
+    monkeypatch.setattr(
+        "cli.simple_waker.SimpleWaker.run_forever",
+        lambda self: None,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        simple_waker.APP,
+        [
+            "--persona",
+            "host",
+            "--project-root",
+            str(tmp_path),
+            "--waker-stale-threshold",
+            "5",
+            "--once",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    assert os.environ.get("MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES") == "5"
+    # After the CLI applied the override and cleared the cache, a fresh
+    # ``get_settings()`` returns the new threshold.
+    assert get_settings().stale_open_topic_threshold_minutes == 5
+

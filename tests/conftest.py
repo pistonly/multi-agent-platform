@@ -108,6 +108,11 @@ _FAST_GATE_MODULES = frozenset(
         "test_sse_isolation",
         "test_sse_schema_overlap",
         "test_dry_run_write_commands",
+        "test_similarity_service",
+        "test_similarity_api_contract",
+        "test_plan_marker_service",
+        "test_archive_lint_service",
+        "test_plan_validate_cli",
     }
 )
 

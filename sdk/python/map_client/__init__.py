@@ -1,4 +1,9 @@
 from map_client.client import MAPClient
+from map_client.errors import (
+    RECOVERY_HINTS,
+    STATE_MACHINE_ERROR_CODES,
+    recovery_hint,
+)
 from map_client.exceptions import (
     MAPAuthenticationError,
     MAPClientError,
@@ -25,4 +30,8 @@ __all__ = [
     "MAPNotFoundError",
     "MAPConflictError",
     "MAPRateLimitError",
+    # 156172e9 I1(a): STATE_MACHINE.* error registry + recovery hint helper
+    "STATE_MACHINE_ERROR_CODES",
+    "RECOVERY_HINTS",
+    "recovery_hint",
 ]

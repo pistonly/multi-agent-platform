@@ -1,0 +1,44 @@
+{
+  "$comment": "8a8822b5 (d): machine-readable error codes index. Source of truth for `map docs error-codes` CLI + docs/MAP-ERROR-CODES.md. v1 contract: never delete codes, only deprecate via hint + docs_url.",
+  "schema_version": 1,
+  "generated_at": "2026-07-08T08:40:00Z",
+  "owner_experiment": "8a8822b5",
+  "codes": [
+    {
+      "code": "state_machine_error",
+      "category": "state_machine",
+      "http_status": 409,
+      "title": "State machine transition rejected",
+      "description": "Default error_code emitted by StateMachineError when no more specific subcode applies. The current phase does not accept the requested transition.",
+      "hint": "Inspect the experiment phase via `map experiment status --id <uuid>` and follow the recovery_hint from the STATE_MACHINE.* subcode or the SDK recovery_hint() helper.",
+      "docs_url": "https://example.invalid/docs/MAP-ERROR-CODES.md#state_machine_error",
+      "retryable": false,
+      "since_version": "0.7",
+      "owner_experiment": "156172e9"
+    },
+    {
+      "code": "REVIEW_ALREADY_ARCHIVED",
+      "category": "review",
+      "http_status": 422,
+      "title": "Review is archived",
+      "description": "Attempted to mutate a review that has been archived (e.g. by plan_revise finalize, manual archive, or the W11 auto-archive flow). Resolve / withdraw / update-item flows are not allowed on archived reviews.",
+      "hint": "If you need to change your verdict after a plan revision, create a new review on the latest plan_version via `map --persona reviewer experiment review add --id <exp> --review ./review.yaml`.",
+      "docs_url": "https://example.invalid/docs/MAP-ERROR-CODES.md#review_already_archived",
+      "retryable": false,
+      "since_version": "0.9",
+      "owner_experiment": "18f1d8f6"
+    },
+    {
+      "code": "REVIEW_REJECT_RESULT_MISUSE",
+      "category": "review",
+      "http_status": 409,
+      "title": "reject-result called by non-reviewer or on running experiment",
+      "description": "Subcode of state_machine_error. reject-result is restricted to reviewer persona on experiments in result_review phase. Calling it as host/creator or on running/draft/approved phases raises this subcode.",
+      "hint": "Use `map experiment complete` (host) to submit a result for review, or `map --persona reviewer experiment reject-result` only when the experiment is in result_review. Do not use reject-result as a substitute for plan_revise.",
+      "docs_url": "https://example.invalid/docs/MAP-ERROR-CODES.md#review_reject_result_misuse",
+      "retryable": false,
+      "since_version": "0.9",
+      "owner_experiment": "18f1d8f6"
+    }
+  ]
+}

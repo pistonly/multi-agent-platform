@@ -114,4 +114,37 @@ describe("ExperimentPage", () => {
     expect(screen.getByText("已提供")).toBeTruthy();
     expect(screen.getByText("待评审")).toBeTruthy();
   });
+
+  it("hides archive action while experiment is active", async () => {
+    mocks.fetchExperimentBundle.mockResolvedValue({
+      ...bundleFixture,
+      experiment: {
+        ...bundleFixture.experiment,
+        phase: "approved",
+        actions: ["start"],
+        blocked_on: null,
+      },
+    });
+
+    renderExperimentPage();
+
+    expect(await screen.findByText("Acceptance experiment")).toBeTruthy();
+    expect(screen.queryByText("归档实验")).toBeNull();
+  });
+
+  it("shows archive action for terminal experiments", async () => {
+    mocks.fetchExperimentBundle.mockResolvedValue({
+      ...bundleFixture,
+      experiment: {
+        ...bundleFixture.experiment,
+        phase: "done",
+        blocked_on: null,
+      },
+    });
+
+    renderExperimentPage();
+
+    expect(await screen.findByText("Acceptance experiment")).toBeTruthy();
+    expect(screen.getByText("归档实验")).toBeTruthy();
+  });
 });

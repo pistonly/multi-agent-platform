@@ -14,7 +14,11 @@ def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> Gl
         project_status = build_projects_status(db, [project])[0]
         counts_stmt = (
             select(Experiment.phase, func.count())
-            .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
+            .where(
+                Experiment.project_id == project_id,
+                Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
+            )
             .group_by(Experiment.phase)
         )
         counts = {phase.value: count for phase, count in db.execute(counts_stmt)}
@@ -22,7 +26,11 @@ def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> Gl
             counts.setdefault(phase.value, 0)
         recent_stmt = (
             select(Experiment)
-            .where(Experiment.project_id == project_id, Experiment.deleted_at.is_(None))
+            .where(
+                Experiment.project_id == project_id,
+                Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
+            )
             .order_by(Experiment.updated_at.desc())
             .limit(10)
         )
@@ -38,7 +46,7 @@ def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> Gl
 
     counts_stmt = (
         select(Experiment.phase, func.count())
-        .where(Experiment.deleted_at.is_(None))
+        .where(Experiment.deleted_at.is_(None), Experiment.archived_at.is_(None))
         .group_by(Experiment.phase)
     )
     counts = {phase.value: count for phase, count in db.execute(counts_stmt)}
@@ -47,7 +55,7 @@ def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> Gl
 
     recent_stmt = (
         select(Experiment)
-        .where(Experiment.deleted_at.is_(None))
+        .where(Experiment.deleted_at.is_(None), Experiment.archived_at.is_(None))
         .order_by(Experiment.updated_at.desc())
         .limit(10)
     )

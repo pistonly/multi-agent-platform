@@ -1,0 +1,87 @@
+# STATE_MACHINE.* error fixtures (experiment 156172e9 I1(d))
+#
+# Each entry pins a single server-side error code -> the canonical
+# MAPHTTPError shape the SDK should surface. Tests load this file once
+# and assert three properties:
+#
+#   1. every error_code here also appears in STATE_MACHINE_ERROR_CODES;
+#   2. every error_code has a non-empty entry in RECOVERY_HINTS;
+#   3. recovery_hint(MAPHTTPError(...)) returns the hint matching the
+#      fixture (or the registry value, when ``hint_override`` is unset).
+#
+# Add a new fixture entry when you add a STATE_MACHINE_* code on the
+# server side; the test ``test_fixtures_cover_all_registry_codes`` will
+# fail loudly if you forget to mirror it in STATE_MACHINE_ERROR_CODES.
+---
+- code: STATE_MACHINE_INVALID_PHASE_TRANSITION
+  status_code: 409
+  retryable: false
+  scenario: "experiment approve in result_review phase"
+- code: STATE_MACHINE_TERMINAL_PHASE
+  status_code: 409
+  retryable: false
+  scenario: "experiment complete on done-phase experiment"
+- code: STATE_MACHINE_PLAN_REQUIRED
+  status_code: 409
+  retryable: false
+  scenario: "submit-review with no plan revisions"
+- code: STATE_MACHINE_MISSING_EVIDENCE
+  status_code: 422
+  retryable: false
+  scenario: "complete without evidence metadata on deployment experiment"
+- code: STATE_MACHINE_REVISE_OUT_OF_PHASE
+  status_code: 409
+  retryable: false
+  scenario: "plan revise on done-phase experiment"
+- code: STATE_MACHINE_LOG_OUT_OF_PHASE
+  status_code: 409
+  retryable: false
+  scenario: "log append on draft-phase experiment"
+- code: STATE_MACHINE_TOPIC_INVALID_TRANSITION
+  status_code: 409
+  retryable: false
+  scenario: "open -> closed without resolve"
+- code: STATE_MACHINE_ACCEPTANCE_UNKNOWN_TYPE
+  status_code: 422
+  retryable: false
+  scenario: "acceptance_type=banana"
+- code: STATE_MACHINE_REVIEW_ITEM_INVALID_TRANSITION
+  status_code: 409
+  retryable: false
+  scenario: "resolve-item closed -> open"
+- code: STATE_MACHINE_REVIEW_ITEM_ACTOR_DENIED
+  status_code: 403
+  retryable: false
+  scenario: "participant actor resolving reviewer-only item"
+- code: STATE_MACHINE_REVIEW_ITEM_NOT_UNREASONABLE
+  status_code: 409
+  retryable: false
+  scenario: "resolve-item on a reasonable (read-only) item"
+- code: STATE_MACHINE_REVIEW_ITEM_NO_STATUS
+  status_code: 409
+  retryable: false
+  scenario: "legacy item migrated without status"
+- code: STATE_MACHINE_REVIEW_ITEM_REBUT_AFTER_REVIEW
+  status_code: 422
+  retryable: false
+  scenario: "rebutted-after-review-phase (delegated from I1(d))"
+- code: STATE_MACHINE_REVIEW_NOT_IN_REVIEW_PHASE
+  status_code: 409
+  retryable: false
+  scenario: "review submit on running-phase experiment"
+- code: STATE_MACHINE_REVIEW_WITHDRAW_NOT_IN_REVIEW_PHASE
+  status_code: 409
+  retryable: false
+  scenario: "withdraw_review on running-phase experiment"
+- code: REVIEW_REJECT_RESULT_MISUSE
+  status_code: 422
+  retryable: false
+  scenario: "host creator rejects own experiment's result"
+- code: REVIEW_ALREADY_ARCHIVED
+  status_code: 422
+  retryable: false
+  scenario: "I1(d) update_review_item / withdraw_review on archived review"
+- code: state_machine_error
+  status_code: 409
+  retryable: false
+  scenario: "default fallback when server omits error_code"

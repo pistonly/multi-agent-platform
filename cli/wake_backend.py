@@ -171,6 +171,11 @@ class PersonaAgentWakeBackend:
         """Disconnect so the next wake reconnects without resuming the prior session."""
         if self._agent_client is not None:
             await self._agent_client.disconnect()
+            self._agent_client = None
+        state = self._get_agent_state()
+        state.pop("claude_session_id", None)
+        state.pop("runtime_session_id", None)
+        self._save_state_fn()
 
     def wake(
         self,

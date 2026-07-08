@@ -142,11 +142,43 @@ def test_reviewer_cannot_withdraw_after_item_activity(
     )
     assert revised.status_code == 201, revised.text
 
+    # plan_revise auto-archives the v1 review (18f1d8f6 I1(b)). Withdraw on
+    # an archived review is rejected with REVIEW_ALREADY_ARCHIVED (422),
+    # not the legacy 409 "item activity" guard. To still cover the
+    # "cannot withdraw after item activity" contract on the *current* plan
+    # version, submit a fresh review on v2 and use reviewer's own
+    # ``withdrawn`` transition to count as item activity.
+    v2_review = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"unreasonable_items": ["v2 follow-up"]},
+    )
+    assert v2_review.status_code == 201, v2_review.text
+    v2_review_id = v2_review.json()["id"]
+    v2_item_id = v2_review.json()["items"][0]["id"]
+
+    # Reviewer marks the v2 item as withdrawn — this counts as item activity.
+    withdraw_v2_item = client.patch(
+        f"/api/v1/review-items/{v2_item_id}",
+        headers=reviewer["headers"],
+        json={"status": "withdrawn"},
+    )
+    assert withdraw_v2_item.status_code == 200, withdraw_v2_item.text
+
     withdrawn = client.post(
-        f"/api/v1/experiments/{exp_id}/reviews/{review_id}/withdraw",
+        f"/api/v1/experiments/{exp_id}/reviews/{v2_review_id}/withdraw",
         headers=reviewer["headers"],
     )
     assert withdrawn.status_code == 409
+
+    # Sanity: trying to withdraw the archived v1 review surfaces the new
+    # REVIEW_ALREADY_ARCHIVED contract (422, not 409).
+    archived_withdraw = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews/{review_id}/withdraw",
+        headers=reviewer["headers"],
+    )
+    assert archived_withdraw.status_code == 422
+    assert archived_withdraw.json()["error_code"] == "REVIEW_ALREADY_ARCHIVED"
 
 
 def test_legacy_self_review_false_when_qualifying_review_exists(

@@ -155,7 +155,7 @@ v0.5 **无数据库 schema 变更**（待办由查询时计算）。
 2. get_todos → pending_topic_replies + mentions
 3. get_topic → 阅读讨论上下文
 4. create_topic_comment → 回复各 thread
-5. Round Summary ×2 → create_experiment(topic_id) 或 close_topic
+5. Round Summary ×2 → topic resolve；若需执行则 create_experiment(topic_id)，源 topic 保持 open 直到 linked experiment done/cancelled 后再 close_topic；若明确不做则 close_topic
 ```
 
 详见 [.cursor/skills/topic-host/SKILL.md](../.cursor/skills/topic-host/SKILL.md)。

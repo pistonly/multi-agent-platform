@@ -3,6 +3,7 @@ import type {
   Agent,
   AgentRole,
   AgentWorkRead,
+  AgentWorkSummary,
   CommentTreeNode,
   ExperimentBundle,
   ExperimentCreatePayload,
@@ -429,6 +430,25 @@ export async function createTopicComment(
 export async function fetchWork(): Promise<AgentWorkRead> {
   const { data } = await api.get<AgentWorkRead>("/agents/me/work", {
     params: { notification_category: "all" },
+  });
+  return data;
+}
+
+export interface FetchWorkSummaryParams {
+  includeAllPersonas?: boolean;
+  topicsLimit?: number;
+  experimentsLimit?: number;
+}
+
+export async function fetchWorkSummary(
+  params: FetchWorkSummaryParams = {},
+): Promise<AgentWorkSummary> {
+  const { data } = await api.get<AgentWorkSummary>("/agents/me/work/summary", {
+    params: {
+      include_all_personas: params.includeAllPersonas ?? false,
+      topics_limit: params.topicsLimit ?? 10,
+      experiments_limit: params.experimentsLimit ?? 5,
+    },
   });
   return data;
 }

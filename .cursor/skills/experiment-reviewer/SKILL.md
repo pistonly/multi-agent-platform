@@ -34,6 +34,7 @@ description: >-
 6. 每条 reasonable / unreasonable 应具体、可验证，避免空泛褒贬
 7. 结果审批必须读取 `experiment status`、最终 log 和计划 acceptance；通过用 `accept-result`，不通过用 `reject-result` 并写清返工要求
 8. **行动项**：`map action list --mine` 查看分配项；完成后在来源话题 comment 说明，请 host 通过 `topic resolve` 更新 action_items
+9. 若同一实验同时有 `pending_replies` / addressed items 与 `pending_reviews`，先处理 addressed items；随后若 `pending_reviews` 仍显示当前计划版本且 `actions` 含 `review_add`，继续提交当前版本评审后再收尾。
 
 ## 提交评审
 
@@ -53,6 +54,8 @@ map --persona reviewer experiment review add \
 ```
 
 `unreasonable_items` 为空表示无阻塞项；非空时 host 应 `plan revise` 并 `--addressed-item` 回应。
+
+在 host 修订计划并解决 addressed items 后，`pending_reviews` 表示当前 `current_plan_version` 仍缺本 reviewer 的评审记录。若修订已满足要求，提交一个无阻塞项的 review（reasonable_items 写明认可点，unreasonable_items 为空）；若仍有新问题，提交新的 unreasonable_items。不要只 resolve addressed items 后把仍存在的 `pending_reviews` 当成 stale。
 
 ## 处理 addressed 项
 

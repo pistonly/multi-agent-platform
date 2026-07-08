@@ -64,7 +64,10 @@ def test_full_review_flow(client, auth_headers, reviewer, experiment_in_review):
             json={"status": "resolved"},
         )
         assert resolved.status_code == 200
-        assert resolved.json()["status"] == "resolved"
+        # I1(c): legacy ``resolved`` status is collapsed to the new
+        # ``closed`` terminal; the reason field records *how* it was closed.
+        assert resolved.json()["status"] == "closed"
+        assert resolved.json()["last_resolution_reason"] == "resolved"
 
     approved = client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
     assert approved.status_code == 200

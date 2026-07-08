@@ -11,13 +11,16 @@ from map_types import (
     AgentRead,
     AgentRole,
     AgentWorkRead,
+    AgentWorkSummaryRead,
     AuditLogRead,
     CommentAnchorType,
     CommentCreate,
     CommentRead,
     CommentTreeNode,
+    CrossPersonaCallRecord,
     DismissAllMentionsResultRead,
     DismissMentionResultRead,
+    EscalationTargetRead,
     ExperimentBundleRead,
     ExperimentComplete,
     ExperimentCreate,
@@ -35,6 +38,7 @@ from map_types import (
     GlobalStatusRead,
     InboundEventCreate,
     InboundEventRecordResult,
+    LogCreateResponse,
     NotificationCategory,
     NotificationListRead,
     NotificationRead,
@@ -136,16 +140,35 @@ class MAPClient:
         response = self._http.request(method, path, **kwargs)
         if response.status_code >= 400:
             detail = response.text
+            error_code: str | None = None
+            hint: str | None = None
+            retryable: bool | None = None
             if response.content:
                 try:
                     payload = response.json()
-                    if isinstance(payload, dict) and "detail" in payload:
-                        detail = str(payload["detail"])
+                    if isinstance(payload, dict):
+                        if "detail" in payload:
+                            detail = str(payload["detail"])
+                        # I1(d): surface server-side subcodes so callers can
+                        # branch on structured failure modes instead of
+                        # pattern-matching the human-readable ``detail``.
+                        if isinstance(payload.get("error_code"), str):
+                            error_code = payload["error_code"]
+                        if isinstance(payload.get("hint"), str):
+                            hint = payload["hint"]
+                        if isinstance(payload.get("retryable"), bool):
+                            retryable = payload["retryable"]
                 except Exception:
                     detail = response.text
             # P2 #2: 根据 status_code raise 具体子类（NotFound / Conflict 等），
             # 调用方可 catch 子类写语义化处理，不再依赖 if status_code == 404。
-            raise_for_status(response.status_code, detail)
+            raise_for_status(
+                response.status_code,
+                detail,
+                error_code=error_code,
+                hint=hint,
+                retryable=retryable,
+            )
         return response
 
     def _json(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -198,6 +221,28 @@ class MAPClient:
 
     def get_me(self) -> AgentRead:
         return AgentRead.model_validate(self._json("GET", "/agents/me"))
+
+    def get_escalation_target(
+        self, experiment_id: uuid.UUID | None = None
+    ) -> EscalationTargetRead:
+        """Resolve the escalation contact for a STATE_MACHINE.* error.
+
+        Calls ``GET /agents/me/escalation-target?experiment_id=...`` and
+        returns the chosen agent + the tier that picked it. Used by the
+        CLI on ``MAPHTTPError`` to append ``Escalation: @<name>`` to the
+        error output.
+
+        Args:
+            experiment_id: When provided, the experiment's
+                ``escalation_target_agent_id`` override takes precedence.
+                When None, the role-based fallback chain runs without it.
+        """
+        params: dict[str, Any] = {}
+        if experiment_id is not None:
+            params["experiment_id"] = str(experiment_id)
+        return EscalationTargetRead.model_validate(
+            self._json("GET", "/agents/me/escalation-target", params=params or None)
+        )
 
     def resolve_project_id(
         self,
@@ -429,7 +474,7 @@ class MAPClient:
         data = self._json(
             "POST",
             f"/experiments/{experiment_id}/complete",
-            json=payload.model_dump(),
+            json=payload.model_dump(mode="json"),
         )
         return ExperimentSummaryRead.model_validate(data)
 
@@ -441,7 +486,7 @@ class MAPClient:
         data = self._json(
             "POST",
             f"/experiments/{experiment_id}/accept-result",
-            json=payload.model_dump(),
+            json=payload.model_dump(mode="json"),
         )
         return ExperimentSummaryRead.model_validate(data)
 
@@ -453,7 +498,7 @@ class MAPClient:
         data = self._json(
             "POST",
             f"/experiments/{experiment_id}/reject-result",
-            json=payload.model_dump(),
+            json=payload.model_dump(mode="json"),
         )
         return ExperimentSummaryRead.model_validate(data)
 
@@ -525,8 +570,23 @@ class MAPClient:
         review = ReviewRead.model_validate(data)
         return review
 
-    def list_reviews(self, experiment_id: uuid.UUID) -> list[ReviewRead]:
-        data = self._json("GET", f"/experiments/{experiment_id}/reviews")
+    def list_reviews(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        include_archived: bool = False,
+        plan_version: int | None = None,
+    ) -> list[ReviewRead]:
+        params: dict[str, Any] = {}
+        if include_archived:
+            params["include_archived"] = "true"
+        if plan_version is not None:
+            params["plan_version"] = str(plan_version)
+        data = self._json(
+            "GET",
+            f"/experiments/{experiment_id}/reviews",
+            params=params or None,
+        )
         return [ReviewRead.model_validate(item) for item in data]
 
     def withdraw_review(self, experiment_id: uuid.UUID, review_id: uuid.UUID) -> None:
@@ -534,7 +594,11 @@ class MAPClient:
 
     def update_review_item(self, item_id: uuid.UUID, status: ReviewItemStatus) -> ReviewItemRead:
         payload = ReviewItemUpdate(status=status)
-        data = self._json("PATCH", f"/review-items/{item_id}", json=payload.model_dump())
+        data = self._json(
+            "PATCH",
+            f"/review-items/{item_id}",
+            json=payload.model_dump(mode="json"),
+        )
         return ReviewItemRead.model_validate(data)
 
     # --- comments ---
@@ -560,13 +624,40 @@ class MAPClient:
 
     # --- logs ---
 
-    def create_log(self, experiment_id: uuid.UUID, payload: ExperimentLogCreate) -> ExperimentLogRead:
+    def create_log(
+        self, experiment_id: uuid.UUID, payload: ExperimentLogCreate
+    ) -> LogCreateResponse:
         data = self._json("POST", f"/experiments/{experiment_id}/logs", json=payload.model_dump())
-        return ExperimentLogRead.model_validate(data)
+        return LogCreateResponse.model_validate(data)
 
     def list_logs(self, experiment_id: uuid.UUID) -> list[ExperimentLogRead]:
         data = self._json("GET", f"/experiments/{experiment_id}/logs")
         return [ExperimentLogRead.model_validate(item) for item in data]
+
+    # 0db51e10 I2(5e): record a cross-persona acceptance_status compare call.
+    # Writes an audit_logs row with action="cross_persona_call" + the
+    # per-persona visibility diff so R6 metrics / admin audit list can
+    # aggregate later. Host persona only (the endpoint enforces
+    # ensure_experiment_access).
+    def record_cross_persona_call(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        visibility_diff: dict[str, Any] | None = None,
+        result_partition_count: int = 0,
+        diff_size: int = 0,
+    ) -> AuditLogRead:
+        payload = CrossPersonaCallRecord(
+            visibility_diff=visibility_diff or {},
+            result_partition_count=result_partition_count,
+            diff_size=diff_size,
+        )
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/cross-persona-call",
+            json=payload.model_dump(mode="json"),
+        )
+        return AuditLogRead.model_validate(data)
 
     # --- topics ---
 
@@ -703,6 +794,22 @@ class MAPClient:
             params["notification_category"] = notification_category
         return AgentWorkRead.model_validate(self._json("GET", "/agents/me/work", params=params))
 
+    def get_agent_work_summary(
+        self,
+        *,
+        include_all_personas: bool = False,
+        topics_limit: int = 10,
+        experiments_limit: int = 5,
+    ) -> AgentWorkSummaryRead:
+        params: dict[str, Any] = {
+            "include_all_personas": str(include_all_personas).lower(),
+            "topics_limit": topics_limit,
+            "experiments_limit": experiments_limit,
+        }
+        return AgentWorkSummaryRead.model_validate(
+            self._json("GET", "/agents/me/work/summary", params=params)
+        )
+
     def get_topic_progress(self) -> TopicProgressListRead:
         return TopicProgressListRead.model_validate(self._json("GET", "/agents/me/topic-progress"))
 
@@ -791,8 +898,28 @@ class MAPClient:
         )
         return [AuditLogRead.model_validate(a) for a in data]
 
-    def list_audit_global(self, *, page: int = 1, page_size: int = 50) -> tuple[list[AuditLogRead], int]:
-        resp = self._request("GET", "/admin/audit", params={"page": page, "page_size": page_size})
+    def list_audit_global(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        kind: str | None = None,
+        experiment_id: uuid.UUID | None = None,
+    ) -> tuple[list[AuditLogRead], int]:
+        """List global audit entries with optional admin filters.
+
+        ``kind`` matches ``AuditLog.action`` (e.g. ``"review_item.mutation"``).
+        ``experiment_id`` filters to events whose ``payload_json`` carries
+        the matching experiment id (used by ``map audit list --experiment <id>``).
+        Both filters compose so the CLI can scope down to a single
+        experiment × audit kind slice.
+        """
+        params: dict[str, str | int] = {"page": page, "page_size": page_size}
+        if kind is not None:
+            params["kind"] = kind
+        if experiment_id is not None:
+            params["experiment_id"] = str(experiment_id)
+        resp = self._request("GET", "/admin/audit", params=params)
         items = [AuditLogRead.model_validate(a) for a in resp.json()]
         return items, int(resp.headers.get("X-Total-Count", len(items)))
 

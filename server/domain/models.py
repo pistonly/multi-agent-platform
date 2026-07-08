@@ -11,6 +11,8 @@ from map_types.enums import (
     MentionSourceType,
     NotificationCategory,
     NotificationFingerprintVersion,
+    ResolutionReason,
+    ReviewArchivedReason,
     ReviewItemKind,
     ReviewItemStatus,
     ReviewSubstituteKind,
@@ -86,7 +88,12 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     project: Mapped["Project | None"] = relationship()
-    created_experiments: Mapped[list["Experiment"]] = relationship(back_populates="creator")
+    created_experiments: Mapped[list["Experiment"]] = relationship(
+        back_populates="creator", foreign_keys="Experiment.creator_agent_id"
+    )
+    escalation_target_experiments: Mapped[list["Experiment"]] = relationship(
+        back_populates="escalation_target", foreign_keys="Experiment.escalation_target_agent_id"
+    )
     plan_versions: Mapped[list["PlanVersion"]] = relationship(back_populates="author")
     reviews: Mapped[list["Review"]] = relationship(back_populates="reviewer")
     comments: Mapped[list["Comment"]] = relationship(back_populates="author")
@@ -130,7 +137,7 @@ class Experiment(Base):
 
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True, index=True)
     project: Mapped["Project"] = relationship(back_populates="experiments")
-    creator: Mapped["Agent"] = relationship(back_populates="created_experiments")
+    creator: Mapped["Agent"] = relationship(back_populates="created_experiments", foreign_keys=[creator_agent_id])
     topic: Mapped["Topic | None"] = relationship(back_populates="experiments")
     plan_versions: Mapped[list["PlanVersion"]] = relationship(
         back_populates="experiment", order_by="PlanVersion.version"
@@ -139,12 +146,37 @@ class Experiment(Base):
     comments: Mapped[list["Comment"]] = relationship(back_populates="experiment", order_by="Comment.created_at")
     logs: Mapped[list["ExperimentLog"]] = relationship(back_populates="experiment", order_by="ExperimentLog.created_at")
 
+    # --- phase_owner routing (experiment f873c287 I1(b)) -----------------
+    # Decision-owner role for the *current* phase. Drives:
+    #   - ``informational_only`` auto-classification (I1(a))
+    #   - "host blocked, waiting on {phase_owner}" UI copy (I1(d))
+    #   - ``experiments_needing_attention`` persona filter (I1(e))
+    # Stored as a string column (16 chars) — kept aligned with the
+    # ``PhaseOwner`` enum via ``phase_owner_resolver``. Defaulted by app
+    # logic when ``Experiment.phase`` changes (see ``phase_service``).
+    phase_owner: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="host", index=True
+    )
+
     # --- execution lock (per-project; CP-3) ---------------------------------
     lock_holder_experiment_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     lock_acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lock_ttl_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lock_skip_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    # --- escalation routing (experiment 156172e9 I1(b)) ---------------------
+    # Optional override for STATE_MACHINE.* error escalation. When set, the
+    # CLI surfaces this agent as the recovery contact regardless of the
+    # caller's role. When NULL, the role-based fallback rule applies:
+    # current caller → same-role active agent → admin.
+    escalation_target_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id"), nullable=True, index=True
+    )
+    escalation_target: Mapped["Agent | None"] = relationship(
+        back_populates="escalation_target_experiments",
+        foreign_keys=[escalation_target_agent_id],
+    )
 
 
 class Topic(Base):
@@ -315,6 +347,17 @@ class Review(Base):
         server_default="none",
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Archive metadata (experiment 18f1d8f6 I1(a)). Both columns are NULL
+    # for active reviews; ``archived_at`` is set the moment a row becomes
+    # archived. ``archived_reason`` is also used as a historical backfill
+    # marker for rows that predate the archive feature (migration 034
+    # sets ``archived_reason='auto'`` with ``archived_at=NULL`` to keep
+    # the rows visible during the N=2 transition).
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_reason: Mapped[ReviewArchivedReason | None] = mapped_column(
+        Enum(ReviewArchivedReason),
+        nullable=True,
+    )
 
     experiment: Mapped["Experiment"] = relationship(back_populates="reviews")
     reviewer: Mapped["Agent"] = relationship(back_populates="reviews")
@@ -329,6 +372,9 @@ class ReviewItem(Base):
     kind: Mapped[ReviewItemKind] = mapped_column(Enum(ReviewItemKind), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[ReviewItemStatus | None] = mapped_column(Enum(ReviewItemStatus), nullable=True)
+    last_resolution_reason: Mapped["ResolutionReason | None"] = mapped_column(
+        Enum(ResolutionReason), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

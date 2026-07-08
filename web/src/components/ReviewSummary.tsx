@@ -21,6 +21,39 @@ const STATUS_COLORS: Record<ReviewItemStatus, string> = {
   escalated: "bg-purple-900/50 text-purple-200",
 };
 
+const ARCHIVED_REASON_LABELS: Record<string, string> = {
+  auto: "自动归档（plan 修订）",
+  manual: "手动归档",
+  superseded: "已被新版覆盖",
+};
+
+function ArchivedReviewCard({ review }: { review: Review }) {
+  const reason = review.archived_reason ?? "auto";
+  const reasonLabel = ARCHIVED_REASON_LABELS[reason] ?? reason;
+  const archivedAt = review.archived_at
+    ? new Date(review.archived_at).toLocaleString()
+    : "(pre-archive, all reviews shown)";
+  return (
+    <div
+      className="rounded border border-slate-700/60 bg-slate-900/40 p-2 text-xs text-slate-400"
+      data-testid="archived-review-card"
+      data-archived-reason={reason}
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] text-slate-500">
+          plan v{review.plan_version} · {reasonLabel}
+        </span>
+        <span className="text-[10px] text-slate-600">{archivedAt}</span>
+      </div>
+      <ul className="space-y-1">
+        {(review.items ?? []).map((item) => (
+          <ItemRow key={item.id} item={item} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ItemRow({ item }: { item: ReviewItem }) {
   if (item.kind === "reasonable") {
     return (
@@ -38,6 +71,15 @@ function ItemRow({ item }: { item: ReviewItem }) {
         <span className="text-red-200/90">{item.content}</span>
         <span className={`badge shrink-0 ${STATUS_COLORS[status]}`}>{STATUS_LABELS[status]}</span>
       </div>
+      {item.waived_reason && (
+        <div
+          className="mt-2 whitespace-pre-wrap rounded border border-amber-700/40 bg-amber-950/30 p-2 text-xs text-amber-100/90"
+          data-testid="review-item-waived-reason"
+        >
+          <span className="mb-1 block font-semibold text-amber-300">waived_reason:</span>
+          {item.waived_reason}
+        </div>
+      )}
     </li>
   );
 }
@@ -82,11 +124,19 @@ export function ReviewSummary({
     },
   });
 
-  const reasonable = reviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "reasonable"));
-  const unreasonable = reviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "unreasonable"));
+  // I1(e): split reviews into active (canonical) and archived (collapsed by default).
+  // archived_reason is non-null on every archived review; archived_at may be null
+  // for the migration-034 backfill "pre-archive marker" rows. Main counts and
+  // item lists come from active reviews only — archived reviews live under the
+  // toggle section.
+  const activeReviews = reviews.filter((r) => r.archived_reason == null);
+  const archivedReviews = reviews.filter((r) => r.archived_reason != null);
+  const reasonable = activeReviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "reasonable"));
+  const unreasonable = activeReviews.flatMap((r) => (r.items ?? []).filter((i) => i.kind === "unreasonable"));
   const openCount = unreasonable.filter(
     (i) => i.status && ["open", "addressed", "rebutted", "escalated"].includes(i.status)
   ).length;
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     if (highlightReview && canAddReview) {
@@ -129,6 +179,31 @@ export function ReviewSummary({
       )}
       {reviews.length === 0 && <p className="text-sm text-slate-500">暂无评审</p>}
 
+      {archivedReviews.length > 0 && (
+        <div className="mt-4 border-t border-surface-border pt-3" data-testid="archived-reviews-section">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between text-left text-xs font-medium uppercase tracking-wide text-slate-500 hover:text-slate-300"
+            onClick={() => setShowArchived((v) => !v)}
+            data-testid="toggle-archived-reviews"
+            aria-expanded={showArchived}
+          >
+            <span>
+              {showArchived ? "▼" : "▶"} 已归档评审 ({archivedReviews.length})
+            </span>
+            <span className="text-[10px] normal-case text-slate-600">
+              仅供历史回溯，不可修改
+            </span>
+          </button>
+          {showArchived && (
+            <div className="mt-2 space-y-2" data-testid="archived-reviews-list">
+              {archivedReviews.map((review) => (
+                <ArchivedReviewCard key={review.id} review={review} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {canAddReview && (
         <div className="mt-4 border-t border-surface-border pt-3">
           {expanded ? (

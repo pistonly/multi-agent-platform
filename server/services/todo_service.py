@@ -118,13 +118,32 @@ def list_stale_open_topics(
     pending_topic_replies: list[PendingTopicReplyTodoRead] | None = None,
     pending_advance_rounds: list[PendingAdvanceRoundTodoRead] | None = None,
     now: datetime | None = None,
+    threshold_minutes: int | None = None,
 ) -> list[StaleOpenTopicTodoRead]:
-    """Host-owned open topics that need periodic follow-up."""
+    """Host-owned open topics that need periodic follow-up.
+
+    The threshold is configurable per-call (test injects a small value);
+    when omitted it falls back to ``server.config.settings.stale_open_topic_threshold_minutes``
+    (env: ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES``, default 30). The
+    legacy module-level ``STALE_OPEN_TOPIC_THRESHOLD`` constant remains
+    as the final fallback so callers that pre-date settings still get
+    the historical 30-minute default.
+    """
     if agent.project_id is None:
         return []
 
+    if threshold_minutes is None:
+        try:
+            from server.config import get_settings
+
+            threshold_minutes = get_settings().stale_open_topic_threshold_minutes
+        except Exception:
+            threshold_minutes = int(STALE_OPEN_TOPIC_THRESHOLD.total_seconds() // 60)
+    if threshold_minutes < 0:
+        raise ValueError("threshold_minutes must be >= 0")
+
     now = now or datetime.now(UTC)
-    cutoff = now - STALE_OPEN_TOPIC_THRESHOLD
+    cutoff = now - timedelta(minutes=threshold_minutes)
     suppressed_topic_ids = {
         item.topic_id for item in (pending_topic_replies or [])
     } | {
@@ -245,6 +264,7 @@ def get_todos(
             .where(
                 Experiment.creator_agent_id == agent.id,
                 Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
                 Experiment.phase.in_(_ACTIVE_PHASES),
             )
             .order_by(Experiment.updated_at.desc())
@@ -323,6 +343,7 @@ def get_todos(
         .where(
             ReviewItem.status.in_(_REPLY_STATES),
             Experiment.deleted_at.is_(None),
+            Review.archived_at.is_(None),
             or_(
                 Experiment.creator_agent_id == agent.id,
                 Review.reviewer_agent_id == agent.id,

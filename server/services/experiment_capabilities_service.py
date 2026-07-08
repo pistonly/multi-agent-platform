@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from map_types.enums import PhaseOwner
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -28,6 +29,33 @@ from server.services.review_service import (
 )
 
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
+
+# 0db51e10 I3(5d): phase visibility whitelist. ``hidden_for_current_persona``
+# is the per-actor fold semantics for phases excluded by the configured
+# whitelist. Empty / ``None`` whitelist = every phase visible (backward
+# compat). When a whitelist is configured, phases outside it return
+# ``([], "hidden_for_current_persona")`` so the UI can fold the row
+# without raising.
+HIDDEN_FOR_CURRENT_PERSONA = "hidden_for_current_persona"
+
+
+def _is_phase_visible(
+    phase: ExperimentPhase,
+    *,
+    phase_whitelist: list[ExperimentPhase] | None,
+) -> bool:
+    """Return True iff ``phase`` is in the configured whitelist.
+
+    ``None`` or empty whitelist = visible to every role (legacy
+    behaviour). When the whitelist is non-empty the predicate is
+    exact-match against ``phase.value`` so callers can pass either
+    ``[ExperimentPhase.result_review]`` or
+    ``["result_review"]`` interchangeably.
+    """
+    if not phase_whitelist:
+        return True
+    allowed = {p.value if isinstance(p, ExperimentPhase) else str(p) for p in phase_whitelist}
+    return phase.value in allowed
 
 
 def _reviews_for_current_plan(db: Session, experiment: Experiment) -> list[Review]:
@@ -78,6 +106,7 @@ def _reviewer_has_pending_addressed_items(
         .where(
             Review.experiment_id == experiment_id,
             Review.reviewer_agent_id == actor_id,
+            Review.archived_at.is_(None),
             ReviewItem.kind == ReviewItemKind.unreasonable,
             ReviewItem.status.in_(_REPLY_STATES),
         )
@@ -86,11 +115,23 @@ def _reviewer_has_pending_addressed_items(
 
 
 def compute_experiment_capabilities(
-    db: Session, experiment: Experiment, actor: Agent
+    db: Session,
+    experiment: Experiment,
+    actor: Agent,
+    *,
+    phase_whitelist: list[ExperimentPhase] | None = None,
 ) -> tuple[list[str], str | None]:
     is_creator = actor.id == experiment.creator_agent_id
     is_admin = actor.role == AgentRole.admin
     phase = experiment.phase
+
+    # 0db51e10 I3(5d): phase visibility whitelist. When configured and
+    # the current phase is NOT in the whitelist, fold the row as
+    # ``hidden_for_current_persona`` so the UI can collapse it without
+    # raising. Whitelist is dynamic — callers pass the resolved value
+    # from server config / per-test override, no module-level global.
+    if not _is_phase_visible(phase, phase_whitelist=phase_whitelist):
+        return [], HIDDEN_FOR_CURRENT_PERSONA
 
     actions: list[str] = []
     blocked_on: str | None = None
@@ -149,10 +190,17 @@ def experiment_summary_for_actor(
     actor: Agent,
     *,
     extra_updates: dict | None = None,
+    phase_whitelist: list[ExperimentPhase] | None = None,
 ) -> ExperimentSummaryRead:
     from server.services.log_service import get_latest_log
+    from server.services.phase_owner_resolver import (
+        is_informational_only,
+        owner_for,
+    )
 
-    actions, blocked_on = compute_experiment_capabilities(db, experiment, actor)
+    actions, blocked_on = compute_experiment_capabilities(
+        db, experiment, actor, phase_whitelist=phase_whitelist
+    )
     legacy = compute_legacy_self_review(db, experiment)
     log_count = (
         db.scalar(
@@ -163,12 +211,23 @@ def experiment_summary_for_actor(
         or 0
     )
     latest_log = get_latest_log(db, experiment.id)
+    phase_owner = owner_for(experiment.phase)
+    informational_only = is_informational_only(
+        experiment.phase, actions=actions, blocked_on=blocked_on
+    )
+    hidden_for_current_persona = (
+        actions == []
+        and blocked_on == HIDDEN_FOR_CURRENT_PERSONA
+    )
     update: dict = {
         "actions": actions,
         "blocked_on": blocked_on,
         "legacy_self_review": legacy,
         "log_count": log_count,
         "latest_log_summary": latest_log.summary if latest_log else None,
+        "phase_owner": phase_owner,
+        "informational_only": informational_only,
+        "hidden_for_current_persona": hidden_for_current_persona,
     }
     if extra_updates:
         update.update(extra_updates)
@@ -181,11 +240,16 @@ def apply_capabilities_to_detail(
     blocked_on: str | None,
     *,
     legacy_self_review: bool = False,
+    phase_owner: PhaseOwner | None = None,
+    informational_only: bool | None = None,
 ) -> ExperimentDetailRead:
-    return detail.model_copy(
-        update={
-            "actions": actions,
-            "blocked_on": blocked_on,
-            "legacy_self_review": legacy_self_review,
-        }
-    )
+    update: dict = {
+        "actions": actions,
+        "blocked_on": blocked_on,
+        "legacy_self_review": legacy_self_review,
+    }
+    if phase_owner is not None:
+        update["phase_owner"] = phase_owner
+    if informational_only is not None:
+        update["informational_only"] = informational_only
+    return detail.model_copy(update=update)

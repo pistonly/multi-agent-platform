@@ -94,6 +94,13 @@ def _create_experiment(client, headers, project, title: str = "归档测试实�
     return resp.json()["id"]
 
 
+def _create_cancelled_experiment(client, headers, project, title: str = "归档测试实验") -> str:
+    exp_id = _create_experiment(client, headers, project, title=title)
+    cancelled = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=headers)
+    assert cancelled.status_code == 200, cancelled.text
+    return exp_id
+
+
 # ---------------------------------------------------------------------------
 # happy paths (real server round-trip via MAPTestClientTransport)
 # ---------------------------------------------------------------------------
@@ -142,7 +149,7 @@ def test_topic_archive_undo_success(runner: CliRunner, patched_cli, client, proj
 def test_experiment_archive_basic_success(
     runner: CliRunner, patched_cli, client, project, auth_headers
 ):
-    exp_id = _create_experiment(client, auth_headers, project, title="exp-archive")
+    exp_id = _create_cancelled_experiment(client, auth_headers, project, title="exp-archive")
 
     result = runner.invoke(app, ["experiment", "archive", "--id", exp_id])
     assert result.exit_code == 0, result.output
@@ -165,7 +172,7 @@ def test_experiment_archive_basic_success(
 def test_experiment_archive_undo_success(
     runner: CliRunner, patched_cli, client, project, auth_headers
 ):
-    exp_id = _create_experiment(client, auth_headers, project, title="exp-undo")
+    exp_id = _create_cancelled_experiment(client, auth_headers, project, title="exp-undo")
 
     first = runner.invoke(app, ["experiment", "archive", "--id", exp_id])
     assert first.exit_code == 0, first.output
@@ -173,6 +180,17 @@ def test_experiment_archive_undo_success(
     undo = runner.invoke(app, ["experiment", "archive", "--id", exp_id, "--undo"])
     assert undo.exit_code == 0, undo.output
     assert yaml.safe_load(undo.output)["archived_at"] is None
+
+
+def test_experiment_archive_rejects_active_phase(
+    runner: CliRunner, patched_cli, client, project, auth_headers
+):
+    exp_id = _create_experiment(client, auth_headers, project, title="exp-active-archive")
+
+    result = runner.invoke(app, ["experiment", "archive", "--id", exp_id])
+
+    assert result.exit_code == 1
+    assert "complete or cancel" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +336,7 @@ def test_archive_permission_matrix(
     # Setup: ensure we start on the host persona and create fixtures via HTTP
     monkeypatch.setenv("MAP_TOKEN", host_token)
     topic_id = _create_topic(client, auth_headers, project, title="perm-topic")
-    exp_id = _create_experiment(client, auth_headers, project, title="perm-exp")
+    exp_id = _create_cancelled_experiment(client, auth_headers, project, title="perm-exp")
 
     # host archives successfully
     r1 = runner.invoke(app, ["topic", "archive", "--id", topic_id])
@@ -359,7 +377,7 @@ def test_show_after_archive_still_visible_with_archived_at(
     assert show_payload["archived_at"] is not None
 
     # experiment variant
-    exp_id = _create_experiment(client, auth_headers, project, title="exp-show-after-archive")
+    exp_id = _create_cancelled_experiment(client, auth_headers, project, title="exp-show-after-archive")
     archive_exp = runner.invoke(app, ["experiment", "archive", "--id", exp_id])
     assert archive_exp.exit_code == 0, archive_exp.output
     exp_payload = yaml.safe_load(archive_exp.output)
@@ -408,7 +426,7 @@ def test_archive_emits_audit_event(
     runner: CliRunner, patched_cli, client, project, auth_headers
 ):
     topic_id = _create_topic(client, auth_headers, project, title="audit-topic")
-    exp_id = _create_experiment(client, auth_headers, project, title="audit-exp")
+    exp_id = _create_cancelled_experiment(client, auth_headers, project, title="audit-exp")
 
     # archive both
     r_t = runner.invoke(app, ["topic", "archive", "--id", topic_id])

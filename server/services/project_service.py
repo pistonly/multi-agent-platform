@@ -31,6 +31,7 @@ from server.domain.schemas import (
     TopicActionItemRead,
     TopicDecisionRead,
 )
+from server.domain.state_machine import TERMINAL_PHASES
 from server.services import project_status_service as status_doc_service
 from server.services import topic_service
 
@@ -137,7 +138,11 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
     counts_map: dict[uuid.UUID, dict[str, int]] = {pid: {} for pid in project_ids}
     counts_stmt = (
         select(Experiment.project_id, Experiment.phase, func.count())
-        .where(Experiment.project_id.in_(project_ids), Experiment.deleted_at.is_(None))
+        .where(
+            Experiment.project_id.in_(project_ids),
+            Experiment.deleted_at.is_(None),
+            Experiment.archived_at.is_(None),
+        )
         .group_by(Experiment.project_id, Experiment.phase)
     )
     for project_id, phase, count in db.execute(counts_stmt):
@@ -271,6 +276,12 @@ def create_experiment(
     payload: ExperimentCreate,
 ) -> Experiment:
     get_project(db, project_id)
+    # a764abf6 I1.(a): enforce plan frontmatter lint at create time
+    # so missing required fields fail with STATE_MACHINE_PLAN_MARKER_MISSING
+    # instead of writing a plan that will be rejected at revision.
+    from server.services.plan_marker_service import assert_plan_frontmatter_ok
+
+    assert_plan_frontmatter_ok(payload.plan.content_md)
     if payload.topic_id is not None:
         topic = db.get(Topic, payload.topic_id)
         if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
@@ -293,6 +304,13 @@ def create_experiment(
                 f"Topic already has an active experiment ({active.id}); complete or cancel it first"
             )
     phase = ExperimentPhase.review if payload.submit_for_review else ExperimentPhase.draft
+    # I1(b): mirror the phase_owner column to the resolver's answer at
+    # creation time so the ``informational_only`` auto-classification
+    # works for the create-with-submit path too (not just for the
+    # post-create submit_for_review path, which goes through
+    # ``phase_service.submit_for_review``).
+    from server.services.phase_owner_resolver import owner_for
+
     experiment = Experiment(
         project_id=project_id,
         creator_agent_id=creator_agent_id,
@@ -301,6 +319,7 @@ def create_experiment(
         phase=phase,
         current_plan_version=1,
         topic_id=payload.topic_id,
+        phase_owner=owner_for(phase).value,
     )
     db.add(experiment)
     db.flush()
@@ -376,6 +395,10 @@ def get_experiment_detail(
         compute_legacy_self_review,
     )
     from server.services.log_service import get_latest_log
+    from server.services.phase_owner_resolver import (
+        is_informational_only,
+        owner_for,
+    )
     from server.services.review_service import count_open_unreasonable_for_experiment
 
     experiment = get_experiment(db, experiment_id)
@@ -429,12 +452,25 @@ def get_experiment_detail(
         lock_ttl_seconds=experiment.lock_ttl_seconds,
         next_attempt_at=experiment.next_attempt_at,
         lock_skip_count=int(experiment.lock_skip_count or 0),
+        # I1(b): phase_owner read straight from the ORM column — the
+        # column is kept in sync by ``phase_service._sync_phase_owner``
+        # on every transition and by ``create_experiment`` at creation
+        # time, so this is the single source of truth.
+        phase_owner=owner_for(experiment.phase),
     )
     if actor is not None:
         actions, blocked_on = compute_experiment_capabilities(db, experiment, actor)
         legacy = compute_legacy_self_review(db, experiment)
+        informational_only = is_informational_only(
+            experiment.phase, actions=actions, blocked_on=blocked_on
+        )
         return apply_capabilities_to_detail(
-            detail, actions, blocked_on, legacy_self_review=legacy
+            detail,
+            actions,
+            blocked_on,
+            legacy_self_review=legacy,
+            phase_owner=owner_for(experiment.phase),
+            informational_only=informational_only,
         )
     return detail
 
@@ -446,7 +482,7 @@ def get_experiment_bundle(
 
     experiment = get_experiment_detail(db, experiment_id, actor)
     plans = [PlanVersionRead.model_validate(p) for p in plan_service.list_plans(db, experiment_id)]
-    reviews = [review_service.review_to_read(r) for r in review_service.list_reviews(db, experiment_id)]
+    reviews = [review_service.review_to_read(db, r) for r in review_service.list_reviews(db, experiment_id)]
     comments = comment_service.build_comment_tree(db, comment_service.list_comments(db, experiment_id))
     logs = [ExperimentLogRead.model_validate(entry) for entry in log_service.list_logs(db, experiment_id)]
     return ExperimentBundleRead(
@@ -469,6 +505,11 @@ def update_experiment(
     for key, value in data.items():
         setattr(experiment, key, value)
     if archived is not None:
+        if archived and experiment.phase not in TERMINAL_PHASES:
+            raise ConflictError(
+                "Cannot archive experiment while it is "
+                f"{experiment.phase.value}; complete or cancel it first"
+            )
         experiment.archived_at = datetime.now(UTC) if archived else None
     db.commit()
     db.refresh(experiment)

@@ -43,6 +43,14 @@ from server.services.permissions import is_admin
 from server.services.text_utils import excerpt
 from server.services.thread_activity import topic_comment_order_clauses, topic_comment_order_clauses_desc
 
+_TOPIC_CLOSE_BLOCKING_EXPERIMENT_PHASES = (
+    ExperimentPhase.draft,
+    ExperimentPhase.review,
+    ExperimentPhase.approved,
+    ExperimentPhase.running,
+    ExperimentPhase.result_review,
+)
+
 
 def _get_topic(db: Session, topic_id: uuid.UUID) -> Topic:
     topic = db.get(Topic, topic_id)
@@ -1107,6 +1115,20 @@ def set_topic_status(db: Session, topic_id: uuid.UUID, target: TopicStatus) -> T
     )
     if not valid:
         raise StateTransitionError(f"Topic cannot move from {topic.status.value} to {target.value}")
+    if target == TopicStatus.closed:
+        blocking = db.scalar(
+            select(Experiment).where(
+                Experiment.topic_id == topic.id,
+                Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
+                Experiment.phase.in_(_TOPIC_CLOSE_BLOCKING_EXPERIMENT_PHASES),
+            )
+        )
+        if blocking is not None:
+            raise ConflictError(
+                "Cannot close topic while linked experiment "
+                f"{blocking.id} is {blocking.phase.value}; complete or cancel it first"
+            )
     topic.status = target
     db.commit()
     db.refresh(topic)

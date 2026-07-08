@@ -51,7 +51,8 @@ def test_start_complete_result_review_accept_flow(client, auth_headers, reviewer
         json={"summary": "进度 50%", "content_md": "进行中...", "metadata": {"progress": 0.5}},
     )
     assert interim_log.status_code == 201
-    assert interim_log.json()["metadata_json"]["progress"] == 0.5
+    # 8ac93d4e I1.c: response is now {log, validation} wrapper; log keeps v1 shape.
+    assert interim_log.json()["log"]["metadata_json"]["progress"] == 0.5
 
     completed = client.post(
         f"/api/v1/experiments/{exp_id}/complete",

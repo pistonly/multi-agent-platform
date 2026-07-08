@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -119,6 +120,78 @@ def test_cli_experiment_status_outputs_acceptance_status(runner, patched_cli, tm
     assert detail["acceptance_status"][0]["description"] == "map experiment status shows acceptance"
 
 
+def test_cli_experiment_status_outputs_phase_owner_obligation(
+    runner, patched_cli, tmp_path: Path
+):
+    """f873c287 I1(d): a review-phase experiment whose decision authority
+    is held by ``reviewer`` (not host) must surface the ``phase_owner``
+    and ``informational_only`` signals in ``map experiment status``
+    output so the host knows they are blocked on a reviewer decision.
+
+    The specific blocked_on actionable copy ("reviewer must submit the
+    first experiment review") is preserved; the new ``phase_owner:
+    reviewer`` line supplements it as the unified "who's holding this"
+    signal.
+    """
+    plan_file = tmp_path / "plan.md"
+    plan_file.write_text("## host blocked waiting test", encoding="utf-8")
+    res = runner.invoke(
+        app,
+        [
+            "experiment",
+            "create",
+            "--title",
+            "host blocked 实验",
+            "--plan-file",
+            str(plan_file),
+            "--submit-for-review",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    exp = yaml.safe_load(res.output)
+
+    res = runner.invoke(app, ["experiment", "status", "--id", exp["id"]])
+    assert res.exit_code == 0, res.output
+    # The CLI echoes a mix of free-text lines + final structured YAML.
+    # We assert on the free-text portion which is human-facing.
+    assert "phase_owner: reviewer" in res.output
+    assert "informational_only: True" in res.output
+    # The legacy explicit actionable copy for awaiting_non_creator_review
+    # is preserved — that's the action, the phase_owner line above is
+    # the "who" signal.
+    assert "reviewer must submit the first experiment review" in res.output
+
+
+def test_cli_experiment_status_omits_waiting_copy_for_host_owned(
+    runner, patched_cli, tmp_path: Path
+):
+    """f873c287 I1(d): host-owned phases (e.g. draft, approved) must NOT
+    emit the ``waiting on {phase_owner}`` copy — they are actionable by
+    the host, not blocked.
+    """
+    plan_file = tmp_path / "plan.md"
+    plan_file.write_text("## host owned draft", encoding="utf-8")
+    res = runner.invoke(
+        app,
+        [
+            "experiment",
+            "create",
+            "--title",
+            "host owned draft 实验",
+            "--plan-file",
+            str(plan_file),
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    exp = yaml.safe_load(res.output)
+
+    res = runner.invoke(app, ["experiment", "status", "--id", exp["id"]])
+    assert res.exit_code == 0, res.output
+    assert "phase_owner: host" in res.output
+    assert "informational_only: False" in res.output
+    assert "waiting on" not in res.output
+
+
 def test_cli_complete_submits_result_review(runner, patched_cli, project, reviewer, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
     plan_file.write_text("## CLI plan", encoding="utf-8")
@@ -150,7 +223,13 @@ def test_cli_complete_submits_result_review(runner, patched_cli, project, review
         reviewer_client.close()
 
     log_file = tmp_path / "result.md"
-    log_file.write_text("结果内容", encoding="utf-8")
+    log_file.write_text(
+        "## summary\n提交结果\n\n"
+        "## 实施 log\n- [plan](plan.md)\n\n"
+        "## 风险\n- 无\n\n"
+        "## acceptance\n- [x] (a)\n",
+        encoding="utf-8",
+    )
     metadata_file = tmp_path / "evidence.yaml"
     metadata_file.write_text(
         yaml.safe_dump({"pytest_summary": "1 passed"}, allow_unicode=True),
@@ -172,7 +251,7 @@ def test_cli_complete_submits_result_review(runner, patched_cli, project, review
         ],
     )
     assert result.exit_code == 0, result.output
-    assert yaml.safe_load(result.output)["phase"] == "result_review"
+    assert yaml.safe_load(result.stdout)["phase"] == "result_review"
 
     result = runner.invoke(app, ["experiment", "logs", "--id", exp_id])
     assert result.exit_code == 0, result.output
@@ -502,3 +581,359 @@ def test_cli_pre_complete_missing_metadata_directory_error(
     assert result.exit_code == 2, result.output
     assert "metadata path is a directory" in result.output
     assert "Traceback" not in result.output
+
+
+def test_cli_experiment_status_persona_compare_diffs_per_actor_view(
+    runner, monkeypatch, tmp_path: Path
+):
+    """0db51e10 I1(5a): ``map experiment status --persona-compare`` fetches
+    the experiment once per persona using that persona's own bearer token
+    and renders a diff table over the four per-actor fields (``actions``,
+    ``blocked_on``, ``phase_owner``, ``informational_only``). When the
+    views disagree on any field, that field is listed under
+    ``diff fields (vary across personas)``.
+    """
+    fake_config = SimpleNamespace(
+        api_url="http://test",
+        tokens={"host": "h-tok", "reviewer": "r-tok", "participant": "p-tok"},
+    )
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+
+    views_by_token = {
+        "h-tok": SimpleNamespace(
+            actions=["complete"],
+            blocked_on=None,
+            phase_owner="host",
+            informational_only=False,
+        ),
+        "r-tok": SimpleNamespace(
+            actions=[],
+            blocked_on="awaiting_result_approval",
+            phase_owner="reviewer",
+            informational_only=True,
+        ),
+        "p-tok": SimpleNamespace(
+            actions=[],
+            blocked_on="awaiting_result_approval",
+            phase_owner="reviewer",
+            informational_only=True,
+        ),
+    }
+
+    captured_tokens: list[str] = []
+
+    def fake_get_experiment(self, experiment_id):  # noqa: ARG001
+        captured_tokens.append(self.token)
+        return views_by_token[self.token]
+
+    monkeypatch.setattr("cli.main.MAPClient.get_experiment", fake_get_experiment)
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "status",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--persona-compare",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Three personas, each fetched exactly once with its own token.
+    assert sorted(captured_tokens) == ["h-tok", "p-tok", "r-tok"]
+    # Diff table contains the four diff fields and the per-persona values.
+    assert "persona_compare" in result.output
+    assert "actions" in result.output
+    assert "blocked_on" in result.output
+    assert "phase_owner" in result.output
+    assert "informational_only" in result.output
+    assert "complete" in result.output  # host's action
+    assert "awaiting_result_approval" in result.output  # reviewer / participant blocked_on
+    # actions / blocked_on / phase_owner / informational_only all differ
+    # between host and reviewer (host can complete, reviewer cannot).
+    assert "diff fields (vary across personas):" in result.output
+
+
+def test_cli_experiment_status_persona_compare_raw_dumps_full_views(
+    runner, monkeypatch, tmp_path: Path
+):
+    """0db51e10 I1(5a): ``--raw`` switches the persona-compare output to
+    the full per-persona YAML snapshot, useful for snapshot tests and
+    e2e diff review.
+    """
+    fake_config = SimpleNamespace(
+        api_url="http://test",
+        tokens={"host": "h-tok", "reviewer": "r-tok"},
+    )
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+
+    views_by_token = {
+        "h-tok": SimpleNamespace(
+            actions=["complete"],
+            blocked_on=None,
+            phase_owner="host",
+            informational_only=False,
+            extra_field="host-only",
+        ),
+        "r-tok": SimpleNamespace(
+            actions=[],
+            blocked_on="awaiting_result_approval",
+            phase_owner="reviewer",
+            informational_only=True,
+            extra_field="reviewer-only",
+        ),
+    }
+
+    def fake_get_experiment(self, experiment_id):  # noqa: ARG001
+        return views_by_token[self.token]
+
+    monkeypatch.setattr("cli.main.MAPClient.get_experiment", fake_get_experiment)
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "status",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--persona-compare",
+            "--raw",
+            "--for-personas",
+            "host,reviewer",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # YAML payload contains both personas AND the extra_field that the
+    # default diff table does not surface.
+    assert "host:" in result.output
+    assert "reviewer:" in result.output
+    assert "host-only" in result.output
+    assert "reviewer-only" in result.output
+
+
+def test_cli_experiment_status_persona_compare_for_personas_limits_subset(
+    runner, monkeypatch, tmp_path: Path
+):
+    """0db51e10 I1(5a): ``--for-personas host,reviewer`` overrides the
+    default "all known personas" selection and limits the diff to the
+    listed subset. Tokens for unselected personas are never used.
+    """
+    fake_config = SimpleNamespace(
+        api_url="http://test",
+        tokens={"host": "h-tok", "reviewer": "r-tok", "participant": "p-tok"},
+    )
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+
+    views_by_token = {
+        "h-tok": SimpleNamespace(actions=["complete"], blocked_on=None, phase_owner="host", informational_only=False),
+        "r-tok": SimpleNamespace(actions=[], blocked_on="awaiting_result_approval", phase_owner="reviewer", informational_only=True),
+        "p-tok": SimpleNamespace(actions=[], blocked_on="awaiting_result_approval", phase_owner="reviewer", informational_only=True),
+    }
+
+    captured_tokens: list[str] = []
+
+    def fake_get_experiment(self, experiment_id):  # noqa: ARG001
+        captured_tokens.append(self.token)
+        return views_by_token[self.token]
+
+    monkeypatch.setattr("cli.main.MAPClient.get_experiment", fake_get_experiment)
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "status",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--persona-compare",
+            "--for-personas",
+            "host,reviewer",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Only host + reviewer fetched; participant token untouched.
+    assert sorted(captured_tokens) == ["h-tok", "r-tok"]
+    assert "p-tok" not in captured_tokens
+
+
+def test_cli_experiment_status_persona_compare_writes_audit(
+    runner, monkeypatch, tmp_path: Path
+):
+    """0db51e10 I2(5e): after rendering the diff table, the CLI calls
+    ``MAPClient.record_cross_persona_call`` on the host-token client with
+    the per-field persona view diff, ``result_partition_count``, and
+    ``diff_size``.
+    """
+    fake_config = SimpleNamespace(
+        api_url="http://test",
+        tokens={"host": "h-tok", "reviewer": "r-tok"},
+    )
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+
+    # The host client passed into ``_persona_compare_view`` is the default
+    # ``_run`` client. Replace ``_client_ctx`` to yield a host-token client.
+    from contextlib import contextmanager
+
+    host_client = cli_main.MAPClient("http://test", token="h-tok")
+
+    @contextmanager
+    def fake_client_ctx(*args, **kwargs):
+        yield host_client
+
+    monkeypatch.setattr(cli_main, "_client_ctx", fake_client_ctx)
+
+    views_by_token = {
+        "h-tok": SimpleNamespace(
+            actions=["complete"],
+            blocked_on=None,
+            phase_owner="host",
+            informational_only=False,
+        ),
+        "r-tok": SimpleNamespace(
+            actions=[],
+            blocked_on="awaiting_result_approval",
+            phase_owner="reviewer",
+            informational_only=True,
+        ),
+    }
+
+    def fake_get_experiment(self, experiment_id):  # noqa: ARG001
+        return views_by_token[self.token]
+
+    monkeypatch.setattr("cli.main.MAPClient.get_experiment", fake_get_experiment)
+
+    audit_calls: list[dict] = []
+
+    def fake_record_cross_persona_call(
+        self, experiment_id, *, visibility_diff=None, result_partition_count=0, diff_size=0
+    ):
+        audit_calls.append(
+            {
+                "experiment_id": experiment_id,
+                "visibility_diff": visibility_diff,
+                "result_partition_count": result_partition_count,
+                "diff_size": diff_size,
+                "token": self.token,
+            }
+        )
+        return SimpleNamespace(id="audit-row-uuid")
+
+    monkeypatch.setattr(
+        "cli.main.MAPClient.record_cross_persona_call",
+        fake_record_cross_persona_call,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "status",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--persona-compare",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(audit_calls) == 1, audit_calls
+    call = audit_calls[0]
+    # Audit always uses the host-token client (the one supplied to ``_run``).
+    assert call["token"] == "h-tok"
+    # 2 personas fetched, 4 diff fields → 4 differ (host and reviewer disagree
+    # on all four: actions / blocked_on / phase_owner / informational_only).
+    assert call["result_partition_count"] == 2
+    assert call["diff_size"] == 4
+    # visibility_diff carries the per-field per-persona view dict for all
+    # four audit fields, even when they don't differ.
+    # 0db51e10 I4(5a partition): also carries the four-way
+    # acceptance_status partition label produced by
+    # ``_classify_persona_compare_partition``.
+    assert set(call["visibility_diff"].keys()) == {
+        "actions",
+        "blocked_on",
+        "phase_owner",
+        "informational_only",
+        "acceptance_status_partition",
+    }
+    assert call["visibility_diff"]["acceptance_status_partition"] in {
+        "all_agree",
+        "partial_diff",
+        "full_diff",
+        "cross_phase_fold",
+    }
+    assert call["visibility_diff"]["actions"] == {"host": ["complete"], "reviewer": []}
+    assert call["visibility_diff"]["phase_owner"] == {"host": "host", "reviewer": "reviewer"}
+
+
+def test_cli_experiment_status_persona_compare_audit_failure_does_not_break_output(
+    runner, monkeypatch, tmp_path: Path
+):
+    """0db51e10 I2(5e): audit write failures are best-effort — a 500 from
+    ``record_cross_persona_call`` must NOT mask the user-facing diff
+    table. The CLI surfaces the failure on stderr and exits 0.
+    """
+    fake_config = SimpleNamespace(
+        api_url="http://test",
+        tokens={"host": "h-tok", "reviewer": "r-tok"},
+    )
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+
+    from contextlib import contextmanager
+
+    host_client = cli_main.MAPClient("http://test", token="h-tok")
+
+    @contextmanager
+    def fake_client_ctx(*args, **kwargs):
+        yield host_client
+
+    monkeypatch.setattr(cli_main, "_client_ctx", fake_client_ctx)
+
+    views_by_token = {
+        "h-tok": SimpleNamespace(
+            actions=["complete"], blocked_on=None, phase_owner="host", informational_only=False
+        ),
+        "r-tok": SimpleNamespace(
+            actions=[], blocked_on="x", phase_owner="reviewer", informational_only=True
+        ),
+    }
+
+    def fake_get_experiment(self, experiment_id):  # noqa: ARG001
+        return views_by_token[self.token]
+
+    monkeypatch.setattr("cli.main.MAPClient.get_experiment", fake_get_experiment)
+
+    def fake_record_cross_persona_call_fail(
+        self, experiment_id, *, visibility_diff=None, result_partition_count=0, diff_size=0
+    ):
+        raise RuntimeError("audit backend 500")
+
+    monkeypatch.setattr(
+        "cli.main.MAPClient.record_cross_persona_call",
+        fake_record_cross_persona_call_fail,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "status",
+            "--id",
+            "00000000-0000-0000-0000-000000000001",
+            "--persona-compare",
+        ],
+    )
+
+    # Diff table still renders, even though the audit write raised.
+    assert result.exit_code == 0, result.output
+    assert "diff fields (vary across personas):" in result.output
+    # Failure surfaces on stderr, not stdout, so the YAML / table layout
+    # is not corrupted.
+    assert "audit write failed" in (result.stderr or "") or "audit write failed" in result.output

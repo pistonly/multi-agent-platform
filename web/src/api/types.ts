@@ -40,6 +40,9 @@ export type Notification = Schemas.NotificationRead;
 export type NotificationList = Schemas.NotificationListRead;
 export type TopicProgressList = Schemas.TopicProgressListRead;
 export type PlatformFeedback = Schemas.PlatformFeedbackRead;
+export type AgentWorkSummary = Schemas.AgentWorkSummaryRead;
+export type SummaryBucket = Schemas.SummaryBucket;
+export type SummaryBucketItem = Schemas.SummaryBucketItem;
 
 // Payload 别名（前端历史用 *Payload 后缀；schemas 用 *Create / *Revise / *Update）。
 export type ProjectCreatePayload = Schemas.ProjectCreate;

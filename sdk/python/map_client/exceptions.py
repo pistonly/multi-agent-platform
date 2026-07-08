@@ -32,11 +32,30 @@ class MAPHTTPError(MAPError):
 
     保留 ``status_code`` / ``detail`` 字段供调用方读取；具体子类对应
     常见 HTTP 状态码，调用方可 catch 子类写语义化处理。
+
+    I1(d) 还携带三个可选的结构化字段（由 server 端 StateTransitionError
+    通过 exception handler 暴露）：
+
+    - ``error_code`` — stable machine identifier，便于调用方按错误类型
+      分支（例如 ``REVIEW_REJECT_RESULT_MISUSE`` 提示换用别的 CLI）。
+    - ``hint`` — 人类可读的修复提示，CLI 兜底展示。
+    - ``retryable`` — 是否值得用同样输入重试；misuse 子码恒为 ``False``。
     """
 
-    def __init__(self, status_code: int, detail: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        *,
+        error_code: str | None = None,
+        hint: str | None = None,
+        retryable: bool | None = None,
+    ) -> None:
         self.status_code = status_code
         self.detail = detail
+        self.error_code = error_code
+        self.hint = hint
+        self.retryable = retryable
         super().__init__(f"HTTP {status_code}: {detail}")
 
 
@@ -85,12 +104,27 @@ _STATUS_CODE_MAP: dict[int, type[MAPHTTPError]] = {
 }
 
 
-def raise_for_status(status_code: int, detail: str) -> None:
+def raise_for_status(
+    status_code: int,
+    detail: str,
+    *,
+    error_code: str | None = None,
+    hint: str | None = None,
+    retryable: bool | None = None,
+) -> None:
     """根据 status_code raise 对应的 MAPHTTPError 子类。
 
     单一入口，供 ``MAPClient._request`` 在 ``status_code >= 400`` 时调用。
+    透传 server 端的结构化字段（I1(d) 起）：``error_code`` / ``hint`` /
+    ``retryable``，CLI 与调用方可以按 subcode 路由。
     """
     exc_cls = _STATUS_CODE_MAP.get(status_code)
     if exc_cls is None:
         exc_cls = MAPServerError if status_code >= 500 else MAPClientError
-    raise exc_cls(status_code, detail)
+    raise exc_cls(
+        status_code,
+        detail,
+        error_code=error_code,
+        hint=hint,
+        retryable=retryable,
+    )

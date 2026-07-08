@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     debug: bool = False
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
+    # f873c287 I1(c): tunable stale-open-topic threshold (minutes). CLI /
+    # waker / API can override via ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES``
+    # env var (e.g. ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES=5`` for
+    # integration tests). Default 30 minutes matches the legacy
+    # ``STALE_OPEN_TOPIC_THRESHOLD`` constant.
+    stale_open_topic_threshold_minutes: int = 30
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

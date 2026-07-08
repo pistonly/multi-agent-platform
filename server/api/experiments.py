@@ -11,9 +11,13 @@ from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, ExperimentPhase
 from server.domain.schemas import (
+    AuditLogRead,
     CommentCreate,
     CommentRead,
     CommentTreeNode,
+    CrossPersonaCallRecord,
+    EvidenceValidationSchema,
+    EvidenceWarningSchema,
     ExperimentBundleRead,
     ExperimentComplete,
     ExperimentCreate,
@@ -25,14 +29,19 @@ from server.domain.schemas import (
     ExperimentResultDecision,
     ExperimentSummaryRead,
     ExperimentUpdate,
+    LogCreateResponse,
     PlanRevise,
     PlanVersionRead,
     ReviewCreate,
     ReviewItemRead,
     ReviewItemUpdate,
     ReviewRead,
+    SimilarityWarningSchema,
+    TemplateValidationSchema,
+    TemplateWarningSchema,
 )
 from server.services import (
+    audit_service,
     comment_service,
     lock_service,
     log_service,
@@ -45,6 +54,7 @@ from server.services import permissions as perm
 from server.services import project_service as svc
 from server.services.errors import ForbiddenError
 from server.services.experiment_capabilities_service import experiment_summary_for_actor
+from server.services.template_service import validate_result_submission_template
 
 HOST_AGENT_NAME = "multi-agents-platform-host"
 
@@ -334,18 +344,32 @@ def create_review(
         event="review.submitted",
         event_payload={"experiment_id": str(experiment_id), "review_id": str(review.id)},
     )
-    return review_service.review_to_read(review)
+    return review_service.review_to_read(db, review)
 
 
 @experiments_router.get("/experiments/{experiment_id}/reviews", response_model=list[ReviewRead])
 def list_reviews(
     experiment_id: uuid.UUID,
+    include_archived: bool = Query(
+        default=True,
+        description=(
+            "Whether to include archived reviews. Defaults to true for N=2 "
+            "transition (legacy e2e tests + UI initial load expect to see all); "
+            "set false to filter to active reviews only."
+        ),
+    ),
+    plan_version: int | None = None,
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ReviewRead]:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    reviews = review_service.list_reviews(db, experiment_id)
-    return [review_service.review_to_read(r) for r in reviews]
+    reviews = review_service.list_reviews(
+        db,
+        experiment_id,
+        include_archived=include_archived,
+        plan_version=plan_version,
+    )
+    return [review_service.review_to_read(db, r) for r in reviews]
 
 
 @experiments_router.post(
@@ -484,6 +508,19 @@ def complete_experiment(
     perm.ensure_experiment_access(db, agent, experiment_id)
     phase_service.complete_experiment(db, experiment_id, agent, payload)
     experiment = svc.get_experiment(db, experiment_id)
+    # b72d0542 I1.b: 4-段 template soft validation. Mirrors evidence
+    # validation: never blocks complete; surfaced via response for
+    # reviewer + host to triage.
+    template_result = validate_result_submission_template(payload.content_md)
+    template_validation = TemplateValidationSchema(
+        warnings=[
+            TemplateWarningSchema(code=w.code, section=w.section, detail=w.detail)
+            for w in template_result.warnings
+        ],
+        sections_present=list(template_result.sections_present),
+        log_link_count=template_result.log_link_count,
+        valid=template_result.valid,
+    )
     emit(
         db,
         agent,
@@ -495,7 +532,9 @@ def complete_experiment(
         event="experiment.phase_changed",
         event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
     )
-    return _summary_for_agent(db, experiment, agent)
+    return _summary_for_agent(
+        db, experiment, agent, template_validation=template_validation
+    )
 
 
 @experiments_router.post("/experiments/{experiment_id}/accept-result", response_model=ExperimentSummaryRead)
@@ -548,7 +587,7 @@ def reject_experiment_result(
 
 @experiments_router.post(
     "/experiments/{experiment_id}/logs",
-    response_model=ExperimentLogRead,
+    response_model=LogCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def create_log(
@@ -556,10 +595,46 @@ def create_log(
     payload: ExperimentLogCreate,
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
-) -> ExperimentLogRead:
+) -> LogCreateResponse:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    log = log_service.create_log(db, experiment_id, agent, payload)
-    return ExperimentLogRead.model_validate(log)
+    log, validation, similarity, force_skip_applied = log_service.create_log(
+        db, experiment_id, agent, payload
+    )
+    validation_schema = EvidenceValidationSchema(
+        warnings=[
+            EvidenceWarningSchema(
+                code=w.code,
+                missing_key=w.missing_key,
+                plan_required=w.plan_required,
+                log_provided=w.log_provided,
+            )
+            for w in validation.warnings
+        ],
+        parse_error=validation.parse_error,
+        plan_keys=list(validation.plan_keys),
+        valid=validation.valid,
+    )
+    # b72d0542 I1.b(2)(e): surface similarity warning unless caller
+    # acknowledged via ``force_skip_similarity=True`` (the audit row
+    # already landed in ``log_service.append_log``). ``similarity_warning``
+    # is None when no warning fires; ``force_skip`` echoes the
+    # acknowledgement for downstream consumers.
+    similarity_warning: SimilarityWarningSchema | None = None
+    if similarity.warnings and not force_skip_applied:
+        warning = similarity.warnings[0]
+        similarity_warning = SimilarityWarningSchema(
+            code=warning.code,
+            score=warning.score,
+            threshold=warning.threshold,
+            ref_log_id=warning.ref_log_id,
+            model=warning.model,
+        )
+    return LogCreateResponse(
+        log=ExperimentLogRead.model_validate(log),
+        validation=validation_schema,
+        similarity_warning=similarity_warning,
+        force_skip=force_skip_applied,
+    )
 
 
 @experiments_router.get("/experiments/{experiment_id}/logs", response_model=list[ExperimentLogRead])
@@ -571,6 +646,37 @@ def list_logs(
     perm.ensure_experiment_access(db, agent, experiment_id)
     logs = log_service.list_logs(db, experiment_id)
     return [ExperimentLogRead.model_validate(log) for log in logs]
+
+
+# 0db51e10 I2(5e): record a ``cross_persona_call`` audit row. The CLI
+# facade (``map experiment status --persona-compare``) calls this with
+# the per-persona view diff so admin / R6 metrics can aggregate by
+# ``result_partition_count`` / ``diff_size`` later. Host persona only —
+# the audit row's caller_agent_id column tracks who initiated.
+@experiments_router.post(
+    "/experiments/{experiment_id}/cross-persona-call",
+    response_model=AuditLogRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_cross_persona_call(
+    experiment_id: uuid.UUID,
+    payload: CrossPersonaCallRecord,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> AuditLogRead:
+    perm.ensure_experiment_access(db, agent, experiment_id)
+    experiment = svc.get_experiment(db, experiment_id)
+    entry = audit_service.log_cross_persona_call_no_commit(
+        db,
+        caller_agent_id=agent.id,
+        target_experiment_id=experiment_id,
+        project_id=experiment.project_id,
+        visibility_diff=payload.visibility_diff,
+        result_partition_count=payload.result_partition_count,
+        diff_size=payload.diff_size,
+    )
+    db.commit()
+    return AuditLogRead.model_validate(entry)
 
 
 # --- Experiment execution lock (CP-3) -------------------------------------

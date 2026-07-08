@@ -16,6 +16,31 @@ class ExperimentPhase(str, enum.Enum):
     cancelled = "cancelled"
 
 
+class PhaseOwner(str, enum.Enum):
+    """Decision-owner role for each ``ExperimentPhase`` (experiment f873c287 I1(b)).
+
+    Maps which persona holds the decision authority to *advance* a given
+    phase — used by ``informational_only`` auto-classification
+    (I1(a): ``actions=[] AND blocked_on AND phase_owner != host``) and by
+    the UI "host blocked, waiting on {phase_owner}" copy (I1(d)).
+
+    Semantics — "decision owner", not "executor":
+    - ``draft``      → host    (creator drafts the plan)
+    - ``review``     → reviewer (non-creator reviews & submits verdict)
+    - ``revise``     → host    (revising is a host decision during review)
+    - ``approved``   → host    (host decides to start)
+    - ``running``    → host    (host owns execution)
+    - ``result_review`` → reviewer (non-creator reviews result)
+    - ``done``       → host    (host owns archival / follow-ups)
+    - ``cancelled``  → host    (host decides to cancel; admin can override)
+    """
+
+    host = "host"
+    reviewer = "reviewer"
+    participant = "participant"
+    admin = "admin"
+
+
 class AcceptanceType(str, enum.Enum):
     migration = "migration"
     smoke = "smoke"
@@ -29,10 +54,43 @@ class ReviewItemKind(str, enum.Enum):
     unreasonable = "unreasonable"
 
 
+class ReviewVerdict(str, enum.Enum):
+    """Reviewer's per-item verdict on experiment acceptance.
+
+    Drives ``experiment.result_review`` structured verdict files and the
+    R6 verdict breakdown in ``experiment_logs.metadata_json``. Parallel
+    pattern to ``31793f90`` ``pre_schema_log``.
+    """
+
+    passed = "passed"
+    failed = "failed"
+    waived = "waived"
+
+
 class ReviewSubstituteKind(str, enum.Enum):
     none = "none"
     admin_for_others = "admin_for_others"
     admin_self_substitute = "admin_self_substitute"
+
+
+class ReviewArchivedReason(str, enum.Enum):
+    """Reason a ``Review`` row was archived.
+
+    ``auto`` — archived automatically by ``plan_revise`` because the host
+    bumped ``current_plan_version`` and this row is no longer canonical.
+    Also used as the historical backfill marker for rows that predate
+    the archive feature (the UI renders those with a
+    ``(pre-archive, all reviews shown)`` hint).
+    ``manual`` — archived explicitly by an admin or host (e.g. duplicate
+    review row, withdrawn reviewer).
+    ``superseded`` — the review's plan_version was explicitly superseded
+    by a later authoritative review at the same plan_version (rare;
+    reserved for the future review-amendment flow).
+    """
+
+    auto = "auto"
+    manual = "manual"
+    superseded = "superseded"
 
 
 class ReviewItemStatus(str, enum.Enum):
@@ -42,6 +100,13 @@ class ReviewItemStatus(str, enum.Enum):
     resolved = "resolved"
     withdrawn = "withdrawn"
     escalated = "escalated"
+    closed = "closed"
+
+
+class ResolutionReason(str, enum.Enum):
+    resolved = "resolved"
+    rebutted = "rebutted"
+    superseded = "superseded"
 
 
 class CommentAnchorType(str, enum.Enum):

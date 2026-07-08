@@ -59,6 +59,21 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
             experiment_id = getattr(exc, "experiment_id", None)
             if isinstance(experiment_id, str) and experiment_id:
                 content["experiment_id"] = experiment_id
+            # State-machine errors may carry a stable subcode + remediation
+            # hint. Surface them so CLI / SDK callers can route on the
+            # failure mode instead of pattern-matching the human-readable
+            # ``detail`` string. Defaults are skipped so the response stays
+            # compact for ordinary state-machine refusals.
+            if isinstance(exc, StateTransitionError):
+                error_code = getattr(exc, "error_code", None)
+                if isinstance(error_code, str) and error_code:
+                    content["error_code"] = error_code
+                hint = getattr(exc, "hint", None)
+                if isinstance(hint, str) and hint:
+                    content["hint"] = hint
+                retryable = getattr(exc, "retryable", None)
+                if isinstance(retryable, bool):
+                    content["retryable"] = retryable
             return JSONResponse(status_code=code, content=content)
 
         return handler
