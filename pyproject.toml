@@ -122,6 +122,7 @@ module = [
     "server.api.projects",
     "server.api.agents",
     "server.services.project_service",
+    "server.services.phase_service",
 ]
 strict = true
 

@@ -199,7 +199,7 @@ def _validate_and_summarize_verdict_file(
     }
 
 
-def _legacy_accept_result_metadata(payload_metadata: dict | None) -> dict[str, Any]:
+def _legacy_accept_result_metadata(payload_metadata: dict[str, Any] | None) -> dict[str, Any]:
     """Attach the legacy / pre-schema marker when caller omits verdict_file."""
     fragment = {"pre_schema_accept_result": "true", "verdict_breakdown": None}
     if payload_metadata:
@@ -255,7 +255,7 @@ def accept_result(
             TopicActionItem.status == TopicActionItemStatus.open,
         )
     ).all()
-    cascaded: list[dict] = []
+    cascaded: list[dict[str, Any]] = []
     for item in open_items:
         cascaded.append(
             topic_service._complete_action_item_no_commit(
