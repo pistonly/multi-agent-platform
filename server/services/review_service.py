@@ -266,7 +266,7 @@ def create_review(
     db.flush()
 
     if substitute_kind != ReviewSubstituteKind.none:
-        audit_service._log_no_commit(
+        audit_service.log_no_commit(
             db,
             action="review_substitute",
             target_type="experiment",

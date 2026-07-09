@@ -704,10 +704,10 @@ def resolve_topic(
             )
 
     # Audit 与状态变更同事务：audit_entries 收集的「旧项等价 done」事件用
-    # _log_no_commit 累积，与上面的 decision / action_item 变更在单次 commit 内
+    # log_no_commit 累积，与上面的 decision / action_item 变更在单次 commit 内
     # 一起落库。commit 失败则全部回滚——不再出现「decision 已存但 audit 缺失」。
     for entry in audit_entries:
-        audit_service._log_no_commit(
+        audit_service.log_no_commit(
             db,
             action=entry["action"],
             target_type="topic_action_item",
@@ -815,7 +815,7 @@ def _complete_action_item_no_commit(
         raise ConflictError(f"Action item already {item.status.value}")
     prev_status = item.status
     item.status = TopicActionItemStatus.done
-    audit_service._log_no_commit(
+    audit_service.log_no_commit(
         db,
         action="action_item.completed",
         target_type="topic_action_item",
@@ -854,7 +854,7 @@ def deliver_action_item_no_commit(
     if item.status != TopicActionItemStatus.open:
         raise ConflictError(f"Action item already {item.status.value}")
     topic = _action_item_source_topic(db, item)
-    audit_service._log_no_commit(
+    audit_service.log_no_commit(
         db,
         action="action_item.delivered",
         target_type="topic_action_item",
@@ -997,9 +997,9 @@ def cancel_action_item(
     item.cancel_reason = payload.reason
     if payload.category is not None:
         item.category = payload.category.value
-    # 状态变更与 audit 行写在同一事务内（_log_no_commit 只 flush），单次 commit；
+    # 状态变更与 audit 行写在同一事务内（log_no_commit 只 flush），单次 commit；
     # audit 失败会连同状态变更一起回滚，避免「已取消但无审计」的脱钩。
-    audit_service._log_no_commit(
+    audit_service.log_no_commit(
         db,
         action="action_item.cancelled",
         target_type="topic_action_item",

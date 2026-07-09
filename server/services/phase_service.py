@@ -290,7 +290,7 @@ def accept_result(
     experiment.phase = ExperimentPhase.done
     _sync_phase_owner(experiment)
 
-    audit_service._log_no_commit(
+    audit_service.log_no_commit(
         db,
         action="experiment.completed",
         target_type="experiment",

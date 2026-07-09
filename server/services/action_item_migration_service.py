@@ -86,7 +86,7 @@ def migrate_action_item(
         to_topic_id = migrate_to_topic_id
         if not dry_run:
             item.topic_id = migrate_to_topic_id
-            audit_service._log_no_commit(
+            audit_service.log_no_commit(
                 db,
                 action="action_item.migrated",
                 target_type="topic_action_item",
@@ -121,7 +121,7 @@ def migrate_action_item(
             item,
             triggered_by="migration:cascade_backlog",
         )
-        audit_service._log_no_commit(
+        audit_service.log_no_commit(
             db,
             action="action_item.migrated",
             target_type="topic_action_item",

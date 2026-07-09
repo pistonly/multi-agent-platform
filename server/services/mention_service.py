@@ -375,7 +375,7 @@ def _apply_mention_dismiss_cascade(
         }
         if audit_payload_extra:
             payload.update(audit_payload_extra)
-        audit_service._log_no_commit(
+        audit_service.log_no_commit(
             db,
             action=audit_action,
             target_type="mention",

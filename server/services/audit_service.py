@@ -11,7 +11,7 @@ from server.domain.models import AuditLog, ReviewItem, TopicActionItem
 from server.domain.schemas import AuditLogRead
 
 
-def _log_no_commit(
+def log_no_commit(
     db: Session,
     *,
     action: str,
@@ -22,6 +22,17 @@ def _log_no_commit(
     summary: str | None = None,
     payload: dict | None = None,
 ) -> AuditLog:
+    """Public audit logger that flushes but does NOT commit.
+
+    cleanup experiment (f12a5638) Exp A: previously ``_log_no_commit``,
+    a private helper used by 13+ callers in ``topic_service``,
+    ``review_service``, ``phase_service``, ``action_item_migration_service``,
+    and ``mention_service``. The leading underscore implied "internal"
+    but every caller in the codebase uses it directly — the public
+    contract is real. Renamed to drop the underscore so the API
+    matches its actual scope (callers may legitimately want to log
+    multiple audit rows inside a single transaction).
+    """
     entry = AuditLog(
         agent_id=agent_id,
         project_id=project_id,
@@ -36,6 +47,12 @@ def _log_no_commit(
     return entry
 
 
+# cleanup Exp A: keep the legacy private alias so external callers
+# (none in this repo, but downstream SDKs / test suites might) don't
+# break. Mark deprecated; remove after one minor version.
+_log_no_commit = log_no_commit
+
+
 def log(
     db: Session,
     *,
@@ -47,7 +64,7 @@ def log(
     summary: str | None = None,
     payload: dict | None = None,
 ) -> AuditLog:
-    entry = _log_no_commit(
+    entry = log_no_commit(
         db,
         action=action,
         target_type=target_type,
