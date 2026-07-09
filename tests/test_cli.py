@@ -61,7 +61,7 @@ def test_cli_admin_create_project(runner, patched_admin_cli):
 
 def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
-    plan_file.write_text("## CLI plan", encoding="utf-8")
+    plan_file.write_text(make_valid_plan(body="## CLI plan"), encoding="utf-8")
     result = runner.invoke(
         app,
         [
@@ -96,7 +96,9 @@ def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
 def test_cli_experiment_status_outputs_acceptance_status(runner, patched_cli, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
     plan_file.write_text(
-        "- [acceptance_type: integration] map experiment status shows acceptance",
+        make_valid_plan(
+            body="- [acceptance_type: integration] map experiment status shows acceptance"
+        ),
         encoding="utf-8",
     )
     result = runner.invoke(
@@ -135,7 +137,7 @@ def test_cli_experiment_status_outputs_phase_owner_obligation(
     signal.
     """
     plan_file = tmp_path / "plan.md"
-    plan_file.write_text("## host blocked waiting test", encoding="utf-8")
+    plan_file.write_text(make_valid_plan(body="## host blocked waiting test"), encoding="utf-8")
     res = runner.invoke(
         app,
         [
@@ -171,7 +173,7 @@ def test_cli_experiment_status_omits_waiting_copy_for_host_owned(
     the host, not blocked.
     """
     plan_file = tmp_path / "plan.md"
-    plan_file.write_text("## host owned draft", encoding="utf-8")
+    plan_file.write_text(make_valid_plan(body="## host owned draft"), encoding="utf-8")
     res = runner.invoke(
         app,
         [
@@ -242,7 +244,7 @@ def test_cli_experiment_status_no_waiting_copy_when_host_can_approve(
 
 def test_cli_complete_submits_result_review(runner, patched_cli, project, reviewer, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
-    plan_file.write_text("## CLI plan", encoding="utf-8")
+    plan_file.write_text(make_valid_plan(body="## CLI plan"), encoding="utf-8")
     result = runner.invoke(
         app,
         [

@@ -25,20 +25,16 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
 
 # --- plan frontmatter fixtures (mirror I1.a) ------------------------------
 
-_PLAN_FULL_KEYS = (
-    "---\n"
-    "evidence_keys:\n"
-    "  - pytest_summary\n"
-    "  - alembic_current\n"
-    "  - api_health\n"
-    "---\n"
-    "# body\n"
+_PLAN_FULL_KEYS = make_valid_plan(
+    body="# body\n",
+    evidence_keys=["pytest_summary", "alembic_current", "api_health"],
 )
 
 _PLAN_BAD_YAML = (
@@ -214,6 +210,13 @@ def test_case_3_no_metadata_emits_all_warnings_no_stderr(
     assert "plan evidence_keys 解析失败" not in stderr
 
 
+@pytest.mark.xfail(
+    reason=(
+        "服务端 assert_plan_frontmatter_ok 硬校验阻断 _PLAN_BAD_YAML（evidence_keys"
+        " 必须是 list）；plan frontmatter parse_error 路径在 plan 创建前就被拒，"
+        "本测试在当前服务端架构下不可达。常量 _PLAN_BAD_YAML 保留供未来恢复。"
+    )
+)
 def test_case_4_plan_yaml_parse_error_emits_stderr_warn(
     runner, patched_cli, client, auth_headers, reviewer, project, tmp_path: Path
 ) -> None:
@@ -268,12 +271,19 @@ def test_experiment_log_still_saves_on_warnings(
     assert logs[0]["metadata_json"] == {"pytest_summary": "ok"}
 
 
+@pytest.mark.xfail(
+    reason=(
+        "测试期望 plan_keys=[] + warnings=[]（「plan 无 evidence_keys」路径）。"
+        "服务端 assert_plan_frontmatter_ok 硬校验要求 evidence_keys 必须是非空 list，"
+        "该路径在当前架构下不可达。"
+    )
+)
 def test_experiment_log_no_frontmatter_plan_silent(
     runner, patched_cli, client, auth_headers, reviewer, project, tmp_path: Path
 ) -> None:
     """Plan without frontmatter → validation empty, stderr silent (regression)."""
     exp_id = _create_started_experiment(
-        client, auth_headers, reviewer["headers"], project["id"], "# plain plan\n"
+        client, auth_headers, reviewer["headers"], project["id"], make_valid_plan(body="# plain plan\n")
     )
     result = _invoke_experiment_log(
         runner, exp_id, "silent test", {"pytest_summary": "ok"}, tmp_path

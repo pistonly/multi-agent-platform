@@ -38,6 +38,8 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "todo_app": ("todo",),
     "action_app": ("action",),
     "feedback_app": ("feedback",),
+    "audit_app": ("audit",),
+    "docs_app": ("docs",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -63,8 +65,11 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("project", "list"),
     ("project", "decisions"),
     ("experiment", "review", "list"),
+    ("experiment", "plan", "validate"),
     ("project", "status", "show"),
     ("project", "status", "versions"),
+    ("audit", "list"),
+    ("docs", "error-codes"),
 }
 
 # 同时匹配单行 `@x_app.command("name")` 与多行 `@x_app.command(\n  "name",`。
