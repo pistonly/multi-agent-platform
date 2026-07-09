@@ -616,8 +616,31 @@ def _latest_verdict_reasons_by_item(
     return reasons
 
 
-def review_to_read(db: Session, review: Review) -> ReviewRead:
-    reasons = _latest_verdict_reasons_by_item(db, review.experiment_id)
+def review_to_read(
+    db: Session,
+    review: Review,
+    *,
+    verdict_reasons: dict[uuid.UUID, str] | None = None,
+) -> ReviewRead:
+    """Render a ``Review`` ORM row as the API read model.
+
+    Args:
+        db: SQLAlchemy session.
+        review: ORM row (must have ``items`` eagerly loaded — see
+            :func:`list_reviews` which uses ``joinedload(Review.items)``).
+        verdict_reasons: Pre-computed map of ``ReviewItem.id → waived_reason``
+            for items where the latest accept-result verdict was ``waived``.
+            When ``None`` (the default for single-review callers), the
+            latest verdict log is fetched on demand. When the caller is
+            rendering multiple reviews for the same experiment (e.g.
+            ``get_experiment_bundle``), passing a precomputed map
+            collapses R redundant ``SELECT … FROM experiment_logs`` to 1.
+    """
+    reasons = (
+        verdict_reasons
+        if verdict_reasons is not None
+        else _latest_verdict_reasons_by_item(db, review.experiment_id)
+    )
     items = []
     for i in review.items:
         item_read = ReviewItemRead.model_validate(i)

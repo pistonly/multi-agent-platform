@@ -483,7 +483,18 @@ def get_experiment_bundle(
 
     experiment = get_experiment_detail(db, experiment_id, actor)
     plans = [PlanVersionRead.model_validate(p) for p in plan_service.list_plans(db, experiment_id)]
-    reviews = [review_service.review_to_read(db, r) for r in review_service.list_reviews(db, experiment_id)]
+    # perf experiment (193a5074) PR4 Layer 3: hoist the verdict-reasons
+    # lookup out of the ``review_to_read`` loop. The previous code issued
+    # one ``SELECT … FROM experiment_logs`` per review — every query hit
+    # the same latest verdict log for this experiment_id. Computing it
+    # once and passing the map collapses R queries to 1.
+    reviews_orm = review_service.list_reviews(db, experiment_id)
+    verdict_reasons = (
+        review_service._latest_verdict_reasons_by_item(db, experiment_id)
+        if reviews_orm
+        else {}
+    )
+    reviews = [review_service.review_to_read(db, r, verdict_reasons=verdict_reasons) for r in reviews_orm]
     comments = comment_service.build_comment_tree(db, comment_service.list_comments(db, experiment_id))
     logs = [ExperimentLogRead.model_validate(entry) for entry in log_service.list_logs(db, experiment_id)]
     return ExperimentBundleRead(
