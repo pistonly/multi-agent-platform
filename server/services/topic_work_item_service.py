@@ -82,6 +82,32 @@ def _topic_comments(db: Session, topic_id: uuid.UUID) -> list[TopicComment]:
     )
 
 
+def _topic_comments_bulk(
+    db: Session, topic_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[TopicComment]]:
+    """Single-query bulk loader for TopicComment rows across multiple topics.
+
+    perf experiment (193a5074) PR2 Layer 2: replaces per-topic ``_topic_comments``
+    inside the ``topic_work_items_bundle_for_agent`` loop. One ``WHERE topic_id
+    IN (...)`` instead of N+1 queries; caller groups by ``topic_id`` and
+    re-sorts each bucket with ``topic_comment_order_clauses()`` so downstream
+    consumers see the same ordering they used to.
+    """
+    if not topic_ids:
+        return {}
+    rows = list(
+        db.scalars(
+            select(TopicComment)
+            .where(TopicComment.topic_id.in_(topic_ids))
+            .order_by(*topic_comment_order_clauses())
+        )
+    )
+    grouped: dict[uuid.UUID, list[TopicComment]] = {tid: [] for tid in topic_ids}
+    for row in rows:
+        grouped[row.topic_id].append(row)
+    return grouped
+
+
 def _topic_suppressed_by_dismiss(topic: Topic) -> bool:
     if topic.dismissed_at is None:
         return False
@@ -337,10 +363,9 @@ def topic_work_items_bundle_for_agent(db: Session, agent: Agent) -> AgentTopicWo
     )
     mentions_for_agent = mention_service.list_mentions_for_agent(db, agent.id, limit=200)
     items: list[TopicWorkItem] = []
-    comments_by_topic: dict[uuid.UUID, list[TopicComment]] = {}
+    comments_by_topic = _topic_comments_bulk(db, [t.id for t in open_topics])
     for topic in open_topics:
-        comments = _topic_comments(db, topic.id)
-        comments_by_topic[topic.id] = comments
+        comments = comments_by_topic.get(topic.id, [])
         items.extend(
             topic_work_items_for_topic(
                 db,
