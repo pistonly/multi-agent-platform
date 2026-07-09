@@ -20,6 +20,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from tests._frontmatter import make_valid_plan
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def experiment_with_audit_rows(client, auth_headers, reviewer, project) -> dict:
         headers=auth_headers,
         json={
             "title": "cli audit filter 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()

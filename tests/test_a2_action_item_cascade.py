@@ -10,6 +10,7 @@ import pytest
 
 pytestmark = pytest.mark.slow
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 # ---------- helpers ----------------------------------------------------------
 
@@ -55,7 +56,7 @@ def _create_and_approve_experiment(
     experiment = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=headers,
-        json={"title": title, "plan": {"content_md": "## 计划\ncascade 验证"}, "submit_for_review": True},
+        json={"title": title, "plan": {"content_md": make_valid_plan(body="## 计划\ncascade 验证")}, "submit_for_review": True},
     ).json()
     exp_id = experiment["id"]
 

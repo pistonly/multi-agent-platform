@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from server.domain.models import TopicComment
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -394,7 +395,7 @@ def test_experiment_linked_to_topic(client, auth_headers, project):
         headers=auth_headers,
         json={
             "title": "正式实验",
-            "plan": {"content_md": "plan"},
+            "plan": {"content_md": make_valid_plan(body="plan")},
             "submit_for_review": False,
             "topic_id": topic["id"],
         },
@@ -437,7 +438,7 @@ def test_topic_cross_project_isolation(client, auth_headers, project, admin_head
     resp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "x", "plan": {"content_md": "p"}, "topic_id": other_topic["id"]},
+        json={"title": "x", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": other_topic["id"]},
     )
     assert resp.status_code == 404
 
@@ -482,14 +483,14 @@ def test_cannot_create_second_active_experiment_on_topic(client, auth_headers, p
     first = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "唯一活跃实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "唯一活跃实验", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert first.status_code == 201
 
     second = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "重复实验", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
+        json={"title": "重复实验", "plan": {"content_md": make_valid_plan(body="p2")}, "topic_id": topic["id"]},
     )
     assert second.status_code == 409
 
@@ -497,7 +498,7 @@ def test_cannot_create_second_active_experiment_on_topic(client, auth_headers, p
     third = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "取消后可再建", "plan": {"content_md": "p3"}, "topic_id": topic["id"]},
+        json={"title": "取消后可再建", "plan": {"content_md": make_valid_plan(body="p3")}, "topic_id": topic["id"]},
     )
     assert third.status_code == 201
 
@@ -510,7 +511,7 @@ def test_cannot_create_experiment_on_closed_topic(client, auth_headers, project)
     resp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "关闭后实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "关闭后实验", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert resp.status_code == 409
     assert "closed" in resp.json()["detail"].lower()
@@ -521,7 +522,7 @@ def test_cannot_close_topic_while_linked_experiment_active(client, auth_headers,
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "未完成实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "未完成实验", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert exp.status_code == 201
 
@@ -537,7 +538,7 @@ def test_can_close_topic_after_linked_experiment_cancelled(client, auth_headers,
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "取消后关话题", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "取消后关话题", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert exp.status_code == 201
     cancelled = client.post(f"/api/v1/experiments/{exp.json()['id']}/cancel", headers=auth_headers)
@@ -556,7 +557,7 @@ def test_can_close_topic_after_linked_experiment_done(client, db_session, auth_h
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "完成后关话题", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "完成后关话题", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert exp.status_code == 201
     row = db_session.get(Experiment, uuid.UUID(exp.json()["id"]))
@@ -575,7 +576,7 @@ def test_only_topic_host_can_create_experiment_from_topic(client, auth_headers, 
     denied = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=reviewer["headers"],
-        json={"title": "非主持抢开", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "非主持抢开", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert denied.status_code == 403
     assert "host" in denied.json()["detail"].lower()
@@ -583,7 +584,7 @@ def test_only_topic_host_can_create_experiment_from_topic(client, auth_headers, 
     allowed = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "主持开实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "主持开实验", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert allowed.status_code == 201
     assert allowed.json()["warnings"] == ["topic_not_ready_for_experiment"]
@@ -597,7 +598,7 @@ def test_ready_topic_create_experiment_has_no_not_ready_warning(client, auth_hea
     resp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "ready 后开实验", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "ready 后开实验", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert resp.status_code == 201
     assert resp.json()["warnings"] == []
@@ -609,7 +610,7 @@ def test_admin_can_create_experiment_from_others_topic(client, admin_headers, au
     resp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "管理员代开", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "管理员代开", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert resp.status_code == 201
     assert resp.json()["topic_id"] == topic["id"]
@@ -649,7 +650,7 @@ def test_experiment_archive_rejects_active_phase(client, auth_headers, project):
     first = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "第一个", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "第一个", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert first.status_code == 201
     exp_id = first.json()["id"]
@@ -665,7 +666,7 @@ def test_experiment_archive_rejects_active_phase(client, auth_headers, project):
     second = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "第二个", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
+        json={"title": "第二个", "plan": {"content_md": make_valid_plan(body="p2")}, "topic_id": topic["id"]},
     )
     assert second.status_code == 409, second.text
 
@@ -675,7 +676,7 @@ def test_experiment_archive_allows_new_active_on_topic_after_cancelled(client, a
     first = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "第一个", "plan": {"content_md": "p"}, "topic_id": topic["id"]},
+        json={"title": "第一个", "plan": {"content_md": make_valid_plan(body="p")}, "topic_id": topic["id"]},
     )
     assert first.status_code == 201
     exp_id = first.json()["id"]
@@ -693,7 +694,7 @@ def test_experiment_archive_allows_new_active_on_topic_after_cancelled(client, a
     second = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "第二个", "plan": {"content_md": "p2"}, "topic_id": topic["id"]},
+        json={"title": "第二个", "plan": {"content_md": make_valid_plan(body="p2")}, "topic_id": topic["id"]},
     )
     assert second.status_code == 201, second.text
 

@@ -1,6 +1,7 @@
 """Review eligibility: creator self-review block and approve gates."""
 
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 
 def _create_experiment_in_review(
@@ -13,7 +14,7 @@ def _create_experiment_in_review(
     response = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=headers,
-        json={"title": title, "plan": {"content_md": "## plan"}, "submit_for_review": True},
+        json={"title": title, "plan": {"content_md": make_valid_plan(body="## plan")}, "submit_for_review": True},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -99,7 +100,7 @@ def test_approve_after_plan_revise_without_current_review(
     revise = client.post(
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
-        json={"content_md": "## plan v2", "change_note": "revise"},
+        json={"content_md": make_valid_plan(body="## plan v2"), "change_note": "revise"},
     )
     assert revise.status_code == 201, revise.text
 

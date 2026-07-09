@@ -1,3 +1,5 @@
+from tests._frontmatter import make_valid_plan
+
 def test_admin_revise_project_status(client, admin_headers, project):
     project_id = project["id"]
     revised_md = "# Current Status — test-project\n\n## 当前目标\n\n- 完成图表可视化实验\n"
@@ -58,7 +60,7 @@ def test_list_and_get_status_versions(client, admin_headers, auth_headers, proje
     client.post(
         f"/api/v1/projects/{project_id}/status/revisions",
         headers=admin_headers,
-        json={"content_md": "# v2\n", "change_note": "v2"},
+        json={"content_md": make_valid_plan(body="# v2\n"), "change_note": "v2"},
     )
 
     listing = client.get(f"/api/v1/projects/{project_id}/status/versions", headers=auth_headers)

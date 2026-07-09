@@ -1,3 +1,5 @@
+from tests._frontmatter import make_valid_plan
+
 def test_topic_comment_notifies_host_and_broadcasts(
     client, auth_headers, reviewer, project, agent_token, admin_headers
 ):
@@ -74,7 +76,7 @@ def test_create_experiment_no_topic_id_warning(client, auth_headers, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "无话题实验", "plan": {"content_md": "p"}},
+        json={"title": "无话题实验", "plan": {"content_md": make_valid_plan(body="p")}},
     ).json()
     assert exp["warnings"] == ["no_topic_id"]
 
@@ -91,7 +93,7 @@ def test_create_experiment_with_not_ready_topic_id_warning(client, auth_headers,
         headers=auth_headers,
         json={
             "title": "有话题实验",
-            "plan": {"content_md": "p"},
+            "plan": {"content_md": make_valid_plan(body="p")},
             "topic_id": topic["id"],
         },
     ).json()

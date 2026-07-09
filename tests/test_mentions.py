@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -14,7 +15,7 @@ def test_mention_in_experiment_comment_creates_todo_and_notification(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Mention exp", "plan": {"content_md": "# p"}},
+        json={"title": "Mention exp", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
 
@@ -103,7 +104,7 @@ def test_self_mention_ignored(client, auth_headers, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Self", "plan": {"content_md": "# p"}},
+        json={"title": "Self", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
     me = client.get("/api/v1/agents/me", headers=auth_headers).json()
@@ -127,7 +128,7 @@ def test_unknown_mention_name_soft_warns_author(client, auth_headers, reviewer, 
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Unknown", "plan": {"content_md": "# p"}},
+        json={"title": "Unknown", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
 
@@ -272,7 +273,7 @@ def test_dismiss_single_mention(client, auth_headers, reviewer, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Dismiss one", "plan": {"content_md": "# p"}},
+        json={"title": "Dismiss one", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
 
@@ -354,7 +355,7 @@ def test_dismiss_other_agents_mention_forbidden(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Forbidden", "plan": {"content_md": "# p"}},
+        json={"title": "Forbidden", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
 

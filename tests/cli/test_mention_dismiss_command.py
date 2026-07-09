@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -18,7 +19,7 @@ def _create_mention_for_reviewer(client, auth_headers, reviewer_headers, project
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Mention CLI", "plan": {"content_md": "# p"}},
+        json={"title": "Mention CLI", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     plan = client.get(f"/api/v1/experiments/{exp['id']}/plans/1", headers=auth_headers).json()
     client.post(
@@ -89,7 +90,7 @@ def test_mention_dismiss_all_cli(client, auth_headers, reviewer, project, monkey
     exp2 = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Mention CLI 2", "plan": {"content_md": "# p2"}},
+        json={"title": "Mention CLI 2", "plan": {"content_md": make_valid_plan(body="# p2")}},
     ).json()
     plan2 = client.get(f"/api/v1/experiments/{exp2['id']}/plans/1", headers=auth_headers).json()
     client.post(

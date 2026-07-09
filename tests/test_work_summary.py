@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 from map_types.enums import TopicCommentKind
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -113,7 +114,7 @@ def test_summary_full_buckets_when_many_partitions_present(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "summary-full-experiment", "plan": {"content_md": "## plan"}},
+        json={"title": "summary-full-experiment", "plan": {"content_md": make_valid_plan(body="## plan")}},
     ).json()
     assert exp["phase"] == "draft"
 
@@ -149,7 +150,7 @@ def test_summary_persona_filter_hides_host_only_for_participant(
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=p_headers,
-        json={"title": "p-experiment", "plan": {"content_md": "## plan"}},
+        json={"title": "p-experiment", "plan": {"content_md": make_valid_plan(body="## plan")}},
     )
 
     # default: participant sees no host_only buckets
@@ -222,12 +223,12 @@ def test_summary_experiments_needing_attention_by_owner_breakdown(
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "host-1", "plan": {"content_md": "## p"}},
+        json={"title": "host-1", "plan": {"content_md": make_valid_plan(body="## p")}},
     )
     approved = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "host-2", "plan": {"content_md": "## p"}},
+        json={"title": "host-2", "plan": {"content_md": make_valid_plan(body="## p")}},
     ).json()
     client.post(
         f"/api/v1/experiments/{approved['id']}/approve",
@@ -241,7 +242,7 @@ def test_summary_experiments_needing_attention_by_owner_breakdown(
     in_review = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "reviewer-1", "plan": {"content_md": "## p"}},
+        json={"title": "reviewer-1", "plan": {"content_md": make_valid_plan(body="## p")}},
     ).json()
     sr_resp = client.post(
         f"/api/v1/experiments/{in_review['id']}/submit-review",
@@ -289,7 +290,7 @@ def test_summary_experiments_needing_attention_by_owner_hides_host_for_participa
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=p_headers,
-        json={"title": "p-experiment", "plan": {"content_md": "## p"}},
+        json={"title": "p-experiment", "plan": {"content_md": make_valid_plan(body="## p")}},
     )
 
     default = client.get(

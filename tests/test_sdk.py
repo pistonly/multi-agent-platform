@@ -16,6 +16,7 @@ from server.domain.schemas import (
 
 pytestmark = pytest.mark.slow
 from map_types.schemas import TopicActionItemCreate, TopicResolve
+from tests._frontmatter import make_valid_plan
 
 
 def test_sdk_project_and_experiment(map_client: MAPClient, project: dict):
@@ -23,7 +24,7 @@ def test_sdk_project_and_experiment(map_client: MAPClient, project: dict):
         uuid.UUID(project["id"]),
         ExperimentCreate(
             title="SDK 实验",
-            plan=PlanInput(content_md="## plan"),
+            plan=PlanInput(content_md=make_valid_plan(body="## plan")),
             submit_for_review=True,
         ),
     )
@@ -43,7 +44,7 @@ def test_sdk_experiment_acceptance_status_round_trip(map_client: MAPClient, proj
         ExperimentCreate(
             title="SDK acceptance",
             plan=PlanInput(
-                content_md="- [acceptance_type: smoke] map experiment status shows acceptance"
+                content_md=make_valid_plan(body="- [acceptance_type: smoke] map experiment status shows acceptance")
             ),
         ),
     )
@@ -71,7 +72,7 @@ def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: 
 
     exp = map_client.create_experiment(
         uuid.UUID(project["id"]),
-        ExperimentCreate(title="LC", plan=PlanInput(content_md="p"), submit_for_review=True),
+        ExperimentCreate(title="LC", plan=PlanInput(content_md=make_valid_plan(body="p")), submit_for_review=True),
     )
 
     review = reviewer_client.create_review(
@@ -166,7 +167,7 @@ def test_sdk_experiment_with_topic_id(map_client: MAPClient, project: dict):
     topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="实验源话题"))
     experiment = map_client.create_experiment(
         uuid.UUID(project["id"]),
-        ExperimentCreate(title="带话题的实验", plan=PlanInput(content_md="p"), topic_id=topic.id),
+        ExperimentCreate(title="带话题的实验", plan=PlanInput(content_md=make_valid_plan(body="p")), topic_id=topic.id),
     )
     assert experiment.topic_id == topic.id
 
@@ -179,7 +180,7 @@ def test_sdk_revise_plan_with_addressed_items(
 
     exp = map_client.create_experiment(
         uuid.UUID(project["id"]),
-        ExperimentCreate(title="争议实验", plan=PlanInput(content_md="p")),
+        ExperimentCreate(title="争议实验", plan=PlanInput(content_md=make_valid_plan(body="p"))),
     )
     map_client.submit_for_review(exp.id)
 
@@ -192,7 +193,7 @@ def test_sdk_revise_plan_with_addressed_items(
     item = next(i for i in review.items if i.kind.value == "unreasonable")
 
     version = map_client.revise_plan(
-        exp.id, PlanRevise(content_md="## 修订", addressed_item_ids=[item.id])
+        exp.id, PlanRevise(content_md=make_valid_plan(body="## 修订"), addressed_item_ids=[item.id])
     )
     assert version.version == 2
     reviewer_client.close()
@@ -212,7 +213,7 @@ def test_sdk_notifications(map_client: MAPClient, client: TestClient, project: d
 
     map_client.create_experiment(
         uuid.UUID(project["id"]),
-        ExperimentCreate(title="SDK notify", plan=PlanInput(content_md="p")),
+        ExperimentCreate(title="SDK notify", plan=PlanInput(content_md=make_valid_plan(body="p"))),
     )
     exp = map_client.list_experiments(uuid.UUID(project["id"]))[-1]
     map_client.submit_for_review(exp.id)
@@ -246,11 +247,11 @@ def test_sdk_list_experiments_page(map_client: MAPClient, project: dict):
     project_id = uuid.UUID(project["id"])
     map_client.create_experiment(
         project_id,
-        ExperimentCreate(title="SDK page alpha", plan=PlanInput(content_md="p")),
+        ExperimentCreate(title="SDK page alpha", plan=PlanInput(content_md=make_valid_plan(body="p"))),
     )
     map_client.create_experiment(
         project_id,
-        ExperimentCreate(title="SDK page beta", plan=PlanInput(content_md="p")),
+        ExperimentCreate(title="SDK page beta", plan=PlanInput(content_md=make_valid_plan(body="p"))),
     )
 
     items, total = map_client.list_experiments_page(project_id, q="SDK page", page=1, page_size=1)

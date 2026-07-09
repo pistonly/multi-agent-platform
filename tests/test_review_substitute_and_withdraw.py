@@ -1,6 +1,7 @@
 """Review substitute_kind, withdraw, and legacy_self_review (experiment plan v2 I3/I5)."""
 
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 
 def _create_experiment_in_review(
@@ -13,7 +14,7 @@ def _create_experiment_in_review(
     response = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=headers,
-        json={"title": title, "plan": {"content_md": "## plan"}, "submit_for_review": True},
+        json={"title": title, "plan": {"content_md": make_valid_plan(body="## plan")}, "submit_for_review": True},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -136,7 +137,7 @@ def test_reviewer_cannot_withdraw_after_item_activity(
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
         json={
-            "content_md": "## revised plan",
+            "content_md": make_valid_plan(body="## revised plan"),
             "addressed_item_ids": [item_id],
         },
     )

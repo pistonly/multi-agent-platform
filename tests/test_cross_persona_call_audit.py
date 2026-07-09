@@ -35,6 +35,7 @@ from sqlalchemy import select
 from server.domain.models import AuditLog
 from server.services import audit_service
 from server.services.audit_service import CROSS_PERSONA_CALL
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -48,7 +49,7 @@ def _create_experiment(client: TestClient, auth_headers: dict, project: dict, ti
     response = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": title, "plan": {"content_md": "## 计划"}},
+        json={"title": title, "plan": {"content_md": make_valid_plan(body="## 计划")}},
     )
     assert response.status_code == 201, response.text
     return response.json()

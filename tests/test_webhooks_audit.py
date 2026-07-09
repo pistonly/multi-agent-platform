@@ -1,4 +1,5 @@
 import server.services.webhook_service as webhook_service
+from tests._frontmatter import make_valid_plan
 
 
 def test_webhook_admin_only(client, auth_headers):
@@ -32,7 +33,7 @@ def test_webhook_crud_and_delivery(client, admin_headers, project, monkeypatch):
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "触发 webhook", "plan": {"content_md": "p"}},
+        json={"title": "触发 webhook", "plan": {"content_md": make_valid_plan(body="p")}},
     )
     assert len(calls) == 1
     assert b"experiment.created" in calls[0][1]
@@ -66,7 +67,7 @@ def test_audit_trail(client, auth_headers, admin_headers, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "审计追踪", "plan": {"content_md": "p"}},
+        json={"title": "审计追踪", "plan": {"content_md": make_valid_plan(body="p")}},
     ).json()
 
     target_audit = client.get(
@@ -95,7 +96,7 @@ def test_audit_cross_project_forbidden(client, auth_headers, admin_headers, proj
     exp = client.post(
         f"/api/v1/projects/{other['id']}/experiments",
         headers=admin_headers,
-        json={"title": "别的项目实验", "plan": {"content_md": "p"}},
+        json={"title": "别的项目实验", "plan": {"content_md": make_valid_plan(body="p")}},
     ).json()
 
     resp = client.get(
@@ -127,7 +128,7 @@ def test_project_webhook_receives_review_submitted(client, admin_headers, projec
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "待评审", "plan": {"content_md": "p"}, "submit_for_review": True},
+        json={"title": "待评审", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": True},
     ).json()
     client.post(
         f"/api/v1/experiments/{exp['id']}/reviews",
@@ -157,7 +158,7 @@ def test_webhook_retries_on_5xx(client, admin_headers, project, monkeypatch):
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "重试一次", "plan": {"content_md": "p"}},
+        json={"title": "重试一次", "plan": {"content_md": make_valid_plan(body="p")}},
     )
 
     deliveries = client.get(
@@ -189,7 +190,7 @@ def test_webhook_no_retry_on_4xx(client, admin_headers, project, monkeypatch):
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "不重试", "plan": {"content_md": "p"}},
+        json={"title": "不重试", "plan": {"content_md": make_valid_plan(body="p")}},
     )
 
     wh_id = client.get("/api/v1/webhooks", headers=admin_headers).json()[0]["id"]
@@ -221,7 +222,7 @@ def test_webhook_records_exception(client, admin_headers, project, monkeypatch):
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=admin_headers,
-        json={"title": "网络异常", "plan": {"content_md": "p"}},
+        json={"title": "网络异常", "plan": {"content_md": make_valid_plan(body="p")}},
     )
 
     wh_id = client.get("/api/v1/webhooks", headers=admin_headers).json()[0]["id"]

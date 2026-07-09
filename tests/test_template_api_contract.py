@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 
 @pytest.fixture
@@ -32,7 +33,7 @@ def running_experiment_id(
         headers=auth_headers,
         json={
             "title": "I1.b API contract test",
-            "plan": {"content_md": "## test plan\n"},
+            "plan": {"content_md": make_valid_plan(body="## test plan\n")},
             "submit_for_review": True,
         },
     ).json()

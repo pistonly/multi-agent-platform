@@ -26,6 +26,7 @@ from map_types.schemas import (
     ReviewVerdictItem,
 )
 from pydantic import ValidationError
+from tests._frontmatter import make_valid_plan
 
 # Schema-only tests are unit tests; integration tests below are marked slow
 # because they spin up the FastAPI app, db session, and multiple agents.
@@ -192,7 +193,7 @@ def result_review_experiment(client, auth_headers, reviewer, project) -> dict:
         headers=auth_headers,
         json={
             "title": "verdict 测试实验",
-            "plan": {"content_md": "## plan"},
+            "plan": {"content_md": make_valid_plan(body="## plan")},
             "submit_for_review": True,
         },
     ).json()
@@ -370,7 +371,7 @@ def test_authorization_same_reviewer_cross_experiment_rejected(client, auth_head
     exp_a = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "exp A", "plan": {"content_md": "## p"}, "submit_for_review": True},
+        json={"title": "exp A", "plan": {"content_md": make_valid_plan(body="## p")}, "submit_for_review": True},
     ).json()
     review_a = client.post(
         f"/api/v1/experiments/{exp_a['id']}/reviews",
@@ -401,7 +402,7 @@ def test_authorization_same_reviewer_cross_experiment_rejected(client, auth_head
     exp_b = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "exp B", "plan": {"content_md": "## p"}, "submit_for_review": True},
+        json={"title": "exp B", "plan": {"content_md": make_valid_plan(body="## p")}, "submit_for_review": True},
     ).json()
     review_b = client.post(
         f"/api/v1/experiments/{exp_b['id']}/reviews",
@@ -453,7 +454,7 @@ def test_authorization_different_reviewer_same_experiment_rejected(client, auth_
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "exp cross-review", "plan": {"content_md": "## p"}, "submit_for_review": True},
+        json={"title": "exp cross-review", "plan": {"content_md": make_valid_plan(body="## p")}, "submit_for_review": True},
     ).json()
 
     # Review #1: admin (substitute, requires substitute_reason)
@@ -516,7 +517,7 @@ def test_authorization_item_id_from_different_review_rejected(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "exp item-跨 review", "plan": {"content_md": "## p"}, "submit_for_review": True},
+        json={"title": "exp item-跨 review", "plan": {"content_md": make_valid_plan(body="## p")}, "submit_for_review": True},
     ).json()
     # Review #1 by admin (substitute, requires substitute_reason)
     review_1_resp = client.post(

@@ -20,6 +20,7 @@ NOT block downstream progress.
 """
 
 from __future__ import annotations
+from tests._frontmatter import make_valid_plan
 
 
 def test_rebutted_item_does_not_block_experiment_progress_to_result_review(
@@ -32,7 +33,7 @@ def test_rebutted_item_does_not_block_experiment_progress_to_result_review(
         headers=auth_headers,
         json={
             "title": "rebutted plan-continues 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()
@@ -90,7 +91,7 @@ def test_rebutted_item_does_not_block_experiment_progress_to_result_review(
     revise = client.post(
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
-        json={"content_md": "## 修订后的计划 (item-A resolved, item-B withdrawn)"},
+        json={"content_md": make_valid_plan(body="## 修订后的计划 (item-A resolved, item-B withdrawn)")},
     )
     assert revise.status_code == 201, revise.text
 
@@ -177,7 +178,7 @@ def test_rebutted_item_counted_as_open_in_approve_eligibility(
         headers=auth_headers,
         json={
             "title": "rebutted guard 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()

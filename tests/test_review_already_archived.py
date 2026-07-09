@@ -39,6 +39,8 @@ from map_types.enums import (
 )
 from sqlalchemy.orm import Session
 
+from tests._frontmatter import make_valid_plan
+
 from server.domain.models import (
     Agent,
     AgentRole,
@@ -339,7 +341,7 @@ def test_api_update_review_item_returns_409_with_subcode(
         headers=auth_headers,
         json={
             "title": "archived resolve test",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     )

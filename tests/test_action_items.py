@@ -6,6 +6,7 @@ permissions + idempotency rules.
 """
 
 import uuid
+from tests._frontmatter import make_valid_plan
 
 
 def _create_topic(client, headers, project, **overrides):
@@ -417,7 +418,7 @@ def test_migrate_closed_topic_action_item_cascade_backlog(
         headers=auth_headers,
         json={
             "title": "Migrate Closed Topic",
-            "plan": {"content_md": "p"},
+            "plan": {"content_md": make_valid_plan(body="p")},
             "submit_for_review": True,
         },
     ).json()

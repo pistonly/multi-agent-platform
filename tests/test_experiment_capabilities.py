@@ -1,6 +1,7 @@
 """Tests for per-agent experiment actions and blocked_on (AC#3)."""
 
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 
 def _create_experiment_in_review(
@@ -13,7 +14,7 @@ def _create_experiment_in_review(
     response = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=headers,
-        json={"title": title, "plan": {"content_md": "## plan"}, "submit_for_review": True},
+        json={"title": title, "plan": {"content_md": make_valid_plan(body="## plan")}, "submit_for_review": True},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -87,7 +88,7 @@ def test_creator_blocked_after_plan_revise_without_rereview(
     revise = client.post(
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
-        json={"content_md": "## plan v2", "change_note": "address feedback"},
+        json={"content_md": make_valid_plan(body="## plan v2"), "change_note": "address feedback"},
     )
     assert revise.status_code == 201, revise.text
 
@@ -200,7 +201,7 @@ def test_same_content_plan_revise_noops_after_clean_review(
     revise = client.post(
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
-        json={"content_md": "## plan", "change_note": "note only"},
+        json={"content_md": make_valid_plan(body="## plan"), "change_note": "note only"},
     )
     assert revise.status_code == 201, revise.text
     assert revise.json()["version"] == 1

@@ -2,6 +2,7 @@ import pytest
 from map_client.testing import MAPTestClientTransport
 from map_mcp.server import build_server
 from mcp.server.fastmcp.exceptions import ToolError
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -182,7 +183,7 @@ async def test_mcp_agent_can_revise_project_status(map_client, project):
     mcp = build_server(map_client)
     _, payload = await mcp.call_tool(
         "revise_project_status",
-        {"content_md": "# v2\n\nhost revised via MCP\n", "change_note": "mcp test"},
+        {"content_md": make_valid_plan(body="# v2\n\nhost revised via MCP\n"), "change_note": "mcp test"},
     )
     assert payload["version"] == 2
     assert "host revised via MCP" in payload["content_md"]

@@ -27,6 +27,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -122,7 +123,7 @@ def _create_started_experiment(
         headers=auth_headers,
         json={
             "title": "I1.c template contract test",
-            "plan": {"content_md": "# plain plan\n"},
+            "plan": {"content_md": make_valid_plan(body="# plain plan\n")},
             "submit_for_review": True,
         },
     ).json()

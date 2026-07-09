@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -11,7 +12,7 @@ def experiment_in_review(client: TestClient, auth_headers: dict[str, str], proje
         headers=auth_headers,
         json={
             "title": "争议实验",
-            "plan": {"content_md": "## v1\n初始计划"},
+            "plan": {"content_md": make_valid_plan(body="## v1\n初始计划")},
             "submit_for_review": True,
         },
     ).json()
@@ -45,7 +46,7 @@ def test_full_review_flow(client, auth_headers, reviewer, experiment_in_review):
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
         json={
-            "content_md": "## v2\n补充温度与回滚",
+            "content_md": make_valid_plan(body="## v2\n补充温度与回滚"),
             "change_note": "address review",
             "addressed_item_ids": item_ids,
         },

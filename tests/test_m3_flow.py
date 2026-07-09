@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -11,7 +12,7 @@ def approved_experiment(client: TestClient, auth_headers: dict[str, str], review
         headers=auth_headers,
         json={
             "title": "执行实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()

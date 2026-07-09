@@ -40,6 +40,7 @@ from server.domain.models import (
     Review,
 )
 from server.services.plan_service import revise_plan
+from tests._frontmatter import make_valid_plan
 
 
 def _make_project(db: Session, *, key: str = "test-proj") -> Project:
@@ -170,7 +171,7 @@ def test_plan_revise_archives_prior_version_reviews(db_session):
         db_session,
         experiment_id=exp.id,
         author=creator,
-        payload=PlanRevise(content_md="v2 plan revised", change_note="address v1 items"),
+        payload=PlanRevise(content_md=make_valid_plan(body="v2 plan revised"), change_note="address v1 items"),
     )
     assert new_plan.version == 2
 
@@ -226,7 +227,7 @@ def test_plan_revise_does_not_archive_current_version_review(db_session):
         db_session,
         experiment_id=exp.id,
         author=creator,
-        payload=PlanRevise(content_md="v3 plan revised", change_note="another revise"),
+        payload=PlanRevise(content_md=make_valid_plan(body="v3 plan revised"), change_note="another revise"),
     )
     db_session.refresh(v1_review)
     db_session.refresh(v3_review)
@@ -269,7 +270,7 @@ def test_plan_revise_archive_is_idempotent_on_existing_archives(db_session):
         db_session,
         experiment_id=exp.id,
         author=creator,
-        payload=PlanRevise(content_md="v2 plan revised", change_note="bump"),
+        payload=PlanRevise(content_md=make_valid_plan(body="v2 plan revised"), change_note="bump"),
     )
     db_session.refresh(v1_review_manual)
     # Manual archive metadata is preserved.
@@ -310,7 +311,7 @@ def test_plan_revise_no_archive_when_content_unchanged(db_session):
         db_session,
         experiment_id=exp.id,
         author=creator,
-        payload=PlanRevise(content_md="same plan", change_note=""),
+        payload=PlanRevise(content_md=make_valid_plan(body="same plan"), change_note=""),
     )
     assert returned.version == 1  # early-return: no bump
     db_session.refresh(v1_review)
@@ -362,7 +363,7 @@ def test_plan_revise_archive_only_affects_target_experiment(db_session):
         db_session,
         experiment_id=exp_a.id,
         author=creator,
-        payload=PlanRevise(content_md="A v2", change_note="bump A"),
+        payload=PlanRevise(content_md=make_valid_plan(body="A v2"), change_note="bump A"),
     )
     db_session.refresh(a_review)
     db_session.refresh(b_review)
@@ -401,7 +402,7 @@ def test_plan_revise_repeated_bumps_do_not_overwrite_archive_at(db_session):
         db_session,
         experiment_id=exp.id,
         author=creator,
-        payload=PlanRevise(content_md="v2 plan", change_note="bump"),
+        payload=PlanRevise(content_md=make_valid_plan(body="v2 plan"), change_note="bump"),
     )
     db_session.refresh(v1_review)
     first_archive_at = v1_review.archived_at
@@ -412,7 +413,7 @@ def test_plan_revise_repeated_bumps_do_not_overwrite_archive_at(db_session):
         db_session,
         experiment_id=exp.id,
         author=creator,
-        payload=PlanRevise(content_md="v3 plan", change_note="bump again"),
+        payload=PlanRevise(content_md=make_valid_plan(body="v3 plan"), change_note="bump again"),
     )
     db_session.refresh(v1_review)
     assert v1_review.archived_at == first_archive_at

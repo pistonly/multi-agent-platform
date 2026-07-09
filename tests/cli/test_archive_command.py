@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -88,7 +89,7 @@ def _create_experiment(client, headers, project, title: str = "归档测试实�
     resp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=headers,
-        json={"title": title, "plan": {"content_md": "p"}},
+        json={"title": title, "plan": {"content_md": make_valid_plan(body="p")}},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]

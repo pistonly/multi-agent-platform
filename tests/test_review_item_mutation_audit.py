@@ -29,6 +29,7 @@ from sqlalchemy import select
 
 from server.domain.models import AuditLog, Review, ReviewItem
 from server.services.audit_service import REVIEW_ITEM_MUTATION
+from tests._frontmatter import make_valid_plan
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ def _experiment_in_review_with_unreasonable_item(
         headers=auth_headers,
         json={
             "title": title,
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()
@@ -198,7 +199,7 @@ def test_review_submit_writes_one_audit_row_per_item(
         headers=auth_headers,
         json={
             "title": "submit-audit 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()
@@ -243,7 +244,7 @@ def result_review_experiment(
         headers=auth_headers,
         json={
             "title": "reject-result audit 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()

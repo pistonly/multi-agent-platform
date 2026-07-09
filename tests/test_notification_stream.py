@@ -5,6 +5,7 @@ from queue import Empty
 import pytest
 
 from server.services import notification_stream
+from tests._frontmatter import make_valid_plan
 
 
 def _parse_sse_frame(frame: str) -> tuple[int | None, dict]:
@@ -94,7 +95,7 @@ def test_digest_enqueue_does_not_publish_sse_frame(
         exp = client.post(
             f"/api/v1/projects/{project['id']}/experiments",
             headers=auth_headers,
-            json={"title": "Digest SSE suppression", "plan": {"content_md": "# p"}},
+            json={"title": "Digest SSE suppression", "plan": {"content_md": make_valid_plan(body="# p")}},
         ).json()
         # Drain any frame from experiment creation.
         while True:

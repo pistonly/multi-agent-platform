@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from server.domain.models import AuditLog
 from server.services.audit_service import REVIEW_ITEM_MUTATION
+from tests._frontmatter import make_valid_plan
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,7 +43,7 @@ def _experiment_with_audit_rows(
         headers=auth_headers,
         json={
             "title": "audit filter 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()

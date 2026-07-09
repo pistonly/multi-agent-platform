@@ -1,3 +1,5 @@
+from tests._frontmatter import make_valid_plan
+
 def test_notifications_on_phase_change(client, auth_headers, reviewer, project):
     reviewer_headers = reviewer["headers"]
     exp = client.post(
@@ -5,7 +7,7 @@ def test_notifications_on_phase_change(client, auth_headers, reviewer, project):
         headers=auth_headers,
         json={
             "title": "Notify Test",
-            "plan": {"content_md": "# plan"},
+            "plan": {"content_md": make_valid_plan(body="# plan")},
         },
     ).json()
 
@@ -38,7 +40,7 @@ def test_mark_all_notifications_read(client, auth_headers, reviewer, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Bulk read", "plan": {"content_md": "# p"}},
+        json={"title": "Bulk read", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     client.post(f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers)
 
@@ -57,7 +59,7 @@ def test_actor_does_not_receive_own_notification(client, auth_headers, project):
     client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Self notify", "plan": {"content_md": "# p"}},
+        json={"title": "Self notify", "plan": {"content_md": make_valid_plan(body="# p")}},
     )
     res = client.get("/api/v1/agents/me/notifications", headers=auth_headers)
     assert res.status_code == 200
@@ -71,7 +73,7 @@ def test_notifications_default_to_digest_and_filter_by_category(client, auth_hea
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Category filter", "plan": {"content_md": "# p"}},
+        json={"title": "Category filter", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
     client.post(f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers)
 
@@ -110,7 +112,7 @@ def test_digest_notifications_are_aggregated_by_object(client, auth_headers, rev
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "Aggregate digest", "plan": {"content_md": "# p"}},
+        json={"title": "Aggregate digest", "plan": {"content_md": make_valid_plan(body="# p")}},
     ).json()
 
     client.post(f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers)

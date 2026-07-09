@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from map_types.enums import ExperimentPhase, PhaseOwner
 from server.services.phase_owner_resolver import is_informational_only, owner_for
+from tests._frontmatter import make_valid_plan
 
 # ---------------------------------------------------------------------------
 # I1(b): per-phase owner table (covers all 7 ExperimentPhase values + the
@@ -151,7 +152,7 @@ def test_phase_service_syncs_phase_owner_on_each_transition(
         headers=auth_headers,
         json={
             "title": "phase_owner sync 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()
@@ -226,7 +227,7 @@ def test_informational_only_flag_only_true_during_reviewer_wait(
     draft = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "draft 实验", "plan": {"content_md": "## 计划"}},
+        json={"title": "draft 实验", "plan": {"content_md": make_valid_plan(body="## 计划")}},
     ).json()
     detail = client.get(f"/api/v1/experiments/{draft['id']}", headers=auth_headers).json()
     assert detail["phase"] == "draft"
@@ -239,7 +240,7 @@ def test_informational_only_flag_only_true_during_reviewer_wait(
         headers=auth_headers,
         json={
             "title": "review 实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()

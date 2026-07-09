@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from server.domain.models import Topic
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -13,7 +14,7 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "待办实验", "plan": {"content_md": "p"}, "submit_for_review": True},
+        json={"title": "待办实验", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": True},
     ).json()
 
     # 评审者应看到待评审
@@ -92,7 +93,7 @@ def test_pending_result_reviews(client, auth_headers, reviewer, project):
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "结果审批实验", "plan": {"content_md": "p"}, "submit_for_review": True},
+        json={"title": "结果审批实验", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": True},
     ).json()
     exp_id = exp["id"]
     client.post(
@@ -135,7 +136,7 @@ def test_archived_addressed_review_items_do_not_block_review_progress(
         headers=auth_headers,
         json={
             "title": "archived addressed item should not block",
-            "plan": {"content_md": "p v1"},
+            "plan": {"content_md": make_valid_plan(body="p v1")},
             "submit_for_review": True,
         },
     ).json()
@@ -154,7 +155,7 @@ def test_archived_addressed_review_items_do_not_block_review_progress(
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
         json={
-            "content_md": "p v2 with detail",
+            "content_md": make_valid_plan(body="p v2 with detail"),
             "change_note": "addressed old review",
             "addressed_item_ids": [unreasonable_id],
         },
@@ -200,7 +201,7 @@ def test_archived_experiments_are_excluded_from_my_open_experiments(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "归档实验不进待办", "plan": {"content_md": "p"}},
+        json={"title": "归档实验不进待办", "plan": {"content_md": make_valid_plan(body="p")}},
     ).json()
 
     before = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
@@ -413,7 +414,7 @@ def test_pending_plan_revisions_three_states(client, auth_headers, reviewer, pro
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "plan-rev states", "plan": {"content_md": "p"}, "submit_for_review": True},
+        json={"title": "plan-rev states", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": True},
     ).json()
     exp_id = exp["id"]
     reviewer_headers = reviewer["headers"]
@@ -609,7 +610,7 @@ def test_list_experiments_filter_search_pagination(client, auth_headers, project
         client.post(
             f"/api/v1/projects/{project['id']}/experiments",
             headers=auth_headers,
-            json={"title": f"实验 {i}", "plan": {"content_md": "p"}, "submit_for_review": i == 0},
+            json={"title": f"实验 {i}", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": i == 0},
         )
 
     review_list = client.get(
@@ -756,7 +757,7 @@ def test_todos_persona_filter_review_partitions(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "persona-filter-exp", "plan": {"content_md": "p"}, "submit_for_review": True},
+        json={"title": "persona-filter-exp", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": True},
     ).json()
     exp_id = exp["id"]
 
@@ -815,7 +816,7 @@ def test_todos_persona_filter_admin_sees_full_partitions(
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
         headers=auth_headers,
-        json={"title": "admin-filter-exp", "plan": {"content_md": "p"}, "submit_for_review": True},
+        json={"title": "admin-filter-exp", "plan": {"content_md": make_valid_plan(body="p")}, "submit_for_review": True},
     ).json()
     exp_id = exp["id"]
 

@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -370,7 +371,7 @@ def test_cli_pre_complete_outputs_jsonable_phase(
     runner, patched_cli, project, reviewer, tmp_path: Path
 ):
     plan_file = tmp_path / "plan.md"
-    plan_file.write_text("## plan", encoding="utf-8")
+    plan_file.write_text(make_valid_plan(), encoding="utf-8")
     result = runner.invoke(
         app,
         [

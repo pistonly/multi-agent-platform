@@ -1,4 +1,5 @@
 import pytest
+from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
@@ -10,7 +11,7 @@ def test_experiment_crud(client, auth_headers, project):
         json={
             "title": "噪声基线实验",
             "description": "测量暗电流",
-            "plan": {"content_md": "## 目标\n测量基线", "change_note": "初始版本"},
+            "plan": {"content_md": make_valid_plan(body="## 目标\n测量基线"), "change_note": "初始版本"},
             "submit_for_review": True,
         },
     )
@@ -34,7 +35,9 @@ def test_experiment_crud(client, auth_headers, project):
     detail = client.get(f"/api/v1/experiments/{experiment_id}", headers=auth_headers)
     assert detail.status_code == 200
     body = detail.json()
-    assert body["current_plan"]["content_md"] == "## 目标\n测量基线"
+    # raw markdown expectation: POST 端发送 make_valid_plan(body=...) 时,
+    # 服务端存的是 frontmatter+body 的完整 markdown。assert 与 POST 一致。
+    assert body["current_plan"]["content_md"] == make_valid_plan(body="## 目标\n测量基线")
     assert body["plan_version_count"] == 1
 
     updated = client.patch(
@@ -58,7 +61,7 @@ def test_experiment_bundle(client, auth_headers, project):
         headers=auth_headers,
         json={
             "title": "Bundle 测试",
-            "plan": {"content_md": "## plan", "change_note": "v1"},
+            "plan": {"content_md": make_valid_plan(body="## plan"), "change_note": "v1"},
             "submit_for_review": True,
         },
     )
@@ -70,7 +73,8 @@ def test_experiment_bundle(client, auth_headers, project):
     body = bundle.json()
     assert body["experiment"]["id"] == experiment_id
     assert len(body["plans"]) == 1
-    assert body["plans"][0]["content_md"] == "## plan"
+    # raw markdown expectation: 与 POST 端发送的 make_valid_plan(body="## plan") 对齐
+    assert body["plans"][0]["content_md"] == make_valid_plan(body="## plan")
     assert body["reviews"] == []
     assert body["comments"] == []
     assert body["logs"] == []
@@ -83,12 +87,14 @@ def test_experiment_status_projects_acceptance_status(client, auth_headers, proj
         json={
             "title": "Acceptance status",
             "plan": {
-                "content_md": "\n".join(
-                    [
-                        "## 验收标准",
-                        "- [acceptance_type: unit_test] pytest 覆盖解析",
-                        "- [acceptance_type: manual] 人工确认 CLI 输出",
-                    ]
+                "content_md": make_valid_plan(
+                    body="\n".join(
+                        [
+                            "## 验收标准",
+                            "- [acceptance_type: unit_test] pytest 覆盖解析",
+                            "- [acceptance_type: manual] 人工确认 CLI 输出",
+                        ]
+                    )
                 )
             },
         },
@@ -114,7 +120,7 @@ def test_experiment_status_projects_completion_evidence(client, auth_headers, re
         json={
             "title": "Acceptance evidence",
             "plan": {
-                "content_md": "- [acceptance_type: smoke] API health smoke passes"
+                "content_md": make_valid_plan(body="- [acceptance_type: smoke] API health smoke passes")
             },
             "submit_for_review": True,
         },
@@ -163,7 +169,7 @@ def test_experiment_status_rejects_unknown_acceptance_type(client, auth_headers,
         json={
             "title": "Bad acceptance",
             "plan": {
-                "content_md": "- [acceptance_type: mystery] 不允许静默降级"
+                "content_md": make_valid_plan(body="- [acceptance_type: mystery] 不允许静默降级")
             },
         },
     )
@@ -183,7 +189,7 @@ def test_experiment_draft_phase(client, auth_headers, project):
         headers=auth_headers,
         json={
             "title": "草稿实验",
-            "plan": {"content_md": "plan"},
+            "plan": {"content_md": make_valid_plan(body="plan")},
             "submit_for_review": False,
         },
     )
@@ -197,7 +203,7 @@ def test_project_status_with_experiments(client, auth_headers, project):
         headers=auth_headers,
         json={
             "title": "实验 A",
-            "plan": {"content_md": "a"},
+            "plan": {"content_md": make_valid_plan(body="a")},
             "submit_for_review": True,
         },
     )
@@ -217,7 +223,7 @@ def test_project_status_excludes_archived_experiments(client, auth_headers, proj
         headers=auth_headers,
         json={
             "title": "归档实验不进入快照",
-            "plan": {"content_md": "a"},
+            "plan": {"content_md": make_valid_plan(body="a")},
             "submit_for_review": True,
         },
     )
@@ -246,7 +252,7 @@ def test_global_status_excludes_archived_experiments(client, auth_headers, proje
         headers=auth_headers,
         json={
             "title": "归档实验不进入全局快照",
-            "plan": {"content_md": "a"},
+            "plan": {"content_md": make_valid_plan(body="a")},
             "submit_for_review": True,
         },
     )

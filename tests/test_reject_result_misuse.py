@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from map_client.exceptions import MAPHTTPError, MAPValidationError, raise_for_status
 from sdk.python.map_client.client import MAPClient
+from tests._frontmatter import make_valid_plan
 
 # ---------------------------------------------------------------------------
 # Fixtures: a result-review experiment (host already complete'd, awaiting
@@ -53,7 +54,7 @@ def result_review_experiment(
         headers=auth_headers,
         json={
             "title": "执行实验",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()
@@ -214,7 +215,7 @@ def test_rebut_single_item_during_review_phase_still_succeeds(
         headers=auth_headers,
         json={
             "title": "rebut happy path",
-            "plan": {"content_md": "## 计划"},
+            "plan": {"content_md": make_valid_plan(body="## 计划")},
             "submit_for_review": True,
         },
     ).json()
