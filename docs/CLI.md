@@ -111,7 +111,7 @@ map --persona host experiment archive --id <exp-uuid> --undo
 | `map experiment submit-review / approve / start / complete / accept-result / reject-result` | 实验生命周期与结果审批 |
 | `map experiment logs --id <uuid>` | 列出实验日志 |
 | `map experiment lock scan-stalled` | 扫描 running 实验锁无进展状态并生成分层通知（host/holder wakeable，其他成员 digest） |
-| `map notification list / read / read-all` | 站内通知 |
+| `map notification list / read / read-all` | 站内通知（`read-all` 支持 `--category wakeable\|digest\|all` 与 `--event <type>` 过滤批量标记） |
 | `map mention list / dismiss / dismiss-all` | 查看或清理 @mention 待办 |
 
 `map work` 的 CLI 默认展示 `notification_category=all`，方便人工看到与

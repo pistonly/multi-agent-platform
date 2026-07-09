@@ -158,6 +158,10 @@ _FAST_GATE_MODULES = frozenset(
         # cli-ux follow-up (1f9c9a50) PR1 — --schema flag + error schema 提示守卫
         # subprocess 跑 CLI,~150ms 全量;默认 pytest 守住「schema 发现」契约。
         "test_cli_schema_discovery",
+        # cli-ux follow-up (1f9c9a50) PR2 — notification read-all --category / --event
+        # CliRunner 跑 typer app,~100ms 全量;守住「bulk filter 走 enumerate 路径 /
+        # 无 filter 走单次 bulk endpoint」契约。
+        "test_notification_bulk_filter",
     }
 )
 

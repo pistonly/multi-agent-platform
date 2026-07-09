@@ -2,10 +2,14 @@
 
 Wraps the personal-inbox / waker-event surface:
 
-* ``map notification list|read|read-all`` —
-  ``GET /api/v1/notifications`` + ``POST /notifications/{id}/read`` +
-  ``POST /notifications/read-all``. Mirrors the wakeable / digest view
-  surfaced in the web todo UI.
+* ``map notification list`` —
+  ``GET /api/v1/notifications`` with category/target_type/unread_only filters.
+* ``map notification read`` —
+  ``POST /notifications/{id}/read`` (one notification at a time).
+* ``map notification read-all`` (cli-ux PR2: + ``--category`` + ``--event``) —
+  ``POST /notifications/read-all`` for the unfiltered fast path, OR enumerate
+  via ``list`` + ``mark_notification_read`` for filtered bulk. Mirrors the
+  wakeable / digest view surfaced in the web todo UI.
 * ``map inbound-event record`` —
   ``POST /api/v1/agents/me/inbound-events``. Waker-side D6 gate;
   on 409 the CLI exits non-zero so the waker treats it as
@@ -66,12 +70,65 @@ def notification_read(
 
 
 @notification_app.command("read-all")
-def notification_read_all() -> None:
-    """Mark every notification for the current persona as read."""
+def notification_read_all(
+    category: str | None = typer.Option(
+        None,
+        "--category",
+        help="Filter by category before bulk-marking: wakeable | digest | all (default = all).",
+    ),
+    event: str | None = typer.Option(
+        None,
+        "--event",
+        help="Filter by notification.event before bulk-marking "
+        "(client-side filter; e.g. mention.created, experiment.phase_changed).",
+    ),
+) -> None:
+    """Mark every (filtered) notification for the current persona as read.
+
+    Without filters this hits the bulk ``POST /agents/me/notifications/read-all``
+    endpoint in a single round-trip. With ``--category`` or ``--event`` set, the
+    CLI enumerates the matching subset via ``list_notifications`` then marks each
+    via ``mark_notification_read`` (still fewer round-trips than ``read --id``
+    one-at-a-time, and doesn't require knowing IDs upfront).
+    """
+    from map_types.enums import NotificationCategory
+
     from cli.main import _run
 
+    # Validate --category early so user sees a clean error before any API call.
+    if category is not None and category not in ("wakeable", "digest", "all"):
+        typer.echo(
+            f"Error: --category must be one of wakeable|digest|all (got {category!r})",
+            err=True,
+        )
+        raise typer.Exit(2)
+
     def action(c: Any) -> Any:
-        return c.mark_all_notifications_read()
+        if category is None and event is None:
+            # Fast path: single bulk endpoint, no enumeration.
+            return c.mark_all_notifications_read()
+
+        # Filtered path: enumerate, then mark each match.
+        list_kwargs: dict = {"unread_only": True, "limit": 200}
+        if category is not None and category != "all":
+            list_kwargs["category"] = NotificationCategory(category)
+        # Pagination loop — most personas have < 200 unread, but loop if more.
+        marked = 0
+        offset = 0
+        while True:
+            list_kwargs["offset"] = offset
+            page = c.list_notifications(**list_kwargs)
+            if not page.items:
+                break
+            for n in page.items:
+                if event is not None and getattr(n, "event", None) != event:
+                    continue
+                c.mark_notification_read(n.id)
+                marked += 1
+            offset += len(page.items)
+            if offset >= page.total:
+                break
+        return {"marked": marked}
 
     _run(action)
 
