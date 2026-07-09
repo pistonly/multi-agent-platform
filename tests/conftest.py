@@ -117,6 +117,28 @@ _FAST_GATE_MODULES = frozenset(
         "test_eng_typing_extensions_clean",
         # eng experiment (55634575) PR7 — server/__version__ 单一源
         "test_eng_version_single_source",
+        # eng experiment (55634575) PR1 — uv.lock 存在 + 入库 + lock --check
+        "test_eng_uv_lock",
+        # eng experiment (55634575) PR3-PR5j — mypy --strict 14 模块守卫
+        # 这些模块跑 `mypy --strict <file>` subprocess,~25ms/case,加进
+        # fast gate 才能真正 verify strict promotion 没回归(否则 silently
+        # deselected)。
+        "test_eng_mypy_strict_topics",
+        "test_eng_mypy_strict_experiments_projects",
+        "test_eng_mypy_strict_agents",
+        "test_eng_mypy_strict_project_service",
+        "test_eng_mypy_strict_phase_service",
+        "test_eng_mypy_strict_experiment_capabilities_service",
+        "test_eng_mypy_strict_mention_service",
+        "test_eng_mypy_strict_todo_service",
+        "test_eng_mypy_strict_topic_comment_service",
+        "test_eng_mypy_strict_agent_work_service",
+        "test_eng_mypy_strict_topic_work_item_service",
+        "test_eng_mypy_strict_notification_service",
+        "test_eng_mypy_strict_topic_service",
+        # eng experiment (55634575) PR9 — 白名单自身一致性守卫
+        # (测试模块名集合 == _FAST_GATE_MODULES 集合)
+        "test_eng_fast_gate_whitelist_complete",
     }
 )
 
