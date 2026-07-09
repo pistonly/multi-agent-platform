@@ -81,7 +81,7 @@ def _to_result(experiment: Experiment) -> LockResult:
 def _get(db: Session, experiment_id: uuid.UUID) -> Experiment:
     stmt = select(Experiment).where(Experiment.id == experiment_id)
     experiment = db.scalar(stmt)
-    if experiment is None:
+    if experiment is None or experiment.deleted_at is not None:
         raise NotFoundError(f"experiment {experiment_id} not found")
     return experiment
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from server.api.background_tasks import bind_background_tasks
 from server.api.common import emit
 from server.api.deps import get_current_agent
+from server.auth import experiment_access
 from server.db.session import get_db
 from server.domain.models import Agent, ExperimentPhase
 from server.domain.schemas import (
@@ -52,7 +53,6 @@ from server.services import (
 )
 from server.services import permissions as perm
 from server.services import project_service as svc
-from server.auth import experiment_access
 from server.services.errors import ForbiddenError
 from server.services.experiment_capabilities_service import experiment_summary_for_actor
 from server.services.template_service import validate_result_submission_template
@@ -172,7 +172,11 @@ def update_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
-    perm.ensure_experiment_access(db, agent, experiment_id)
+    # authz PR3: PATCH is a non-state-machine mutation but still
+    # touches experiment metadata (title/description). Only the
+    # creator or an admin should be able to rename someone else's
+    # experiment — the project-level guard alone was too loose.
+    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
     experiment = svc.update_experiment(db, experiment_id, payload)
     return _summary_for_agent(db, experiment, agent)
 
@@ -183,7 +187,9 @@ def delete_experiment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> None:
-    perm.ensure_experiment_access(db, agent, experiment_id)
+    # authz PR3: same rationale as update_experiment — soft-delete is
+    # a destructive mutation, creator/admin only.
+    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
     svc.soft_delete_experiment(db, experiment_id)
 
 
@@ -828,8 +834,20 @@ def scan_stalled_experiment_locks_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockStalledScanRead:
-    if not (perm.is_admin(agent) or agent.name == HOST_AGENT_NAME):
-        raise ForbiddenError("Only host or admin can scan stalled experiment locks")
+    # authz PR3: replace the old ``agent.name == HOST_AGENT_NAME``
+    # check with a capability-based one. The name check was brittle —
+    # it required the host agent to keep a hard-coded name; renaming
+    # it (or registering a second host agent) silently disabled the
+    # stalled-lock scan. Use the same capability model as the rest of
+    # the system: any agent holding ``system:scan_stalled`` (or an
+    # admin) can run this.
+    if not (
+        perm.is_admin(agent)
+        or agent.has_capability("system:scan_stalled")
+    ):
+        raise ForbiddenError(
+            "Agent lacks capability system:scan_stalled"
+        )
     notification_ids = notification_service.notify_stalled_experiment_locks(
         db,
         project_id=None if perm.is_admin(agent) else agent.project_id,
