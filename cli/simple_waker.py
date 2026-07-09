@@ -88,6 +88,15 @@ class WakeContext:
     topic_progress: tuple[TopicProgressEntry, ...] = ()
     todo_buckets: tuple[PendingBucket, ...] = ()
     notification_count: int = 0
+    # race experiment (eca0f522) PR3: per-cycle dedup keeps
+    # ``notification_count`` consistent with the DB's UNIQUE(recipient,
+    # group_key) constraint, but the raw ``event_count`` from the
+    # surviving (highest wake_version) row is preserved here so the
+    # audit path can still report how many underlying events fed each
+    # wakeable notification. Without this split, dedup would silently
+    # compress the event_count in the aggregated stats.
+    notification_event_count_sum: int = 0
+    notification_dedup_dropped: int = 0
     open_topic_count: int = 0
     open_topic_samples: tuple[dict[str, Any], ...] = ()
     drain_topics: bool = False
@@ -300,14 +309,71 @@ def build_wake_context(
         topic_progress_data,
         todos,
     )
+    deduped_notifications, event_count_sum, dropped = _dedupe_notifications_by_group_key(
+        notifications
+    )
     return WakeContext(
         topic_progress=parse_topic_progress(filtered_progress),
         todo_buckets=summarize_actionable_todos(todos),
-        notification_count=len(notifications or []),
+        notification_count=len(deduped_notifications),
+        notification_event_count_sum=event_count_sum,
+        notification_dedup_dropped=dropped,
         open_topic_count=len(open_topics or []) if drain_topics and persona == "host" else 0,
         open_topic_samples=tuple((open_topics or [])[:10]) if drain_topics and persona == "host" else (),
         drain_topics=drain_topics,
     )
+
+
+def _dedupe_notifications_by_group_key(
+    notifications: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Per-cycle dedup of wakeable notifications by ``group_key``.
+
+    race experiment (eca0f522) PR3: PR2's DB-layer
+    ``UNIQUE(recipient_agent_id, group_key)`` already prevents duplicate
+    rows in steady state, but the simple-waker must not depend on that
+    invariant — the work snapshot can still surface multiple rows during
+    a brief window if a wakeable merge races with an unrelated read
+    cursor refresh, or if a future migration relaxes the constraint.
+    We dedupe defensively: for each ``group_key``, keep the row with the
+    highest ``wake_version`` (the most recent merge), summing each
+    surviving row's ``event_count`` so the audit path sees the raw
+    underlying event volume (otherwise dedup would silently compress
+    it). Rows with ``group_key=None`` are treated as unique entries
+    (UNIQUE constraints ignore NULLs by design).
+    """
+    if not notifications:
+        return [], 0, 0
+    survivors_by_key: dict[str, dict[str, Any]] = {}
+    raw_event_count = 0
+    dropped = 0
+    for raw in notifications:
+        if not isinstance(raw, dict):
+            continue
+        group_key = raw.get("group_key")
+        event_count = int(raw.get("event_count") or 1)
+        if group_key is None:
+            survivors_by_key[f"__none_:{id(raw)}"] = raw
+            raw_event_count += event_count
+            continue
+        existing = survivors_by_key.get(group_key)
+        if existing is None:
+            survivors_by_key[group_key] = raw
+            raw_event_count += event_count
+            continue
+        existing_wake = int(existing.get("wake_version") or 0)
+        new_wake = int(raw.get("wake_version") or 0)
+        existing_event_count = int(existing.get("event_count") or 1)
+        if new_wake > existing_wake:
+            # Replace: subtract the dropped row's event_count from the
+            # raw total so we don't double-count.
+            raw_event_count += event_count - existing_event_count
+            survivors_by_key[group_key] = raw
+            dropped += 1
+        else:
+            raw_event_count += event_count
+            dropped += 1
+    return list(survivors_by_key.values()), raw_event_count, dropped
 
 
 def _filter_topic_progress_for_persona(
