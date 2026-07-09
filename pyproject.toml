@@ -112,9 +112,10 @@ disable_error_code = ["attr-defined", "no-untyped-def"]
 # this PR scoped to "strict on one directory, baseline permissive".
 
 [[tool.mypy.overrides]]
-# The single directory under strict so far. PR3-PR5 will append
-# experiments / agents / services in order.
-module = ["server.api.topics"]
+# The directories under strict so far. PR3 promoted experiments +
+# projects alongside the original topics entry. PR4-PR5 will append
+# agents / services in order.
+module = ["server.api.topics", "server.api.experiments", "server.api.projects"]
 strict = true
 
 [[tool.mypy.overrides]]

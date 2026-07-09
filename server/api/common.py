@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -17,7 +18,7 @@ def emit(
     project_id: uuid.UUID | None,
     summary: str | None = None,
     event: str | None = None,
-    event_payload: dict | None = None,
+    event_payload: dict[str, Any] | None = None,
     notify: bool = True,
 ) -> None:
     """记录审计日志并扇出副作用（notification + webhook）。
@@ -82,7 +83,7 @@ def _dispatch_notifications(
     summary: str,
     target_type: str,
     target_id: uuid.UUID | None,
-    payload: dict,
+    payload: dict[str, Any],
 ) -> None:
     notification_service.enqueue_from_event(
         db,
@@ -100,7 +101,7 @@ def _dispatch_webhooks(
     db: Session,
     *,
     event: str,
-    payload: dict,
+    payload: dict[str, Any],
     project_id: uuid.UUID | None,
 ) -> None:
     delivery_ids = webhook_service.enqueue_event_deliveries(

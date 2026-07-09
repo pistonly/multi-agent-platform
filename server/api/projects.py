@@ -184,7 +184,7 @@ def revise_project_status(
         project_id=project_id,
         summary=f"修订项目 Status v{version.version}",
     )
-    return version
+    return ProjectStatusVersionRead.model_validate(version)
 
 
 @router.get("/{project_id}/status/versions", response_model=list[ProjectStatusVersionRead])

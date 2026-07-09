@@ -47,18 +47,21 @@ def test_topics_py_passes_mypy_strict():
 
 
 def test_pyproject_promotes_topics_to_strict():
-    """Grep pyproject for the ``module = ["server.api.topics"]`` block
-    with ``strict = true``. Future PRs that promote more directories
-    add entries; this test catches accidental demotion / removal.
+    """Grep pyproject for the ``server.api.topics`` entry in the strict
+    override block. Future PRs may group multiple modules into one
+    override (``module = ["server.api.topics", "server.api.experiments", ...]``)
+    so this test matches ``server.api.topics`` anywhere in a ``module``
+    list that has ``strict = true`` in the same block.
     """
     text = _read_pyproject()
     pattern = re.compile(
-        r"\[\[tool\.mypy\.overrides\]\][^{]*?module\s*=\s*\[\"server\.api\.topics\"\][^{]*?strict\s*=\s*true",
+        r"\[\[tool\.mypy\.overrides\]\][^{]*?module\s*=\s*\[[^\]]*\"server\.api\.topics\"[^\]]*\][^{]*?strict\s*=\s*true",
         re.DOTALL,
     )
     assert pattern.search(text), (
         "pyproject.toml must keep [[tool.mypy.overrides]] promoting "
-        "server.api.topics to strict = true"
+        "server.api.topics to strict = true (possibly grouped with other "
+        "modules in one module list)"
     )
 
 
