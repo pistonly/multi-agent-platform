@@ -55,7 +55,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = [".", "sdk/python"]
-include = ["server*", "cli*", "map_client*", "map_mcp*", "map_types*"]
+include = ["server*", "cli*", "map_client*", "map_mcp*", "map_sdk*", "map_types*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

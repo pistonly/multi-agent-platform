@@ -13,6 +13,10 @@ from map_client.bootstrap import admin_client, bootstrap_project_map
 from map_client.client import MAPClient
 from map_client.exceptions import MAPConflictError, MAPHTTPError, MAPNotFoundError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
+# arch experiment (0519e2a3) PR1: shared SDK umbrella. Later PRs move
+# shared helpers here (see plan). The CLI must stay importable even
+# when ``map_sdk`` is unavailable, so we don't gate startup on it.
+from map_sdk import __version__ as _map_sdk_version
 from pydantic import BaseModel, ConfigDict
 
 from server.domain.models import AgentRole
