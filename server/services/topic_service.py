@@ -1,7 +1,14 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from map_types.enums import AgentRole, ExperimentPhase, TopicActionItemStatus, TopicDiscussionRound
+from map_types.enums import (
+    ActionItemCategory,
+    AgentRole,
+    ExperimentPhase,
+    TopicActionItemStatus,
+    TopicDiscussionRound,
+)
 from map_types.schemas import ActionItemCancel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -210,7 +217,7 @@ def topic_summaries_for_topics(
             updated_at=topic.updated_at,
             archived_at=topic.archived_at,
             dismissed_at=topic.dismissed_at,
-            advance_round_pending_since=topic.advance_round_pending_since,
+            stale_since=topic.advance_round_pending_since,
         )
         for topic in topics
     ]
@@ -346,7 +353,7 @@ def _suggest_linked_experiments_batch(
         return result
 
     cutoff = datetime.now(UTC) - timedelta(days=30)
-    groups: dict[tuple[uuid.UUID, uuid.UUID], list[TopicActionItem]] = {}
+    groups: dict[tuple[uuid.UUID, uuid.UUID | None], list[TopicActionItem]] = {}
     for item in eligible:
         groups.setdefault((item.project_id, item.owner_agent_id), []).append(item)
 
@@ -443,7 +450,7 @@ def _action_item_read(
         due_at=item.due_at,
         linked_experiment_id=item.linked_experiment_id,
         linked_experiment_phase=linked_experiment_phase,
-        category=item.category,
+        category=ActionItemCategory(item.category) if item.category else None,
         cancel_reason=item.cancel_reason,
         suggested_linked_experiment_id=suggested_id,
         suggested_linked_experiment_title=suggested_title,
@@ -641,7 +648,7 @@ def resolve_topic(
         item.id for item in payload.action_items if item.id is not None
     }
 
-    audit_entries: list[dict[str, object]] = []
+    audit_entries: list[dict[str, Any]] = []
     for old_item in existing:
         if old_item.id in new_payload_ids:
             continue
@@ -800,7 +807,7 @@ def _complete_action_item_no_commit(
     item: TopicActionItem,
     *,
     triggered_by: str = "manual",
-) -> dict:
+) -> dict[str, Any]:
     """Move an open action item to ``done`` within the caller's transaction.
 
     Caller is responsible for:
@@ -849,7 +856,7 @@ def deliver_action_item_no_commit(
     *,
     triggered_by: str = "deliver",
     agent_id: uuid.UUID | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Mark an open action item done when its source topic may be closed/archived."""
     if item.status != TopicActionItemStatus.open:
         raise ConflictError(f"Action item already {item.status.value}")
