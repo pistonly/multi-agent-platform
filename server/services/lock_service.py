@@ -23,8 +23,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from server.db.deadlock_retry import commit_with_retry
 from server.domain.models import Agent, Experiment
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 
@@ -131,7 +133,20 @@ def acquire_experiment_lock(
     experiment.lock_holder_experiment_id = experiment.id
     experiment.lock_acquired_at = _now()
     experiment.lock_ttl_seconds = int(ttl_seconds)
-    db.commit()
+    try:
+        commit_with_retry(db, op_label="acquire_experiment_lock")
+    except IntegrityError:
+        # Lost the race against another acquire that committed first; the
+        # ``uq_experiment_lock_holder_active`` partial unique index
+        # (PG-only; race experiment eca0f522 PR1) caught the conflict at
+        # commit time. Surface as ConflictError so callers see the same
+        # semantics as the in-process ``_find_project_holder`` guard.
+        db.rollback()
+        holder = _find_project_holder(db, experiment.project_id, exclude_id=experiment_id)
+        holder_id = holder.id if holder is not None else None
+        raise ConflictError(
+            f"experiment {holder_id} already holds the execution lock for project {experiment.project_id}"
+        )
     db.refresh(experiment)
     logger.info(
         "acquire_lock experiment=%s project=%s ttl=%s",
@@ -156,7 +171,7 @@ def release_experiment_lock(
         experiment.lock_holder_experiment_id = None
         experiment.lock_acquired_at = None
         experiment.lock_ttl_seconds = None
-        db.commit()
+        commit_with_retry(db, op_label="release_experiment_lock")
         db.refresh(experiment)
         logger.info("release_lock experiment=%s", experiment.id)
     else:
@@ -199,7 +214,7 @@ def force_release_experiment_lock(
         holder.lock_holder_experiment_id = None
         holder.lock_acquired_at = None
         holder.lock_ttl_seconds = None
-    db.commit()
+    commit_with_retry(db, op_label="force_release_experiment_lock")
     logger.warning(
         "force_release_lock actor=%s reason=%s project=%s previous_holders=%s",
         actor.id,
@@ -224,7 +239,7 @@ def record_experiment_lock_skip(
     _ensure_can_modify_lock(actor, experiment)
     experiment.lock_skip_count = int(experiment.lock_skip_count or 0) + 1
     experiment.next_attempt_at = next_attempt_at
-    db.commit()
+    commit_with_retry(db, op_label="record_experiment_lock_skip")
     db.refresh(experiment)
     logger.info(
         "lock_skip experiment=%s skip_count=%s next_attempt_at=%s",

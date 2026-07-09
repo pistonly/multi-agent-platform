@@ -117,6 +117,20 @@ class Experiment(Base):
             sqlite_where=text(_ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE),
             postgresql_where=text(_ACTIVE_TOPIC_EXPERIMENT_INDEX_WHERE),
         ),
+        # race experiment (eca0f522) PR1: enforce "at most one active
+        # holder" at the DB layer so the soft lock acquire race becomes
+        # an IntegrityError instead of producing two live holders.
+        # Both PG and SQLite get the partial WHERE clause (mirrors the
+        # ``uq_experiment_one_active_per_topic`` style above); the
+        # alembic migration 036 also adds the PG-side partial index for
+        # databases that came up before the model change.
+        Index(
+            "uq_experiment_lock_holder_active",
+            "lock_holder_experiment_id",
+            unique=True,
+            sqlite_where=text("lock_holder_experiment_id IS NOT NULL"),
+            postgresql_where=text("lock_holder_experiment_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
