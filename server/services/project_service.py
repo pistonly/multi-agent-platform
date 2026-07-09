@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
+from map_types.schemas import TopicSummaryRead
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -201,7 +202,7 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
     for topic in db.scalars(open_topics_stmt):
         open_topics_by_project[topic.project_id].append(topic)
 
-    open_topics_map: dict[uuid.UUID, list] = {
+    open_topics_map: dict[uuid.UUID, list[TopicSummaryRead]] = {
         project_id: topic_service.topic_summaries_for_topics(db, topics)
         for project_id, topics in open_topics_by_project.items()
     }

@@ -114,12 +114,14 @@ disable_error_code = ["attr-defined", "no-untyped-def"]
 [[tool.mypy.overrides]]
 # The directories under strict so far. PR3 promoted experiments +
 # projects alongside the original topics entry. PR4 promoted agents.
-# PR5+ will append services (subdir-by-subdir) in order.
+# PR5+ appends services (subdir-by-subdir) one at a time so each PR
+# stays contained.
 module = [
     "server.api.topics",
     "server.api.experiments",
     "server.api.projects",
     "server.api.agents",
+    "server.services.project_service",
 ]
 strict = true
 
