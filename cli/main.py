@@ -11,7 +11,7 @@ import typer
 import yaml
 from map_client.bootstrap import admin_client, bootstrap_project_map
 from map_client.client import MAPClient
-from map_client.exceptions import MAPConflictError, MAPHTTPError, MAPNotFoundError
+from map_client.exceptions import MAPHTTPError, MAPNotFoundError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
 
 # arch experiment (0519e2a3) PR1: shared SDK umbrella. Later PRs move
@@ -23,11 +23,15 @@ from map_sdk.evidence import (
 )
 from pydantic import BaseModel, ConfigDict
 
-# arch experiment (0519e2a3) PR3: agent sub-app split. Imported only to
-# register ``agent_app`` below — the helpers the sub-app uses
-# (``_run``, ``_client_ctx``, …) are pulled in lazily inside each
-# command body to break the ``cli.main ↔ cli.commands.agent`` cycle.
+# arch experiment (0519e2a3) PR3/PR5: agent / notification /
+# inbound-event / audit sub-app splits. Each module only exports the
+# sub-app instance here; the helpers the commands use
+# (``_run``, ``_admin_client_ctx``, ``_read_text_file``, ``_print_json``)
+# are pulled in lazily inside each command body to break the
+# ``cli.main ↔ cli.commands.*`` cycles.
 from cli.commands.agent import agent_app
+from cli.commands.audit import audit_app
+from cli.commands.notification import inbound_event_app, notification_app
 from server.domain.models import AgentRole
 from server.domain.schemas import (
     ExperimentComplete,
@@ -57,6 +61,9 @@ app.add_typer(experiment_app, name="experiment")
 app.add_typer(persona_app, name="persona")
 app.add_typer(runtime_app, name="runtime")
 app.add_typer(agent_app, name="agent")
+app.add_typer(notification_app, name="notification")
+app.add_typer(inbound_event_app, name="inbound-event")
+app.add_typer(audit_app, name="audit")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
@@ -2054,93 +2061,10 @@ def experiment_comment(
     _run(lambda c: c.create_comment(experiment_id, payload))
 
 
-notification_app = typer.Typer(help="In-app notification commands")
-app.add_typer(notification_app, name="notification")
-
-
-@notification_app.command("list")
-def notification_list(
-    unread_only: bool = typer.Option(False, "--unread-only"),
-    category: str | None = typer.Option(None, "--category", help="wakeable|digest|all"),
-    target_type: str | None = typer.Option(None, "--target-type"),
-    limit: int = typer.Option(50, "--limit"),
-    offset: int = typer.Option(0, "--offset"),
-) -> None:
-    _run(
-        lambda c: c.list_notifications(
-            unread_only=unread_only,
-            category=category,
-            target_type=target_type,
-            limit=limit,
-            offset=offset,
-        )
-    )
-
-
-@notification_app.command("read")
-def notification_read(notification_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    _run(lambda c: c.mark_notification_read(notification_id))
-
-
-@notification_app.command("read-all")
-def notification_read_all() -> None:
-    _run(lambda c: c.mark_all_notifications_read())
-
-
-inbound_event_app = typer.Typer(help="Runtime-waker inbound event commands (D6 server gate)")
-app.add_typer(inbound_event_app, name="inbound-event")
-
-
-@inbound_event_app.command("record")
-def inbound_event_record(
-    event_id: uuid.UUID = typer.Option(..., "--event-id", help="Upstream notification id (UUID)."),
-    fingerprint: str = typer.Option(
-        ..., "--fingerprint", help="Dedup key (server enforces UNIQUE per agent)."
-    ),
-    event_type: str = typer.Option(
-        ..., "--event-type", help="Logical event type (e.g. mention, pending_review, topic_lifecycle)."
-    ),
-    source: str = typer.Option(
-        "polling", "--source", help="polling|sse|replay (Phase 1 = polling)."
-    ),
-    payload_file: Path | None = typer.Option(
-        None, "--payload-file", help="Optional JSON file with extra payload fields."
-    ),
-) -> None:
-    """Record that the caller is about to act on ``event_id``.
-
-    Thin wrapper for ``POST /agents/me/inbound-events``. On 409 the CLI exits
-    with a non-zero status and prints the server detail — the waker treats
-    409 as "already woken" and skips resume.
-    """
-    from map_types.enums import InboundEventSource
-
-    from server.domain.schemas import InboundEventCreate
-
-    extra_payload: dict | None = None
-    if payload_file is not None:
-        import json
-
-        extra_payload = json.loads(_read_text_file(payload_file, kind="payload"))
-    payload = InboundEventCreate(
-        event_id=event_id,
-        event_type=event_type,
-        source=InboundEventSource(source),
-        fingerprint=fingerprint,
-        payload=extra_payload,
-    )
-
-    def action(c: MAPClient):
-        try:
-            return c.record_inbound_event(payload)
-        except MAPConflictError as exc:
-            typer.echo(
-                f"inbound-event duplicate (409): {exc.detail}",
-                err=True,
-            )
-            raise typer.Exit(2) from exc
-
-    _run(action)
+# arch experiment (0519e2a3) PR5: notification_app + inbound_event_app +
+# audit_app were split into cli/commands/notification.py and
+# cli/commands/audit.py. ``app.add_typer`` calls for those moved up to
+# the registration block near the top of this module.
 
 
 @app.command("status")
@@ -2159,63 +2083,6 @@ def project_or_global_status(
         return c.get_project_status(pid)
 
     _run(action)
-
-
-audit_app = typer.Typer(help="Audit log commands (admin)")
-app.add_typer(audit_app, name="audit")
-
-
-@audit_app.command("list")
-def audit_list(
-    kind: str | None = typer.Option(
-        None,
-        "--kind",
-        help="Filter by AuditLog.action (e.g. review_item.mutation).",
-    ),
-    experiment_id: uuid.UUID | None = typer.Option(
-        None,
-        "--experiment",
-        help="Filter to a single experiment (matches payload_json.experiment_id).",
-    ),
-    page: int = typer.Option(1, "--page", min=1),
-    page_size: int = typer.Option(50, "--page-size", min=1, max=200),
-) -> None:
-    """List global audit log entries (admin only).
-
-    Examples::
-
-        map audit list
-        map audit list --kind review_item.mutation
-        map audit list --kind review_item.mutation --experiment <uuid>
-    """
-    # Bypass the shared ``_run`` wrapper so the (rows, total) tuple can be
-    # rendered as a header line + YAML rows rather than a raw tuple. The
-    # shared wrapper would YAML-dump the tuple as ``[rows, total]`` which
-    # is the wrong shape for an admin greppable timeline.
-    try:
-        with _admin_client_ctx() as client:
-            items, total = client.list_audit_global(
-                page=page,
-                page_size=page_size,
-                kind=kind,
-                experiment_id=experiment_id,
-            )
-    except MAPHTTPError as exc:
-        suffix = ""
-        error_code = getattr(exc, "error_code", None)
-        hint = getattr(exc, "hint", None)
-        if error_code:
-            suffix += f" [error_code={error_code}]"
-        if hint:
-            suffix += f"\nHint: {hint}"
-        typer.echo(f"Error {exc.status_code}: {exc.detail}{suffix}", err=True)
-        raise typer.Exit(1) from exc
-
-    typer.echo(
-        f"# audit_log total={total} returned={len(items)} "
-        f"kind={kind or '*'} experiment={experiment_id or '*'}"
-    )
-    _print_json(items)
 
 
 topic_app = typer.Typer(help="Topic commands", rich_markup_mode=None)
