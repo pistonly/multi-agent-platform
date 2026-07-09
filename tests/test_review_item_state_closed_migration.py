@@ -11,8 +11,8 @@ Pins plan (c) acceptance:
 4. ``status=rebutted`` is NOT collapsed to ``closed`` because it is a
    mid-cycle signal — the reviewer can still flip it back to ``resolved``
    or ``open`` (the rebutted flow stays a real two-step handshake).
-5. ``can_approve`` and ``_prior_version_reviews_fully_resolved`` accept
-   the new ``closed`` terminal in addition to legacy ``resolved``.
+5. ``_prior_version_reviews_fully_resolved`` accepts the new ``closed``
+   terminal in addition to legacy ``resolved``.
 6. Alembic 032 is reversible (downgrade restores ``resolved``).
 """
 
