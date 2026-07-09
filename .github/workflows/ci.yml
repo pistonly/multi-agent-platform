@@ -12,13 +12,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        # eng experiment (55634575) PR1: pin uv to a fixed version so
+        # local + CI + Dockerfile all agree. Bump in lockstep.
+        run: pip install "uv==0.8.14"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: Install Python dependencies
-        run: pip install -e ".[dev,mcp]"
+      - name: Sync dependencies (frozen)
+        # uv.lock is the source of truth; --frozen fails the build if
+        # pyproject changed without re-locking.
+        run: uv sync --frozen --extra dev --extra mcp
+
+      - name: Install package in editable mode
+        run: uv pip install --python "$(uv python find)" -e ".[dev,mcp]"
 
       - name: Ruff
         run: ruff check server cli sdk tests
