@@ -143,6 +143,10 @@ _FAST_GATE_MODULES = frozenset(
         # 用 CliRunner 走 --help,无 API / 无 subprocess,~25ms 全量。
         # 加 fast gate 才真能拦下 cli/main.py 偷偷涨行或 sub-app 漏注册。
         "test_compat",
+        # cleanup follow-up (c9281d86) PR1 — phase_owner ORM @validates 守卫
+        # ORM-level test,~50ms 全量;默认 pytest 必须跑才能守住
+        # silent-drift 防护。
+        "test_phase_owner_orm_validation",
     }
 )
 

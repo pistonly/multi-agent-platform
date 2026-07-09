@@ -11,6 +11,7 @@ from map_types.enums import (
     MentionSourceType,
     NotificationCategory,
     NotificationFingerprintVersion,
+    PhaseOwner,
     ResolutionReason,
     ReviewArchivedReason,
     ReviewItemKind,
@@ -35,7 +36,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from server.db.base import Base
 
@@ -219,6 +220,33 @@ class Experiment(Base):
     phase_owner: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="host", index=True
     )
+
+    @validates("phase_owner")
+    def _validate_phase_owner(self, _key: str, value: object) -> str:
+        """ORM-side guard: ``phase_owner`` must be a valid ``PhaseOwner``.
+
+        Migration 035 deliberately stores ``phase_owner`` as a plain
+        ``String(16)`` (no DB-level CHECK / enum) so the resolver + enum
+        remain the single source of truth. The trade-off is that any
+        code path that bypasses ``phase_service._sync_phase_owner`` could
+        silently write a garbage string. This validator catches such
+        drift at the ORM boundary (BEFORE the SQL flush) and raises
+        ``ValueError`` so the bad value never reaches the DB.
+
+        Allowed values come from :class:`map_types.enums.PhaseOwner` —
+        the same enum the resolver / UI rely on.
+        """
+        if isinstance(value, PhaseOwner):
+            return value.value
+        if isinstance(value, str):
+            try:
+                return PhaseOwner(value).value
+            except ValueError:
+                pass
+        raise ValueError(
+            f"Experiment.phase_owner must be a PhaseOwner member "
+            f"(host / reviewer / participant / admin); got {value!r}"
+        )
 
     # --- execution lock (per-project; CP-3) ---------------------------------
     lock_holder_experiment_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
