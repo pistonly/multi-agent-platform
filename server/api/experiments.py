@@ -103,13 +103,34 @@ def list_experiments(
     creator_agent_id: uuid.UUID | None = Query(default=None),
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=100, ge=1, le=100),
+    # cleanup experiment (f12a5638) Exp B: unified ``limit`` query param
+    # (default 50). ``page_size`` is kept as a deprecated alias for one
+    # minor version; when only ``page_size`` is sent we honour it AND
+    # surface ``Deprecation`` + ``Sunset`` response headers so clients
+    # migrate before v0.12 (where ``page_size`` will be removed).
+    limit: int | None = Query(default=None, ge=1, le=100),
+    page_size: int | None = Query(default=None, ge=1, le=100),
     include_archived: bool = Query(default=False),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentSummaryRead]:
     resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
     perm.ensure_project_access(agent, resolved_project_id)
+
+    # Resolve effective page_size: limit wins; else page_size (deprecated);
+    # else default 50.
+    if limit is not None:
+        effective_page_size = limit
+    elif page_size is not None:
+        effective_page_size = page_size
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = "v0.12"
+        response.headers["Link"] = (
+            f'<{"?limit=" + str(page_size)}>; rel="successor-version"'
+        )
+    else:
+        effective_page_size = 50
+
     experiments, total = svc.list_experiments(
         db,
         resolved_project_id,
@@ -117,7 +138,7 @@ def list_experiments(
         creator_agent_id=creator_agent_id,
         q=q,
         page=page,
-        page_size=page_size,
+        page_size=effective_page_size,
         include_archived=include_archived,
     )
     response.headers["X-Total-Count"] = str(total)
