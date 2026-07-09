@@ -143,7 +143,7 @@ def _create_persona_agent(
     response = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": name, "role": "agent", "project_key": project_key},
+        json={"name": name, "role": "agent", "project_key": project_key},
     )
     assert response.status_code == 201, response.text
     return response.json()

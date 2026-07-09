@@ -86,7 +86,7 @@ def test_complete_action_item_403_when_not_owner_or_admin(client, auth_headers, 
     outsider_resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "outsider", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "outsider", "role": "agent", "project_key": project["project_key"]},
     )
     outsider_h = {"Authorization": f"Bearer {outsider_resp.json()['api_token']}"}
 

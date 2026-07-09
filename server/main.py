@@ -24,6 +24,7 @@ from server.api.router import (
 from server.config import get_settings
 from server.db.session import init_db
 from server.services.errors import (
+    BadRequestError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
@@ -45,6 +46,7 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
         UnauthorizedError: status.HTTP_401_UNAUTHORIZED,
         ForbiddenError: status.HTTP_403_FORBIDDEN,
         ConflictError: status.HTTP_409_CONFLICT,
+        BadRequestError: status.HTTP_400_BAD_REQUEST,
         StateTransitionError: status.HTTP_422_UNPROCESSABLE_ENTITY,
     }
 

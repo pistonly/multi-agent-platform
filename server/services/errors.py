@@ -6,6 +6,17 @@ class ConflictError(Exception):
     pass
 
 
+class BadRequestError(Exception):
+    """Caller-supplied payload is well-formed (syntactically valid JSON /
+    body) but semantically rejected — e.g. a missing cross-reference, an
+    out-of-range enum value, or a field combination that does not
+    satisfy a domain precondition. Maps to HTTP 400.
+
+    Distinct from pydantic's 422 (which fires on shape-level schema
+    failures before the handler runs).
+    """
+
+
 class UnauthorizedError(Exception):
     pass
 

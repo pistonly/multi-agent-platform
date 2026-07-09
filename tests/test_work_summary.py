@@ -141,7 +141,7 @@ def test_summary_persona_filter_hides_host_only_for_participant(
     resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "summary-participant-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "summary-participant-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert resp.status_code == 201
     p_headers = {"Authorization": f"Bearer {resp.json()['api_token']}"}
@@ -275,7 +275,7 @@ def test_summary_experiments_needing_attention_by_owner_hides_host_for_participa
     resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={
+        json={
             "name": "summary-i1e-participant",
             "role": "agent",
             "project_key": project["project_key"],

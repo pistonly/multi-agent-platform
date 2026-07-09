@@ -99,14 +99,14 @@ def test_register_agent_requires_project(client, admin_headers, project):
     missing = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "no-project-agent", "role": "agent"},
+        json={"name": "no-project-agent", "role": "agent"},
     )
     assert missing.status_code == 400
 
     ok = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "bound-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "bound-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert ok.status_code == 201
     assert ok.json()["project_id"] == project["id"]

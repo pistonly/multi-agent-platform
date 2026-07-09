@@ -8,7 +8,7 @@ def test_topic_comment_notifies_host_and_broadcasts(
     third = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "third-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "third-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert third.status_code == 201
     third_headers = {"Authorization": f"Bearer {third.json()['api_token']}"}

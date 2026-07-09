@@ -7,7 +7,7 @@ def _create_agent(client, admin_headers, project, name: str) -> tuple[str, str]:
     response = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": name, "role": "agent", "project_key": project["project_key"]},
+        json={"name": name, "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201, response.text
     data = response.json()

@@ -77,7 +77,7 @@ def _seed_threaded_app(tmp_path: Path) -> tuple[TestClient, Any]:
 
 
 def _make_admin(client: TestClient) -> tuple[str, str]:
-    res = client.post("/api/v1/agents", params={"name": "admin-a2", "role": "admin"})
+    res = client.post("/api/v1/agents", json={"name": "admin-a2", "role": "admin"})
     assert res.status_code == 201, res.text
     data = res.json()
     return data["id"], data["api_token"]
@@ -107,7 +107,7 @@ def _make_agent(
     res = client.post(
         "/api/v1/agents",
         headers=headers,
-        params={"name": name, "role": "agent", "project_key": project["project_key"]},
+        json={"name": name, "role": "agent", "project_key": project["project_key"]},
     )
     assert res.status_code == 201, res.text
     data = res.json()

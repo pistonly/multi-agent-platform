@@ -62,7 +62,7 @@ def test_sdk_full_lifecycle(map_client: MAPClient, client: TestClient, project: 
     reviewer = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "sdk-reviewer", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "sdk-reviewer", "role": "agent", "project_key": project["project_key"]},
     ).json()
     reviewer_client = MAPClient(
         "http://test",
@@ -203,7 +203,7 @@ def test_sdk_notifications(map_client: MAPClient, client: TestClient, project: d
     reviewer = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "sdk-notify-reviewer", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "sdk-notify-reviewer", "role": "agent", "project_key": project["project_key"]},
     ).json()
     reviewer_client = MAPClient(
         "http://test",

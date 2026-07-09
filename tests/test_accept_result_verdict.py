@@ -543,7 +543,7 @@ def test_authorization_item_id_from_different_review_rejected(
     reviewer_agent = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "reviewer-2nd", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "reviewer-2nd", "role": "agent", "project_key": project["project_key"]},
     ).json()
     rev2_headers = {"Authorization": f"Bearer {reviewer_agent['api_token']}"}
     review_2 = client.post(

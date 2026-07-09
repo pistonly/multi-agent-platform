@@ -400,7 +400,7 @@ def test_non_admin_creator_does_not_receive_stale_notification(
     other_owner_resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "other-owner", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "other-owner", "role": "agent", "project_key": project["project_key"]},
     )
     assert other_owner_resp.status_code == 201
     other_owner_id = uuid.UUID(other_owner_resp.json()["id"])

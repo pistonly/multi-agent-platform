@@ -44,21 +44,21 @@ def test_get_agent_by_token_legacy_empty_prefix(db_session):
 
 
 def test_bootstrap_first_admin(client):
-    response = client.post("/api/v1/agents", params={"name": "bootstrap-admin", "role": "admin"})
+    response = client.post("/api/v1/agents", json={"name": "bootstrap-admin", "role": "admin"})
     assert response.status_code == 201
     assert response.json()["role"] == "admin"
     assert "api_token" in response.json()
 
 
 def test_bootstrap_rejects_non_admin(client):
-    response = client.post("/api/v1/agents", params={"name": "bootstrap-agent", "role": "agent"})
+    response = client.post("/api/v1/agents", json={"name": "bootstrap-agent", "role": "agent"})
     assert response.status_code == 403
 
 
 def test_register_requires_auth_after_bootstrap(client, admin_headers):
     response = client.post(
         "/api/v1/agents",
-        params={"name": "unauth-agent", "role": "agent", "project_key": "missing"},
+        json={"name": "unauth-agent", "role": "agent", "project_key": "missing"},
     )
     assert response.status_code == 401
 
@@ -67,7 +67,7 @@ def test_register_requires_admin(client, auth_headers, project):
     response = client.post(
         "/api/v1/agents",
         headers=auth_headers,
-        params={"name": "blocked-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "blocked-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 403
 
@@ -76,7 +76,7 @@ def test_admin_can_register_agent(client, admin_headers, project):
     response = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "admin-created-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "admin-created-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201
     assert response.json()["project_id"] == project["id"]

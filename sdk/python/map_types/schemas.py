@@ -546,6 +546,23 @@ class AgentCreateResponse(AgentRead):
     api_token: str
 
 
+class AgentCreate(BaseModel):
+    """Body for ``POST /api/v1/agents`` (cleanup experiment f12a5638 P2 #5).
+
+    Replaces the legacy query-param creation contract so the endpoint
+    follows the same body-driven pattern as every other write endpoint
+    in the API. ``project_id`` and ``project_key`` are both accepted for
+    caller convenience — at most one must resolve to a project for
+    ``role=agent`` (admin-only). When both are omitted the service layer
+    raises ``ValueError`` which maps to 400.
+    """
+
+    name: str = Field(min_length=1, max_length=128)
+    role: AgentRole = AgentRole.agent
+    project_id: uuid.UUID | None = None
+    project_key: str | None = None
+
+
 # --- Topic ---
 
 

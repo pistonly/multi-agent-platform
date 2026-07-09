@@ -264,7 +264,7 @@ def client(db_session):
 
 @pytest.fixture
 def admin_token(client: TestClient) -> tuple[str, str]:
-    response = client.post("/api/v1/agents", params={"name": "admin-agent", "role": "admin"})
+    response = client.post("/api/v1/agents", json={"name": "admin-agent", "role": "admin"})
     assert response.status_code == 201
     data = response.json()
     return data["id"], data["api_token"]
@@ -297,7 +297,7 @@ def agent_token(client: TestClient, project: dict, admin_headers: dict[str, str]
     response = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "test-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "test-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201
     data = response.json()
@@ -316,7 +316,7 @@ def reviewer(client: TestClient, project: dict, admin_headers: dict[str, str]) -
     response = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={"name": "reviewer-agent", "role": "agent", "project_key": project["project_key"]},
+        json={"name": "reviewer-agent", "role": "agent", "project_key": project["project_key"]},
     )
     assert response.status_code == 201
     data = response.json()
