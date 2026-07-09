@@ -139,6 +139,10 @@ _FAST_GATE_MODULES = frozenset(
         # eng experiment (55634575) PR9 — 白名单自身一致性守卫
         # (测试模块名集合 == _FAST_GATE_MODULES 集合)
         "test_eng_fast_gate_whitelist_complete",
+        # arch experiment (0519e2a3) PR8 — CLI surface snapshot 守卫
+        # 用 CliRunner 走 --help,无 API / 无 subprocess,~25ms 全量。
+        # 加 fast gate 才真能拦下 cli/main.py 偷偷涨行或 sub-app 漏注册。
+        "test_compat",
     }
 )
 
