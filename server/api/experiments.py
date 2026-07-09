@@ -52,6 +52,7 @@ from server.services import (
 )
 from server.services import permissions as perm
 from server.services import project_service as svc
+from server.auth import experiment_access
 from server.services.errors import ForbiddenError
 from server.services.experiment_capabilities_service import experiment_summary_for_actor
 from server.services.template_service import validate_result_submission_template
@@ -704,6 +705,10 @@ def acquire_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
+    # authz (0e6926fa) PR1: two-gate guard (404 then 403) — must run
+    # before any state mutation. Order is load-bearing: a 404 must not
+    # be leaked as 403 (or vice versa) for cross-project probes.
+    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
     result = lock_service.acquire_experiment_lock(
         db,
         experiment_id,
@@ -722,6 +727,7 @@ def release_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
+    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
     result = lock_service.release_experiment_lock(db, experiment_id, agent)
     return ExperimentLockRead.model_validate(result)
 
@@ -736,6 +742,7 @@ def force_release_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
+    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
     result = lock_service.force_release_experiment_lock(
         db,
         experiment_id,
@@ -755,6 +762,7 @@ def record_experiment_lock_skip_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
+    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
     result = lock_service.record_experiment_lock_skip(
         db,
         experiment_id,
