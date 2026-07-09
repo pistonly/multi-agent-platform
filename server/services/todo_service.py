@@ -1,5 +1,6 @@
+import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -31,6 +32,7 @@ from server.domain.schemas import (
 )
 from server.services import mention_service, topic_ack_service
 from server.services import permissions as perm
+from server.services.review_service import _prior_version_reviews_fully_resolved
 from server.services.topic_service import topic_summaries_for_topics
 
 if TYPE_CHECKING:
@@ -184,35 +186,63 @@ def list_stale_open_topics(
     return rows
 
 
+# Sentinel for "caller did not pass a latest_log_summary"; lets callers
+# pre-compute None (no log yet) without us re-querying to re-discover it.
+_MISSING: object = object()
+
+
 def _experiment_summary_with_open_unreasonable(
     db: Session,
     experiment: Experiment,
     agent: Agent,
+    *,
+    log_count: int | None = None,
+    latest_log_summary: str | None | object = _MISSING,
+    open_unreasonable_count: int | None = None,
 ) -> ExperimentSummaryRead:
+    """Build an :class:`ExperimentSummaryRead` with ``open_unreasonable_count``
+    and ``log_count``/``latest_log_summary`` filled in.
+
+    Three of the per-experiment scalars (``log_count``, latest log summary,
+    open-unreasonable count) are unconditionally read by every
+    :func:`get_todos` call. Callers that loop over many experiments
+    should pre-compute them once via the batch helpers in
+    ``log_service`` / ``review_service`` and pass them through here so
+    the per-experiment path issues zero extra SELECTs.
+
+    The sentinel ``_MISSING`` lets callers distinguish "no log yet" (None)
+    from "we never asked" (sentinel) — both produce the right
+    ``extra_updates`` semantics downstream.
+    """
     from server.services.experiment_capabilities_service import experiment_summary_for_actor
     from server.services.log_service import get_latest_log
     from server.services.review_service import count_open_unreasonable_for_experiment
 
-    log_count = (
-        db.scalar(
-            select(func.count())
-            .select_from(ExperimentLog)
-            .where(ExperimentLog.experiment_id == experiment.id)
+    if log_count is None:
+        log_count = (
+            db.scalar(
+                select(func.count())
+                .select_from(ExperimentLog)
+                .where(ExperimentLog.experiment_id == experiment.id)
+            )
+            or 0
         )
-        or 0
-    )
-    latest = get_latest_log(db, experiment.id)
+    if latest_log_summary is _MISSING:
+        latest = get_latest_log(db, experiment.id)
+        latest_log_summary = latest.summary if latest else None
+    if open_unreasonable_count is None:
+        open_unreasonable_count = count_open_unreasonable_for_experiment(
+            db, experiment.id
+        )
 
     return experiment_summary_for_actor(
         db,
         experiment,
         agent,
         extra_updates={
-            "open_unreasonable_count": count_open_unreasonable_for_experiment(
-                db, experiment.id
-            ),
+            "open_unreasonable_count": open_unreasonable_count,
             "log_count": log_count,
-            "latest_log_summary": latest.summary if latest else None,
+            "latest_log_summary": latest_log_summary,
         },
     )
 
@@ -257,9 +287,14 @@ def get_todos(
     bundle: "AgentTopicWorkItems | None" = None,
     include_all_partitions: bool = False,
 ) -> TodoRead:
-    my_open_experiments = [
-        _experiment_summary_with_open_unreasonable(db, e, agent)
-        for e in db.scalars(
+    from server.services.log_service import (
+        latest_log_by_experiment,
+        log_counts_by_experiment,
+    )
+    from server.services.review_service import open_unreasonable_count_by_experiment
+
+    my_open_experiments_rows = list(
+        db.scalars(
             select(Experiment)
             .where(
                 Experiment.creator_agent_id == agent.id,
@@ -269,7 +304,7 @@ def get_todos(
             )
             .order_by(Experiment.updated_at.desc())
         )
-    ]
+    )
 
     open_topics = list(
         db.scalars(
@@ -312,17 +347,10 @@ def get_todos(
     if project_clause is not None:
         review_stmt = review_stmt.where(project_clause)
 
-    from server.services.experiment_capabilities_service import experiment_summary_for_actor
-    from server.services.review_service import _prior_version_reviews_fully_resolved
-
-    # Carve-out: when every unreasonable item from prior plan-version reviews
-    # has been resolved, the reviewer's obligation is complete and the creator
-    # may approve without a fresh current-version review (mirrors
-    # assert_approve_eligibility). Such experiments must not linger in this
-    # reviewer's pending_reviews, or the waker wake-loops until the host acts.
-    pending_reviews = [
-        experiment_summary_for_actor(db, exp, agent)
-        for exp in db.scalars(review_stmt)
+    pending_reviews_rows = list(db.scalars(review_stmt))
+    pending_reviews_eligible = [
+        exp
+        for exp in pending_reviews_rows
         if not _prior_version_reviews_fully_resolved(db, exp)
     ]
 
@@ -338,9 +366,50 @@ def get_todos(
     if project_clause is not None:
         result_review_stmt = result_review_stmt.where(project_clause)
 
+    pending_result_reviews_rows = list(db.scalars(result_review_stmt))
+
+    # Pre-compute log_count / latest_log_summary / open_unreasonable_count
+    # for ALL experiments touched by the three summary loops below. Without
+    # this the per-experiment path issues 3 SELECTs each (executed
+    # redundantly inside experiment_summary_for_actor and the wrapper),
+    # so a 5-experiment get_todos call used to spend ~15 wasted SELECTs.
+    all_experiment_ids: list[uuid.UUID] = [
+        e.id for e in my_open_experiments_rows
+    ] + [e.id for e in pending_reviews_eligible] + [
+        e.id for e in pending_result_reviews_rows
+    ]
+    batch_log_counts = log_counts_by_experiment(db, all_experiment_ids)
+    batch_latest_logs = latest_log_by_experiment(db, all_experiment_ids)
+    batch_open_unreasonable = open_unreasonable_count_by_experiment(
+        db, all_experiment_ids
+    )
+
+    def _bulk_kwargs(exp: Experiment) -> dict[str, Any]:
+        latest = batch_latest_logs.get(exp.id)
+        return {
+            "log_count": batch_log_counts.get(exp.id, 0),
+            "latest_log_summary": latest.summary if latest else None,
+            "open_unreasonable_count": batch_open_unreasonable.get(exp.id, 0),
+        }
+
+    my_open_experiments = [
+        _experiment_summary_with_open_unreasonable(db, e, agent, **_bulk_kwargs(e))
+        for e in my_open_experiments_rows
+    ]
+
+    # Carve-out: when every unreasonable item from prior plan-version reviews
+    # has been resolved, the reviewer's obligation is complete and the creator
+    # may approve without a fresh current-version review (mirrors
+    # assert_approve_eligibility). Such experiments must not linger in this
+    # reviewer's pending_reviews, or the waker wake-loops until the host acts.
+    pending_reviews = [
+        _experiment_summary_with_open_unreasonable(db, exp, agent, **_bulk_kwargs(exp))
+        for exp in pending_reviews_eligible
+    ]
+
     pending_result_reviews = [
-        experiment_summary_for_actor(db, exp, agent)
-        for exp in db.scalars(result_review_stmt)
+        _experiment_summary_with_open_unreasonable(db, exp, agent, **_bulk_kwargs(exp))
+        for exp in pending_result_reviews_rows
     ]
 
     reply_stmt = (

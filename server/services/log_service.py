@@ -145,3 +145,58 @@ def get_latest_log(db: Session, experiment_id: uuid.UUID) -> ExperimentLog | Non
         .limit(1)
     )
     return db.scalar(stmt)
+
+
+def log_counts_by_experiment(
+    db: Session, experiment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """Per-experiment ExperimentLog row counts in a single GROUP BY query.
+
+    Returns a dict keyed by experiment_id. Experiments with no logs map
+    to 0 (caller can safely ``counts[eid]`` without ``.get``). Empty
+    input → empty dict without hitting the database.
+    """
+    if not experiment_ids:
+        return {}
+    stmt = (
+        select(ExperimentLog.experiment_id, func.count())
+        .where(ExperimentLog.experiment_id.in_(experiment_ids))
+        .group_by(ExperimentLog.experiment_id)
+    )
+    found = {eid: int(count) for eid, count in db.execute(stmt).all()}
+    # Fill in zeros for experiments that have no logs so the caller can
+    # index by experiment_id without a defensive ``.get``/``default``.
+    return {eid: found.get(eid, 0) for eid in experiment_ids}
+
+
+def latest_log_by_experiment(
+    db: Session, experiment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, ExperimentLog]:
+    """Latest ExperimentLog per experiment in a single window/join query.
+
+    Returns a dict keyed by experiment_id. Experiments with no logs are
+    absent from the dict (``latest.get(eid) is None``). Empty input →
+    empty dict without hitting the database.
+    """
+    if not experiment_ids:
+        return {}
+    # Max + self-join pattern. (experiment_id, log_index) is not UNIQUE
+    # in the schema, but ``append_log`` always allocates via max+1, so
+    # in practice the max row is unique. GROUP BY gives one row per
+    # experiment with the top log_index; the join back returns the
+    # full ExperimentLog rows.
+    max_idx_subq = (
+        select(
+            ExperimentLog.experiment_id.label("eid"),
+            func.max(ExperimentLog.log_index).label("max_idx"),
+        )
+        .where(ExperimentLog.experiment_id.in_(experiment_ids))
+        .group_by(ExperimentLog.experiment_id)
+        .subquery()
+    )
+    stmt = select(ExperimentLog).join(
+        max_idx_subq,
+        (ExperimentLog.experiment_id == max_idx_subq.c.eid)
+        & (ExperimentLog.log_index == max_idx_subq.c.max_idx),
+    )
+    return {log.experiment_id: log for log in db.scalars(stmt)}

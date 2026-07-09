@@ -105,6 +105,42 @@ def count_open_unreasonable_for_experiment(db: Session, experiment_id: uuid.UUID
     return db.scalar(stmt) or 0
 
 
+def open_unreasonable_count_by_experiment(
+    db: Session, experiment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """Per-experiment count of open unreasonable review items in one GROUP BY.
+
+    Items counted: ``status in (open, addressed, rebutted, escalated)`` —
+    mirrors :func:`count_open_unreasonable_for_experiment`. Returns a dict
+    keyed by experiment_id; experiments with no open items map to 0.
+    Empty input → empty dict without hitting the database.
+    """
+    if not experiment_ids:
+        return {}
+    stmt = (
+        select(Review.experiment_id, func.count())
+        .join(ReviewItem, ReviewItem.review_id == Review.id)
+        .where(
+            Review.experiment_id.in_(experiment_ids),
+            Review.archived_at.is_(None),
+            ReviewItem.kind == ReviewItemKind.unreasonable,
+            ReviewItem.status.in_(
+                (
+                    ReviewItemStatus.open,
+                    ReviewItemStatus.addressed,
+                    ReviewItemStatus.rebutted,
+                    ReviewItemStatus.escalated,
+                )
+            ),
+        )
+        .group_by(Review.experiment_id)
+    )
+    found = {eid: int(count) for eid, count in db.execute(stmt).all()}
+    # Fill in zeros for experiments with no open unreasonable items so the
+    # caller can index by experiment_id without a defensive ``.get``.
+    return {eid: found.get(eid, 0) for eid in experiment_ids}
+
+
 def has_review_on_older_plan_version(db: Session, experiment) -> bool:
     """True when plan was revised after at least one review on a prior version."""
     stmt = (

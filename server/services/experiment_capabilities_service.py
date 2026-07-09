@@ -211,32 +211,45 @@ def experiment_summary_for_actor(
         db, experiment, actor, phase_whitelist=phase_whitelist
     )
     legacy = compute_legacy_self_review(db, experiment)
-    log_count = (
-        db.scalar(
-            select(func.count())
-            .select_from(ExperimentLog)
-            .where(ExperimentLog.experiment_id == experiment.id)
+    # log_count / latest_log_summary: skip the per-experiment SELECTs
+    # when extra_updates already provides them — looping callers (e.g.
+    # get_todos over many experiments) pre-compute via the bulk helpers
+    # in log_service to drop the N+1.
+    has_log_count = extra_updates is not None and "log_count" in extra_updates
+    has_latest_summary = (
+        extra_updates is not None and "latest_log_summary" in extra_updates
+    )
+    if has_log_count:
+        log_count: int = extra_updates["log_count"]
+    else:
+        log_count = (
+            db.scalar(
+                select(func.count())
+                .select_from(ExperimentLog)
+                .where(ExperimentLog.experiment_id == experiment.id)
+            )
+            or 0
         )
-        or 0
-    )
-    latest_log = get_latest_log(db, experiment.id)
-    phase_owner = owner_for(experiment.phase)
-    informational_only = is_informational_only(
-        experiment.phase, actions=actions, blocked_on=blocked_on
-    )
-    hidden_for_current_persona = (
-        actions == []
-        and blocked_on == HIDDEN_FOR_CURRENT_PERSONA
-    )
+    if has_latest_summary:
+        latest_log_summary: str | None = extra_updates["latest_log_summary"]
+    else:
+        latest_log = get_latest_log(db, experiment.id)
+        latest_log_summary = latest_log.summary if latest_log else None
+
     update: dict[str, Any] = {
         "actions": actions,
         "blocked_on": blocked_on,
         "legacy_self_review": legacy,
         "log_count": log_count,
-        "latest_log_summary": latest_log.summary if latest_log else None,
-        "phase_owner": phase_owner,
-        "informational_only": informational_only,
-        "hidden_for_current_persona": hidden_for_current_persona,
+        "latest_log_summary": latest_log_summary,
+        "phase_owner": owner_for(experiment.phase),
+        "informational_only": is_informational_only(
+            experiment.phase, actions=actions, blocked_on=blocked_on
+        ),
+        "hidden_for_current_persona": (
+            actions == []
+            and blocked_on == HIDDEN_FOR_CURRENT_PERSONA
+        ),
     }
     if extra_updates:
         update.update(extra_updates)
