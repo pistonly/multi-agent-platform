@@ -7,38 +7,15 @@ from map_client.plan_evidence import (
     parse_plan_evidence_keys,
 )
 
-EVIDENCE_METADATA_KEYS: frozenset[str] = frozenset(
-    {
-        "alembic_revision",
-        "alembic_current",
-        "api_health",
-        "health",
-        "smoke",
-        "smoke_result",
-        "pytest_summary",
-        "test_summary",
-        "image_digest",
-        "acceptance",
-    }
+# arch experiment (0519e2a3) PR2: ``EVIDENCE_METADATA_KEYS`` and
+# ``metadata_has_completion_evidence`` moved to ``map_sdk.evidence``.
+# Keep them re-exported from here so existing server-side imports
+# keep working without churning every call site in this PR. CLI
+# switched to ``from map_sdk.evidence import ...`` already.
+from map_sdk.evidence import (  # noqa: E402, F401
+    EVIDENCE_METADATA_KEYS,
+    metadata_has_completion_evidence,
 )
-
-
-def metadata_has_completion_evidence(metadata: object) -> bool:
-    if not isinstance(metadata, dict):
-        return False
-    if metadata.get("allow_missing_evidence") is True:
-        return True
-    if any(
-        key in metadata and metadata[key] not in (None, "", [], {})
-        for key in EVIDENCE_METADATA_KEYS
-    ):
-        return True
-    evidence = metadata.get("evidence")
-    if isinstance(evidence, dict):
-        return any(value not in (None, "", [], {}) for value in evidence.values())
-    if isinstance(evidence, list):
-        return bool(evidence)
-    return False
 
 
 # --- 8ac93d4e I1.b — plan evidence_keys soft validation ---------------------

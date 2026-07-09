@@ -1,10 +1,17 @@
 """map_sdk — shared, server-agnostic utilities for CLI + SDK.
 
-arch experiment (0519e2a3) PR1: skeleton. Later PRs move shared
-helpers here (see plan: ``metadata_has_completion_evidence`` etc.).
+arch experiment (0519e2a3) PR1: skeleton. PR2 added ``map_sdk.evidence``
+with ``metadata_has_completion_evidence`` + ``EVIDENCE_METADATA_KEYS``
+moved out of ``server.services.evidence_service``.
+
 Hard boundary: this package MUST NOT import from ``server.*``. CI
 asserts that via grep + unit test.
 """
+
+from map_sdk.evidence import (
+    EVIDENCE_METADATA_KEYS,
+    metadata_has_completion_evidence,
+)
 
 __version__ = "0.1.0"
 
@@ -14,4 +21,9 @@ def hello() -> str:
     return "map_sdk ok"
 
 
-__all__ = ["__version__", "hello"]
+__all__ = [
+    "__version__",
+    "hello",
+    "EVIDENCE_METADATA_KEYS",
+    "metadata_has_completion_evidence",
+]

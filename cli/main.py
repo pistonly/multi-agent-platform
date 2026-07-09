@@ -32,7 +32,7 @@ from server.domain.schemas import (
     TopicAdvanceRound,
     TopicResolve,
 )
-from server.services.phase_service import (
+from map_sdk.evidence import (
     EVIDENCE_METADATA_KEYS,
     metadata_has_completion_evidence,
 )
