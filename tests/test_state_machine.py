@@ -4,7 +4,6 @@ from server.domain.models import ExperimentPhase, ReviewItem, ReviewItemKind, Re
 from server.domain.state_machine import (
     ReviewItemTransitionContext,
     StateMachineError,
-    can_approve,
     count_open_unreasonable,
     validate_phase_transition,
     validate_review_item_transition,
@@ -34,17 +33,6 @@ def test_review_item_transitions():
         ReviewItemStatus.resolved,
         ctx_reviewer,
     )
-
-
-def test_can_approve():
-    assert can_approve(ExperimentPhase.review, [])
-    items = [
-        _item(ReviewItemStatus.resolved),
-        _item(ReviewItemStatus.withdrawn),
-    ]
-    assert can_approve(ExperimentPhase.review, items)
-    assert not can_approve(ExperimentPhase.review, [_item(ReviewItemStatus.open)])
-    assert not can_approve(ExperimentPhase.draft, [])
 
 
 def test_count_open_unreasonable():

@@ -18,25 +18,6 @@ class ReviewItemTransitionContext:
     via_plan_revision: bool = False
 
 
-def can_approve(phase: ExperimentPhase, unreasonable_items: list[ReviewItem]) -> bool:
-    if phase != ExperimentPhase.review:
-        return False
-    if not unreasonable_items:
-        return True
-    # I1(c): ``closed`` is the new single terminal; legacy rows still carrying
-    # ``resolved`` / ``withdrawn`` are accepted for backward compatibility.
-    return all(
-        item.status
-        in (
-            ReviewItemStatus.closed,
-            ReviewItemStatus.resolved,
-            ReviewItemStatus.withdrawn,
-        )
-        for item in unreasonable_items
-        if item.status is not None
-    )
-
-
 def validate_phase_transition(current: ExperimentPhase, target: ExperimentPhase) -> None:
     allowed: dict[ExperimentPhase, set[ExperimentPhase]] = {
         ExperimentPhase.draft: {ExperimentPhase.review, ExperimentPhase.cancelled},

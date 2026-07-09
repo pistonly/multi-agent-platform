@@ -26,10 +26,8 @@ from sqlalchemy import create_engine, inspect
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from server.domain.models import ReviewItem, ReviewItemKind
 from server.domain.state_machine import (
     ReviewItemTransitionContext,
-    can_approve,
     validate_review_item_transition,
 )
 
@@ -195,56 +193,6 @@ def test_state_machine_transition_table_keeps_legacy_paths():
         ReviewItemStatus.resolved,
         ctx_reviewer,
     )
-
-
-def test_can_approve_accepts_closed_terminal():
-    """``can_approve`` recognises the new ``closed`` terminal in addition to
-    the legacy ``resolved`` / ``withdrawn`` values."""
-    items = [
-        ReviewItem(
-            id=uuid.uuid4(),
-            review_id=uuid.uuid4(),
-            kind=ReviewItemKind.unreasonable,
-            content="x",
-            status=ReviewItemStatus.closed,
-            last_resolution_reason=ResolutionReason.resolved,
-        ),
-        ReviewItem(
-            id=uuid.uuid4(),
-            review_id=uuid.uuid4(),
-            kind=ReviewItemKind.unreasonable,
-            content="x",
-            status=ReviewItemStatus.closed,
-            last_resolution_reason=ResolutionReason.superseded,
-        ),
-    ]
-    from server.domain.models import ExperimentPhase
-
-    assert can_approve(ExperimentPhase.review, items)
-
-
-def test_can_approve_still_rejects_open_items():
-    """A single ``open`` item still blocks approval."""
-    from server.domain.models import ExperimentPhase
-
-    items = [
-        ReviewItem(
-            id=uuid.uuid4(),
-            review_id=uuid.uuid4(),
-            kind=ReviewItemKind.unreasonable,
-            content="x",
-            status=ReviewItemStatus.closed,
-            last_resolution_reason=ResolutionReason.resolved,
-        ),
-        ReviewItem(
-            id=uuid.uuid4(),
-            review_id=uuid.uuid4(),
-            kind=ReviewItemKind.unreasonable,
-            content="x",
-            status=ReviewItemStatus.open,
-        ),
-    ]
-    assert not can_approve(ExperimentPhase.review, items)
 
 
 def test_resolution_reason_enum_exposes_documented_values():
