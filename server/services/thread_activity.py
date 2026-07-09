@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Comment, Mention, MentionSourceType, Topic, TopicComment
@@ -16,7 +16,7 @@ def topic_comment_sort_key(comment: TopicComment) -> tuple:
     return (comment.created_at, comment.comment_seq, comment.id)
 
 
-def topic_comment_order_clauses():
+def topic_comment_order_clauses() -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
     """SQLAlchemy ORDER BY for topic comments (ascending)."""
     return (
         TopicComment.created_at.asc(),
@@ -25,7 +25,7 @@ def topic_comment_order_clauses():
     )
 
 
-def topic_comment_order_clauses_desc():
+def topic_comment_order_clauses_desc() -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
     """SQLAlchemy ORDER BY for topic comments (descending / latest first)."""
     return (
         TopicComment.created_at.desc(),

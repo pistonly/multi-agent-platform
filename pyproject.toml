@@ -126,6 +126,7 @@ module = [
     "server.services.experiment_capabilities_service",
     "server.services.mention_service",
     "server.services.todo_service",
+    "server.services.topic_comment_service",
 ]
 strict = true
 
