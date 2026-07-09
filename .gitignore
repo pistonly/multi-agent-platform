@@ -75,6 +75,14 @@ htmlcov/
 .map/generated-plans/
 !.map/generated-plans/phase1-p95-baseline.json
 !.map/generated-plans/phase2-p95-baseline.json
+# Host session workflow 草稿（详见 CLAUDE.md §"硬性规则"）
+# 命名约定：ack-receipt / plan / reply / round{N} / summary / resolve
+.map/ack-receipt-*.md
+.map/plan-*.md
+.map/reply-*.md
+.map/round*-*.md
+.map/summary-*.md
+.map/resolve-*.yaml
 
 # Local data
 data/
