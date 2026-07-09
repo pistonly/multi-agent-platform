@@ -105,6 +105,86 @@ def test_creator_blocked_after_plan_revise_without_rereview(
     assert pending["actions"] == ["review_add"]
 
 
+def test_prior_version_resolved_unblocks_creator_and_clears_pending_review(
+    client, auth_headers, reviewer, project
+):
+    """Feedback 6eaa4700: when a reviewer resolves every unreasonable item
+    they raised on a prior plan version, the creator may approve without a
+    fresh current-version review, and the experiment must leave the
+    reviewer's pending_reviews (else the waker wake-loops until the host
+    acts). Mirrors assert_approve_eligibility's carve-out."""
+    valid_plan = (
+        "---\n"
+        "title: t\n"
+        "acceptance:\n"
+        "  - a\n"
+        "evidence_keys:\n"
+        "  - e\n"
+        "dependencies:\n"
+        "  - d\n"
+        "---\n"
+        "## body\n"
+    )
+    exp = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "prior-resolved",
+            "plan": {"content_md": valid_plan},
+            "submit_for_review": True,
+        },
+    )
+    assert exp.status_code == 201, exp.text
+    exp_id = exp.json()["id"]
+
+    review = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"unreasonable_items": ["missing detail"]},
+    )
+    assert review.status_code == 201, review.text
+    item_id = review.json()["items"][0]["id"]
+
+    # open -> rebutted (creator) -> resolved/closed (reviewer): the legal
+    # path to a fully-resolved unreasonable item (open -> resolved is rejected
+    # by the state machine).
+    rebuted = client.patch(
+        f"/api/v1/review-items/{item_id}",
+        headers=auth_headers,
+        json={"status": "rebutted"},
+    )
+    assert rebuted.status_code == 200, rebuted.text
+    resolved = client.patch(
+        f"/api/v1/review-items/{item_id}",
+        headers=reviewer["headers"],
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200, resolved.text
+
+    revise = client.post(
+        f"/api/v1/experiments/{exp_id}/plans",
+        headers=auth_headers,
+        json={
+            "content_md": valid_plan.replace("title: t", "title: t-v2"),
+            "change_note": "address feedback",
+        },
+    )
+    assert revise.status_code == 201, revise.text
+
+    # Creator capabilities: prior unreasonable fully resolved → may approve
+    # without a fresh current-version review.
+    detail = client.get(f"/api/v1/experiments/{exp_id}", headers=auth_headers).json()
+    assert detail["current_plan_version"] == 2
+    assert detail["blocked_on"] == "none"
+    assert "approve" in detail["actions"]
+
+    # Reviewer pending_reviews must NOT list it — obligation complete.
+    reviewer_todos = client.get(
+        "/api/v1/agents/me/todos", headers=reviewer["headers"]
+    ).json()
+    assert not any(e["id"] == exp_id for e in reviewer_todos["pending_reviews"])
+
+
 def test_same_content_plan_revise_noops_after_clean_review(
     client, auth_headers, reviewer, project
 ):

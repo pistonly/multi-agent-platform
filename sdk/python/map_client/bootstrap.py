@@ -54,7 +54,7 @@ def _slug(value: str) -> str:
     return slug or "project"
 
 
-def _admin_client(api_url: str, *, transport: Any = None) -> MAPClient:
+def admin_client(api_url: str, *, transport: Any = None) -> MAPClient:
     token = os.environ.get("MAP_ADMIN_TOKEN")
     admin_file = Path.home() / ".map" / "admin.yaml"
     if not token and admin_file.is_file():
@@ -62,7 +62,7 @@ def _admin_client(api_url: str, *, transport: Any = None) -> MAPClient:
         token = data.get("token") or data.get("api_token")
     if not token:
         raise ValueError(
-            "Admin token required for bootstrap. Set MAP_ADMIN_TOKEN or ~/.map/admin.yaml with token: ..."
+            "Admin token required. Set MAP_ADMIN_TOKEN or create ~/.map/admin.yaml with token: <value>"
         )
     return MAPClient(api_url.rstrip("/"), str(token), transport=transport)
 
@@ -112,7 +112,7 @@ def bootstrap_project_map(
         )
 
     resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:8000").rstrip("/")
-    admin = _admin_client(resolved_api_url, transport=transport)
+    admin = admin_client(resolved_api_url, transport=transport)
 
     try:
         project = admin.create_project(

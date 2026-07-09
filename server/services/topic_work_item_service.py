@@ -111,6 +111,14 @@ def _pending_reply_items(
     for comment in comments:
         if comment.author_agent_id == agent.id:
             continue
+        # ack / round-summary protocol signals are system comments, not
+        # conversational threads the host must reply to (compare
+        # _unread_change_items, which already skips system comments).
+        # They drive the dedicated round_ack / pending_advance_rounds
+        # work items; counting them as pending_reply too leaves a stale
+        # host obligation after every participant ack.
+        if comment.kind == TopicCommentKind.system:
+            continue
         root = thread_root_id(comment.id, by_id)
         if _host_replied_after(comment, host_comment_ids, by_id, comment_order=comment_order):
             continue

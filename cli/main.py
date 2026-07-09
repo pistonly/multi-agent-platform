@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import typer
 import yaml
-from map_client.bootstrap import bootstrap_project_map
+from map_client.bootstrap import admin_client, bootstrap_project_map
 from map_client.client import MAPClient
 from map_client.exceptions import MAPConflictError, MAPHTTPError, MAPNotFoundError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
@@ -267,6 +267,52 @@ def _client_ctx() -> Iterator[MAPClient]:
             project_root=_cli_options.get("project_root"),
             transport=_transport,
         )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+def _resolve_admin_api_url() -> str:
+    """Resolve the API URL for admin-only commands.
+
+    Admin commands (audit / feedback triage) authenticate with an admin
+    token, not a project persona token, so resolution must not depend on
+    ``agents.local.yaml``. Prefer the project ``.map/config.yaml``; fall
+    back to ``MAP_API_URL`` so admin commands also work outside a
+    bootstrapped project.
+    """
+    project_root = _cli_options.get("project_root")
+    try:
+        return load_project_map_config(project_root=project_root).api_url
+    except ValueError:
+        pass
+    api_url = os.environ.get("MAP_API_URL")
+    if not api_url:
+        raise ValueError(
+            "No MAP API URL found for admin command. Set --project-root to a repo "
+            "with .map/config.yaml, or set the MAP_API_URL env var."
+        )
+    return api_url.rstrip("/")
+
+
+@contextmanager
+def _admin_client_ctx() -> Iterator[MAPClient]:
+    """Yield a MAPClient authenticated with the admin token.
+
+    Token source: ``MAP_ADMIN_TOKEN`` env, then ``~/.map/admin.yaml``
+    (via ``map_client.bootstrap.admin_client``). Mirrors ``_client_ctx``:
+    token/api_url resolution failures become a clean ``typer.Exit(1)``
+    rather than a propagated ``ValueError``, so callers (``_run`` with
+    ``admin=True`` and ``audit_list``'s inline handler) behave exactly
+    like the persona path.
+    """
+    try:
+        api_url = _resolve_admin_api_url()
+        client = admin_client(api_url, transport=_transport)
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -739,6 +785,7 @@ def _run(
     detect_deprecated: bool = False,
     experiment_id: uuid.UUID | None = None,
     output_format: str | None = None,
+    admin: bool = False,
 ) -> None:
     """Run an SDK action with MAP-aware error rendering (I1(c)~(e)).
 
@@ -760,7 +807,8 @@ def _run(
     if output_format is None:
         output_format = _cli_options.get("format", "yaml")
     try:
-        with _client_ctx() as client:
+        ctx = _admin_client_ctx() if admin else _client_ctx()
+        with ctx as client:
             result = action(client)
         if result is not None:
             warnings = getattr(result, "warnings", None)
@@ -1698,6 +1746,7 @@ def experiment_status(
             getattr(result, "blocked_on", None)
             and getattr(result, "phase_owner", None)
             and result.phase_owner.value != "host"
+            and not result.actions
         ):
             typer.echo(
                 f"obligation: blocked, waiting on {result.phase_owner.value} "
@@ -2129,7 +2178,7 @@ def audit_list(
     # shared wrapper would YAML-dump the tuple as ``[rows, total]`` which
     # is the wrong shape for an admin greppable timeline.
     try:
-        with _client_ctx() as client:
+        with _admin_client_ctx() as client:
             items, total = client.list_audit_global(
                 page=page,
                 page_size=page_size,
@@ -2870,12 +2919,12 @@ def feedback_list(
         )
         return {"items": items, "total": total}
 
-    _run(action)
+    _run(action, admin=True)
 
 
 @feedback_app.command("get")
 def feedback_get(feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID")) -> None:
-    _run(lambda c: c.get_feedback(feedback_id))
+    _run(lambda c: c.get_feedback(feedback_id), admin=True)
 
 
 @feedback_app.command("update")
@@ -2894,7 +2943,7 @@ def feedback_update(
         category=FeedbackCategory(category) if category else None,
         archived=archived,
     )
-    _run(lambda c: c.update_feedback(feedback_id, payload))
+    _run(lambda c: c.update_feedback(feedback_id, payload), admin=True)
 def main() -> None:
     app()
 

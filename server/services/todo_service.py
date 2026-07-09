@@ -313,9 +313,17 @@ def get_todos(
         review_stmt = review_stmt.where(project_clause)
 
     from server.services.experiment_capabilities_service import experiment_summary_for_actor
+    from server.services.review_service import _prior_version_reviews_fully_resolved
 
+    # Carve-out: when every unreasonable item from prior plan-version reviews
+    # has been resolved, the reviewer's obligation is complete and the creator
+    # may approve without a fresh current-version review (mirrors
+    # assert_approve_eligibility). Such experiments must not linger in this
+    # reviewer's pending_reviews, or the waker wake-loops until the host acts.
     pending_reviews = [
-        experiment_summary_for_actor(db, exp, agent) for exp in db.scalars(review_stmt)
+        experiment_summary_for_actor(db, exp, agent)
+        for exp in db.scalars(review_stmt)
+        if not _prior_version_reviews_fully_resolved(db, exp)
     ]
 
     result_review_stmt = (

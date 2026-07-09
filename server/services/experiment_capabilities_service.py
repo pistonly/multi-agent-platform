@@ -21,6 +21,7 @@ from server.domain.models import (
 )
 from server.domain.schemas import ExperimentDetailRead, ExperimentSummaryRead
 from server.services.review_service import (
+    _prior_version_reviews_fully_resolved,
     _qualifying_non_creator_reviews,
     _review_has_item_activity,
     compute_legacy_self_review,
@@ -158,7 +159,14 @@ def compute_experiment_capabilities(
                 if _count_open_status_unreasonable(db, experiment.id) > 0:
                     actions.append("plan_revise")
             elif not _has_non_creator_review(reviews, experiment.creator_agent_id):
-                if has_review_on_older_plan_version(db, experiment):
+                if _prior_version_reviews_fully_resolved(db, experiment):
+                    # Reviewer resolved every unreasonable item they raised on a
+                    # prior plan version → counts as accepting the revision, so
+                    # the creator may approve without a fresh current-version
+                    # review (mirrors assert_approve_eligibility's carve-out).
+                    blocked_on = "none"
+                    actions = ["approve", "withdraw"]
+                elif has_review_on_older_plan_version(db, experiment):
                     blocked_on = "awaiting_review_for_current_plan_version"
                 else:
                     blocked_on = "awaiting_non_creator_review"

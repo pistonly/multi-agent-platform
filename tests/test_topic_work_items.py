@@ -174,6 +174,47 @@ def test_system_ack_comment_skips_unread_change_work_item(
     assert not any("map:ack=" in (w.get("excerpt") or "") for w in unread)
 
 
+def test_system_ack_comment_skips_pending_topic_reply_work_item(
+    client, auth_headers, project, reviewer
+):
+    """Ack comments are kind=system protocol signals, not conversational
+    threads the host must reply to (feedback 002e2a4f / 58193bec). They
+    must NOT create a pending_topic_reply obligation — the host already
+    drives the round via round_ack / pending_advance_rounds items."""
+    topic = _create_topic(client, auth_headers, project, title="system-ack-reply")
+    tid = topic["id"]
+    client.post(
+        f"/api/v1/topics/{tid}/comments",
+        headers=reviewer["headers"],
+        json={"body": "participant round1"},
+    )
+    client.post(
+        f"/api/v1/topics/{tid}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
+    )
+    ack = client.post(
+        f"/api/v1/topics/{tid}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+    assert ack.status_code == 200
+
+    detail = client.get(f"/api/v1/topics/{tid}", headers=auth_headers).json()
+    ack_comments = [
+        c
+        for c in _flatten_comments(detail["comments"])
+        if "map:ack=" in c.get("body", "")
+    ]
+    assert len(ack_comments) == 1
+    assert ack_comments[0]["kind"] == "system"
+
+    todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
+    reply_comment_ids = {r["comment_id"] for r in todos["pending_topic_replies"]}
+    # The ack system comment must not be a pending reply for the host.
+    assert ack_comments[0]["id"] not in reply_comment_ids
+
+
 def test_mention_three_views_consistent_cold_start(client, auth_headers, reviewer, project):
     topic = _create_topic(client, auth_headers, project, title="mention-3view")
     tid = topic["id"]

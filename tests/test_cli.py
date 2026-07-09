@@ -192,6 +192,53 @@ def test_cli_experiment_status_omits_waiting_copy_for_host_owned(
     assert "waiting on" not in res.output
 
 
+def test_cli_experiment_status_no_waiting_copy_when_host_can_approve(
+    runner, patched_cli, monkeypatch
+):
+    """Review-phase experiment where the reviewer raised only reasonable
+    items: ``blocked_on="none"`` + ``actions=["approve","withdraw"]`` yet
+    ``phase_owner=reviewer`` (feedback a570aa53). The host CAN act, so the
+    catch-all must NOT print the misleading
+    "waiting on reviewer (blocked_on=none)" copy.
+
+    Uses a stubbed ``get_experiment`` so the assertion does not depend on
+    the experiment-create / plan-frontmatter path.
+    """
+    from map_types.enums import PhaseOwner
+
+    class _FakeResult(SimpleNamespace):
+        def model_dump(self, mode="json"):  # noqa: ARG002
+            from uuid import UUID
+
+            def _scalar(v):
+                if hasattr(v, "value"):
+                    return v.value
+                if isinstance(v, UUID):
+                    return str(v)
+                return v
+
+            return {k: _scalar(v) for k, v in self.__dict__.items()}
+
+    def fake_get_experiment(self, experiment_id):  # noqa: ARG001
+        return _FakeResult(
+            id=experiment_id,
+            actions=["approve", "withdraw"],
+            blocked_on="none",
+            phase_owner=PhaseOwner.reviewer,
+            informational_only=False,
+            current_plan_version=1,
+        )
+
+    monkeypatch.setattr("cli.main.MAPClient.get_experiment", fake_get_experiment)
+    result = runner.invoke(
+        app,
+        ["experiment", "status", "--id", "00000000-0000-0000-0000-000000000001"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "waiting on reviewer" not in result.output
+    assert "approve" in result.output  # host sees it can act
+
+
 def test_cli_complete_submits_result_review(runner, patched_cli, project, reviewer, tmp_path: Path):
     plan_file = tmp_path / "plan.md"
     plan_file.write_text("## CLI plan", encoding="utf-8")

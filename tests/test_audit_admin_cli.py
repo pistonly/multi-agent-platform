@@ -30,7 +30,7 @@ def runner() -> CliRunner:
 @pytest.fixture
 def patched_admin_cli(monkeypatch, client, admin_headers):
     token = admin_headers["Authorization"].removeprefix("Bearer ")
-    monkeypatch.setenv("MAP_TOKEN", token)
+    monkeypatch.setenv("MAP_ADMIN_TOKEN", token)
     monkeypatch.setenv("MAP_API_URL", "http://test")
     monkeypatch.setattr(cli_main, "_transport", MAPTestClientTransport(client))
 
@@ -164,24 +164,22 @@ def test_cli_audit_list_filters_must_be_well_formed(
     assert "invalid" in result.output.lower() or "uuid" in result.output.lower()
 
 
-def test_cli_audit_list_requires_admin(
+def test_cli_audit_list_admin_rejection_surfaces_error(
     runner: CliRunner,
     monkeypatch,
     tmp_path,
 ):
-    """A non-admin token (revoked / invalid) gets a non-zero exit and the
-    error code surfaced in stdout — mirrors the I1(d) ``_run`` handler.
+    """A server-side admin rejection (403) still surfaces the error code
+    and exits non-zero — exercises ``audit_list``'s inline MAPHTTPError
+    handler on the admin-token path.
 
-    We use a junk token here so the test is independent of fixture chain
-    state — the server-side ``require_admin`` guard is covered by
+    We stub ``admin_client`` so the rejection happens before reaching the
+    test DB. The server-side ``require_admin`` guard itself is covered by
     ``test_admin_audit_filter_requires_admin`` in ``test_audit_admin_filter``.
     """
-    monkeypatch.setenv("MAP_TOKEN", "definitely-not-a-real-token")
+    monkeypatch.setenv("MAP_ADMIN_TOKEN", "fake-admin-token")
     monkeypatch.setenv("MAP_API_URL", "http://test")
 
-    # Stub the SDK factory so we never hit the real server. The MAPClient
-    # constructor raises ``MAPHTTPError`` for any non-2xx, and our CLI
-    # catches it and prints ``Error <code>: <detail>``.
     from map_client.exceptions import MAPHTTPError
 
     class _StubClient:
@@ -194,7 +192,7 @@ def test_cli_audit_list_requires_admin(
         def close(self):
             pass
 
-    monkeypatch.setattr(cli_main, "resolve_client", lambda **_kw: _StubClient())
+    monkeypatch.setattr(cli_main, "admin_client", lambda *a, **_kw: _StubClient())
 
     result = runner.invoke(
         app,
@@ -209,3 +207,23 @@ def test_cli_audit_list_requires_admin(
     )
     assert result.exit_code != 0
     assert "403" in result.output or "forbidden" in result.output.lower()
+
+
+def test_cli_audit_list_missing_admin_api_url(
+    runner: CliRunner,
+    monkeypatch,
+    tmp_path,
+):
+    """With no ``.map/`` project and no ``MAP_API_URL``, the command fails
+    fast with a clear message. api_url is resolved before the token, so
+    this is deterministic regardless of ``~/.map/admin.yaml`` on the host.
+    """
+    monkeypatch.delenv("MAP_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("MAP_API_URL", raising=False)
+
+    result = runner.invoke(
+        app,
+        ["--project-root", str(tmp_path), "audit", "list"],
+    )
+    assert result.exit_code != 0
+    assert "API URL" in result.output or "api_url" in result.output.lower()
