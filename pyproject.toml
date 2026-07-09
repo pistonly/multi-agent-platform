@@ -129,6 +129,7 @@ module = [
     "server.services.topic_comment_service",
     "server.services.agent_work_service",
     "server.services.topic_work_item_service",
+    "server.services.notification_service",
 ]
 strict = true
 

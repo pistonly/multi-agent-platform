@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from map_types.enums import ExperimentPhase, NotificationCategory, NotificationFingerprintVersion
 from sqlalchemy import event, func, or_, select
@@ -221,7 +222,7 @@ def _group_target(
     event: str,
     target_type: str,
     target_id: uuid.UUID | None,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
 ) -> tuple[str, str]:
     data = payload or {}
     if event == "topic.comment.created" and data.get("topic_id"):
@@ -244,7 +245,7 @@ def _group_key(
     event: str,
     target_type: str,
     target_id: uuid.UUID | None,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
 ) -> str:
     group_target_type, group_target_id = _group_target(
         event=event,
@@ -265,7 +266,7 @@ def _upsert_notification(
     summary: str,
     target_type: str,
     target_id: uuid.UUID | None,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
     category: NotificationCategory,
 ) -> Notification:
     """Insert-or-merge a notification row.
@@ -324,10 +325,11 @@ def _upsert_notification(
 
     # SQLite 3.24+ and PG both accept ON CONFLICT DO UPDATE with the same
     # syntax; SQLAlchemy requires the dialect-specific ``Insert`` class.
-    if db.bind is not None and db.bind.dialect.name == "postgresql":
-        dialect_insert = pg_insert
-    else:
-        dialect_insert = sqlite_insert
+    dialect_insert: Any = (
+        pg_insert
+        if db.bind is not None and db.bind.dialect.name == "postgresql"
+        else sqlite_insert
+    )
     stmt = dialect_insert(Notification).values(**values)
     stmt = stmt.on_conflict_do_update(
         index_elements=["recipient_agent_id", "group_key"],
@@ -343,7 +345,7 @@ def _upsert_notification(
         execution_options={"populate_existing": True},
     )
     row = result.scalar_one()
-    return row
+    return cast(Notification, row)
 
 
 def emit_kind(
@@ -356,7 +358,7 @@ def emit_kind(
     summary: str,
     target_type: str,
     target_id: uuid.UUID,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
     wakeable: bool | None = None,
     commit: bool = True,
 ) -> list[uuid.UUID]:
@@ -416,7 +418,7 @@ def enqueue_from_event(
     summary: str,
     target_type: str,
     target_id: uuid.UUID | None,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
     exclude_recipient_ids: set[uuid.UUID] | None = None,
     wakeable: bool | None = None,
     commit: bool = True,
@@ -481,7 +483,7 @@ def notify_topic_comment_created(
     actor_id: uuid.UUID,
     creator_agent_id: uuid.UUID,
     target_id: uuid.UUID,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
 ) -> list[uuid.UUID]:
     """Broadcast to project agents; host gets a separate directed notification (no duplicate)."""
     event = "topic.comment.created"
@@ -524,7 +526,7 @@ def enqueue_for_agents(
     summary: str,
     target_type: str,
     target_id: uuid.UUID | None,
-    payload: dict | None,
+    payload: dict[str, Any] | None,
     wakeable: bool | None = None,
     exclude_actor: bool = True,
     commit: bool = True,
@@ -631,7 +633,7 @@ def count_unread(
 def mark_agent_mentioned_notifications_read_no_commit(
     db: Session,
     *,
-    mentions: list,
+    mentions: list[Any],
     now: datetime | None = None,
 ) -> int:
     """Mark ``agent.mentioned`` notifications read when their mention is dismissed."""
@@ -832,12 +834,10 @@ def _latest_experiment_log_at(db: Session, experiment_id: uuid.UUID) -> datetime
 
 
 def _project_agent_ids(db: Session, project_id: uuid.UUID, *, exclude: set[uuid.UUID]) -> list[uuid.UUID]:
-    rows = db.scalars(
-        select(Agent.id).where(
-            Agent.project_id == project_id,
-            Agent.id.notin_(exclude) if exclude else True,
-        )
-    ).all()
+    stmt = select(Agent.id).where(Agent.project_id == project_id)
+    if exclude:
+        stmt = stmt.where(Agent.id.notin_(exclude))
+    rows = db.scalars(stmt).all()
     return list(rows)
 
 
