@@ -39,6 +39,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from server.db.base import Base
+from server.domain.encrypted_types import EncryptedString
 
 
 class Project(Base):
@@ -512,7 +513,11 @@ class Webhook(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    # c9281d86 PR3: store as Fernet ciphertext at rest. Application code
+    # still reads / writes plaintext via the TypeDecorator — no API or
+    # service-layer change required. Migration 037 backfills existing
+    # plaintext rows in-place.
+    secret: Mapped[str] = mapped_column(EncryptedString(1024), nullable=False)
     events: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

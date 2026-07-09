@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     # ``STALE_OPEN_TOPIC_THRESHOLD`` constant.
     stale_open_topic_threshold_minutes: int = 30
 
+    # c9281d86 PR3: Fernet key for at-rest encryption of sensitive
+    # columns (currently ``Webhook.secret``). Must be a 32-byte
+    # urlsafe-base64-encoded key — generate with
+    # ``python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'``.
+    # No default: missing key raises ``SecretEncryptionKeyMissing`` at
+    # first use, so a silent fallback to deriving-from-other-secret
+    # never makes "rotate the key" ambiguous.
+    webhook_secret_encryption_key: str | None = None
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

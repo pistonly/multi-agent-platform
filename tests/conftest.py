@@ -147,6 +147,10 @@ _FAST_GATE_MODULES = frozenset(
         # ORM-level test,~50ms 全量;默认 pytest 必须跑才能守住
         # silent-drift 防护。
         "test_phase_owner_orm_validation",
+        # cleanup follow-up (c9281d86) PR3 — webhook secret Fernet 加密
+        # ORM + 加密 helper test,~100ms 全量;默认 pytest 必须跑才能守住
+        # 「DB 不落明文」契约。
+        "test_webhook_secret_encryption",
     }
 )
 
@@ -332,6 +336,26 @@ def reviewer(client: TestClient, project: dict, admin_headers: dict[str, str]) -
         "id": data["id"],
         "headers": {"Authorization": f"Bearer {data['api_token']}"},
     }
+
+
+# c9281d86 PR3 — deterministic Fernet key for tests that touch webhook
+# secrets. Any test (existing or new) that writes a ``Webhook.secret`` row
+# needs a resolvable key; otherwise ``SecretEncryptionKeyMissing`` fires
+# at INSERT time. We inject a fixed session-scoped env var so all tests
+# share one key path; tests that explicitly rotate (via
+# ``server.services.secret_encryption.set_key_for_tests``) still work.
+_FERNET_TEST_KEY = "WaU0vwQr9VMUlM7F7VZ1_LbVSvsfYo1xDKNhhQ7z8sc="
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _webhook_secret_encryption_key_for_tests():
+    os.environ.setdefault("MAP_WEBHOOK_SECRET_ENCRYPTION_KEY", _FERNET_TEST_KEY)
+    # Clear the lru_cache so pydantic-settings re-reads the env var.
+    from server.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    # Don't unset — subsequent tests in the session still need it.
 
 
 @pytest.fixture
