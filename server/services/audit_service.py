@@ -309,6 +309,8 @@ def log_cross_persona_call_no_commit(
     visibility_diff: dict | None = None,
     result_partition_count: int = 0,
     diff_size: int = 0,
+    rejected: bool = False,
+    rejection_reason: str | None = None,
 ) -> AuditLog:
     """Write the ``cross_persona_call`` audit row without committing.
 
@@ -317,9 +319,11 @@ def log_cross_persona_call_no_commit(
 
     Payload shape matches plan 5e contract: ``caller_agent_id`` /
     ``target_experiment_id`` / ``visibility_diff`` /
-    ``result_partition_count`` / ``diff_size``. ``timestamp`` is
-    surfaced via the audit row's ``created_at`` column (no need to
-    duplicate it in payload_json).
+    ``result_partition_count`` / ``diff_size`` / ``timestamp``.
+    authz PR2 adds ``rejected`` (bool) and ``rejection_reason`` (str)
+    so R6 metrics can distinguish a legit cross-persona aggregation
+    from a permission-rejected attempt. ``timestamp`` is surfaced via
+    the audit row's ``created_at`` column (no need to duplicate it).
     """
     payload = {
         "caller_agent_id": str(caller_agent_id),
@@ -328,6 +332,10 @@ def log_cross_persona_call_no_commit(
         "result_partition_count": result_partition_count,
         "diff_size": diff_size,
     }
+    if rejected:
+        payload["rejected"] = True
+        if rejection_reason:
+            payload["rejection_reason"] = rejection_reason
     return _log_no_commit(
         db,
         action=CROSS_PERSONA_CALL,

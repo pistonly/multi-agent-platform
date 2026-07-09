@@ -88,6 +88,54 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     project: Mapped["Project | None"] = relationship()
+
+    # ---- Capability model --------------------------------------------------
+    # authz experiment (0e6926fa) PR2: capability strings decouple
+    # ``system:*`` gating from the AgentRole enum so future capabilities
+    # don't churn the schema. Convention: ``<namespace>:<action>``.
+    # ``system:*`` is admin-grade (audit / cross-project). Persona-scoped
+    # capabilities (e.g. ``host:scan_stalled``) match the agent's name
+    # suffix (``multi-agents-platform-host`` → ``host:*``).
+    _ADMIN_CAPABILITY_PREFIX = "system:"
+    _PERSONA_CAPABILITIES: dict[str, frozenset[str]] = {
+        "host": frozenset(
+            {
+                "system:scan_stalled",
+                "system:audit_export",
+                "system:cross_persona_call",
+            }
+        ),
+        "reviewer": frozenset({"review:submit", "review:accept_result"}),
+        "participant": frozenset({"topic:comment"}),
+    }
+    _PERSONA_NAME_PREFIX = "multi-agents-platform-"
+
+    @property
+    def persona(self) -> str | None:
+        """Extract persona suffix from ``multi-agents-platform-<persona>``.
+
+        Returns ``None`` for admin-only agents or non-conforming names so
+        the capability table falls through to admin-only access.
+        """
+        if not self.name.startswith(self._PERSONA_NAME_PREFIX):
+            return None
+        suffix = self.name[len(self._PERSONA_NAME_PREFIX):]
+        return suffix if suffix in self._PERSONA_CAPABILITIES else None
+
+    def has_capability(self, capability: str) -> bool:
+        """Return True if this agent can perform ``capability``.
+
+        Order:
+        1. ``role == admin`` → any ``system:*`` capability passes.
+        2. Persona match → look up the persona's capability set.
+        3. Otherwise → False.
+        """
+        if self.role == AgentRole.admin and capability.startswith(self._ADMIN_CAPABILITY_PREFIX):
+            return True
+        persona = self.persona
+        if persona is not None:
+            return capability in self._PERSONA_CAPABILITIES[persona]
+        return False
     created_experiments: Mapped[list["Experiment"]] = relationship(
         back_populates="creator", foreign_keys="Experiment.creator_agent_id"
     )

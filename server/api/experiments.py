@@ -652,8 +652,12 @@ def list_logs(
 # 0db51e10 I2(5e): record a ``cross_persona_call`` audit row. The CLI
 # facade (``map experiment status --persona-compare``) calls this with
 # the per-persona view diff so admin / R6 metrics can aggregate by
-# ``result_partition_count`` / ``diff_size`` later. Host persona only —
-# the audit row's caller_agent_id column tracks who initiated.
+# ``result_partition_count`` / ``diff_size`` later.
+#
+# authz PR2: capability-gated. Whitelist = ``host`` persona OR
+# ``role == admin`` via ``system:cross_persona_call`` capability. A
+# denied call STILL emits an audit row with ``rejected=True`` + reason
+# so R6 metrics can spot probe attempts vs legitimate aggregations.
 @experiments_router.post(
     "/experiments/{experiment_id}/cross-persona-call",
     response_model=AuditLogRead,
@@ -667,6 +671,24 @@ def record_cross_persona_call(
 ) -> AuditLogRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
     experiment = svc.get_experiment(db, experiment_id)
+    if not agent.has_capability("system:cross_persona_call"):
+        # Record the rejected attempt for R6 noise / intrusion detection,
+        # then surface the 403 to the caller.
+        entry = audit_service.log_cross_persona_call_no_commit(
+            db,
+            caller_agent_id=agent.id,
+            target_experiment_id=experiment_id,
+            project_id=experiment.project_id,
+            visibility_diff=payload.visibility_diff,
+            result_partition_count=payload.result_partition_count,
+            diff_size=payload.diff_size,
+            rejected=True,
+            rejection_reason="missing capability system:cross_persona_call",
+        )
+        db.commit()
+        raise perm.ForbiddenError(
+            "Agent lacks capability system:cross_persona_call"
+        )
     entry = audit_service.log_cross_persona_call_no_commit(
         db,
         caller_agent_id=agent.id,

@@ -101,15 +101,33 @@ def test_audit_service_log_cross_persona_call_writes_expected_payload(
 
 def test_post_cross_persona_call_endpoint_writes_audit_row(
     client: TestClient,
-    auth_headers: dict[str, str],
+    admin_headers: dict[str, str],
     db_session,
     project,
 ):
     """``POST /experiments/{id}/cross-persona-call`` returns 201 with an
     ``AuditLogRead`` body and commits one ``cross_persona_call`` row whose
-    ``payload_json`` matches the request body."""
+    ``payload_json`` matches the request body.
+
+    authz PR2: the endpoint now requires ``system:cross_persona_call``
+    capability, which only host persona / admin have. The fixture's
+    generic ``test-agent`` no longer qualifies, so we mint a host
+    agent via admin and exercise the endpoint as them.
+    """
+    create = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        params={
+            "name": "multi-agents-platform-host",
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    assert create.status_code == 201, create.text
+    host_headers = {"Authorization": f"Bearer {create.json()['api_token']}"}
+
     experiment = _create_experiment(
-        client, auth_headers, project, "cross-persona-call audit endpoint 实验"
+        client, host_headers, project, "cross-persona-call audit endpoint 实验"
     )
     exp_id = experiment["id"]
     payload = {
@@ -123,7 +141,7 @@ def test_post_cross_persona_call_endpoint_writes_audit_row(
 
     response = client.post(
         f"/api/v1/experiments/{exp_id}/cross-persona-call",
-        headers=auth_headers,
+        headers=host_headers,
         json=payload,
     )
     assert response.status_code == 201, response.text
@@ -140,6 +158,8 @@ def test_post_cross_persona_call_endpoint_writes_audit_row(
     assert rows[0].payload_json["visibility_diff"] == payload["visibility_diff"]
     assert rows[0].payload_json["result_partition_count"] == 2
     assert rows[0].payload_json["diff_size"] == 1
+    # authz PR2: clean audit row (no rejected key) for the host whitelist.
+    assert "rejected" not in rows[0].payload_json
 
 
 def test_post_cross_persona_call_endpoint_404_for_unknown_experiment(
