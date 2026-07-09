@@ -75,20 +75,24 @@ def test_pyproject_promotes_all_three_to_strict():
     """pyproject must list topics + experiments + projects in one override
     block under ``strict = true``. This catches accidental removal in
     future pyproject edits.
+
+    The module list can be inline (``[a, b, c]``) or multi-line
+    (``[\n  a,\n  b,\n  c\n]``) — the regex uses ``.*?`` with ``DOTALL`` to
+    accept either.
     """
     text = _read_pyproject()
     pattern = re.compile(
-        r"\[\[tool\.mypy\.overrides\]\][^{]*?module\s*=\s*\["
-        r"\s*\"server\.api\.topics\"\s*,\s*"
-        r"\"server\.api\.experiments\"\s*,\s*"
-        r"\"server\.api\.projects\"\s*"
-        r"[^{]*?strict\s*=\s*true",
+        r"\[\[tool\.mypy\.overrides\]\][^{]*?module\s*=\s*\[.*?"
+        r"\"server\.api\.topics\".*?"
+        r"\"server\.api\.experiments\".*?"
+        r"\"server\.api\.projects\".*?"
+        r"\][^{]*?strict\s*=\s*true",
         re.DOTALL,
     )
     assert pattern.search(text), (
         "pyproject.toml must keep [[tool.mypy.overrides]] promoting "
         "topics + experiments + projects to strict = true in a single "
-        "module list"
+        "module list (inline or multi-line)"
     )
 
 
