@@ -190,11 +190,12 @@ def revise_project_status(
 @router.get("/{project_id}/status/versions", response_model=list[ProjectStatusVersionRead])
 def list_project_status_versions(
     project_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ProjectStatusVersionRead]:
     perm.ensure_project_access(agent, project_id)
-    return status_doc_service.list_status_versions(db, project_id)
+    return status_doc_service.list_status_versions(db, project_id, limit=limit)
 
 
 @router.get("/{project_id}/status/versions/{version}", response_model=ProjectStatusVersionRead)

@@ -294,8 +294,9 @@ def create_topic_comment(
 def list_topic_comments(
     topic_id: uuid.UUID,
     tree: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
     perm.ensure_topic_access(db, agent, topic_id)
-    return topic_service.list_topic_comments(db, topic_id, tree=tree)
+    return topic_service.list_topic_comments(db, topic_id, tree=tree, limit=limit)

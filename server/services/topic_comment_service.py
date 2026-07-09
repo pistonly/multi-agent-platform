@@ -197,12 +197,14 @@ def list_topic_comments(
     topic_id: uuid.UUID,
     *,
     tree: bool = False,
+    limit: int = 100,
 ) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
     _get_topic(db, topic_id)
     stmt = (
         select(TopicComment)
         .where(TopicComment.topic_id == topic_id)
         .order_by(*topic_comment_order_clauses())
+        .limit(max(1, min(limit, 500)))
     )
     comments = list(db.scalars(stmt))
     _ensure_comment_seq_values(comments)

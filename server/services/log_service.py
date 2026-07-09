@@ -121,12 +121,18 @@ def create_log(
     return log, validation, similarity, force_skip_applied
 
 
-def list_logs(db: Session, experiment_id: uuid.UUID) -> list[ExperimentLog]:
+def list_logs(
+    db: Session,
+    experiment_id: uuid.UUID,
+    *,
+    limit: int = 50,
+) -> list[ExperimentLog]:
     get_experiment(db, experiment_id)
     stmt = (
         select(ExperimentLog)
         .where(ExperimentLog.experiment_id == experiment_id)
         .order_by(ExperimentLog.log_index.asc())
+        .limit(max(1, min(limit, 200)))
     )
     return list(db.scalars(stmt))
 

@@ -21,12 +21,18 @@ from server.services.errors import ForbiddenError, NotFoundError, StateTransitio
 from server.services.project_service import get_experiment
 
 
-def list_plans(db: Session, experiment_id: uuid.UUID) -> list[PlanVersion]:
+def list_plans(
+    db: Session,
+    experiment_id: uuid.UUID,
+    *,
+    limit: int = 50,
+) -> list[PlanVersion]:
     get_experiment(db, experiment_id)
     stmt = (
         select(PlanVersion)
         .where(PlanVersion.experiment_id == experiment_id)
         .order_by(PlanVersion.version.asc())
+        .limit(max(1, min(limit, 200)))
     )
     return list(db.scalars(stmt))
 

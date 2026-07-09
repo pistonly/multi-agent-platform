@@ -83,11 +83,14 @@ def query_by_target(
     db: Session,
     target_type: str,
     target_id: uuid.UUID,
+    *,
+    limit: int = 50,
 ) -> list[AuditLogRead]:
     stmt = (
         select(AuditLog)
         .where(AuditLog.target_type == target_type, AuditLog.target_id == target_id)
         .order_by(AuditLog.created_at.desc())
+        .limit(max(1, min(limit, 200)))
     )
     return [AuditLogRead.model_validate(row) for row in db.scalars(stmt)]
 

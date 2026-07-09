@@ -85,9 +85,19 @@ def create_comment(
     return comment, unresolved
 
 
-def list_comments(db: Session, experiment_id: uuid.UUID) -> list[Comment]:
+def list_comments(
+    db: Session,
+    experiment_id: uuid.UUID,
+    *,
+    limit: int = 100,
+) -> list[Comment]:
     get_experiment(db, experiment_id)
-    stmt = select(Comment).where(Comment.experiment_id == experiment_id).order_by(Comment.created_at.asc())
+    stmt = (
+        select(Comment)
+        .where(Comment.experiment_id == experiment_id)
+        .order_by(Comment.created_at.asc())
+        .limit(max(1, min(limit, 500)))
+    )
     return list(db.scalars(stmt))
 
 

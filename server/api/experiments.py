@@ -290,11 +290,12 @@ def cancel_experiment(
 @experiments_router.get("/experiments/{experiment_id}/plans", response_model=list[PlanVersionRead])
 def list_plans(
     experiment_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[PlanVersionRead]:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    plans = plan_service.list_plans(db, experiment_id)
+    plans = plan_service.list_plans(db, experiment_id, limit=limit)
     return [PlanVersionRead.model_validate(p) for p in plans]
 
 
@@ -381,6 +382,7 @@ def list_reviews(
         ),
     ),
     plan_version: int | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ReviewRead]:
@@ -390,6 +392,7 @@ def list_reviews(
         experiment_id,
         include_archived=include_archived,
         plan_version=plan_version,
+        limit=limit,
     )
     return [review_service.review_to_read(db, r) for r in reviews]
 
@@ -484,11 +487,12 @@ def create_comment(
 def list_comments(
     experiment_id: uuid.UUID,
     tree: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[CommentRead] | list[CommentTreeNode]:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    comments = comment_service.list_comments(db, experiment_id)
+    comments = comment_service.list_comments(db, experiment_id, limit=limit)
     if tree:
         return comment_service.build_comment_tree(db, comments)
     return comment_service.comments_to_read(db, comments)
@@ -662,11 +666,12 @@ def create_log(
 @experiments_router.get("/experiments/{experiment_id}/logs", response_model=list[ExperimentLogRead])
 def list_logs(
     experiment_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentLogRead]:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    logs = log_service.list_logs(db, experiment_id)
+    logs = log_service.list_logs(db, experiment_id, limit=limit)
     return [ExperimentLogRead.model_validate(log) for log in logs]
 
 

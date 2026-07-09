@@ -95,12 +95,18 @@ def revise_status(
     return version
 
 
-def list_status_versions(db: Session, project_id: uuid.UUID) -> list[ProjectStatusVersionRead]:
+def list_status_versions(
+    db: Session,
+    project_id: uuid.UUID,
+    *,
+    limit: int = 50,
+) -> list[ProjectStatusVersionRead]:
     _require_project(db, project_id)
     stmt = (
         select(ProjectStatusVersion)
         .where(ProjectStatusVersion.project_id == project_id)
         .order_by(ProjectStatusVersion.version.desc())
+        .limit(max(1, min(limit, 200)))
     )
     rows = list(db.scalars(stmt))
     return [ProjectStatusVersionRead.model_validate(row) for row in rows]

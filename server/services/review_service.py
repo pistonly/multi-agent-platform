@@ -366,6 +366,7 @@ def list_reviews(
     *,
     include_archived: bool = False,
     plan_version: int | None = None,
+    limit: int = 50,
 ) -> list[Review]:
     get_experiment(db, experiment_id)
     stmt = select(Review).where(Review.experiment_id == experiment_id)
@@ -373,7 +374,11 @@ def list_reviews(
         stmt = stmt.where(Review.archived_at.is_(None))
     if plan_version is not None:
         stmt = stmt.where(Review.plan_version == plan_version)
-    stmt = stmt.options(joinedload(Review.items)).order_by(Review.created_at.asc())
+    stmt = (
+        stmt.options(joinedload(Review.items))
+        .order_by(Review.created_at.asc())
+        .limit(max(1, min(limit, 200)))
+    )
     return list(db.scalars(stmt).unique())
 
 

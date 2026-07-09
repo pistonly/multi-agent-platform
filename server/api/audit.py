@@ -19,11 +19,12 @@ audit_router = APIRouter(tags=["audit"])
 def list_audit_for_target(
     target_type: str = Query(...),
     target_id: uuid.UUID = Query(...),
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[AuditLogRead]:
     perm.ensure_audit_target_access(db, agent, target_type, target_id)
-    return audit_service.query_by_target(db, target_type, target_id)
+    return audit_service.query_by_target(db, target_type, target_id, limit=limit)
 
 
 @audit_router.get("/admin/audit", response_model=list[AuditLogRead])
