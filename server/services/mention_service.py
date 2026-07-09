@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -354,7 +355,7 @@ def _apply_mention_dismiss_cascade(
     mentions: list[Mention],
     now: datetime | None = None,
     audit_action: str = "mention.dismiss",
-    audit_payload_extra: dict | None = None,
+    audit_payload_extra: dict[str, Any] | None = None,
 ) -> int:
     """Dismiss mentions, cascade-read matching notifications, write audit rows."""
     from server.services import audit_service, notification_service
@@ -436,8 +437,11 @@ def _experiment_thread_comment_ids(
     if comment_id not in by_id:
         return []
     cur = comment_id
-    while by_id[cur] is not None:
-        cur = by_id[cur]
+    while True:
+        parent = by_id[cur]
+        if parent is None:
+            break
+        cur = parent
         if cur not in by_id:
             return []
     root_id = cur
@@ -458,8 +462,11 @@ def _topic_thread_comment_ids(
     if comment_id not in by_id:
         return []
     cur = comment_id
-    while by_id[cur] is not None:
-        cur = by_id[cur]
+    while True:
+        parent = by_id[cur]
+        if parent is None:
+            break
+        cur = parent
         if cur not in by_id:
             return []
     root_id = cur
@@ -471,11 +478,14 @@ def _walk_root(
 ) -> uuid.UUID:
     cur = cid
     seen: set[uuid.UUID] = set()
-    while by_id.get(cur) is not None:
+    while True:
+        parent = by_id.get(cur)
+        if parent is None:
+            break
         if cur in seen:
             break
         seen.add(cur)
-        cur = by_id[cur]  # type: ignore[assignment]
+        cur = parent
     return cur
 
 

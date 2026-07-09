@@ -124,6 +124,7 @@ module = [
     "server.services.project_service",
     "server.services.phase_service",
     "server.services.experiment_capabilities_service",
+    "server.services.mention_service",
 ]
 strict = true
 
