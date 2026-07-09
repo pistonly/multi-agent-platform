@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 
 from map_types.enums import ExperimentPhase, NotificationCategory, NotificationFingerprintVersion
 from sqlalchemy import event, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole, Experiment, ExperimentLog, Notification, TopicActionItem
@@ -266,6 +268,16 @@ def _upsert_notification(
     payload: dict | None,
     category: NotificationCategory,
 ) -> Notification:
+    """Insert-or-merge a notification row.
+
+    Race experiment (eca0f522) PR2: replaced select-then-update with a
+    single ``INSERT ... ON CONFLICT DO UPDATE`` (atomic on both PG and
+    SQLite 3.24+). The ``uq_notifications_recipient_group_key``
+    constraint is the merge key. PG-only ``event_count``-via-arithmetic
+    keeps the counter monotonic without a second round-trip; the wakeable
+    ``wake_version`` bump is gated by a CASE on the incoming ``category``
+    so digest upserts don't push a new waker fingerprint.
+    """
     now = datetime.now(UTC)
     group_key = _group_key(
         recipient_agent_id=recipient_agent_id,
@@ -275,73 +287,63 @@ def _upsert_notification(
         target_id=target_id,
         payload=payload,
     )
-    existing = db.scalar(
-        select(Notification)
-        .where(
-            Notification.recipient_agent_id == recipient_agent_id,
-            Notification.group_key == group_key,
-        )
-        .order_by(Notification.updated_at.desc(), Notification.created_at.desc())
-        .limit(1)
-    )
-    if existing is not None:
-        previous_wake_version = existing.wake_version or 1
-        previous_fingerprint_version = existing.fingerprint_version
-        existing.event = event
-        existing.summary = summary
-        existing.target_type = target_type
-        existing.target_id = target_id
-        existing.payload_json = payload
-        existing.category = category
-        existing.event_count = (existing.event_count or 1) + 1
-        existing.last_event_at = now
-        existing.updated_at = now
-        if existing.first_event_at is None:
-            existing.first_event_at = existing.created_at
-        # v0.9 acceptance #3 + #4: wake_version monotonic + read_at bound to
-        # the same flush. Both fields are assigned before db.flush() so a
-        # single SQL UPDATE ships both columns. Same for digest: the read_at
-        # reset is what drives unread_count+1, but digest must NOT bump
-        # wake_version (it would push a new fingerprint that the waker would
-        # then re-wake — digest is non-actionable by definition).
-        if category == NotificationCategory.wakeable:
-            existing.wake_version = previous_wake_version + 1
-            existing.read_at = None
-        else:
-            existing.read_at = None
-        # Preserve fingerprint_version on upsert: a legacy v1 row stays v1 so
-        # the waker's rejection_count path can keep counting it; fresh v2 rows
-        # never downgrade.
-        if previous_fingerprint_version is not None:
-            existing.fingerprint_version = previous_fingerprint_version
-        # Invariant: wake_version is strictly monotonic. Caught here so a
-        # future refactor cannot silently violate it.
-        assert existing.wake_version >= previous_wake_version, (
-            f"wake_version went backwards: {previous_wake_version} -> {existing.wake_version}"
-        )
-        db.flush()
-        return existing
+    is_wakeable = category == NotificationCategory.wakeable
 
-    notification = Notification(
-        recipient_agent_id=recipient_agent_id,
-        project_id=project_id,
-        event=event,
-        summary=summary,
-        target_type=target_type,
-        target_id=target_id,
-        payload_json=payload,
-        category=category,
-        group_key=group_key,
-        wake_version=1,
-        fingerprint_version=NotificationFingerprintVersion.v2,
-        event_count=1,
-        first_event_at=now,
-        last_event_at=now,
-        updated_at=now,
+    values = {
+        "recipient_agent_id": recipient_agent_id,
+        "project_id": project_id,
+        "event": event,
+        "summary": summary,
+        "target_type": target_type,
+        "target_id": target_id,
+        "payload_json": payload,
+        "category": category,
+        "group_key": group_key,
+        "wake_version": 1,
+        "fingerprint_version": NotificationFingerprintVersion.v2,
+        "event_count": 1,
+        "first_event_at": now,
+        "last_event_at": now,
+        "updated_at": now,
+    }
+    set_: dict[str, object] = {
+        "event": event,
+        "summary": summary,
+        "target_type": target_type,
+        "target_id": target_id,
+        "payload_json": payload,
+        "category": category,
+        "event_count": Notification.event_count + 1,
+        "last_event_at": now,
+        "updated_at": now,
+        "read_at": None,
+        # wake_version bump only on wakeable merges; preserves the v0.9
+        # monotonicity invariant while keeping digest fingerprints stable.
+        "wake_version": Notification.wake_version + 1 if is_wakeable else Notification.wake_version,
+    }
+
+    # SQLite 3.24+ and PG both accept ON CONFLICT DO UPDATE with the same
+    # syntax; SQLAlchemy requires the dialect-specific ``Insert`` class.
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        dialect_insert = pg_insert
+    else:
+        dialect_insert = sqlite_insert
+    stmt = dialect_insert(Notification).values(**values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["recipient_agent_id", "group_key"],
+        set_=set_,
     )
-    db.add(notification)
-    db.flush()
-    return notification
+    # ``populate_existing=True`` forces the identity-map cached object to be
+    # refreshed from RETURNING. Without it, sessions with
+    # ``expire_on_commit=False`` (the test fixture's savepoint pattern) keep
+    # stale ``event_count``/``wake_version`` attributes on subsequent merges,
+    # even though the DB row is correct — see PR2 tests.
+    result = db.execute(
+        stmt.returning(Notification),
+        execution_options={"populate_existing": True},
+    )
+    row = result.scalar_one()
+    return row
 
 
 def emit_kind(

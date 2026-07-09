@@ -488,6 +488,17 @@ class AuditLog(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
+    __table_args__ = (
+        # race experiment (eca0f522) PR2: enforce "at most one notification
+        # per (recipient, group_key)" at the DB layer so the upsert race
+        # becomes an ``IntegrityError``-or-``ON CONFLICT`` merge instead of
+        # producing duplicate rows when concurrent event sources share the
+        # same group_key. group_key is nullable — both PG and SQLite allow
+        # multiple NULLs in a unique constraint, so the constraint only
+        # fires for non-NULL group_keys (matches the existing partial-index
+        # convention used by ``uq_experiment_one_active_per_topic``).
+        UniqueConstraint("recipient_agent_id", "group_key", name="uq_notifications_recipient_group_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     recipient_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
