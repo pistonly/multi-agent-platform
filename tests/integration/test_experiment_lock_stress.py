@@ -18,7 +18,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from cli.experiment_lock import (
+from cli.runtime.run_lock import (
     ExperimentLockManager,
     InMemoryLockBackend,
     LockBusy,

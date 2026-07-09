@@ -3,7 +3,7 @@
 The lock is **soft**: a row-level lock stored on the ``experiments`` table
 itself (``lock_holder_experiment_id`` + ``lock_acquired_at`` + ``lock_ttl_seconds``)
 is the source of truth. Stale locks self-heal via ``lock_ttl_seconds``. The
-CLI side (``cli/experiment_lock.py``) adds a best-effort ``fcntl.flock`` for
+CLI side (``cli/runtime/run_lock.py``) adds a best-effort ``fcntl.flock`` for
 intra-host safety; the server side is authoritative.
 
 Endpoints wired in :mod:`server.api.experiments`:

@@ -13,7 +13,7 @@ in production (e.g., stale locks, runaway skip loop, lock-induced crash).
    systemctl restart map-host-bridge.service   # or your service manager
    ```
 
-   After this point, `cli/experiment_lock.py::ExperimentLockManager.disabled`
+   After this point, `cli/runtime/run_lock.py::ExperimentLockManager.disabled`
    short-circuits `acquire`/`release`, so pending experiments in the queue
    resume normal execution.
 

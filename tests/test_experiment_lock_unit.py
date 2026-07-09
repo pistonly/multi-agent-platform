@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from cli.experiment_lock import (
+from cli.runtime.run_lock import (
     DEFAULT_LOCK_TTL_SECONDS,
     LOG_FORCE,
     LOG_STUCK,
