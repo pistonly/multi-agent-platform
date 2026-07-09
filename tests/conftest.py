@@ -155,6 +155,9 @@ _FAST_GATE_MODULES = frozenset(
         # 纯文件系统 glob,~10ms 全量;默认 pytest 守住「PRD 不能逃出
         # docs/prd/」契约。
         "test_docs_inventory",
+        # cli-ux follow-up (1f9c9a50) PR1 — --schema flag + error schema 提示守卫
+        # subprocess 跑 CLI,~150ms 全量;默认 pytest 守住「schema 发现」契约。
+        "test_cli_schema_discovery",
     }
 )
 

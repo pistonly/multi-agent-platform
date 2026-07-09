@@ -1499,7 +1499,8 @@ def _load_complete_metadata(path: Path | None, *, allow_missing_evidence: bool) 
         keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
         typer.echo(
             "Error: experiment complete now requires --metadata with deployment/test evidence "
-            f"(accepted keys include: {keys}). Use --allow-missing-evidence only for explicit exceptions.",
+            f"(accepted keys include: {keys}). Use --allow-missing-evidence only for explicit exceptions.\n"
+            "  schema: docs/cli-schemas.md#experiment-complete-metadata",
             err=True,
         )
         raise typer.Exit(2)
@@ -1522,10 +1523,73 @@ def _load_review_verdict_file(path: Path | None):
         return ReviewVerdictFile.model_validate(raw)
     except Exception as exc:
         typer.echo(
-            f"Error: invalid --review-verdict-file {path}: {exc}",
+            f"Error: invalid --review-verdict-file {path}: {exc}\n"
+            "  schema: sdk/python/map_types/schemas.py:ReviewVerdictFile "
+            "(also see docs/cli-schemas.md#review-verdict-file)",
             err=True,
         )
         raise typer.Exit(2) from None
+
+
+# --- schema discovery (cli-ux PR1) ------------------------------------------
+# `map experiment accept-result --schema` / `map experiment complete --schema`
+# print a copy-paste-ready YAML template with field-level hints. This is the
+# cheapest fix for "I don't know what fields the SDK wants" — the same
+# information as grepping the SDK, but in 200ms via the CLI.
+_REVIEW_VERDICT_SCHEMA_YAML = """\
+# Review verdict file — schema: sdk/python/map_types/schemas.py:ReviewVerdictFile
+# (also docs/cli-schemas.md#review-verdict-file)
+#
+# review_id: REQUIRED — UUID from `map experiment review list --id <exp-id>`
+# verdicts:  list of per-item verdicts; one verdict per review item
+# invariants: optional list of verification checks (item_id, verified, note)
+review_id: 00000000-0000-0000-0000-000000000000  # <-- replace
+verdicts:
+  - item_id: 00000000-0000-0000-0000-000000000000  # <-- replace with review item UUID
+    verdict: passed  # accepted values: passed | failed | waived
+    # reason: REQUIRED only when verdict == waived (50-1000 chars)
+invariants:
+  - item_id: 00000000-0000-0000-0000-000000000000  # <-- replace
+    verified: true
+    # note: optional, max 1000 chars
+"""
+
+_COMPLETE_METADATA_SCHEMA_YAML = """\
+# Experiment complete --metadata file —
+#   schema: docs/cli-schemas.md#experiment-complete-metadata
+#   helper: `map experiment complete --schema` reprints this template
+#
+# At least ONE of the following keys MUST be present (else --allow-missing-evidence).
+# Accepted keys: api_health | alembic_current | pytest_summary | test_summary |
+#                smoke | smoke_result | image_digest | health | acceptance
+api_health: ok
+alembic_current:
+  head: "<revision>"  # alembic current revision id
+  upgrade_clean: true
+pytest_summary:
+  total: 0
+  passed: 0
+  failed: 0
+  skipped: 0
+smoke:
+  api_health: ok
+  notes: "..."
+"""
+
+
+def _print_review_verdict_schema_and_exit() -> None:
+    """cli-ux PR1: print the review verdict file template + exit 0.
+
+    Lets a reviewer / host learn the schema without grepping the SDK.
+    """
+    typer.echo(_REVIEW_VERDICT_SCHEMA_YAML.rstrip())
+    raise typer.Exit(0)
+
+
+def _print_complete_metadata_schema_and_exit() -> None:
+    """cli-ux PR1: print the experiment-complete metadata template + exit 0."""
+    typer.echo(_COMPLETE_METADATA_SCHEMA_YAML.rstrip())
+    raise typer.Exit(0)
 
 
 @experiment_app.command("pre-complete")
@@ -1578,6 +1642,12 @@ def experiment_complete(
         "--allow-missing-evidence",
         help="Bypass metadata evidence check for non-deployment experiments.",
     ),
+    schema: bool = typer.Option(
+        False,
+        "--schema",
+        help="cli-ux PR1: print the --metadata YAML template (with field hints) and exit. "
+        "Use this to discover accepted keys without grepping the SDK.",
+    ),
 ) -> None:
     """Submit experiment result for reviewer approval (running → result_review).
 
@@ -1588,6 +1658,8 @@ def experiment_complete(
     payload under ``template_validation``. Warnings never block the
     transition — add a follow-up log to address them.
     """
+    if schema:
+        _print_complete_metadata_schema_and_exit()
     metadata = _load_complete_metadata(
         metadata_file,
         allow_missing_evidence=allow_missing_evidence,
@@ -1616,7 +1688,15 @@ def experiment_accept_result(
             "records verdict breakdown in log metadata."
         ),
     ),
+    schema: bool = typer.Option(
+        False,
+        "--schema",
+        help="cli-ux PR1: print the --review-verdict-file YAML template (with field hints) and exit. "
+        "Use this to discover the verdict schema without grepping the SDK.",
+    ),
 ) -> None:
+    if schema:
+        _print_review_verdict_schema_and_exit()
     metadata = _read_yaml_file(metadata_file)
     verdict_file = _load_review_verdict_file(review_verdict_file)
     payload = ExperimentResultDecision(
@@ -1644,7 +1724,15 @@ def experiment_reject_result(
             "records verdict breakdown in log metadata."
         ),
     ),
+    schema: bool = typer.Option(
+        False,
+        "--schema",
+        help="cli-ux PR1: print the --review-verdict-file YAML template (with field hints) and exit. "
+        "Use this to discover the verdict schema without grepping the SDK.",
+    ),
 ) -> None:
+    if schema:
+        _print_review_verdict_schema_and_exit()
     metadata = _read_yaml_file(metadata_file)
     verdict_file = _load_review_verdict_file(review_verdict_file)
     payload = ExperimentResultDecision(
