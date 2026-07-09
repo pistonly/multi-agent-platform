@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from map_types.enums import PhaseOwner
 from sqlalchemy import func, select
@@ -197,7 +198,7 @@ def experiment_summary_for_actor(
     experiment: Experiment,
     actor: Agent,
     *,
-    extra_updates: dict | None = None,
+    extra_updates: dict[str, Any] | None = None,
     phase_whitelist: list[ExperimentPhase] | None = None,
 ) -> ExperimentSummaryRead:
     from server.services.log_service import get_latest_log
@@ -227,7 +228,7 @@ def experiment_summary_for_actor(
         actions == []
         and blocked_on == HIDDEN_FOR_CURRENT_PERSONA
     )
-    update: dict = {
+    update: dict[str, Any] = {
         "actions": actions,
         "blocked_on": blocked_on,
         "legacy_self_review": legacy,
@@ -251,7 +252,7 @@ def apply_capabilities_to_detail(
     phase_owner: PhaseOwner | None = None,
     informational_only: bool | None = None,
 ) -> ExperimentDetailRead:
-    update: dict = {
+    update: dict[str, Any] = {
         "actions": actions,
         "blocked_on": blocked_on,
         "legacy_self_review": legacy_self_review,
