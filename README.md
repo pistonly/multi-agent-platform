@@ -4,13 +4,13 @@
 
 ## 文档
 
-- [产品需求文档（PRD）](docs/PRD.md)
-- [产品需求文档 v0.2（角色与项目边界）](docs/PRD-v0.2.md)
-- [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/PRD-v0.3.md)
-- [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/PRD-v0.4.md)
-- [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/PRD-v0.5.md)
-- [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/PRD-v0.6.md)
-- [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/PRD-v0.9.md)
+- [产品需求文档（PRD）](docs/prd/archive/v0.1.md)
+- [产品需求文档 v0.2（角色与项目边界）](docs/prd/archive/v0.2.md)
+- [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/prd/archive/v0.3.md)
+- [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/prd/archive/v0.4.md)
+- [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/prd/archive/v0.5.md)
+- [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/prd/archive/v0.6.md)
+- [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/prd/v0.9.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
 - [架构设计](docs/ARCHITECTURE.md)
@@ -35,7 +35,7 @@
 - **M13**：Agent 待办视图（`GET /agents/me/todos`）+ 实验列表筛选/分页/搜索（`q`/`creator`/`page` + `X-Total-Count` header）。
 - **M14**：Webhook 出站通知（HMAC 签名 + 投递记录 + Admin CRUD）+ 审计日志（关键写操作打点 + 对象/全局查询）。
 
-详见 [PRD v0.3](docs/PRD-v0.3.md)。
+详见 [PRD v0.3](docs/prd/archive/v0.3.md)。
 
 **v0.4 已完成（M15–M18）**：
 
@@ -44,7 +44,7 @@
 - **M17**：实验页计划版本 diff 只读视图（`PlanDiffView`）。
 - **M18**：话题置顶（`topics.pinned` + 列表优先排序）。
 
-详见 [PRD v0.4](docs/PRD-v0.4.md)。
+详见 [PRD v0.4](docs/prd/archive/v0.4.md)。
 
 **v0.5 已完成（M19–M21）**：
 
@@ -52,7 +52,7 @@
 - **M20**：topic-host Skill（`.cursor/skills/topic-host/SKILL.md`）。
 - **M21**：Webhook 主持接线文档（[WEBHOOK-TOPIC-HOST.md](docs/WEBHOOK-TOPIC-HOST.md)）。
 
-详见 [PRD v0.5](docs/PRD-v0.5.md)。
+详见 [PRD v0.5](docs/prd/archive/v0.5.md)。
 
 **v0.6 已完成（M22–M24）**：
 
@@ -60,7 +60,7 @@
 - **M23**：Web 独立列表页（`/projects/:id/topics`、`/experiments`）+ `client.ts` vitest。
 - **M24**：站内通知 **SSE**（`GET /agents/me/notifications/stream`）+ Web 实时 invalidate。
 
-详见 [PRD v0.6](docs/PRD-v0.6.md)。项目叙事参考 [docs/status-md-v6.md](docs/status-md-v6.md)。
+详见 [PRD v0.6](docs/prd/archive/v0.6.md)。项目叙事参考 [docs/status-md-v6.md](docs/status-md-v6.md)。
 
 **v0.8 MVP 已完成**：
 

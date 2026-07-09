@@ -285,5 +285,5 @@ map --persona host topic archive --id <topic-uuid>
 
 - [map-runtime-waker](../map-runtime-waker/SKILL.md)
 - [experiment-host](../experiment-host/SKILL.md)
-- [PRD v0.5](../../docs/PRD-v0.5.md)
+- [PRD v0.5](../../docs/prd/archive/v0.5.md)
 - [AGENTS.md](../../AGENTS.md) · [map-project-collab](../map-project-collab/SKILL.md)

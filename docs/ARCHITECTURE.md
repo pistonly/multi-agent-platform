@@ -4,7 +4,7 @@
 > 日期：2026-06-23
 > 状态：草案
 
-> **v0.3 增量（2026-06-24）**：新增顶层实体 `Topic`（轻量讨论 + 独立 `topic_comments` 表）与 `Experiment.topic_id` 可选关联；新增 `Webhook` / `WebhookDelivery`（出站通知，HMAC-SHA256 签名，投递记录）与 `AuditLog`（关键写操作审计）；新增 `GET /agents/me/todos` 待办聚合、列表筛选/分页/搜索（`q` / `creator` / `page` + `X-Total-Count` header）、Webhook Admin CRUD 与审计查询路由（`/audit`、`/admin/audit`）。话题评论用独立表而非复用 `Comment`（见 [PRD v0.3 §5.1](./PRD-v0.3.md)）。
+> **v0.3 增量（2026-06-24）**：新增顶层实体 `Topic`（轻量讨论 + 独立 `topic_comments` 表）与 `Experiment.topic_id` 可选关联；新增 `Webhook` / `WebhookDelivery`（出站通知，HMAC-SHA256 签名，投递记录）与 `AuditLog`（关键写操作审计）；新增 `GET /agents/me/todos` 待办聚合、列表筛选/分页/搜索（`q` / `creator` / `page` + `X-Total-Count` header）、Webhook Admin CRUD 与审计查询路由（`/audit`、`/admin/audit`）。话题评论用独立表而非复用 `Comment`（见 [PRD v0.3 §5.1](./prd/archive/v0.3.md)）。
 
 ## 1. 架构总览
 

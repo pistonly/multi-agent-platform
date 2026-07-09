@@ -151,6 +151,10 @@ _FAST_GATE_MODULES = frozenset(
         # ORM + 加密 helper test,~100ms 全量;默认 pytest 必须跑才能守住
         # 「DB 不落明文」契约。
         "test_webhook_secret_encryption",
+        # cleanup follow-up (c9281d86) PR2 — docs/ 收纳结构守卫
+        # 纯文件系统 glob,~10ms 全量;默认 pytest 守住「PRD 不能逃出
+        # docs/prd/」契约。
+        "test_docs_inventory",
     }
 )
 

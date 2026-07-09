@@ -23,7 +23,7 @@
 * Alembic 迁移 `017_exp_lock_fields.py` + 回滚 Runbook
   `docs/runbooks/exp-lock-rollback.md` 已就位；`MAP_HOST_NO_LOCK=1` +
   `MAP_HOST_LOCK_DRY_RUN=1` 双开关打通。
-* `docs/PRD-v0.6.md §7` 已落定。
+* `docs/prd/archive/v0.6.md §7` 已落定。
 
 ## 2. Files Changed (cumulative since CP-0)
 
@@ -54,7 +54,7 @@
 | `cli/host_worker_types.py` | `MapClientProtocol` 新增 4 个 lock 方法；`WorkerStats` 新增 3 字段 |
 | `cli/map_command_client.py` | `experiment_acquire_lock / release_lock / force_release_lock / record_skip` |
 | `sdk/python/map_types/schemas.py` | `ExperimentDetailRead` 暴露 5 个 lock 字段 |
-| `docs/PRD-v0.6.md` | §7 实验执行锁（字段、耦合表、跳过闭环、FIFO、dry-run/override） |
+| `docs/prd/archive/v0.6.md` | §7 实验执行锁（字段、耦合表、跳过闭环、FIFO、dry-run/override） |
 
 ## 3. Acceptance verification
 

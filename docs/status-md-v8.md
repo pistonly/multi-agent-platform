@@ -78,7 +78,7 @@
 ## 关键文档
 
 - [README](../README.md)
-- [PRD v0.6](./PRD-v0.6.md)
+- [PRD v0.6](./prd/archive/v0.6.md)
 - [MAP x Agent Runtime](./MAP-AGENT-RUNTIME.md)
 - [AGENTS.md](../AGENTS.md)
 - [架构设计](./ARCHITECTURE.md)

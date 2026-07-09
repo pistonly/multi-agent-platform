@@ -98,6 +98,6 @@ C 类保留正则清单已随 `docs/MAP-RUNTIME-WAKER.md` 一并归档；如需�
 ## 关键文档
 
 - [README](../README.md)
-- [PRD v0.9 草案：waker Phase 2 通知降噪](../docs/PRD-v0.9.md)
+- [PRD v0.9 草案：waker Phase 2 通知降噪](./prd/v0.9.md)
 - [MAP-SIMPLE-WAKER.md](../docs/MAP-SIMPLE-WAKER.md)
 - [AGENTS.md](../AGENTS.md)
