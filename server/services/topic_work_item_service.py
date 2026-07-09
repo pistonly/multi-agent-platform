@@ -56,8 +56,8 @@ class TopicWorkItem:
 
     def to_read(self) -> TopicWorkItemRead:
         return TopicWorkItemRead(
-            kind=self.kind,  # type: ignore[arg-type]
-            priority=self.priority,  # type: ignore[arg-type]
+            kind=self.kind,
+            priority=self.priority,
             topic_id=self.topic_id,
             topic_title=self.topic_title,
             source_comment_id=self.source_comment_id,
@@ -65,7 +65,7 @@ class TopicWorkItem:
             required_agent_id=self.required_agent_id,
             reason=self.reason,
             idempotency_key=self.idempotency_key,
-            clear_action=self.clear_action,  # type: ignore[arg-type]
+            clear_action=self.clear_action,
             excerpt=self.excerpt,
             created_at=self.created_at,
             discussion_round=self.discussion_round,
@@ -455,7 +455,7 @@ def pending_round_acks_from_work_items(
                 round_summary_count=int(topic.round_summary_count or 0),
                 summary_comment_id=item.source_comment_id,
                 summary_excerpt=item.excerpt or None,
-                advance_round_pending_since=topic.advance_round_pending_since,
+                stale_since=topic.advance_round_pending_since,
                 updated_at=topic.updated_at,
             )
         )

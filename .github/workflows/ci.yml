@@ -37,7 +37,7 @@ jobs:
         # only. PR3-PR5 will add experiments / agents / services in
         # order. Pyproject [[tool.mypy.overrides]] enforces the
         # directory promotion so the strict surface is grep-able.
-        run: mypy server/api/topics.py server/api/experiments.py server/api/projects.py server/api/agents.py server/services/project_service.py server/services/phase_service.py server/services/experiment_capabilities_service.py server/services/mention_service.py server/services/todo_service.py server/services/topic_comment_service.py server/services/agent_work_service.py
+        run: mypy server/api/topics.py server/api/experiments.py server/api/projects.py server/api/agents.py server/services/project_service.py server/services/phase_service.py server/services/experiment_capabilities_service.py server/services/mention_service.py server/services/todo_service.py server/services/topic_comment_service.py server/services/agent_work_service.py server/services/topic_work_item_service.py
 
       - name: Alembic migrations
         run: |
