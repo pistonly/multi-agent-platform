@@ -410,10 +410,10 @@ def test_a4_p95_baseline_by_kind(tmp_path, capsys) -> None:
     for kind in kinds:
         assert f"kind={kind}" in captured.out
 
-    # Stable artifact under .map/generated-plans/ so Phase 2 comparison has
+    # Stable artifact under .map/perf-baselines/ so Phase 2 comparison has
     # a known path. tmp_path would be cleaned up after the test.
     repo_root = Path(__file__).resolve().parent.parent
-    baseline_path = repo_root / ".map" / "generated-plans" / "phase1-p95-baseline.json"
+    baseline_path = repo_root / ".map" / "perf-baselines" / "phase1-p95-baseline.json"
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_path.write_text(
         json.dumps(

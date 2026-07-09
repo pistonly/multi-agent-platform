@@ -71,10 +71,11 @@ htmlcov/
 .map/generated-reviews/
 .map/.claude-env
 .map/.cursor-env
-# Agent 运行时生成的计划/日志（baseline 例外保留供测试对照）
+# Agent 运行时生成的计划/日志（perf baseline 例外保留供测试对照）
 .map/generated-plans/
-!.map/generated-plans/phase1-p95-baseline.json
-!.map/generated-plans/phase2-p95-baseline.json
+.map/perf-baselines/
+!.map/perf-baselines/phase1-p95-baseline.json
+!.map/perf-baselines/phase2-p95-baseline.json
 # Host session workflow 草稿（详见 CLAUDE.md §"硬性规则"）
 # 命名约定：ack-receipt / plan / reply / round{N} / summary / resolve
 .map/ack-receipt-*.md

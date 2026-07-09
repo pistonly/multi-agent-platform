@@ -1,0 +1,24 @@
+{
+  "phase": "phase1-polling",
+  "iterations_per_kind": 25,
+  "p50_seconds_by_kind": {
+    "mentions": 0.0002880096435546875,
+    "pending_reviews": 0.0002951622009277344,
+    "pending_topic_replies": 0.00029087066650390625,
+    "my_open_experiments": 0.0002911090850830078
+  },
+  "p95_seconds_by_kind": {
+    "mentions": 0.0005826950073242181,
+    "pending_reviews": 0.0007668972015380859,
+    "pending_topic_replies": 0.00031800270080566405,
+    "my_open_experiments": 0.0003162860870361328
+  },
+  "p99_seconds_by_kind": {
+    "mentions": 0.001367006301879881,
+    "pending_reviews": 0.0007989025115966796,
+    "pending_topic_replies": 0.0003304195404052734,
+    "my_open_experiments": 0.0003480243682861327
+  },
+  "captured_at": "2026-07-09T07:33:34.601606+00:00",
+  "note": "jsonl-append-only baseline; A4 is informational, no threshold. Phase 2 SSE overlay should re-run this test and diff."
+}
