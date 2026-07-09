@@ -32,6 +32,13 @@ jobs:
       - name: Ruff
         run: ruff check server cli sdk tests
 
+      - name: Mypy strict (topics.py 渐进首目录)
+        # eng experiment (55634575) PR2: strict on server/api/topics.py
+        # only. PR3-PR5 will add experiments / agents / services in
+        # order. Pyproject [[tool.mypy.overrides]] enforces the
+        # directory promotion so the strict surface is grep-able.
+        run: mypy server/api/topics.py
+
       - name: Alembic migrations
         run: |
           tmpdb="$(mktemp /tmp/map-ci-XXXXXX.db)"

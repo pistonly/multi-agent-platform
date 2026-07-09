@@ -93,6 +93,43 @@ ignore = ["E501", "B008", "UP038"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["E402"]
 
+[tool.mypy]
+# eng experiment (55634575) PR2: mypy strict by directory (渐进式).
+# Baseline = non-strict; we turn strict on per-module via [[tool.mypy.overrides]]
+# so each PR can promote one more directory without churning unrelated files.
+python_version = "3.11"
+mypy_path = "sdk/python"
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+# ``attr-defined`` is disabled project-wide because the codebase uses
+# ``from x import *`` re-export shims (server/domain/schemas.py,
+# server/domain/models.py). Promoting strict per-module [[overrides]]
+# re-enables it where actual code lives.
+disable_error_code = ["attr-defined", "no-untyped-def"]
+# plugins deferred — pydantic-mypy setup is a separate PR to keep
+# this PR scoped to "strict on one directory, baseline permissive".
+
+[[tool.mypy.overrides]]
+# The single directory under strict so far. PR3-PR5 will append
+# experiments / agents / services in order.
+module = ["server.api.topics"]
+strict = true
+
+[[tool.mypy.overrides]]
+# Re-export shims use ``from map_types.schemas import *`` so mypy can't
+# statically prove which names are exported. We re-enable ``attr-defined``
+# here only to avoid false positives; the underlying types are validated
+# at the SDK boundary.
+module = ["server.domain.schemas", "server.domain.models"]
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+# Alembic env.py imports from project modules but isn't a typing target.
+module = ["alembic.*"]
+ignore_missing_imports = true
+
 [tool.coverage.run]
 # 关注生产代码的覆盖率；测试脚本、迁移、SDK 生成代码不计入。
 source = ["server", "cli", "map_client", "map_mcp"]
