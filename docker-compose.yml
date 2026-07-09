@@ -11,6 +11,8 @@ services:
       TZ: Asia/Shanghai
       MAP_DATABASE_URL: sqlite:////app/data/map.db
       MAP_CORS_ORIGINS: http://localhost:3000,http://localhost:5173,http://web
+      # Required by alembic 037 + EncryptedString (Webhook.secret). Set in .env.
+      MAP_WEBHOOK_SECRET_ENCRYPTION_KEY: ${MAP_WEBHOOK_SECRET_ENCRYPTION_KEY}
       NO_PROXY: api,localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16
       no_proxy: api,localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16
       HTTP_PROXY: ""
