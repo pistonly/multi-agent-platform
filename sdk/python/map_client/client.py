@@ -211,12 +211,15 @@ class MAPClient:
         project_key: str | None = None,
         project_id: uuid.UUID | None = None,
     ) -> AgentCreateResponse:
-        params: dict[str, str] = {"name": name, "role": role}
+        # cleanup PR5: server expects a JSON body (AgentCreate), not query
+        # params. ``json=`` carries the same fields and matches the new
+        # contract.
+        body: dict[str, object] = {"name": name, "role": role}
         if project_key is not None:
-            params["project_key"] = project_key
+            body["project_key"] = project_key
         if project_id is not None:
-            params["project_id"] = str(project_id)
-        data = self._json("POST", "/agents", params=params)
+            body["project_id"] = str(project_id)
+        data = self._json("POST", "/agents", json=body)
         return AgentCreateResponse.model_validate(data)
 
     def get_me(self) -> AgentRead:

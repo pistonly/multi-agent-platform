@@ -13,12 +13,21 @@ from map_client.bootstrap import admin_client, bootstrap_project_map
 from map_client.client import MAPClient
 from map_client.exceptions import MAPConflictError, MAPHTTPError, MAPNotFoundError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
+
 # arch experiment (0519e2a3) PR1: shared SDK umbrella. Later PRs move
 # shared helpers here (see plan). The CLI must stay importable even
 # when ``map_sdk`` is unavailable, so we don't gate startup on it.
-from map_sdk import __version__ as _map_sdk_version
+from map_sdk.evidence import (
+    EVIDENCE_METADATA_KEYS,
+    metadata_has_completion_evidence,
+)
 from pydantic import BaseModel, ConfigDict
 
+# arch experiment (0519e2a3) PR3: agent sub-app split. Imported only to
+# register ``agent_app`` below — the helpers the sub-app uses
+# (``_run``, ``_client_ctx``, …) are pulled in lazily inside each
+# command body to break the ``cli.main ↔ cli.commands.agent`` cycle.
+from cli.commands.agent import agent_app
 from server.domain.models import AgentRole
 from server.domain.schemas import (
     ExperimentComplete,
@@ -32,20 +41,22 @@ from server.domain.schemas import (
     TopicAdvanceRound,
     TopicResolve,
 )
-from map_sdk.evidence import (
-    EVIDENCE_METADATA_KEYS,
-    metadata_has_completion_evidence,
-)
 
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
 project_app = typer.Typer(help="Project commands")
 experiment_app = typer.Typer(help="Experiment commands", rich_markup_mode=None)
 persona_app = typer.Typer(help="Persona / identity commands")
 runtime_app = typer.Typer(help="Agent runtime session commands")
+# arch experiment (0519e2a3) PR3: agent sub-app split. Lives in
+# cli/commands/agent.py and is imported here only to register the
+# sub-app — the helpers it uses (_run, _client_ctx, …) are referenced
+# via lazy imports inside each command body to break the cycle
+# ``cli.main ↔ cli.commands.agent``.
 app.add_typer(project_app, name="project")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(persona_app, name="persona")
 app.add_typer(runtime_app, name="runtime")
+app.add_typer(agent_app, name="agent")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
