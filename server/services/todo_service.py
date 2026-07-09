@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -34,7 +34,7 @@ from server.services import permissions as perm
 from server.services.topic_service import topic_summaries_for_topics
 
 if TYPE_CHECKING:
-    from server.services.topic_work_item_service import AgentTopicWorkItems
+    from server.services.topic_work_item_service import AgentTopicWorkItems, TopicWorkItem
 
 _ACTIVE_PHASES = (
     ExperimentPhase.draft,
@@ -51,7 +51,7 @@ def list_pending_topic_replies(
     db: Session,
     agent: Agent,
     *,
-    work_items: list | None = None,
+    work_items: list["TopicWorkItem"] | None = None,
 ) -> list[PendingTopicReplyTodoRead]:
     from server.services import topic_work_item_service as work_items_module
 
@@ -65,7 +65,7 @@ def list_pending_round_acks(
     db: Session,
     agent: Agent,
     *,
-    work_items: list | None = None,
+    work_items: list["TopicWorkItem"] | None = None,
 ) -> list[PendingRoundAckTodoRead]:
     """Round summaries awaiting this agent's ack — projected from topic work items."""
     from server.services import topic_work_item_service as work_items_module
@@ -104,7 +104,7 @@ def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanc
                 topic_title=topic.title,
                 discussion_round=topic.discussion_round,
                 round_summary_count=int(topic.round_summary_count or 0),
-                advance_round_pending_since=topic.advance_round_pending_since,
+                stale_since=topic.advance_round_pending_since,
                 updated_at=topic.updated_at,
             )
         )
@@ -367,7 +367,11 @@ def get_todos(
             experiment_id=item.review.experiment_id,
             experiment_title=item.review.experiment.title,
             content=item.content,
-            status=item.status,
+            # ReviewItem.status is nullable in the schema but the WHERE
+            # filter above (``ReviewItem.status.in_(_REPLY_STATES)``)
+            # guarantees non-None at this point — ``cast`` documents that
+            # invariant for mypy without inserting an extra branch.
+            status=cast(ReviewItemStatus, item.status),
             updated_at=item.updated_at,
         )
         for item in db.scalars(reply_stmt)
