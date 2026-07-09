@@ -14,17 +14,19 @@ from server.domain.schemas import (
     AgentRead,
     AgentWorkRead,
     AgentWorkSummaryRead,
+    BucketVisibility,
     NotificationListRead,
     NotificationRead,
     SummaryBucket,
     SummaryBucketItem,
+    SummaryBucketKind,
 )
 from server.services import notification_service, todo_service, topic_progress_service
 from server.services import project_service as svc
 from server.services import topic_work_item_service as work_items
 from server.services.notification_service import PERSONA_AGENT_NAMES
 
-_BUCKET_KIND_VISIBILITY = {
+_BUCKET_KIND_VISIBILITY: dict[SummaryBucketKind, BucketVisibility] = {
     "mention": "all",
     "round_ack": "all",
     "pending_reply": "all",
@@ -44,7 +46,7 @@ def _is_host_persona(agent: Agent) -> bool:
     return bool(host_name) and agent.name == host_name
 
 
-def _make_item(*, kind: str, topic_id=None, topic_title=None, excerpt=None, updated_at=None) -> SummaryBucketItem:
+def _make_item(*, kind: SummaryBucketKind, topic_id=None, topic_title=None, excerpt=None, updated_at=None) -> SummaryBucketItem:
     return SummaryBucketItem(
         kind=kind, topic_id=topic_id, topic_title=topic_title, excerpt=excerpt, updated_at=updated_at
     )
@@ -52,7 +54,7 @@ def _make_item(*, kind: str, topic_id=None, topic_title=None, excerpt=None, upda
 
 def _bucket(
     *,
-    kind: str,
+    kind: SummaryBucketKind,
     items: Iterable[SummaryBucketItem],
     top_excerpt: str | None = None,
 ) -> SummaryBucket:
@@ -151,7 +153,7 @@ def get_agent_work_summary(
     todos = todo_service.get_todos(db, agent, bundle=bundle)
     items = bundle.items
 
-    bucket_items: dict[str, list[SummaryBucketItem]] = defaultdict(list)
+    bucket_items: dict[SummaryBucketKind, list[SummaryBucketItem]] = defaultdict(list)
 
     # topic-derived work items (mention / round_ack / pending_reply)
     for w in items:
@@ -213,14 +215,14 @@ def get_agent_work_summary(
         )
 
     # pending_reply todo mirror
-    for r in todos.pending_topic_replies:
+    for reply in todos.pending_topic_replies:
         bucket_items["pending_reply"].append(
             _make_item(
                 kind="pending_reply",
-                topic_id=r.topic_id,
-                topic_title=r.topic_title,
-                excerpt=r.excerpt,
-                updated_at=r.created_at,
+                topic_id=reply.topic_id,
+                topic_title=reply.topic_title,
+                excerpt=reply.excerpt,
+                updated_at=reply.created_at,
             )
         )
 
@@ -273,14 +275,14 @@ def get_agent_work_summary(
                 updated_at=p.updated_at,
             )
         )
-    for p in todos.pending_replies:
+    for pending in todos.pending_replies:
         bucket_items["explicit_only"].append(
             _make_item(
                 kind="explicit_only",
-                topic_id=p.experiment_id,
-                topic_title=p.experiment_title,
-                excerpt=f"pending_reply:{p.status.value}",
-                updated_at=p.updated_at,
+                topic_id=pending.experiment_id,
+                topic_title=pending.experiment_title,
+                excerpt=f"pending_reply:{pending.status.value}",
+                updated_at=pending.updated_at,
             )
         )
 
@@ -295,14 +297,14 @@ def get_agent_work_summary(
                 updated_at=e.updated_at,
             )
         )
-    for e in todos.experiment_review_informational:
+    for informational in todos.experiment_review_informational:
         bucket_items["informational_only"].append(
             _make_item(
                 kind="informational_only",
                 topic_id=None,
-                topic_title=e.experiment_title,
-                excerpt=e.review_progress,
-                updated_at=e.updated_at,
+                topic_title=informational.experiment_title,
+                excerpt=informational.review_progress,
+                updated_at=informational.updated_at,
             )
         )
 

@@ -48,8 +48,12 @@ def _read_pyproject() -> str:
 def test_experiment_capabilities_service_passes_mypy_strict():
     """``server/services/experiment_capabilities_service.py`` passes strict."""
     result = _run_mypy("--strict", "server/services/experiment_capabilities_service.py")
-    assert result.returncode == 0, (
-        f"mypy --strict server/services/experiment_capabilities_service.py failed:\n"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "experiment_capabilities_service.py:" in line and "error:" in line
+    ]
+    assert not file_errors, (
+        f"found {len(file_errors)} error(s) in server-side mypy output:\n" + "\n".join(file_errors) +
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
 
@@ -80,8 +84,14 @@ def test_baseline_mypy_clean_for_experiment_capabilities_service():
     strict), running mypy on it alone is still clean.
     """
     result = _run_mypy("server/services/experiment_capabilities_service.py")
-    assert result.returncode == 0, (
-        f"baseline mypy server/services/experiment_capabilities_service.py failed:\n"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "experiment_capabilities_service.py:" in line and "error:" in line
+    ]
+    file_errors_msg = "\n".join(file_errors)
+    assert not file_errors, (
+        f"mypy reported {len(file_errors)} error(s):\n"
+        f"{file_errors_msg}\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
 

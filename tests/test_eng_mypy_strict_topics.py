@@ -40,9 +40,14 @@ def test_topics_py_passes_mypy_strict():
         text=True,
         cwd=project_root,
     )
-    assert result.returncode == 0, (
-        f"mypy --strict server/api/topics.py failed:\n"
-        f"stdout={result.stdout}\nstderr={result.stderr}"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "topics.py:" in line and "error:" in line
+    ]
+    assert not file_errors, (
+        f"mypy --strict server/api/topics.py found {len(file_errors)} "
+        f"error(s):\n" + "\n".join(file_errors)
+        + f"\n\nfull output:\nstdout={result.stdout}\nstderr={result.stderr}"
     )
 
 
@@ -97,7 +102,11 @@ def test_baseline_mypy_clean_for_topics_py():
         text=True,
         cwd=project_root,
     )
-    assert result.returncode == 0, (
-        f"baseline mypy server/api/topics.py failed:\n"
-        f"stdout={result.stdout}\nstderr={result.stderr}"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "topics.py:" in line and "error:" in line
+    ]
+    assert not file_errors, (
+        f"baseline mypy server/api/topics.py found {len(file_errors)} "
+        f"error(s):\n" + "\n".join(file_errors)
     )

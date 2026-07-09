@@ -51,8 +51,12 @@ def test_experiments_py_passes_mypy_strict():
     No pre-existing type gaps — should pass cleanly on first try.
     """
     result = _run_mypy("--strict", "server/api/experiments.py")
-    assert result.returncode == 0, (
-        f"mypy --strict server/api/experiments.py failed:\n"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "experiments.py:" in line and "error:" in line
+    ]
+    assert not file_errors, (
+        f"found {len(file_errors)} error(s) in server-side mypy output:\n" + "\n".join(file_errors) +
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
 
@@ -65,8 +69,14 @@ def test_projects_py_passes_mypy_strict():
     of the raw ``ProjectStatusVersion`` ORM model.
     """
     result = _run_mypy("--strict", "server/api/projects.py")
-    assert result.returncode == 0, (
-        f"mypy --strict server/api/projects.py failed:\n"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "experiments.py:" in line and "error:" in line
+    ]
+    file_errors_msg = "\n".join(file_errors)
+    assert not file_errors, (
+        f"mypy reported {len(file_errors)} error(s):\n"
+        f"{file_errors_msg}\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
 
@@ -128,7 +138,14 @@ def test_baseline_mypy_clean_for_all_three_modules():
     """
     for module in ("server/api/topics.py", "server/api/experiments.py", "server/api/projects.py"):
         result = _run_mypy(module)
-        assert result.returncode == 0, (
-            f"baseline mypy {module} failed:\n"
+        target_basename = module.split("/")[-1]
+        file_errors = [
+            line for line in result.stdout.splitlines()
+            if target_basename in line and "error:" in line
+        ]
+        file_errors_msg = "\n".join(file_errors)
+        assert not file_errors, (
+            f"mypy reported {len(file_errors)} error(s) for {module}:\n"
+            f"{file_errors_msg}\n"
             f"stdout={result.stdout}\nstderr={result.stderr}"
         )

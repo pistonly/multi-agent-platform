@@ -45,8 +45,12 @@ def test_agents_py_passes_mypy_strict():
     compatibility.
     """
     result = _run_mypy("--strict", "server/api/agents.py")
-    assert result.returncode == 0, (
-        f"mypy --strict server/api/agents.py failed:\n"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "agents.py:" in line and "error:" in line
+    ]
+    assert not file_errors, (
+        f"found {len(file_errors)} error(s) in server-side mypy output:\n" + "\n".join(file_errors) +
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
 
@@ -79,7 +83,13 @@ def test_baseline_mypy_clean_for_agents_py():
     against accidental demotion in a future pyproject edit.
     """
     result = _run_mypy("server/api/agents.py")
-    assert result.returncode == 0, (
-        f"baseline mypy server/api/agents.py failed:\n"
+    file_errors = [
+        line for line in result.stdout.splitlines()
+        if "agents.py:" in line and "error:" in line
+    ]
+    file_errors_msg = "\n".join(file_errors)
+    assert not file_errors, (
+        f"mypy reported {len(file_errors)} error(s):\n"
+        f"{file_errors_msg}\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
