@@ -113,6 +113,10 @@ _FAST_GATE_MODULES = frozenset(
         "test_plan_marker_service",
         "test_archive_lint_service",
         "test_plan_validate_cli",
+        # eng experiment (55634575) PR6 — typing_extensions 守卫
+        "test_eng_typing_extensions_clean",
+        # eng experiment (55634575) PR7 — server/__version__ 单一源
+        "test_eng_version_single_source",
     }
 )
 

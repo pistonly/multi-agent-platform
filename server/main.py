@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from server.__version__ import __version__
 from server.api.router import (
     action_items_router,
     agents_router,
@@ -102,7 +103,7 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
 
     app = FastAPI(
         title="Multi-Agent Platform",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
     app.add_middleware(
