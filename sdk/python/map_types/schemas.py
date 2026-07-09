@@ -466,6 +466,34 @@ class ReviewVerdictItem(BaseModel):
         description="Required when verdict == waived; otherwise optional.",
     )
 
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def _accept_review_verdict_aliases(cls, v: object) -> object:
+        """cli-ux PR3: accept accept|reject|dismiss as aliases.
+
+        Maps to the canonical ``ReviewVerdict`` enum:
+
+        * ``accept`` / ``passed`` → ``ReviewVerdict.passed``
+        * ``reject`` / ``failed`` → ``ReviewVerdict.failed``
+        * ``dismiss`` / ``waived`` → ``ReviewVerdict.waived``
+
+        Serialized output is still the canonical ``passed|failed|waived``
+        string, so DB rows and downstream JSON consumers see no change.
+        """
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            mapping: dict[str, ReviewVerdict] = {
+                "accept": ReviewVerdict.passed,
+                "passed": ReviewVerdict.passed,
+                "reject": ReviewVerdict.failed,
+                "failed": ReviewVerdict.failed,
+                "dismiss": ReviewVerdict.waived,
+                "waived": ReviewVerdict.waived,
+            }
+            if normalized in mapping:
+                return mapping[normalized]
+        return v
+
     @model_validator(mode="after")
     def _waived_requires_reason(self) -> "ReviewVerdictItem":
         if self.verdict == ReviewVerdict.waived and not (self.reason and self.reason.strip()):

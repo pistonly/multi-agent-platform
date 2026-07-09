@@ -162,6 +162,9 @@ _FAST_GATE_MODULES = frozenset(
         # CliRunner 跑 typer app,~100ms 全量;守住「bulk filter 走 enumerate 路径 /
         # 无 filter 走单次 bulk endpoint」契约。
         "test_notification_bulk_filter",
+        # cli-ux follow-up (1f9c9a50) PR3 — verdict vocabulary alias
+        # 纯 Pydantic 模型测试,~30ms 全量;守住「alias 不绕过 waived 必填 reason」契约。
+        "test_review_verdict_alias",
     }
 )
 

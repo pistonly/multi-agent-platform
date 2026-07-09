@@ -1547,6 +1547,7 @@ review_id: 00000000-0000-0000-0000-000000000000  # <-- replace
 verdicts:
   - item_id: 00000000-0000-0000-0000-000000000000  # <-- replace with review item UUID
     verdict: passed  # accepted values: passed | failed | waived
+    # CLI also accepts aliases: accept|reject|dismiss (mapped to canonical values)
     # reason: REQUIRED only when verdict == waived (50-1000 chars)
 invariants:
   - item_id: 00000000-0000-0000-0000-000000000000  # <-- replace
