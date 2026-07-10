@@ -32,7 +32,7 @@ from server.domain.schemas import (
 )
 from server.services import mention_service, topic_ack_service
 from server.services import permissions as perm
-from server.services.review_service import _prior_version_reviews_fully_resolved
+from server.services.review_service import prior_version_reviews_fully_resolved_by_experiment
 from server.services.topic_service import topic_summaries_for_topics
 
 if TYPE_CHECKING:
@@ -78,27 +78,45 @@ def list_pending_round_acks(
     return work_items_module.pending_round_acks_from_work_items(db, items)
 
 
-def list_pending_advance_rounds(db: Session, agent: Agent) -> list[PendingAdvanceRoundTodoRead]:
+def list_pending_advance_rounds(
+    db: Session,
+    agent: Agent,
+    *,
+    open_topics: list[Topic] | None = None,
+    comments_by_topic: dict[uuid.UUID, list] | None = None,
+) -> list[PendingAdvanceRoundTodoRead]:
     """Topics the host created where all required acks are in and advance-round is due."""
     if agent.project_id is None:
         return []
 
-    open_topics = list(
-        db.scalars(
-            select(Topic)
-            .where(
-                Topic.creator_agent_id == agent.id,
-                Topic.project_id == agent.project_id,
-                Topic.deleted_at.is_(None),
-                Topic.archived_at.is_(None),
-                Topic.status == TopicStatus.open,
+    if open_topics is None:
+        open_topics = list(
+            db.scalars(
+                select(Topic)
+                .where(
+                    Topic.creator_agent_id == agent.id,
+                    Topic.project_id == agent.project_id,
+                    Topic.deleted_at.is_(None),
+                    Topic.archived_at.is_(None),
+                    Topic.status == TopicStatus.open,
+                )
+                .order_by(Topic.updated_at.desc())
             )
-            .order_by(Topic.updated_at.desc())
         )
-    )
+    else:
+        open_topics = [
+            topic
+            for topic in open_topics
+            if topic.creator_agent_id == agent.id
+            and topic.project_id == agent.project_id
+            and topic.deleted_at is None
+            and topic.archived_at is None
+            and topic.status == TopicStatus.open
+        ]
     pending: list[PendingAdvanceRoundTodoRead] = []
     for topic in open_topics:
-        if topic_ack_service.advance_round_ack_state(db, topic) != "ready":
+        comments = None if comments_by_topic is None else comments_by_topic.get(topic.id)
+        if topic_ack_service.advance_round_ack_state(db, topic, comments=comments) != "ready":
             continue
         pending.append(
             PendingAdvanceRoundTodoRead(
@@ -121,6 +139,7 @@ def list_stale_open_topics(
     pending_advance_rounds: list[PendingAdvanceRoundTodoRead] | None = None,
     now: datetime | None = None,
     threshold_minutes: int | None = None,
+    host_open_topics: list[Topic] | None = None,
 ) -> list[StaleOpenTopicTodoRead]:
     """Host-owned open topics that need periodic follow-up.
 
@@ -146,29 +165,54 @@ def list_stale_open_topics(
 
     now = now or datetime.now(UTC)
     cutoff = now - timedelta(minutes=threshold_minutes)
+
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
     suppressed_topic_ids = {
         item.topic_id for item in (pending_topic_replies or [])
     } | {
         item.topic_id for item in (pending_advance_rounds or [])
     }
-    open_topics = list(
-        db.scalars(
-            select(Topic)
-            .where(
-                Topic.creator_agent_id == agent.id,
-                Topic.project_id == agent.project_id,
-                Topic.deleted_at.is_(None),
-                Topic.archived_at.is_(None),
-                Topic.status == TopicStatus.open,
-                Topic.updated_at <= cutoff,
-                or_(
-                    Topic.dismissed_at.is_(None),
-                    Topic.updated_at > Topic.dismissed_at,
-                ),
+    if host_open_topics is None:
+        open_topics = list(
+            db.scalars(
+                select(Topic)
+                .where(
+                    Topic.creator_agent_id == agent.id,
+                    Topic.project_id == agent.project_id,
+                    Topic.deleted_at.is_(None),
+                    Topic.archived_at.is_(None),
+                    Topic.status == TopicStatus.open,
+                    Topic.updated_at <= cutoff,
+                    or_(
+                        Topic.dismissed_at.is_(None),
+                        Topic.updated_at > Topic.dismissed_at,
+                    ),
+                )
+                .order_by(Topic.updated_at.asc())
             )
-            .order_by(Topic.updated_at.asc())
         )
-    )
+    else:
+        open_topics = sorted(
+            (
+                topic
+                for topic in host_open_topics
+                if topic.creator_agent_id == agent.id
+                and topic.project_id == agent.project_id
+                and topic.deleted_at is None
+                and topic.archived_at is None
+                and topic.status == TopicStatus.open
+                and _as_utc(topic.updated_at) <= cutoff
+                and (
+                    topic.dismissed_at is None
+                    or _as_utc(topic.updated_at) > _as_utc(topic.dismissed_at)
+                )
+            ),
+            key=lambda topic: _as_utc(topic.updated_at),
+        )
     rows: list[StaleOpenTopicTodoRead] = []
     for topic in open_topics:
         if topic.id in suppressed_topic_ids:
@@ -293,6 +337,11 @@ def get_todos(
     )
     from server.services.review_service import open_unreasonable_count_by_experiment
 
+    from server.services import topic_work_item_service as work_items
+
+    if bundle is None:
+        bundle = work_items.topic_work_items_bundle_for_agent(db, agent)
+
     my_open_experiments_rows = list(
         db.scalars(
             select(Experiment)
@@ -306,24 +355,17 @@ def get_todos(
         )
     )
 
-    open_topics = list(
-        db.scalars(
-            select(Topic)
-            .where(
-                Topic.creator_agent_id == agent.id,
-                Topic.deleted_at.is_(None),
-                Topic.archived_at.is_(None),
-                Topic.status == TopicStatus.open,
-                # Hide topics the host has dismissed, unless new activity
-                # (updated_at bumped past dismissed_at) has appeared since.
-                or_(
-                    Topic.dismissed_at.is_(None),
-                    Topic.updated_at > Topic.dismissed_at,
-                ),
-            )
-            .order_by(Topic.updated_at.desc())
-        )
-    )
+    # Reuse bundle.open_topics (already loaded for work items) instead of a
+    # second SELECT; keep dismiss-suppression semantics for my_open_topics.
+    open_topics = [
+        topic
+        for topic in bundle.open_topics
+        if topic.creator_agent_id == agent.id
+        and topic.deleted_at is None
+        and topic.archived_at is None
+        and topic.status == TopicStatus.open
+        and (topic.dismissed_at is None or topic.updated_at > topic.dismissed_at)
+    ]
     my_open_topics = topic_summaries_for_topics(db, open_topics, viewer_agent_id=agent.id)
     # DEPRECATED (T3 D6): prefer topic-progress work_items; kept for host dismiss (explicit_only).
 
@@ -348,10 +390,11 @@ def get_todos(
         review_stmt = review_stmt.where(project_clause)
 
     pending_reviews_rows = list(db.scalars(review_stmt))
+    resolved_map = prior_version_reviews_fully_resolved_by_experiment(
+        db, pending_reviews_rows
+    )
     pending_reviews_eligible = [
-        exp
-        for exp in pending_reviews_rows
-        if not _prior_version_reviews_fully_resolved(db, exp)
+        exp for exp in pending_reviews_rows if not resolved_map.get(exp.id, False)
     ]
 
     result_review_stmt = (
@@ -447,7 +490,6 @@ def get_todos(
     ]
 
     from server.services import todo_persona_filter as persona_filter
-    from server.services import topic_work_item_service as work_items
 
     shows_review_obligations = persona_filter.agent_sees_review_obligations(
         agent, include_all_partitions=include_all_partitions
@@ -461,8 +503,6 @@ def get_todos(
     else:
         experiment_review_informational = []
 
-    if bundle is None:
-        bundle = work_items.topic_work_items_bundle_for_agent(db, agent)
     all_work_items = bundle.items
     mention_work_items = [item for item in all_work_items if item.kind == "mention"]
     mentions = work_items.mentions_from_work_items(db, agent.id, mention_work_items)
@@ -494,12 +534,18 @@ def get_todos(
 
     pending_topic_replies = list_pending_topic_replies(db, agent, work_items=all_work_items)
     pending_round_acks = list_pending_round_acks(db, agent, work_items=all_work_items)
-    pending_advance_rounds = list_pending_advance_rounds(db, agent)
+    pending_advance_rounds = list_pending_advance_rounds(
+        db,
+        agent,
+        open_topics=bundle.open_topics,
+        comments_by_topic=bundle.comments_by_topic,
+    )
     stale_open_topics = list_stale_open_topics(
         db,
         agent,
         pending_topic_replies=pending_topic_replies,
         pending_advance_rounds=pending_advance_rounds,
+        host_open_topics=bundle.open_topics,
     )
     pending_plan_revisions = list_pending_plan_revisions(db, agent)
 

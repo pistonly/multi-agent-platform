@@ -172,6 +172,36 @@ def count_open_status_unreasonable_for_experiment(
     return db.scalar(stmt) or 0
 
 
+def _prior_version_fully_resolved_from_reviews(
+    prior_reviews: list[Review],
+    *,
+    creator_agent_id: uuid.UUID,
+) -> bool:
+    """Pure counterpart of :func:`_prior_version_reviews_fully_resolved`.
+
+    Operates on an already-loaded review list so callers can batch-fetch
+    reviews for many experiments and evaluate the carve-out in memory.
+    """
+    prior_non_creator = _qualifying_non_creator_reviews(prior_reviews, creator_agent_id)
+    has_unreasonable = False
+    for review in prior_non_creator:
+        for item in review.items:
+            if item.kind != ReviewItemKind.unreasonable:
+                continue
+            has_unreasonable = True
+            # I1(c): the canonical "fully resolved" signal is now
+            # ``status=closed`` with ``last_resolution_reason=resolved``.
+            # Legacy rows that still carry ``status=resolved`` are accepted
+            # for backward compatibility.
+            is_fully_resolved = (
+                item.status == ReviewItemStatus.closed
+                and item.last_resolution_reason == ResolutionReason.resolved
+            ) or item.status == ReviewItemStatus.resolved
+            if not is_fully_resolved:
+                return False
+    return has_unreasonable
+
+
 def _prior_version_reviews_fully_resolved(db: Session, experiment) -> bool:
     """True when a non-creator review on an older plan version raised at least
     one unreasonable item and all such items are now ``resolved``.
@@ -193,26 +223,44 @@ def _prior_version_reviews_fully_resolved(db: Session, experiment) -> bool:
             .options(joinedload(Review.items))
         ).unique()
     )
-    prior_non_creator = _qualifying_non_creator_reviews(
-        prior_reviews, experiment.creator_agent_id
+    return _prior_version_fully_resolved_from_reviews(
+        prior_reviews,
+        creator_agent_id=experiment.creator_agent_id,
     )
-    has_unreasonable = False
-    for review in prior_non_creator:
-        for item in review.items:
-            if item.kind != ReviewItemKind.unreasonable:
-                continue
-            has_unreasonable = True
-            # I1(c): the canonical "fully resolved" signal is now
-            # ``status=closed`` with ``last_resolution_reason=resolved``.
-            # Legacy rows that still carry ``status=resolved`` are accepted
-            # for backward compatibility.
-            is_fully_resolved = (
-                item.status == ReviewItemStatus.closed
-                and item.last_resolution_reason == ResolutionReason.resolved
-            ) or item.status == ReviewItemStatus.resolved
-            if not is_fully_resolved:
-                return False
-    return has_unreasonable
+
+
+def prior_version_reviews_fully_resolved_by_experiment(
+    db: Session,
+    experiments: list,
+) -> dict[uuid.UUID, bool]:
+    """Batch form of :func:`_prior_version_reviews_fully_resolved`.
+
+    Returns ``{experiment_id: True}`` when that experiment should be
+    excluded from ``pending_reviews`` (prior-version carve-out satisfied).
+    Issues at most one ``reviews`` SELECT for the whole input set.
+    """
+    if not experiments:
+        return {}
+    exp_by_id = {exp.id: exp for exp in experiments}
+    rows = list(
+        db.scalars(
+            select(Review)
+            .where(Review.experiment_id.in_(exp_by_id.keys()))
+            .options(joinedload(Review.items))
+        ).unique()
+    )
+    grouped: dict[uuid.UUID, list[Review]] = {eid: [] for eid in exp_by_id}
+    for review in rows:
+        exp = exp_by_id[review.experiment_id]
+        if review.plan_version < exp.current_plan_version:
+            grouped[review.experiment_id].append(review)
+    return {
+        eid: _prior_version_fully_resolved_from_reviews(
+            grouped.get(eid, []),
+            creator_agent_id=exp.creator_agent_id,
+        )
+        for eid, exp in exp_by_id.items()
+    }
 
 
 def assert_approve_eligibility(db: Session, experiment) -> None:

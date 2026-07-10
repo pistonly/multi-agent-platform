@@ -174,10 +174,10 @@ def _round_ack_items(
     agent: Agent,
     comments: list[TopicComment] | None = None,
 ) -> list[TopicWorkItem]:
-    if not topic_ack_service.agent_needs_round_ack(db, topic, agent.id):
-        return []
     if comments is None:
         comments = _topic_comments(db, topic.id)
+    if not topic_ack_service.agent_needs_round_ack(db, topic, agent.id, comments=comments):
+        return []
     summary = topic_ack_service.latest_host_round_summary_comment(
         comments,
         host_agent_id=topic.creator_agent_id,
@@ -310,7 +310,7 @@ def _include_topic_for_agent(
         return True
     if _agent_commented(comments, agent.id):
         return True
-    if topic_ack_service.agent_needs_round_ack(db, topic, agent.id):
+    if topic_ack_service.agent_needs_round_ack(db, topic, agent.id, comments=comments):
         return True
     # Cold-start: contextual-only for never-participated agents (reviewer filter).
     return any(item.kind == "mention" for item in items)
@@ -340,6 +340,7 @@ def topic_work_items_for_topic(
 class AgentTopicWorkItems:
     items: list[TopicWorkItem]
     comments_by_topic: dict[uuid.UUID, list[TopicComment]]
+    open_topics: list[Topic]
 
 
 def topic_work_items_for_agent(db: Session, agent: Agent) -> list[TopicWorkItem]:
@@ -348,7 +349,7 @@ def topic_work_items_for_agent(db: Session, agent: Agent) -> list[TopicWorkItem]
 
 def topic_work_items_bundle_for_agent(db: Session, agent: Agent) -> AgentTopicWorkItems:
     if agent.project_id is None:
-        return AgentTopicWorkItems(items=[], comments_by_topic={})
+        return AgentTopicWorkItems(items=[], comments_by_topic={}, open_topics=[])
     open_topics = list(
         db.scalars(
             select(Topic)
@@ -375,7 +376,11 @@ def topic_work_items_bundle_for_agent(db: Session, agent: Agent) -> AgentTopicWo
                 mentions_for_agent=mentions_for_agent,
             )
         )
-    return AgentTopicWorkItems(items=items, comments_by_topic=comments_by_topic)
+    return AgentTopicWorkItems(
+        items=items,
+        comments_by_topic=comments_by_topic,
+        open_topics=open_topics,
+    )
 
 
 def obligation_items_for_agent(db: Session, agent: Agent) -> list[TopicWorkItem]:

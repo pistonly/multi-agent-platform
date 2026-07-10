@@ -49,11 +49,27 @@ def _topic_comments(db: Session, topic_id: uuid.UUID) -> list[TopicComment]:
     )
 
 
-def required_ack_agent_ids(db: Session, topic: Topic) -> set[uuid.UUID]:
+def _comments_for_topic(
+    db: Session,
+    topic_id: uuid.UUID,
+    comments: list[TopicComment] | None,
+) -> list[TopicComment]:
+    """Return preloaded comments when provided; otherwise load from DB."""
+    if comments is not None:
+        return comments
+    return _topic_comments(db, topic_id)
+
+
+def required_ack_agent_ids(
+    db: Session,
+    topic: Topic,
+    *,
+    comments: list[TopicComment] | None = None,
+) -> set[uuid.UUID]:
     """Participants who must ack before advance (dynamic set)."""
     required: set[uuid.UUID] = set()
     dismissed: set[uuid.UUID] = set()
-    for comment in _topic_comments(db, topic.id):
+    for comment in _comments_for_topic(db, topic.id, comments):
         if comment.author_agent_id == topic.creator_agent_id:
             continue
         kind = _ack_kind(comment.body)
@@ -94,26 +110,32 @@ def acknowledged_agent_ids(
     topic: Topic,
     *,
     host_ack_ids: list[uuid.UUID],
+    comments: list[TopicComment] | None = None,
 ) -> set[uuid.UUID]:
     acked = set(host_ack_ids)
-    cutoff = _ack_cutoff_for_topic(db, topic)
+    loaded = _comments_for_topic(db, topic.id, comments)
+    cutoff = _ack_cutoff_for_topic(db, topic, comments=loaded)
     if cutoff is None:
         return acked
-    comments = _topic_comments(db, topic.id)
-    for agent_id in required_ack_agent_ids(db, topic):
-        if latest_ack_kind_since(comments, agent_id, since=cutoff) == "accept":
+    for agent_id in required_ack_agent_ids(db, topic, comments=loaded):
+        if latest_ack_kind_since(loaded, agent_id, since=cutoff) == "accept":
             acked.add(agent_id)
     return acked
 
 
-def reject_agent_ids(db: Session, topic: Topic) -> set[uuid.UUID]:
-    cutoff = _ack_cutoff_for_topic(db, topic)
+def reject_agent_ids(
+    db: Session,
+    topic: Topic,
+    *,
+    comments: list[TopicComment] | None = None,
+) -> set[uuid.UUID]:
+    loaded = _comments_for_topic(db, topic.id, comments)
+    cutoff = _ack_cutoff_for_topic(db, topic, comments=loaded)
     if cutoff is None:
         return set()
-    comments = _topic_comments(db, topic.id)
     rejected: set[uuid.UUID] = set()
-    for agent_id in required_ack_agent_ids(db, topic):
-        if latest_ack_kind_since(comments, agent_id, since=cutoff) == "reject":
+    for agent_id in required_ack_agent_ids(db, topic, comments=loaded):
+        if latest_ack_kind_since(loaded, agent_id, since=cutoff) == "reject":
             rejected.add(agent_id)
     return rejected
 
@@ -123,20 +145,22 @@ def advance_round_ack_state(
     topic: Topic,
     *,
     now: datetime | None = None,
+    comments: list[TopicComment] | None = None,
 ) -> str:
     """Return ack gate state for the current Round Summary: none|pending|rejected|ready."""
     if topic.archived_at is not None:
         return "none"
     if topic.advance_round_pending_since is None:
         return "none"
-    if _ack_cutoff_for_topic(db, topic) is None:
+    loaded = _comments_for_topic(db, topic.id, comments)
+    if _ack_cutoff_for_topic(db, topic, comments=loaded) is None:
         return "none"
-    if reject_agent_ids(db, topic):
+    if reject_agent_ids(db, topic, comments=loaded):
         return "rejected"
-    required = required_ack_agent_ids(db, topic)
+    required = required_ack_agent_ids(db, topic, comments=loaded)
     if not required:
         return "ready"
-    acked = acknowledged_agent_ids(db, topic, host_ack_ids=[])
+    acked = acknowledged_agent_ids(db, topic, host_ack_ids=[], comments=loaded)
     if not (required - acked):
         return "ready"
     if ack_timeout_elapsed(topic, now=now):
@@ -232,9 +256,14 @@ def latest_host_round_summary_comment(
     return max(candidates, key=topic_comment_sort_key)
 
 
-def _ack_cutoff_for_topic(db: Session, topic: Topic) -> datetime | None:
-    comments = _topic_comments(db, topic.id)
-    summary = latest_host_round_summary_comment(comments, host_agent_id=topic.creator_agent_id)
+def _ack_cutoff_for_topic(
+    db: Session,
+    topic: Topic,
+    *,
+    comments: list[TopicComment] | None = None,
+) -> datetime | None:
+    loaded = _comments_for_topic(db, topic.id, comments)
+    summary = latest_host_round_summary_comment(loaded, host_agent_id=topic.creator_agent_id)
     if summary is not None:
         return _as_utc(summary.created_at)
     if topic.advance_round_pending_since is not None:
@@ -259,18 +288,24 @@ def agent_has_round_ack_since(
     return False
 
 
-def agent_needs_round_ack(db: Session, topic: Topic, agent_id: uuid.UUID) -> bool:
+def agent_needs_round_ack(
+    db: Session,
+    topic: Topic,
+    agent_id: uuid.UUID,
+    *,
+    comments: list[TopicComment] | None = None,
+) -> bool:
     """True when agent must post --ack accept/reject/dismiss for the current Summary."""
     if agent_id == topic.creator_agent_id:
         return False
-    required = required_ack_agent_ids(db, topic)
+    loaded = _comments_for_topic(db, topic.id, comments)
+    required = required_ack_agent_ids(db, topic, comments=loaded)
     if agent_id not in required:
         return False
-    cutoff = _ack_cutoff_for_topic(db, topic)
+    cutoff = _ack_cutoff_for_topic(db, topic, comments=loaded)
     if cutoff is None:
         return False
-    comments = _topic_comments(db, topic.id)
-    return not agent_has_round_ack_since(comments, agent_id, since=cutoff)
+    return not agent_has_round_ack_since(loaded, agent_id, since=cutoff)
 
 
 def mark_round_ack_pending(topic: Topic, *, now: datetime | None = None) -> None:
