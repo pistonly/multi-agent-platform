@@ -14,10 +14,8 @@ Pins three Layer-2 N+1 fixes on the waker hot path:
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from sqlalchemy import event
 
 from server.domain.models import (

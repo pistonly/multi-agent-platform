@@ -26,7 +26,6 @@ from __future__ import annotations
 
 from tests._frontmatter import make_valid_plan
 
-
 # ────────────────────────── PATCH gating ──────────────────────────
 
 

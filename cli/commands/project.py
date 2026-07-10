@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 from map_client.client import MAPClient
+
 from server.domain.schemas import ProjectStatusRevise
 
 project_app = typer.Typer(help="Project commands")

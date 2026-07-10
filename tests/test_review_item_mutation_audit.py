@@ -21,16 +21,13 @@ Pins plan (e) acceptance:
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from server.domain.models import AuditLog, Review, ReviewItem
+from server.domain.models import AuditLog
 from server.services.audit_service import REVIEW_ITEM_MUTATION
 from tests._frontmatter import make_valid_plan
-
 
 # ---------------------------------------------------------------------------
 # Helpers

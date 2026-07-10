@@ -10,6 +10,7 @@ import pytest
 
 pytestmark = pytest.mark.slow
 from fastapi.testclient import TestClient
+
 from tests._frontmatter import make_valid_plan
 
 # ---------- helpers ----------------------------------------------------------

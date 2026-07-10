@@ -331,13 +331,12 @@ def get_todos(
     bundle: "AgentTopicWorkItems | None" = None,
     include_all_partitions: bool = False,
 ) -> TodoRead:
+    from server.services import topic_work_item_service as work_items
     from server.services.log_service import (
         latest_log_by_experiment,
         log_counts_by_experiment,
     )
     from server.services.review_service import open_unreasonable_count_by_experiment
-
-    from server.services import topic_work_item_service as work_items
 
     if bundle is None:
         bundle = work_items.topic_work_items_bundle_for_agent(db, agent)

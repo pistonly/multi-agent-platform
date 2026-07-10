@@ -26,6 +26,7 @@ from map_types.schemas import (
     ReviewVerdictItem,
 )
 from pydantic import ValidationError
+
 from tests._frontmatter import make_valid_plan
 
 # Schema-only tests are unit tests; integration tests below are marked slow

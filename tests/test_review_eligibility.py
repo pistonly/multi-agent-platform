@@ -1,6 +1,7 @@
 """Review eligibility: creator self-review block and approve gates."""
 
 from fastapi.testclient import TestClient
+
 from tests._frontmatter import make_valid_plan
 
 

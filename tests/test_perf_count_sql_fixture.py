@@ -30,14 +30,9 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
-from server.services import notification_service
-from server.services.topic_progress_service import (
-    list_topic_progress_for_agent,
-)
-from server.domain.models import Agent, AgentRole, Project
-from server.services.auth import create_agent
-
 from cli.simple_waker import build_wake_context
+from server.domain.models import AgentRole, Project
+from server.services.auth import create_agent
 
 
 @dataclass

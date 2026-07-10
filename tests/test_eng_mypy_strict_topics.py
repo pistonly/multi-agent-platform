@@ -17,12 +17,11 @@ import re
 import subprocess
 import sys
 
-
 PYPROJECT = "/home/AI02/Documents/quantaeye/multi_agents_platform/pyproject.toml"
 
 
 def _read_pyproject() -> str:
-    with open(PYPROJECT, "r", encoding="utf-8") as fh:
+    with open(PYPROJECT, encoding="utf-8") as fh:
         return fh.read()
 
 

@@ -39,8 +39,6 @@ from map_types.enums import (
 )
 from sqlalchemy.orm import Session
 
-from tests._frontmatter import make_valid_plan
-
 from server.domain.models import (
     Agent,
     AgentRole,
@@ -55,6 +53,7 @@ from server.services.review_service import (
     update_review_item,
     withdraw_review,
 )
+from tests._frontmatter import make_valid_plan
 
 
 def _make_project(db: Session) -> Project:

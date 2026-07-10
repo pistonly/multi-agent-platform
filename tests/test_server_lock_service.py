@@ -16,7 +16,6 @@ Covers race experiment (eca0f522) PR1:
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -90,8 +89,6 @@ def test_acquire_integrity_error_translates_to_conflict(db_session):
     host = _host(db_session, project)
     exp = _running_experiment(db_session, project, host, "exp-race")
 
-    real_commit = lock_service.commit_with_retry
-
     def fake_commit(db, **kwargs):
         # Simulate the IntegrityError that the unique partial index
         # would raise on PG when two acquires race past the
@@ -103,9 +100,8 @@ def test_acquire_integrity_error_translates_to_conflict(db_session):
             Exception("duplicate key value violates unique constraint"),
         )
 
-    with patch.object(lock_service, "commit_with_retry", side_effect=fake_commit):
-        with pytest.raises(ConflictError):
-            lock_service.acquire_experiment_lock(db_session, exp.id, host)
+    with patch.object(lock_service, "commit_with_retry", side_effect=fake_commit), pytest.raises(ConflictError):
+        lock_service.acquire_experiment_lock(db_session, exp.id, host)
 
 
 def test_acquire_reclaim_after_expiry(db_session):

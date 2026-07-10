@@ -27,6 +27,7 @@ from server.services._lookups import get_project
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 from server.services.permissions import is_admin
 
+
 def _suggest_linked_experiment(db: Session, item: TopicActionItem) -> tuple[uuid.UUID | None, str | None]:
     """Find a recently-done experiment in the same project whose owner matches
     the action item's owner and whose title is a substring match (case-insensitive,

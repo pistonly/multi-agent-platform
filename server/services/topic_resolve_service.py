@@ -29,6 +29,7 @@ from server.services.topic_action_item_ops import (
 )
 from server.services.topic_helpers import _get_topic
 
+
 def topic_decision_read(db: Session, decision: TopicDecision) -> TopicDecisionRead:
     author_name = None
     author = getattr(decision, "author", None)

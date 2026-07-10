@@ -16,8 +16,8 @@ from server.auth.experiment_access import (
     ensure_experiment_creator_or_admin,
 )
 from server.domain.models import Agent, AgentRole, Experiment, Project
-from server.services.errors import ForbiddenError, NotFoundError
 from server.services.auth import create_agent
+from server.services.errors import ForbiddenError, NotFoundError
 
 
 def _project(db, suffix: str = "a") -> Project:

@@ -14,16 +14,14 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from fastapi.testclient import TestClient
+from map_types.enums import AgentRole
 from sqlalchemy import select
 
-from map_types.enums import AgentRole
-from server.domain.models import Agent, AuditLog, Project
+from server.domain.models import Agent, AuditLog
 from server.services import audit_service
 from server.services.audit_service import CROSS_PERSONA_CALL
 from tests._frontmatter import make_valid_plan
-
 
 # ---------------------------------------------------------------------------
 # (1) Agent.has_capability

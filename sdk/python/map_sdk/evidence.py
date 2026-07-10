@@ -16,7 +16,6 @@ server-side. Moving them is a follow-up PR.
 
 from __future__ import annotations
 
-
 EVIDENCE_METADATA_KEYS: frozenset[str] = frozenset(
     {
         "alembic_revision",

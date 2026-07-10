@@ -12,8 +12,6 @@ Verifies the Layer-2 N+1 fix in ``topic_work_items_bundle_for_agent``:
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from sqlalchemy import event
 

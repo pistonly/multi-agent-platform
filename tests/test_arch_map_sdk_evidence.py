@@ -11,8 +11,6 @@ Verifies:
 
 from __future__ import annotations
 
-import subprocess
-
 
 def test_map_sdk_does_not_import_server():
     """arch plan §7 CI gate: ``map_sdk`` MUST NOT ``import server`` or
@@ -34,7 +32,7 @@ def test_map_sdk_does_not_import_server():
             if forbidden.match(line):
                 offenders.append(f"{path}:{lineno}: {line}")
     assert not offenders, (
-        f"map_sdk must not import from server.*; offenders:\n"
+        "map_sdk must not import from server.*; offenders:\n"
         + "\n".join(offenders)
     )
 
@@ -43,10 +41,15 @@ def test_map_sdk_evidence_re_exports_match_server_module():
     """The SDK copy must be the same callable as the server re-export."""
     from map_sdk.evidence import (
         EVIDENCE_METADATA_KEYS as sdk_keys,
+    )
+    from map_sdk.evidence import (
         metadata_has_completion_evidence as sdk_helper,
     )
+
     from server.services.evidence_service import (
         EVIDENCE_METADATA_KEYS as srv_keys,
+    )
+    from server.services.evidence_service import (
         metadata_has_completion_evidence as srv_helper,
     )
     # Same function object — server re-exports the SDK one.

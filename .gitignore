@@ -69,6 +69,7 @@ htmlcov/
 .map/waker-logs/
 .map/simple-waker-logs/
 .map/generated-reviews/
+.map/reviewer/
 .map/.claude-env
 .map/.cursor-env
 # Agent 运行时生成的计划/日志（perf baseline 例外保留供测试对照）

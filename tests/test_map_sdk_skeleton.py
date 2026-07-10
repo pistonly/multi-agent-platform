@@ -16,8 +16,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 
 def test_map_sdk_importable():
     import map_sdk

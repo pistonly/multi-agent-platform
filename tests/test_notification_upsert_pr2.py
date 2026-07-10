@@ -15,11 +15,8 @@ Covers the post-PR2 behaviour of
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 
-import pytest
-
-from server.domain.models import Agent, AgentRole, Notification, NotificationFingerprintVersion, Project
+from server.domain.models import Agent, AgentRole, NotificationFingerprintVersion, Project
 from server.services import notification_service
 from server.services.auth import create_agent
 

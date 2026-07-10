@@ -1,4 +1,5 @@
 import pytest
+
 from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow

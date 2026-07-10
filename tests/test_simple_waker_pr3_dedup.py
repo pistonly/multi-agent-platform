@@ -17,8 +17,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from cli.simple_waker import build_wake_context
 
 

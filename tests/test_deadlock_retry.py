@@ -13,11 +13,8 @@ Coverage
 
 from __future__ import annotations
 
-import os
-from unittest.mock import patch
-
 import pytest
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import OperationalError
 
 from server.db import deadlock_retry
 

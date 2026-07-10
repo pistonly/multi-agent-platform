@@ -17,7 +17,6 @@ from map_sdk.evidence import (  # noqa: E402, F401
     metadata_has_completion_evidence,
 )
 
-
 # --- 8ac93d4e I1.b — plan evidence_keys soft validation ---------------------
 
 

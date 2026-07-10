@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 from map_types.enums import TopicCommentKind
+
 from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow

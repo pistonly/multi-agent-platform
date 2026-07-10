@@ -146,7 +146,7 @@ def acquire_experiment_lock(
         holder_id = holder.id if holder is not None else None
         raise ConflictError(
             f"experiment {holder_id} already holds the execution lock for project {experiment.project_id}"
-        )
+        ) from None
     db.refresh(experiment)
     logger.info(
         "acquire_lock experiment=%s project=%s ttl=%s",

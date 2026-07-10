@@ -16,6 +16,7 @@ from server.domain.schemas import (
 
 pytestmark = pytest.mark.slow
 from map_types.schemas import TopicActionItemCreate, TopicResolve
+
 from tests._frontmatter import make_valid_plan
 
 

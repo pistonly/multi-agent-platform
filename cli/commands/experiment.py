@@ -17,6 +17,7 @@ from map_sdk.evidence import (
     EVIDENCE_METADATA_KEYS,
     metadata_has_completion_evidence,
 )
+
 from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
@@ -207,7 +208,12 @@ def experiment_complete(
     payload under ``template_validation``. Warnings never block the
     transition — add a follow-up log to address them.
     """
-    from cli.main import _load_complete_metadata, _print_complete_metadata_schema_and_exit, _read_text_file, _run  # lazy: avoid cycle
+    from cli.main import (  # lazy: avoid cycle
+        _load_complete_metadata,
+        _print_complete_metadata_schema_and_exit,
+        _read_text_file,
+        _run,
+    )
     if schema:
         _print_complete_metadata_schema_and_exit()
     metadata = _load_complete_metadata(
@@ -245,7 +251,13 @@ def experiment_accept_result(
         "Use this to discover the verdict schema without grepping the SDK.",
     ),
 ) -> None:
-    from cli.main import _load_review_verdict_file, _print_review_verdict_schema_and_exit, _read_text_file, _read_yaml_file, _run  # lazy: avoid cycle
+    from cli.main import (  # lazy: avoid cycle
+        _load_review_verdict_file,
+        _print_review_verdict_schema_and_exit,
+        _read_text_file,
+        _read_yaml_file,
+        _run,
+    )
     if schema:
         _print_review_verdict_schema_and_exit()
     metadata = _read_yaml_file(metadata_file)
@@ -282,7 +294,13 @@ def experiment_reject_result(
         "Use this to discover the verdict schema without grepping the SDK.",
     ),
 ) -> None:
-    from cli.main import _load_review_verdict_file, _print_review_verdict_schema_and_exit, _read_text_file, _read_yaml_file, _run  # lazy: avoid cycle
+    from cli.main import (  # lazy: avoid cycle
+        _load_review_verdict_file,
+        _print_review_verdict_schema_and_exit,
+        _read_text_file,
+        _read_yaml_file,
+        _run,
+    )
     if schema:
         _print_review_verdict_schema_and_exit()
     metadata = _read_yaml_file(metadata_file)
@@ -677,8 +695,9 @@ def review_resolve_item(
     Defaults to ``resolved`` so existing scripts that omit ``--status``
     keep their old behaviour — the migration is opt-in.
     """
-    from cli.main import _run  # lazy: avoid cycle
     from map_types.enums import ReviewItemStatus
+
+    from cli.main import _run  # lazy: avoid cycle
 
     _run(lambda c: c.update_review_item(item_id, ReviewItemStatus(status)))
 

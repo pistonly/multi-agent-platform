@@ -27,7 +27,7 @@ import sys
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from server.db.session import SessionLocal
 from server.domain.models import Agent, AgentRole, AuditLog

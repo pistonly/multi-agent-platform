@@ -1,5 +1,6 @@
 from tests._frontmatter import make_valid_plan
 
+
 def test_notifications_on_phase_change(client, auth_headers, reviewer, project):
     reviewer_headers = reviewer["headers"]
     exp = client.post(

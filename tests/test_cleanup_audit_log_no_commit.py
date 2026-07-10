@@ -13,8 +13,6 @@ Verifies:
 
 from __future__ import annotations
 
-import pytest
-
 from server.services import audit_service
 
 

@@ -28,8 +28,8 @@ from contextlib import contextmanager
 import click
 import pytest
 from fastapi.testclient import TestClient
-
 from map_client.exceptions import MAPHTTPError, MAPValidationError, raise_for_status
+
 from sdk.python.map_client.client import MAPClient
 from tests._frontmatter import make_valid_plan
 

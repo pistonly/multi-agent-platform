@@ -1,5 +1,6 @@
 from tests._frontmatter import make_valid_plan
 
+
 def test_admin_revise_project_status(client, admin_headers, project):
     project_id = project["id"]
     revised_md = "# Current Status — test-project\n\n## 当前目标\n\n- 完成图表可视化实验\n"
