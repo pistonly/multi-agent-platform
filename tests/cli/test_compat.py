@@ -161,15 +161,14 @@ def test_subapp_commands_match_snapshot(
 # ---------------------------------------------------------------------------
 
 
-# cli/main.py shrank 2967 → 2200 across PR3-PR7 (PR8 final value:
-# 2200). We hold the line at <= 2300 — intentional growth requires
-# bumping this + a commit note explaining why and ideally pointing at
-# the next sub-app candidate to split out.
-MAX_CLI_MAIN_PY_LINES = 2300
+# cli/main.py shrank 2967 → 2200 across PR3-PR7, then ~1400 after
+# experiment/project/persona/runtime split. Hold the line at <= 1450 —
+# intentional growth requires bumping this + a commit note explaining why.
+MAX_CLI_MAIN_PY_LINES = 1450
 
 
 def test_cli_main_py_under_size_cap() -> None:
-    """Monolith regression guard: ``cli/main.py`` must stay under 2300 lines."""
+    """Monolith regression guard: ``cli/main.py`` must stay under 1450 lines."""
     actual = sum(1 for _ in CLI_MAIN_PY.open(encoding="utf-8"))
     assert actual <= MAX_CLI_MAIN_PY_LINES, (
         f"cli/main.py grew to {actual} lines (cap={MAX_CLI_MAIN_PY_LINES}); "
@@ -188,8 +187,12 @@ EXPECTED_SUBAPP_FILES = [
     "agent.py",
     "audit.py",
     "docs.py",
+    "experiment.py",
     "feedback.py",
     "notification.py",
+    "persona.py",
+    "project.py",
+    "runtime.py",
     "topic.py",
 ]
 

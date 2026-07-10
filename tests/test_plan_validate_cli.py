@@ -6,8 +6,8 @@ Covers the 3-bucket acceptance from plan (c):
 2. 缺 title → exit 0（默认非 strict），warning 含 PLAN_MARKER_MISSING_FIELD(title)
 3. ``--strict`` + 缺 title → exit 1
 
-We invoke ``CliRunner`` directly against ``cli.main.plan_validate`` to
-exercise the local lint path (no MAP client involved).
+We invoke ``CliRunner`` against ``cli.main.app`` (``experiment plan validate``)
+to exercise the local lint path (no MAP client involved).
 """
 
 from __future__ import annotations

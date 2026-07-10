@@ -1,0 +1,63 @@
+"""``map persona ...`` sub-app — cli/main.py split.
+
+Local ``.map/agents.yaml`` identity commands.
+Command bodies lazy-import ``cli.main`` helpers to break the import cycle.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+from map_client.client import MAPClient
+from map_client.project_config import find_map_dir, load_project_map_config
+
+persona_app = typer.Typer(help="Persona / identity commands")
+
+
+@persona_app.command("list")
+def persona_list(
+    project_root: Path | None = typer.Option(None, "--project-root"),
+) -> None:
+    """List personas defined in .map/agents.yaml."""
+    from cli.main import _print_json, _require_map_dir  # lazy: avoid cycle
+    map_dir = _require_map_dir(project_root)
+    cfg = load_project_map_config(map_dir=map_dir)
+    rows = []
+    for key, info in cfg.personas.items():
+        has_token = key in cfg.tokens
+        rows.append(
+            {
+                "persona": key,
+                "agent_name": info.agent_name,
+                "has_token": has_token,
+                "description": info.description,
+            }
+        )
+    _print_json(rows)
+
+
+@persona_app.command("whoami")
+def persona_whoami(
+    persona: str | None = typer.Option(None, "--persona", "-p"),
+    project_root: Path | None = typer.Option(None, "--project-root"),
+) -> None:
+    """Show MAP identity for the selected persona (default from .map/config.yaml)."""
+    from cli.main import _cli_options, _run  # lazy: avoid cycle
+    if persona is not None:
+        _cli_options["persona"] = persona
+    if project_root is not None:
+        _cli_options["project_root"] = project_root
+
+    def action(c: MAPClient):
+        me = c.get_me()
+        payload = me.model_dump(mode="json")
+        if _cli_options.get("persona"):
+            payload["persona"] = _cli_options["persona"]
+        elif find_map_dir(_cli_options.get("project_root")):
+            payload["persona"] = load_project_map_config(
+                project_root=_cli_options.get("project_root")
+            ).default_persona
+        return payload
+
+    _run(action)
+
