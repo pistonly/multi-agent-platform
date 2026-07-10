@@ -1,39 +1,19 @@
 """Tests for eng experiment (55634575) PR5j — promote
-server/services/topic_service.py to mypy strict.
+server/services/topic_service.py (and its split modules) to mypy strict.
 
-Fourteenth strict module (4 API + 10 services). Last planned module
-in the strict rollout: topic_service is the largest domain service
-(1500+ lines).
+``topic_service`` is now a re-export facade. Behaviour lives in:
 
-Pre-existing gaps fixed (8 total):
-
-* Line 181 — ``advance_round_pending_since=topic.advance_round_pending_since``
-  passed to ``TopicSummaryRead`` whose schema renamed the field to
-  ``stale_since`` (advance_round_pending_since is now a DEPRECATED
-  computed alias property). Renamed kwarg.
-* Line 349 — ``groups`` dict typed ``dict[tuple[UUID, UUID], ...]`` but
-  the actual key includes ``owner_agent_id`` which is nullable
-  (``UUID | None``) per the model. Widened the key tuple.
-* Line 446 — ``category=item.category`` where ``item.category`` is
-  ``str | None`` from the column, but ``TopicActionItemRead.category``
-  expects ``ActionItemCategory | None``. Convert via the enum ctor.
-* Line 644 — ``audit_entries: list[dict[str, object]]`` — the ``object``
-  values can never satisfy ``log_no_commit(action: str, target_id:
-  UUID | None, payload: dict[Any, Any] | None)``. Widened to
-  ``dict[str, Any]``.
-* Lines 803 / 852 — ``-> dict`` (bare ``dict``) returns on
-  ``_complete_action_item_no_commit`` and ``deliver_action_item_no_commit``.
-  Typed as ``-> dict[str, Any]``.
+* ``topic_helpers``
+* ``topic_lifecycle_service``
+* ``topic_resolve_service``
+* ``topic_action_item_ops``
+* ``topic_comment_service`` (earlier split)
 
 Pins:
-1. ``server/services/topic_service.py`` passes ``mypy --strict``.
-2. ``pyproject.toml`` lists all 14 modules in one override block.
-3. Baseline mypy (project config) clean for the target file.
-4. ``TopicSummaryRead(...)`` uses ``stale_since=`` kwarg.
-5. ``groups`` key tuple is ``tuple[uuid.UUID, uuid.UUID | None]``.
-6. ``category`` converted via ``ActionItemCategory(...)`` ctor.
-7. ``audit_entries`` typed ``list[dict[str, Any]]``.
-8. Both action-item helpers return ``dict[str, Any]``.
+1. Facade + split modules pass ``mypy --strict``.
+2. ``pyproject.toml`` lists the facade and split modules in the strict override.
+3. Baseline mypy clean for the facade.
+4. Regression strings live in the modules that own the logic.
 """
 
 from __future__ import annotations
@@ -46,6 +26,16 @@ PYPROJECT = "/home/AI02/Documents/quantaeye/multi_agents_platform/pyproject.toml
 PROJECT_ROOT = "/home/AI02/Documents/quantaeye/multi_agents_platform"
 TARGET = f"{PROJECT_ROOT}/server/services/topic_service.py"
 TARGET_BASENAME = "topic_service.py"
+LIFECYCLE = f"{PROJECT_ROOT}/server/services/topic_lifecycle_service.py"
+RESOLVE = f"{PROJECT_ROOT}/server/services/topic_resolve_service.py"
+ACTION_OPS = f"{PROJECT_ROOT}/server/services/topic_action_item_ops.py"
+SPLIT_MODULES = [
+    "server/services/topic_service.py",
+    "server/services/topic_helpers.py",
+    "server/services/topic_lifecycle_service.py",
+    "server/services/topic_resolve_service.py",
+    "server/services/topic_action_item_ops.py",
+]
 
 
 def _run_mypy(*args: str) -> subprocess.CompletedProcess[str]:
@@ -63,11 +53,22 @@ def _read(path: str) -> str:
 
 
 def test_topic_service_passes_mypy_strict():
-    """``server/services/topic_service.py`` passes strict."""
-    result = _run_mypy("--strict", "server/services/topic_service.py")
+    """Facade + split topic modules pass strict."""
+    result = _run_mypy("--strict", *SPLIT_MODULES)
     file_errors = [
-        line for line in result.stdout.splitlines()
-        if TARGET_BASENAME in line and "error:" in line
+        line
+        for line in result.stdout.splitlines()
+        if "error:" in line
+        and any(
+            name in line
+            for name in (
+                "topic_service.py",
+                "topic_helpers.py",
+                "topic_lifecycle_service.py",
+                "topic_resolve_service.py",
+                "topic_action_item_ops.py",
+            )
+        )
     ]
     file_errors_msg = "\n".join(file_errors)
     assert not file_errors, (
@@ -77,42 +78,30 @@ def test_topic_service_passes_mypy_strict():
     )
 
 
-def test_pyproject_promotes_all_fourteen_to_strict():
-    """pyproject must list all 14 modules in one override block."""
+def test_pyproject_promotes_topic_split_modules_to_strict():
+    """pyproject must keep topic facade + split modules under strict."""
     text = _read(PYPROJECT)
     pattern = re.compile(
         r"\[\[tool\.mypy\.overrides\]\][^{]*?module\s*=\s*\[.*?"
-        r"\"server\.api\.topics\".*?"
-        r"\"server\.api\.experiments\".*?"
-        r"\"server\.api\.projects\".*?"
-        r"\"server\.api\.agents\".*?"
-        r"\"server\.services\.project_service\".*?"
-        r"\"server\.services\.phase_service\".*?"
-        r"\"server\.services\.experiment_capabilities_service\".*?"
-        r"\"server\.services\.mention_service\".*?"
-        r"\"server\.services\.todo_service\".*?"
-        r"\"server\.services\.topic_comment_service\".*?"
-        r"\"server\.services\.agent_work_service\".*?"
-        r"\"server\.services\.topic_work_item_service\".*?"
-        r"\"server\.services\.notification_service\".*?"
         r"\"server\.services\.topic_service\".*?"
+        r"\"server\.services\.topic_helpers\".*?"
+        r"\"server\.services\.topic_lifecycle_service\".*?"
+        r"\"server\.services\.topic_resolve_service\".*?"
+        r"\"server\.services\.topic_action_item_ops\".*?"
         r"\][^{]*?strict\s*=\s*true",
         re.DOTALL,
     )
     assert pattern.search(text), (
         "pyproject.toml must keep [[tool.mypy.overrides]] promoting "
-        "all 14 modules to strict = true in a single module list"
+        "topic_service + its split modules to strict = true"
     )
 
 
 def test_baseline_mypy_clean_for_topic_service():
-    """Sanity: with the pyproject config (which promotes topic_service
-    to strict), running mypy on it alone is still clean for the target.
-    """
+    """Sanity: project config mypy stays clean for the facade."""
     result = _run_mypy("server/services/topic_service.py")
     file_errors = [
-        line for line in result.stdout.splitlines()
-        if TARGET_BASENAME in line and "error:" in line
+        line for line in result.stdout.splitlines() if TARGET_BASENAME in line and "error:" in line
     ]
     file_errors_msg = "\n".join(file_errors)
     assert not file_errors, (
@@ -123,69 +112,66 @@ def test_baseline_mypy_clean_for_topic_service():
 
 
 def test_topic_summary_uses_stale_since_kwarg():
-    """Regression guard: ``TopicSummaryRead(...)`` must use
-    ``stale_since=``, not ``advance_round_pending_since=``.
-    """
-    text = _read(TARGET)
+    """``TopicSummaryRead(...)`` must use ``stale_since=`` in lifecycle."""
+    text = _read(LIFECYCLE)
     assert "stale_since=topic.advance_round_pending_since" in text, (
         "TopicSummaryRead ctor must use stale_since= kwarg (PR5j renamed)."
     )
 
 
 def test_groups_dict_key_allows_optional_owner():
-    """Regression guard: ``groups`` key tuple is
-    ``(uuid.UUID, uuid.UUID | None)`` because ``owner_agent_id`` is
-    nullable on ``TopicActionItem``.
-    """
-    text = _read(TARGET)
+    """``groups`` key tuple allows nullable ``owner_agent_id``."""
+    text = _read(ACTION_OPS)
     assert "dict[tuple[uuid.UUID, uuid.UUID | None], list[TopicActionItem]]" in text, (
-        "groups dict must widen its key tuple to allow owner_agent_id "
-        "= None (PR5j fixed the strict type)."
+        "groups dict must widen its key tuple to allow owner_agent_id = None."
     )
 
 
 def test_category_uses_enum_ctor():
-    """Regression guard: ``TopicActionItemRead(...)`` category field
-    must convert the ``str | None`` column value via the enum ctor.
-    """
-    text = _read(TARGET)
+    """``TopicActionItemRead(...)`` category uses enum ctor."""
+    text = _read(ACTION_OPS)
     assert (
-        "category=ActionItemCategory(item.category) if item.category else None"
-        in text
+        "category=ActionItemCategory(item.category) if item.category else None" in text
     ), (
-        "category kwarg must wrap item.category in ActionItemCategory(...) ctor "
-        "since the schema field is ActionItemCategory | None, not str | None."
+        "category kwarg must wrap item.category in ActionItemCategory(...) ctor."
     )
 
 
 def test_audit_entries_uses_any():
-    """Regression guard: ``audit_entries`` is typed
-    ``list[dict[str, Any]]`` so the entries can satisfy
-    ``log_no_commit(action: str, target_id: UUID | None, payload: dict[Any, Any] | None)``.
-    """
-    text = _read(TARGET)
+    """``audit_entries`` is ``list[dict[str, Any]]`` in resolve."""
+    text = _read(RESOLVE)
     assert "audit_entries: list[dict[str, Any]] = []" in text, (
-        "audit_entries must be list[dict[str, Any]] (PR5j widened from object)."
+        "audit_entries must be list[dict[str, Any]]."
     )
 
 
 def test_action_item_helpers_return_typed_dict():
-    """Regression guard: ``_complete_action_item_no_commit`` and
-    ``deliver_action_item_no_commit`` return ``dict[str, Any]`` (not
-    bare ``dict``).
-    """
-    text = _read(TARGET)
-    assert "triggered_by: str = \"manual\",\n) -> dict[str, Any]:" in text or (
-        'triggered_by: str = "manual",\n) -> dict[str, Any]:' in text
-    ) or "triggered_by: str = \"manual\",\n) -> dict[str, Any]" in text, (
+    """Action-item helpers return ``dict[str, Any]``."""
+    text = _read(ACTION_OPS)
+    assert 'triggered_by: str = "manual",\n) -> dict[str, Any]:' in text or (
+        "triggered_by: str = \"manual\",\n) -> dict[str, Any]:" in text
+    ), (
         "_complete_action_item_no_commit must return dict[str, Any]."
     )
     assert (
-        "triggered_by: str = \"deliver\",\n    agent_id: uuid.UUID | None = None,\n) -> dict[str, Any]:"
+        'triggered_by: str = "deliver",\n    agent_id: uuid.UUID | None = None,\n) -> dict[str, Any]:'
         in text
     ) or (
-        "agent_id: uuid.UUID | None = None,\n) -> dict[str, Any]:"
-        in text and "triggered_by: str = \"deliver\"," in text
+        "agent_id: uuid.UUID | None = None,\n) -> dict[str, Any]:" in text
+        and 'triggered_by: str = "deliver",' in text
     ), (
         "deliver_action_item_no_commit must return dict[str, Any]."
     )
+
+
+def test_topic_service_facade_reexports_split_modules():
+    """Facade must re-export the split public API surfaces."""
+    text = _read(TARGET)
+    for name in (
+        "topic_lifecycle_service",
+        "topic_resolve_service",
+        "topic_action_item_ops",
+        "topic_helpers",
+        "topic_comment_service",
+    ):
+        assert name in text, f"topic_service facade must import/re-export {name}"
