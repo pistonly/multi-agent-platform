@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from map_types import (
@@ -84,6 +85,23 @@ from map_client.config import load_config
 from map_client.exceptions import raise_for_status
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", ""}
+
+
+def _is_local_url(url: str) -> bool:
+    """判断 URL 的 host 是否指向本机。
+
+    localhost / 127.0.0.1 / ::1 / 未指定 host 时返回 True。此类场景应
+    忽略环境变量代理，避免因 SOCKS 代理初始化失败等问题影响对本地 MAP
+    服务的访问。
+    """
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in _LOCAL_HOSTS
+
+
 class MAPClient:
     """HTTP client for the Multi-Agent Platform REST API."""
 
@@ -100,11 +118,16 @@ class MAPClient:
         self.base_url = base_url.rstrip("/")
         self.token = token
         self._transport = transport
+        # 本地地址（localhost / 127.0.0.1 / ::1）忽略环境代理，避免因
+        # SOCKS 代理初始化失败等影响本地 MAP 服务访问；其他地址沿用
+        # 环境代理配置。transport 已显式指定时 trust_env 不生效。
+        trust_env = not _is_local_url(self.base_url) if transport is None else True
         self._http = httpx.Client(
             base_url=f"{self.base_url}/api/v1",
             headers={"Authorization": f"Bearer {token}"},
             timeout=timeout,
             transport=transport,
+            trust_env=trust_env,
         )
 
     @classmethod
