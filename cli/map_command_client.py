@@ -219,6 +219,20 @@ class MapCommandClient:
     def experiment_status(self, experiment_id: str) -> dict[str, Any]:
         return self._run(["experiment", "status", "--id", experiment_id], retryable=True)
 
+    def experiment_list(
+        self,
+        *,
+        phase: str | None = None,
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List experiments (read-only). Used by the E2E driver to discover
+        experiment_id from topic_id; not used by waker."""
+        args = ["experiment", "list", "--page-size", str(page_size)]
+        if phase:
+            args.extend(["--phase", phase])
+        data = self._run(args, retryable=True)
+        return list(data or []) if isinstance(data, list) else []
+
     def experiment_submit_review(self, experiment_id: str) -> dict[str, Any] | None:
         return self._run(["experiment", "submit-review", "--id", experiment_id])
 
