@@ -51,40 +51,18 @@ htmlcov/
 !.cursor/skills/
 !.cursor/skills/**
 
-# MAP project-local (committed: .map/*.example, agents.yaml, config.yaml)
-.map/agents.local.yaml
-.map/host-bridge-state.json
-.map/participant-bridge-state.json
-.map/reviewer-bridge-state.json
-.map/runtime-waker-state.json
-.map/runtime-waker-state-*.json
-.map/runtime-waker-*-state.json
-.map/simple-waker-state.json
-.map/simple-waker-state-*.json
-.map/runtime-waker-sessions/
-.map/claude-runtime-home/
-.map/claude-runtime-home-*/
-.map/codex-runtime-home/
-.map/bridge-logs/
-.map/waker-logs/
-.map/simple-waker-logs/
-.map/generated-reviews/
-.map/reviewer/
-.map/.claude-env
-.map/.cursor-env
-# Agent 运行时生成的计划/日志（perf baseline 例外保留供测试对照）
-.map/generated-plans/
-.map/perf-baselines/
-!.map/perf-baselines/phase1-p95-baseline.json
-!.map/perf-baselines/phase2-p95-baseline.json
-# Host session workflow 草稿（详见 CLAUDE.md §"硬性规则"）
-# 命名约定：ack-receipt / plan / reply / round{N} / summary / resolve
-.map/ack-receipt-*.md
-.map/plan-*.md
-.map/reply-*.md
-.map/round*-*.md
-.map/summary-*.md
-.map/resolve-*.yaml
+# MAP project-local — allow-list: 默认忽略全部，显式放行团队共享文件
+# 新增运行时产物（日志/state/草稿等）无需改 .gitignore，自动被忽略；
+# 仅在新增「需团队共享的文件」时在此追加 ! 行。
+.map/*
+!.map/config.yaml
+!.map/agents.yaml
+!.map/config.yaml.example
+!.map/agents.yaml.example
+!.map/agents.local.yaml.example
+# perf-baselines 子目录：先放行目录，再放行具体 baseline 文件
+!.map/perf-baselines/
+.map/perf-baselines/*
 
 # Local data
 data/
