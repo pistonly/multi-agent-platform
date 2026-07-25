@@ -43,6 +43,11 @@ codex-runtime = [
     # codex runtime integration never shipped; remove the extra
     # entirely if no caller appears by 2026-Q4.
 ]
+claude-runtime = [
+    # Optional: needed only by tests that import claude_agent_sdk directly
+    # (tests/test_agent_client.py). Install with: pip install -e ".[dev,claude-runtime]"
+    "claude-agent-sdk>=0.2,<1.0",
+]
 
 [project.scripts]
 map-server = "server.main:run"
@@ -79,6 +84,7 @@ markers = [
     "slow: 单测耗时 >1s 或使用多线程/SSE/file-backed sqlite（本地默认 skip）",
     "integration: 多进程/真 httpx/真 systemd/压力测试，应在 CI nightly 跑",
     "claude_cli: 真调用 `claude --print` 子进程，需 claude CLI 登录态；integration 子集",
+    "claude_runtime: 依赖 claude_agent_sdk import 的测试（test_agent_client）；未装 SDK 时 importorskip 跳过",
 ]
 
 [tool.ruff]

@@ -6,6 +6,15 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+# Collection-time guard: skip entire module if claude_agent_sdk is not
+# installed, so a clean `pip install -e ".[dev]"` + `pytest` run does not
+# fail with ModuleNotFoundError. The claude_runtime marker + conftest
+# autouse fixture (skip_claude_runtime_if_unavailable) handle the finer-
+# grained "installed but don't run" case.
+pytest.importorskip("claude_agent_sdk")
+
 from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
@@ -17,6 +26,8 @@ from claude_agent_sdk import (
 
 from cli.agent_client import PersonaAgentClient, make_wakeup_prompt
 from cli.session_wake_log import resolve_session_log_path
+
+pytestmark = pytest.mark.claude_runtime
 
 # --- Fakes -------------------------------------------------------------------
 

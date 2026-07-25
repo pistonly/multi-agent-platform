@@ -193,6 +193,32 @@ def skip_claude_cli_if_unavailable(request):
         pytest.skip(f"claude_cli unavailable: {reason}")
 
 
+def _claude_runtime_available() -> tuple[bool, str]:
+    """Probe whether claude_agent_sdk is importable."""
+    import importlib.util
+
+    spec = importlib.util.find_spec("claude_agent_sdk")
+    if spec is None:
+        return False, "claude_agent_sdk not installed (pip install -e '.[dev,claude-runtime]')"
+    return True, "ok"
+
+
+@pytest.fixture(autouse=True)
+def skip_claude_runtime_if_unavailable(request):
+    """对标记了 `claude_runtime` 的测试项，若 SDK 不可 import 则 skip。
+
+    与 `skip_claude_cli_if_unavailable` 对称：后者探活 claude CLI 子进程，
+    本 fixture 探活 claude_agent_sdk Python 包。模块级 `pytest.importorskip`
+    已经在 collection 期兜底，本 fixture 提供更细粒度的运行时门禁。
+    """
+    marker = request.node.get_closest_marker("claude_runtime")
+    if marker is None:
+        return
+    ok, reason = _claude_runtime_available()
+    if not ok:
+        pytest.skip(f"claude_runtime unavailable: {reason}")
+
+
 @pytest.fixture
 def claude_cli_env() -> dict[str, str]:
     """供 claude_cli 测试使用的子进程环境（已合并 .map/.claude-env）。"""
