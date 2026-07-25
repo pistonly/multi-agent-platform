@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Any
 
 import typer
 from map_client.client import MAPClient
 
+from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 from server.domain.schemas import (
     TopicAdvanceRound,
     TopicCommentCreate,
@@ -56,6 +58,24 @@ def topic_create(
     _run(action)
 
 
+def _render_topic_table(topics: Any) -> str:
+    """Render a list of TopicSummaryRead as a compact table."""
+    headers = ["ID", "Title", "Status", "Round", "Comments", "Exps", "Creator", "Created"]
+    rows = []
+    for t in topics:
+        rows.append([
+            short_uuid(t.id),
+            truncate(t.title, 50),
+            enum_value(t.status),
+            enum_value(t.discussion_round),
+            str(t.comment_count),
+            str(t.experiment_count),
+            truncate(t.creator_name, 20),
+            format_datetime(t.created_at),
+        ])
+    return render_table(headers, rows)
+
+
 @topic_app.command("list")
 def topic_list(
     project: uuid.UUID | None = typer.Option(None, "--project"),
@@ -77,6 +97,11 @@ def topic_list(
     page_size: int = typer.Option(100, "--page-size", min=1, max=100),
     include_archived: bool = typer.Option(False, "--include-archived"),
 ) -> None:
+    """List topics in the current project.
+
+    Defaults to a compact table view. Use ``--format yaml`` or
+    ``--format json`` for full structured output (scripts / piping).
+    """
     from cli.main import _resolve_creator_agent_id, _resolve_project, _run
     from server.domain.models import TopicStatus
 
@@ -94,7 +119,7 @@ def topic_list(
             include_archived=include_archived,
         )
 
-    _run(action)
+    _run(action, table_renderer=_render_topic_table)
 
 
 @topic_app.command("show")

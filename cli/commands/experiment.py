@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Any
 
 import typer
 import yaml
@@ -18,6 +19,7 @@ from map_sdk.evidence import (
     metadata_has_completion_evidence,
 )
 
+from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 from server.domain.schemas import (
     ExperimentComplete,
     ExperimentCreate,
@@ -93,6 +95,23 @@ def experiment_create(
     _run(action)
 
 
+def _render_experiment_table(experiments: Any) -> str:
+    """Render a list of ExperimentSummaryRead as a compact table."""
+    headers = ["ID", "Title", "Phase", "Plan v", "Logs", "Topic", "Updated"]
+    rows = []
+    for e in experiments:
+        rows.append([
+            short_uuid(e.id),
+            truncate(e.title, 50),
+            enum_value(e.phase),
+            f"v{e.current_plan_version}",
+            str(getattr(e, "log_count", 0)),
+            short_uuid(e.topic_id) if e.topic_id else "-",
+            format_datetime(e.updated_at),
+        ])
+    return render_table(headers, rows)
+
+
 @experiment_app.command("list")
 def experiment_list(
     project: uuid.UUID | None = typer.Option(None, "--project"),
@@ -104,6 +123,11 @@ def experiment_list(
     page_size: int = typer.Option(100, "--page-size", min=1, max=100),
     include_archived: bool = typer.Option(False, "--include-archived"),
 ) -> None:
+    """List experiments in the current project.
+
+    Defaults to a compact table view. Use ``--format yaml`` or
+    ``--format json`` for full structured output (scripts / piping).
+    """
     from cli.main import _resolve_project, _run  # lazy: avoid cycle
     from server.domain.models import ExperimentPhase
 
@@ -120,7 +144,7 @@ def experiment_list(
             include_archived=include_archived,
         )
 
-    _run(action)
+    _run(action, table_renderer=_render_experiment_table)
 
 
 @experiment_app.command("submit-review")

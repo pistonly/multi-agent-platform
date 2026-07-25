@@ -26,7 +26,31 @@ import typer
 from map_client.client import MAPClient
 from map_client.exceptions import MAPConflictError
 
+from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
+
 notification_app = typer.Typer(help="Notification commands (personal inbox)")
+
+
+def _render_notification_table(result: Any) -> str:
+    """Render a NotificationListRead as a compact table with summary footer."""
+    items = result.items if hasattr(result, "items") else result
+    total = getattr(result, "total", len(items))
+    unread = getattr(result, "unread_count", 0)
+
+    headers = ["ID", "Event", "Summary", "Category", "Read", "Created"]
+    rows = []
+    for n in items:
+        rows.append([
+            short_uuid(n.id),
+            truncate(n.event, 30),
+            truncate(n.summary, 50),
+            enum_value(n.category),
+            "yes" if n.read_at else "no",
+            format_datetime(n.created_at),
+        ])
+    table = render_table(headers, rows)
+    footer = f"\n({len(items)} shown, {unread} unread / {total} total)"
+    return table + footer
 
 
 @notification_app.command("list")
@@ -41,7 +65,11 @@ def notification_list(
     limit: int = typer.Option(50, "--limit", min=1, max=200),
     offset: int = typer.Option(0, "--offset", min=0),
 ) -> None:
-    """List the current persona's notifications."""
+    """List the current persona's notifications.
+
+    Defaults to a compact table view. Use ``--format yaml`` or
+    ``--format json`` for full structured output (scripts / piping).
+    """
     from cli.main import _run  # lazy: avoid cli.main ↔ cli.commands.* cycle
 
     def action(c: Any) -> Any:
@@ -53,7 +81,7 @@ def notification_list(
             offset=offset,
         )
 
-    _run(action)
+    _run(action, table_renderer=_render_notification_table)
 
 
 @notification_app.command("read")

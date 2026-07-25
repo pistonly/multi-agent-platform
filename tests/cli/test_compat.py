@@ -162,13 +162,15 @@ def test_subapp_commands_match_snapshot(
 
 
 # cli/main.py shrank 2967 → 2200 across PR3-PR7, then ~1400 after
-# experiment/project/persona/runtime split. Hold the line at <= 1450 —
-# intentional growth requires bumping this + a commit note explaining why.
-MAX_CLI_MAIN_PY_LINES = 1450
+# experiment/project/persona/runtime split. Bumped from 1450 → 1600 after
+# adding the `dashboard` command (~130 lines) and `--format table` support
+# (~25 lines in _run). Hold the line at <= 1600 — intentional growth
+# requires bumping this + a commit note explaining why.
+MAX_CLI_MAIN_PY_LINES = 1600
 
 
 def test_cli_main_py_under_size_cap() -> None:
-    """Monolith regression guard: ``cli/main.py`` must stay under 1450 lines."""
+    """Monolith regression guard: ``cli/main.py`` must stay under 1600 lines."""
     actual = sum(1 for _ in CLI_MAIN_PY.open(encoding="utf-8"))
     assert actual <= MAX_CLI_MAIN_PY_LINES, (
         f"cli/main.py grew to {actual} lines (cap={MAX_CLI_MAIN_PY_LINES}); "

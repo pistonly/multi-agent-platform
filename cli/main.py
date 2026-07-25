@@ -205,12 +205,13 @@ def cli_global_options(
     output_format: str | None = typer.Option(
         None,
         "--format",
+        "-o",
         help=(
-            "Output format for error envelopes (I1(e) + 8a8822b5 (f)): "
-            "'yaml' (default) renders the human-friendly Error/Hint/Escalation "
-            "lines; 'json' emits the {error_code, message, hint, docs_url, "
-            "retryable, recovery_command} envelope to stderr for scripts; "
-            "'legacy' is an alias for 'yaml' and will be removed in N=2. "
+            "Output format: 'table' (list commands default) renders a compact "
+            "scannable table; 'yaml' (default for non-list commands) dumps the "
+            "full structured object; 'json' emits machine-parseable JSON to "
+            "stdout with a structured error envelope on stderr. 'legacy' is an "
+            "alias for 'yaml' and will be removed in N=2. "
             "Explicit --format always wins over the MAP_CLI_FORMAT env var."
         ),
     ),
@@ -258,9 +259,9 @@ def cli_global_options(
         )
         resolved = "yaml"
 
-    if resolved not in ("yaml", "json"):
+    if resolved not in ("yaml", "json", "table"):
         typer.echo(
-            f"Error: unknown --format {resolved!r}; expected 'yaml', 'json', or 'legacy'.",
+            f"Error: unknown --format {resolved!r}; expected 'table', 'yaml', 'json', or 'legacy'.",
             err=True,
         )
         raise typer.Exit(2)
@@ -807,6 +808,7 @@ def _run(
     experiment_id: uuid.UUID | None = None,
     output_format: str | None = None,
     admin: bool = False,
+    table_renderer=None,
 ) -> None:
     """Run an SDK action with MAP-aware error rendering (I1(c)~(e)).
 
@@ -819,14 +821,32 @@ def _run(
             ``/agents/me/escalation-target`` endpoint on STATE_MACHINE.*
             errors to surface the chosen escalation contact (Tier 1
             override → Tier 2 caller → Tier 2 same-role → Tier 2 admin).
-        output_format: ``"yaml"`` (default) or ``"json"``. When ``"json"``,
-            errors emit a structured ``{error_code, message, hint,
-            retryable, recovery_command}`` envelope as JSON to stderr
-            so scripts can parse it. When None, falls back to the global
-            ``--format`` option (default ``yaml``).
+        output_format: ``"table"`` / ``"yaml"`` / ``"json"``. When None,
+            falls back to the global ``--format`` option. List commands
+            (``table_renderer`` is not None) default to ``"table"`` when
+            the user hasn't explicitly chosen a format; non-list commands
+            fall back to ``"yaml"`` when ``"table"`` is passed.
+        table_renderer: Optional callable that takes the action result
+            and returns a string for ``"table"`` format output. When
+            provided, this command is treated as a list command.
     """
     if output_format is None:
         output_format = _cli_options.get("format", "yaml")
+
+    # List commands (table_renderer is not None) default to table when the
+    # user hasn't explicitly chosen a format via --format / env / config.
+    if table_renderer is not None and output_format == "yaml":
+        source = _cli_options.get("format_source", "default")
+        if source == "default":
+            output_format = "table"
+
+    # Non-list commands don't support table; fall back to yaml.
+    if table_renderer is None and output_format == "table":
+        output_format = "yaml"
+
+    # For error rendering, table behaves like yaml (human-friendly).
+    error_format = "yaml" if output_format == "table" else output_format
+
     try:
         ctx = _admin_client_ctx() if admin else _client_ctx()
         with ctx as client:
@@ -856,12 +876,15 @@ def _run(
                 _emit_similarity_warning(similarity_warning)
             if detect_deprecated:
                 _emit_deprecation_warnings(_to_yamlable(result))
-            _print_json(result)
+            if output_format == "table" and table_renderer is not None:
+                typer.echo(table_renderer(result))
+            else:
+                _print_json(result)
     except MAPHTTPError as exc:
-        _emit_maphttp_error(exc, experiment_id=experiment_id, output_format=output_format)
+        _emit_maphttp_error(exc, experiment_id=experiment_id, output_format=error_format)
         raise typer.Exit(1) from exc
     except ValueError as exc:
-        if output_format == "json":
+        if error_format == "json":
             _emit_json_error_envelope(
                 error_code=None,
                 message=str(exc),
