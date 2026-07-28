@@ -85,3 +85,68 @@ def project_status_show(
         lambda c: c.get_project_status_version(_resolve_project(c, project, project_key), version)
     )
 
+
+@project_app.command("export")
+def project_export(
+    output_dir: Path = typer.Option(
+        None,
+        "--output-dir",
+        "-o",
+        help="Output directory (default: .map/history/)",
+    ),
+    include_archived: bool = typer.Option(
+        True,
+        "--include-archived/--no-archived",
+        help="Include archived topics and experiments (default: yes)",
+    ),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """Export project history (topics, experiments, decisions) to local Markdown.
+
+    The export is a read-only snapshot suitable for committing to Git,
+    so that topic discussions and experiment records travel with the code.
+
+    \b
+    Layout:
+        <output_dir>/
+          INDEX.md              # Browseable index
+          topics/<slug>.md      # One file per topic (with comments + decision)
+          experiments/<slug>.md # One file per experiment (with plans + reviews + logs)
+
+    \b
+    Examples:
+        map project export                      # Export to .map/history/
+        map project export -o ./docs/history    # Custom output directory
+        map project export --no-archived        # Skip archived items
+    """
+    from cli.main import _resolve_project, _run  # lazy: avoid cycle
+    from cli.project_export import export_project_history
+
+    if output_dir is None:
+        from cli.main import find_map_dir, _cli_options
+        map_dir = find_map_dir(_cli_options.get("project_root"))
+        if map_dir is not None:
+            output_dir = map_dir / "history"
+        else:
+            output_dir = Path(".map") / "history"
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        result_dir = export_project_history(
+            c,
+            pid,
+            output_dir,
+            include_archived=include_archived,
+        )
+        # Count files for feedback
+        topic_files = list((result_dir / "topics").glob("*.md"))
+        exp_files = list((result_dir / "experiments").glob("*.md"))
+        typer.echo(
+            f"Exported {len(topic_files)} topic(s) and {len(exp_files)} experiment(s) "
+            f"to {result_dir}/"
+        )
+        return None
+
+    _run(action)
+

@@ -106,6 +106,7 @@ map --persona host experiment archive --id <exp-uuid> --undo
 
 | 命令 | 说明 |
 |------|------|
+| `map project export` | 导出项目历史到本地 Markdown（话题/实验/决策快照，可提交 Git） |
 | `map topic list` | 列出话题（默认排除已归档；`--include-archived` 包含） |
 | `map topic show --id <uuid>` | 显示话题详情（含归档对象） |
 | `map topic close --id <uuid>` / `topic reopen` | 关闭 / 重开话题 |
@@ -141,5 +142,34 @@ marker 不会被当作验收项。`acceptance_status` 至少包含 `id`、
 `todos.experiment_review_informational` 是状态可见性分区，不代表当前 persona
 有审批或执行义务；真正待办仍以 `pending_reviews`、`pending_result_reviews`
 和 `my_open_experiments` 为准。
+
+## 项目历史导出（`map project export`）
+
+将项目的话题、实验、决策导出为本地 Markdown 文件，可提交到 Git 让数据跟着项目走。
+
+```bash
+# 导出到 .map/history/（默认）
+map project export
+
+# 指定输出目录
+map project export -o ./docs/history
+
+# 排除已归档的话题和实验
+map project export --no-archived
+```
+
+导出后的目录结构：
+
+```
+.map/history/
+  INDEX.md                 # 可浏览的总目录（含表格和链接）
+  topics/
+    <slug>.md              # 每个话题一篇（含评论树 + 决策 + 行动项）
+  experiments/
+    <slug>.md              # 每个实验一篇（含计划版本 + 评审 + 日志）
+```
+
+> 导出是只读快照，不会修改 Server 上的任何数据。每次导出会覆盖本地文件。
+> `.map/history/` 已加入 `.gitignore` 白名单，可以安全提交到 Git。
 
 完整子命令列表请运行 `map --help`。

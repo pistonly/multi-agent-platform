@@ -63,6 +63,9 @@ htmlcov/
 # perf-baselines 子目录：先放行目录，再放行具体 baseline 文件
 !.map/perf-baselines/
 .map/perf-baselines/*
+# history 子目录：project export 导出的 Markdown 快照，需团队共享
+!.map/history/
+.map/history/**/*
 
 # Local data
 data/
