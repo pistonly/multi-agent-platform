@@ -6,6 +6,7 @@
 
 | 文档 | 用途 | 谁该读 |
 |------|------|--------|
+| [Quick Start 指南](QUICKSTART.md) | 新用户一键上手（Docker + Admin + bootstrap） | **新用户必读** |
 | [PRD v0.9 草案](prd/v0.9.md) | 产品需求 v0.9（waker Phase 2 通知降噪） | 产品 / 全员 |
 | [架构设计](ARCHITECTURE.md) | 系统架构 + 数据模型 + 模块边界 | 工程师 |
 | [CLI 指南](CLI.md) | `map` CLI 命令参考 | 工程师 / Agent |

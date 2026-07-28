@@ -1,9 +1,24 @@
 # Multi-Agent Platform (MAP)
 
+[![PyPI version](https://img.shields.io/pypi/v/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
+[![Python 3.11+](https://img.shields.io/pypi/pyversions/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
+[![License: MIT](https://img.shields.io/pypi/l/multi-agent-platform.svg)](https://github.com/quantaeye/multi-agent-platform/blob/main/LICENSE)
+
 多 Agent 实验协作平台：以话题为中心，管理实验计划、评审讨论、执行日志与项目状态。
+
+## 安装
+
+```bash
+pip install multi-agent-platform
+```
+
+安装后即可使用 `map` CLI 和 `map-server` 命令。详见 [Quick Start 指南](docs/QUICKSTART.md)。
+
+**新用户？** 一键启动：`./scripts/quickstart.sh`，或阅读 [Quick Start 指南](docs/QUICKSTART.md)。
 
 ## 文档
 
+- [Quick Start 指南（新用户必读）](docs/QUICKSTART.md)
 - [产品需求文档（PRD）](docs/prd/archive/v0.1.md)
 - [产品需求文档 v0.2（角色与项目边界）](docs/prd/archive/v0.2.md)
 - [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/prd/archive/v0.3.md)
@@ -77,7 +92,7 @@ MAP API 运行后，在本仓库根目录执行一次 bootstrap（生成 `.map/c
 ```bash
 export MAP_ADMIN_TOKEN=<admin-token>   # 或 ~/.map/admin.yaml
 map bootstrap \
-  --key multi-agents-platform \
+  --key multi-agent-platform \
   --name "Multi Agents Platform" \
   --api-url http://localhost:8001
 
@@ -90,7 +105,10 @@ map --persona host todos
 ## 快速开始
 
 ```bash
-# 安装依赖（含开发工具）
+# 从 PyPI 安装（用户）
+pip install multi-agent-platform
+
+# 或从源码开发安装（贡献者）
 pip install -e ".[dev]"
 
 # 运行数据库迁移
@@ -225,7 +243,7 @@ python -c "from map_client import MAPClient; print(MAPClient.from_env().get_me()
 ## MCP（IDE Agent）
 
 ```bash
-pip install -e ".[mcp]"
+pip install "multi-agent-platform[mcp]"
 export MAP_TOKEN=<your-token>
 
 # stdio — Cursor 本地子进程（默认）
@@ -248,3 +266,7 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 ## 后续
 
 v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（simple-waker 默认 + PersonaAgentClient；legacy runtime-waker 启动路径已退役，模块保留为 re-export 兼容层）。待推进项见 [docs/status-md-v10.md](docs/status-md-v10.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+
+## License
+
+[MIT](LICENSE)

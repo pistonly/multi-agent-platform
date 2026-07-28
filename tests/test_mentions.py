@@ -251,7 +251,7 @@ def test_mention_inside_fenced_code_ignored(client, auth_headers, reviewer, proj
     ).json()
     body = (
         "示例：\n```\n"
-        "@multi-agents-platform-host\n"
+        "@multi-agent-platform-host\n"
         "`@host`\n"
         "```\n"
         "块外请 @reviewer-agent 参与"

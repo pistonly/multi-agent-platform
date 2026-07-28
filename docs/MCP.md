@@ -1,6 +1,6 @@
 # MCP Server
 
-> **本仓库（multi-agents-platform）协作请用 [`.map/` persona + `map` CLI](../AGENTS.md)**，勿再配置 Cursor MCP 的 `map-agent` / `map-admin`。下文面向**其他接入 MAP 的项目**或历史验证场景；MCP 在本仓库侧计划停用。
+> **本仓库（multi-agent-platform）协作请用 [`.map/` persona + `map` CLI](../AGENTS.md)**，勿再配置 Cursor MCP 的 `map-agent` / `map-admin`。下文面向**其他接入 MAP 的项目**或历史验证场景；MCP 在本仓库侧计划停用。
 
 MAP 提供 **Model Context Protocol (MCP)** 支持，让 Cursor、Claude Desktop 等 IDE 内的 Agent 可以直接调用平台能力，无需手写 HTTP 请求。
 
@@ -14,6 +14,10 @@ MAP 提供 **Model Context Protocol (MCP)** 支持，让 Cursor、Claude Desktop
 ## 安装
 
 ```bash
+# 从 PyPI 安装（含 MCP 依赖）
+pip install "multi-agent-platform[mcp]"
+
+# 或从源码安装
 pip install -e ".[mcp]"
 ```
 
@@ -234,7 +238,7 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 | 现象 | 处理 |
 |------|------|
-| `MCP support requires the 'mcp' package` | `pip install -e ".[mcp]"` |
+| `MCP support requires the 'mcp' package` | `pip install "multi-agent-platform[mcp]"` |
 | `MAP_TOKEN not set` | 设置环境变量，或在每次 tool 调用时传 `token` |
 | Docker MCP 启动失败 `MAP_TOKEN` | 已改为可选；可不设 `MAP_TOKEN`，改由调用方传 `token` |
 | Tool 返回 401/403 | 检查 Token 是否有效 |

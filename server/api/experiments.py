@@ -57,7 +57,7 @@ from server.services.errors import ForbiddenError
 from server.services.experiment_capabilities_service import experiment_summary_for_actor
 from server.services.template_service import validate_result_submission_template
 
-HOST_AGENT_NAME = "multi-agents-platform-host"
+HOST_AGENT_NAME = "multi-agent-platform-host"
 
 
 def _summary_for_agent(db: Session, experiment, agent: Agent, **extra) -> ExperimentSummaryRead:

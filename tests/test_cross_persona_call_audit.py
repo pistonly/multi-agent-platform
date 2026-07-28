@@ -118,7 +118,7 @@ def test_post_cross_persona_call_endpoint_writes_audit_row(
         "/api/v1/agents",
         headers=admin_headers,
         params={
-            "name": "multi-agents-platform-host",
+            "name": "multi-agent-platform-host",
             "role": "agent",
             "project_key": project["project_key"],
         },

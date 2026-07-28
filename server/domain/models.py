@@ -97,7 +97,7 @@ class Agent(Base):
     # don't churn the schema. Convention: ``<namespace>:<action>``.
     # ``system:*`` is admin-grade (audit / cross-project). Persona-scoped
     # capabilities (e.g. ``host:scan_stalled``) match the agent's name
-    # suffix (``multi-agents-platform-host`` → ``host:*``).
+    # suffix (``multi-agent-platform-host`` → ``host:*``).
     _ADMIN_CAPABILITY_PREFIX = "system:"
     _PERSONA_CAPABILITIES: dict[str, frozenset[str]] = {
         "host": frozenset(
@@ -110,11 +110,11 @@ class Agent(Base):
         "reviewer": frozenset({"review:submit", "review:accept_result"}),
         "participant": frozenset({"topic:comment"}),
     }
-    _PERSONA_NAME_PREFIX = "multi-agents-platform-"
+    _PERSONA_NAME_PREFIX = "multi-agent-platform-"
 
     @property
     def persona(self) -> str | None:
-        """Extract persona suffix from ``multi-agents-platform-<persona>``.
+        """Extract persona suffix from ``multi-agent-platform-<persona>``.
 
         Returns ``None`` for admin-only agents or non-conforming names so
         the capability table falls through to admin-only access.

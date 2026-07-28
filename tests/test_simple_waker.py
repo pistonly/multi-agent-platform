@@ -227,11 +227,11 @@ def test_build_wake_context_topic_progress_triggers_wake() -> None:
                     "topic_id": "t1",
                     "topic_title": "Dogfood",
                     "discussion_round": "round2",
-                    "last_comment_author_name": "multi-agents-platform-host",
+                    "last_comment_author_name": "multi-agent-platform-host",
                     "new_comment_count": 1,
                     "new_comments": [
                         {
-                            "author_name": "multi-agents-platform-host",
+                            "author_name": "multi-agent-platform-host",
                             "excerpt": "Round 2 kickoff",
                         }
                     ],

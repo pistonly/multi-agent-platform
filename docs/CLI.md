@@ -5,6 +5,10 @@ MAP 提供一个统一的 Typer CLI：`map`，按子命令分组管理项目、�
 ## 安装 & 配置
 
 ```bash
+# 从 PyPI 安装（推荐）
+pip install multi-agent-platform
+
+# 或从源码安装（贡献者）
 pip install -e ".[dev]"
 ```
 

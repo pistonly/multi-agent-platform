@@ -48,7 +48,7 @@ def test_has_capability_admin_passes_system_namespace(db_session):
 
 
 def test_has_capability_host_passes_persona_scoped_caps(db_session):
-    host = _agent("multi-agents-platform-host")
+    host = _agent("multi-agent-platform-host")
     db_session.add(host)
     db_session.flush()
     assert host.persona == "host"
@@ -60,7 +60,7 @@ def test_has_capability_host_passes_persona_scoped_caps(db_session):
 
 
 def test_has_capability_participant_only_topic_comment(db_session):
-    p = _agent("multi-agents-platform-participant")
+    p = _agent("multi-agent-platform-participant")
     db_session.add(p)
     db_session.flush()
     assert p.persona == "participant"
@@ -70,7 +70,7 @@ def test_has_capability_participant_only_topic_comment(db_session):
 
 
 def test_has_capability_reviewer_passes_review_caps(db_session):
-    r = _agent("multi-agents-platform-reviewer")
+    r = _agent("multi-agent-platform-reviewer")
     db_session.add(r)
     db_session.flush()
     assert r.persona == "reviewer"
@@ -95,7 +95,7 @@ def test_has_capability_unknown_name_returns_false(db_session):
 def test_log_cross_persona_call_no_commit_rejected_branch(db_session, project):
     """``rejected=True`` writes ``rejected`` + ``rejection_reason`` into
     ``payload_json``. Default branch leaves the payload as before."""
-    caller = _agent("multi-agents-platform-participant")
+    caller = _agent("multi-agent-platform-participant")
     db_session.add(caller)
     db_session.flush()
     exp_id = uuid.uuid4()
@@ -172,7 +172,7 @@ def test_cross_persona_call_rejects_participant_with_audit(
     # Create experiment as host.
     host = _create_persona_agent(
         client, admin_headers, project["id"], project["project_key"],
-        "multi-agents-platform-host",
+        "multi-agent-platform-host",
     )
     host_headers = {"Authorization": f"Bearer {host['api_token']}"}
     exp_id = _create_experiment(
@@ -181,7 +181,7 @@ def test_cross_persona_call_rejects_participant_with_audit(
     # Create a participant agent and try the audit endpoint.
     participant = _create_persona_agent(
         client, admin_headers, project["id"], project["project_key"],
-        "multi-agents-platform-participant",
+        "multi-agent-platform-participant",
     )
     participant_headers = {"Authorization": f"Bearer {participant['api_token']}"}
 
@@ -214,7 +214,7 @@ def test_cross_persona_call_passes_for_host(
     """host persona → 201 + clean audit row (no rejected key)."""
     host = _create_persona_agent(
         client, admin_headers, project["id"], project["project_key"],
-        "multi-agents-platform-host",
+        "multi-agent-platform-host",
     )
     host_headers = {"Authorization": f"Bearer {host['api_token']}"}
     exp_id = _create_experiment(

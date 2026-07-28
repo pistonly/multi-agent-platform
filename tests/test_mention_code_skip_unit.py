@@ -13,7 +13,7 @@ def test_extract_skips_inline_code():
 
 
 def test_extract_skips_fenced_code():
-    body = "```\n@multi-agents-platform-host\n`@host`\n```\n块外 @foo-bar"
+    body = "```\n@multi-agent-platform-host\n`@host`\n```\n块外 @foo-bar"
     assert extract_mention_names(body) == ["foo-bar"]
 
 

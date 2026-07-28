@@ -19,9 +19,9 @@ from server.services.errors import ForbiddenError, NotFoundError
 # events from generic notifications. Falls back to no recipients if a project
 # has not yet bound a given persona (early onboarding is graceful).
 PERSONA_AGENT_NAMES: dict[str, str] = {
-    "host": "multi-agents-platform-host",
-    "participant": "multi-agents-platform-participant",
-    "reviewer": "multi-agents-platform-reviewer",
+    "host": "multi-agent-platform-host",
+    "participant": "multi-agent-platform-participant",
+    "reviewer": "multi-agent-platform-reviewer",
 }
 
 """Wakeable 事件显式白名单——v0.9 用以替代显式 runtime feature flag。

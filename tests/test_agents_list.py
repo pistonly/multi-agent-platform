@@ -20,9 +20,9 @@ def test_list_agents_requires_auth(client):
 
 
 def test_admin_lists_all_agents(client, admin_headers, project):
-    host_id, _ = _create_agent(client, admin_headers, project, "multi-agents-platform-host")
-    participant_id, _ = _create_agent(client, admin_headers, project, "multi-agents-platform-participant")
-    reviewer_id, _ = _create_agent(client, admin_headers, project, "multi-agents-platform-reviewer")
+    host_id, _ = _create_agent(client, admin_headers, project, "multi-agent-platform-host")
+    participant_id, _ = _create_agent(client, admin_headers, project, "multi-agent-platform-participant")
+    reviewer_id, _ = _create_agent(client, admin_headers, project, "multi-agent-platform-reviewer")
 
     response = client.get("/api/v1/agents", headers=admin_headers)
     assert response.status_code == 200
@@ -30,7 +30,7 @@ def test_admin_lists_all_agents(client, admin_headers, project):
     ids = {item["id"] for item in data}
     names = {item["name"] for item in data}
     assert {host_id, participant_id, reviewer_id}.issubset(ids)
-    assert {"multi-agents-platform-host", "multi-agents-platform-participant", "multi-agents-platform-reviewer"}.issubset(names)
+    assert {"multi-agent-platform-host", "multi-agent-platform-participant", "multi-agent-platform-reviewer"}.issubset(names)
     # Admin entry should also be visible.
     assert any(item["role"] == "admin" for item in data)
 

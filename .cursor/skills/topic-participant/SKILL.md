@@ -103,7 +103,7 @@ map --persona participant topic comment \
 
 ## @提及
 
-`@` 必须使用 `map persona list` 中的 **`agent_name` 全名**（如 `@multi-agents-platform-host`），不要写 `@host` / `@reviewer` 等 persona 短名。
+`@` 必须使用 `map persona list` 中的 **`agent_name` 全名**（如 `@multi-agent-platform-host`），不要写 `@host` / `@reviewer` 等 persona 短名。
 
 ## 防刷屏（约定）
 

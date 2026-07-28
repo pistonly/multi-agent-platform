@@ -16,7 +16,7 @@ describe("extractMentionNames", () => {
   });
 
   it("skips fenced code", () => {
-    const body = "```\n@multi-agents-platform-host\n`@host`\n```\n块外 @foo-bar";
+    const body = "```\n@multi-agent-platform-host\n`@host`\n```\n块外 @foo-bar";
     expect(extractMentionNames(body)).toEqual(["foo-bar"]);
   });
 

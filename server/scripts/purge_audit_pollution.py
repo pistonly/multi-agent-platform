@@ -42,7 +42,7 @@ def _whitelist_agent_ids(db) -> set[UUID]:
     )
     host_ids = set(
         db.scalars(
-            select(Agent.id).where(Agent.name == "multi-agents-platform-host")
+            select(Agent.id).where(Agent.name == "multi-agent-platform-host")
         ).all()
     )
     return admin_ids | host_ids

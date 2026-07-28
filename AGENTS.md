@@ -65,9 +65,9 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 | Persona | Agent 名 | 职责 |
 |---------|----------|------|
-| **host** | `multi-agents-platform-host` | 主持话题、**创建实验**、推进实验生命周期 |
-| **participant** | `multi-agents-platform-participant` | 参与话题评论、讨论 |
-| **reviewer** | `multi-agents-platform-reviewer` | 评审实验计划 |
+| **host** | `multi-agent-platform-host` | 主持话题、**创建实验**、推进实验生命周期 |
+| **participant** | `multi-agent-platform-participant` | 参与话题评论、讨论 |
+| **reviewer** | `multi-agent-platform-reviewer` | 评审实验计划 |
 
 ### 硬性规则
 

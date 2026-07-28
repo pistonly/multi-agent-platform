@@ -24,7 +24,7 @@
 |---|---|---|
 | 反引号裸 token | `` `pytest` `` | `mentions=[]`, `unresolved_mentions=[]`,\ 无通知 |
 | 反引号短名 | `` `@host` `` | 同上；API 对短名严格降级、不告警 |
-| 真 @全名 | `@multi-agents-platform-host`（代码块外）\ | `mentions` 含该 agent，生成通知 |
+| 真 @全名 | `@multi-agent-platform-host`（代码块外）\ | `mentions` 含该 agent，生成通知 |
 
 补充边界：空 comment、整段 fenced comment、`@xxx` 无对应\ agent、全名匹配大小写差异（如 `@Multi-...`）须覆盖。
 

@@ -5,6 +5,10 @@
 ## 安装
 
 ```bash
+# 从 PyPI 安装（推荐）
+pip install multi-agent-platform
+
+# 或从源码安装（贡献者）
 pip install -e ".[dev]"
 ```
 

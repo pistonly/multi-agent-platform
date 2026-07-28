@@ -1,12 +1,22 @@
 [project]
-name = "multi-agents-platform"
+name = "multi-agent-platform"
 version = "0.1.0"
 description = "Multi-Agent experiment collaboration platform"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: OS Independent",
+]
 dependencies = [
-    # 0.x 库约束到下个 minor（0.x 阶段每个 minor 都可能 breaking），
-    # 1.x+ 库约束到下个 major（语义化版本）。
+    # 当前 CLI 与 server 代码存在耦合（cli/ 直接 import server.domain.*），
+    # 暂时保持全量依赖。后续解耦后可拆分到 [server] extra。
     "fastapi>=0.115.0,<0.116",
     "uvicorn[standard]>=0.32.0,<0.41",
     "sqlalchemy>=2.0.36,<2.1",
@@ -21,6 +31,12 @@ dependencies = [
     # Fernet at-rest encryption for Webhook.secret (EncryptedString)
     "cryptography>=44.0.0,<50.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/quantaeye/multi-agent-platform"
+Documentation = "https://github.com/quantaeye/multi-agent-platform/tree/main/docs"
+Repository = "https://github.com/quantaeye/multi-agent-platform"
+Issues = "https://github.com/quantaeye/multi-agent-platform/issues"
 
 [project.optional-dependencies]
 dev = [
