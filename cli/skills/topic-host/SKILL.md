@@ -5,7 +5,7 @@ description: >-
   participant ack collection, advance-round, topic resolve with action items,
   reply to pending comments, and gate whether to promote to experiment. Use when
   the user asks to host a topic, follow up discussion, run Round 1/2, resolve a
-  topic, or decide if a topic should become an experiment; or when map-runtime-waker
+  topic, or decide if a topic should become an experiment; or when simple-waker
   wakes host for todos buckets such as pending_topic_replies / pending_advance_rounds.
 ---
 
@@ -21,7 +21,7 @@ description: >-
 - Agent 是话题 `creator_agent_id`（主持身份）
 - `map work` / `map topic progress` 有非空 topic work items（obligation 或 contextual）
 - `get_todos` 的 `pending_topic_replies` / `pending_advance_rounds` 非空
-- **map-runtime-waker** / **simple-waker** 因 topic work items 或 `map todos` 待办 wake
+- **simple-waker** 因 topic work items 或 `map todos` 待办 wake
 
 ## Runtime waker 路径（本仓库标准）
 
@@ -283,7 +283,7 @@ map --persona host topic archive --id <topic-uuid>
 
 ## 参考
 
-- [map-runtime-waker](../map-runtime-waker/SKILL.md)
+- [map-project-collab](../map-project-collab/SKILL.md)
 - [experiment-host](../experiment-host/SKILL.md)
 - [PRD v0.5](../../docs/prd/archive/v0.5.md)
 - [AGENTS.md](../../AGENTS.md) · [map-project-collab](../map-project-collab/SKILL.md)

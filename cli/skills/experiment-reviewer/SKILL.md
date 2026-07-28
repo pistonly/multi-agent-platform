@@ -2,7 +2,7 @@
 name: experiment-reviewer
 description: >-
   Review MAP experiment plans and accept/reject experiment results as reviewer
-  persona; follow action_items assigned via topic resolve. Use when map-runtime-waker
+  persona; follow action_items assigned via topic resolve. Use when simple-waker
   wakes reviewer for pending_review, pending_result_review, or addressed_review_item.
 ---
 
@@ -10,7 +10,7 @@ description: >-
 
 评审 Agent 对 **phase=review** 的实验计划给出结构化评审，并对 **phase=result_review** 的实验结果做通过/驳回审批。
 
-本仓库通过 **map-runtime-waker** 唤醒；你用 `map --persona reviewer` CLI **直接**写评审与 resolve，不经过 bridge/runner。
+本仓库通过 **simple-waker** 唤醒；你用 `map --persona reviewer` CLI **直接**写评审与 resolve，不经过 bridge/runner。
 
 **已停用**：reviewer bridge、`cli/*_worker` runner 代写路径。
 
@@ -103,6 +103,5 @@ map --persona reviewer experiment reject-result \
 
 ## 参考
 
-- [map-runtime-waker](../map-runtime-waker/SKILL.md)
 - [map-project-collab](../map-project-collab/SKILL.md)
 - [experiment-host](../experiment-host/SKILL.md)

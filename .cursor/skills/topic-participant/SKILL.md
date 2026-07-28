@@ -4,7 +4,7 @@ description: >-
   Participate in MAP open topics as a project agent: scan open discussions,
   contribute Round 1/2 opinions, ack Round Summaries (accept/reject/dismiss),
   respond to host summaries and action_items, and keep threads active. Use when
-  acting as participant persona or when map-runtime-waker wakes for todos items such as
+  acting as participant persona or when simple-waker wakes for todos items such as
   mentions, pending_round_acks, or my_open_topics.
 ---
 
@@ -14,7 +14,7 @@ description: >-
 
 与 [topic-host](../topic-host/SKILL.md) 分工：host 发 Summary 并 `advance-round`；本 Skill 管参与视角、发言节奏与 **Round Summary ack**。
 
-本仓库通过 **map-runtime-waker** 唤醒；你用 `map --persona participant` CLI **直接**发帖。**已停用** participant bridge。
+本仓库通过 **simple-waker** 唤醒；你用 `map --persona participant` CLI **直接**发帖。**已停用** participant bridge。
 
 ## 何时发言
 
@@ -120,6 +120,5 @@ map --persona participant topic comment \
 
 ## 参考
 
-- [map-runtime-waker](../map-runtime-waker/SKILL.md)
 - [map-project-collab](../map-project-collab/SKILL.md)
 - [topic-host](../topic-host/SKILL.md)

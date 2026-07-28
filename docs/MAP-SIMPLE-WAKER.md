@@ -67,7 +67,7 @@ and obligation rows in `todos`).
 When a reviewer has `pending_review` or `pending_result_review`, simple-waker
 **does not remind** on topic **contextual** items (`unread_change`). Obligation
 items (e.g. `@mention`, `round_ack`) still remind. See
-[map-runtime-waker Skill](../.cursor/skills/map-runtime-waker/SKILL.md).
+[map-project-collab Skill (§ Waker 模式)](../.cursor/skills/map-project-collab/SKILL.md).
 
 ## Usage
 
@@ -112,7 +112,7 @@ backend (`PersonaAgentClient`).
 
 On remind, the agent should:
 
-1. Read `map-runtime-waker` → `map-project-collab` → persona Skill
+1. Read `map-project-collab` (§ Waker 模式) → persona Skill
 2. Run `map --persona <name> persona whoami`, **`map --persona <name> work`**（或 `topic progress` + `todos`）
 3. Participate in open topics (host: reply threads + advance rounds; participant: comment + ack)
 4. Handle **all** current pending todos (may batch related work)

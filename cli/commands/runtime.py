@@ -52,7 +52,7 @@ def runtime_chat(
     ignore_waker: bool = typer.Option(
         False,
         "--ignore-waker",
-        help="Allow chat while map-runtime-waker is running (may conflict)",
+        help="Allow chat while simple-waker is running (may conflict)",
     ),
     model: str | None = typer.Option(None, "--model", help="Optional Claude model override"),
 ) -> None:

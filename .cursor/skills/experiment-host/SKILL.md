@@ -1,18 +1,18 @@
 ---
 name: experiment-host
 description: >-
-  Execute MAP experiments as host when resumed by map-runtime-waker: acquire/release
+  Execute MAP experiments as host when resumed by simple-waker: acquire/release
   execution lock, revise plans, implement repo changes, write execution logs via
   map CLI. Do not rely on deprecated host bridge / cli.host_worker.
 ---
 
 # MAP 实验执行（Host Skill）
 
-本仓库通过 **map-runtime-waker** 唤醒 host Agent session。你在实验 **review / running** 阶段**亲自**用 `map --persona host` CLI 与仓库工具完成工作。
+本仓库通过 **simple-waker** 唤醒 host Agent session。你在实验 **review / running** 阶段**亲自**用 `map --persona host` CLI 与仓库工具完成工作。
 
 **已停用（勿依赖）**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh` / `start-host-bridge-claude.sh`、runner 的 stdin/stdout JSON 契约。没有 bridge 会代写 MAP、代跑 `execute_experiment` 或代提交 git。
 
-协作入口见 [map-runtime-waker](../map-runtime-waker/SKILL.md)。
+协作入口见 [map-project-collab](../map-project-collab/SKILL.md) § Waker 模式。
 
 ## 硬性规则
 
@@ -217,7 +217,6 @@ map --persona reviewer experiment reject-result \
 
 ## 参考
 
-- [map-runtime-waker](../map-runtime-waker/SKILL.md)
 - [topic-host](../topic-host/SKILL.md)
 - [map-project-collab](../map-project-collab/SKILL.md)
 - [MAP-RUNTIME-WAKER](../../docs/MAP-RUNTIME-WAKER.md)

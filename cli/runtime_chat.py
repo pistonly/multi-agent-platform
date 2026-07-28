@@ -1,6 +1,6 @@
 """Interactive MAP runtime chat — resume a persona session from the terminal.
 
-Unlike map-runtime-waker (one prompt per wake), ``map runtime chat`` keeps the
+Unlike simple-waker (one prompt per wake), ``map runtime chat`` keeps the
 Claude SDK connection open and accepts multiple user turns. Manual mode does not
 call the D6 ``inbound-event record`` server gate.
 """

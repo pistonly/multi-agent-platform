@@ -36,7 +36,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 | **Skill** | 定义被唤醒后**怎么做**（topic-host / experiment-host 等） | 不替代平台状态机 |
 | **被唤醒的 Agent** | `whoami` → **`map work`**（或 `topic progress` + `todos`）→ 写回 MAP | 不凭 session 记忆跳过待办 |
 
-被唤醒时 Agent **必须先读** [.cursor/skills/map-runtime-waker/SKILL.md](.cursor/skills/map-runtime-waker/SKILL.md)，再读 persona Skill 与 [map-project-collab](.cursor/skills/map-project-collab/SKILL.md)。
+被唤醒时 Agent **必须先读** [.cursor/skills/map-project-collab/SKILL.md](.cursor/skills/map-project-collab/SKILL.md)（含 Waker 模式章节），再读 persona Skill。
 
 ### 被唤醒后 Agent 必须遵守
 

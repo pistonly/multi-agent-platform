@@ -12,7 +12,7 @@ This branch combines:
 simple-waker (default)
   poll topic-progress + todos + notifications → unified remind → PersonaAgentClient session
 
-map-runtime-waker (legacy)
+map-runtime-waker (legacy, merged into map-project-collab § Waker 模式)
   poll todos → discover_wake_events → dedupe → short event prompt
        ├── PersonaAgentWakeBackend (claude) — one ClaudeSDKClient per process
        ├── CodexSdkWakeBackend — thread_start / thread_resume per wake

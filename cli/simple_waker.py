@@ -41,7 +41,6 @@ SIMPLE_WAKER_PASSIVE_BUCKETS: frozenset[str] = frozenset({"my_open_topics"})
 _EXCERPT_IN_PROMPT = 280
 RUNTIME_CONTRACT_VERSION = "simple-waker-runtime-contract-v3"
 RUNTIME_CONTRACT_FILES: tuple[str, ...] = (
-    ".cursor/skills/map-runtime-waker/SKILL.md",
     ".cursor/skills/map-project-collab/SKILL.md",
     ".cursor/skills/topic-host/SKILL.md",
     ".cursor/skills/topic-participant/SKILL.md",
@@ -435,7 +434,7 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
     lines = [
         f"MAP 协作提醒 · {persona}",
         "",
-        "平台检测到待处理 work items / todos actions。请先读 map-runtime-waker、map-project-collab 与 persona Skill，然后：",
+        "平台检测到待处理 work items / todos actions。请先读 map-project-collab（含 Waker 模式章节）与 persona Skill，然后：",
         f"1. `{command} persona whoami`",
         f"2. `{command} work` 或 `{command} topic progress` — topic work items 统一视图（obligation + contextual；与 todos 话题分区同源）",
         f"3. `{command} todos` — 实验/评审/mention 等待办分区",

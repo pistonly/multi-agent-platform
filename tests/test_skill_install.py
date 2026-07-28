@@ -42,7 +42,6 @@ class TestBundledSkills:
             "topic-participant",
             "experiment-host",
             "experiment-reviewer",
-            "map-runtime-waker",
         }
         assert expected.issubset(names), f"Missing skills: {expected - names}"
 
@@ -152,9 +151,6 @@ class TestSkillInstall:
 
         # map-project-collab has a scripts/ subdirectory
         assert (target / "map-project-collab" / "scripts" / "map-bootstrap.sh").exists()
-
-        # map-runtime-waker has an agents/ subdirectory
-        assert (target / "map-runtime-waker" / "agents" / "openai.yaml").exists()
 
     def test_install_creates_target_dir(self, tmp_path):
         """Target directory should be created if it doesn't exist."""

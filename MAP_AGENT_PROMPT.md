@@ -39,7 +39,7 @@ map --help
 map skill install
 ```
 
-这会将 6 个 Skill 文件安装到 `.cursor/skills/` 目录。Cursor 会自动发现它们。
+这会将 5 个 Skill 文件安装到 `.cursor/skills/` 目录。Cursor 会自动发现它们。
 其他 IDE 用户可指定目录：`map skill install -t .map/skills`。
 
 ## 首次接入项目（Bootstrap）

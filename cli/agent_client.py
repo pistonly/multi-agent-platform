@@ -1,6 +1,6 @@
 """Persistent in-process Claude SDK client with session resume.
 
-Used by map-runtime-waker (event-driven wake) and legacy bridges. The process
+Used by simple-waker (event-driven wake) and legacy bridges. The process
 holds ONE ``ClaudeSDKClient`` for its lifetime; ``claude_session_id`` is
 persisted in local state so the next restart resumes the same Claude session
 (via ``ClaudeAgentOptions(resume=...)``).
@@ -410,7 +410,7 @@ class PersonaAgentClient:
         if self.integration == "waker":
             return (
                 f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
-                "project. When woken by map-runtime-waker you receive a single wake event. "
+                "project. When woken by simple-waker you receive a single wake event. "
                 f"Confirm identity with `map --persona {self.persona} persona whoami`, read "
                 f"latest work with `map --persona {self.persona} todos`, then handle only the "
                 "event in the wake prompt using the appropriate skill from `.cursor/skills/`. "
@@ -424,7 +424,7 @@ class PersonaAgentClient:
                 f"Use `map --persona {self.persona}` CLI and skills under `.cursor/skills/` "
                 "(topic-host, topic-participant, experiment-host, experiment-reviewer, "
                 "map-project-collab). Follow the operator's instructions for the current task. "
-                "Do not assume map-runtime-waker will send another wake for the same work item."
+                "Do not assume simple-waker will send another wake for the same work item."
             )
         return (
             f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
