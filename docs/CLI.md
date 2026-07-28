@@ -107,6 +107,10 @@ map --persona host experiment archive --id <exp-uuid> --undo
 | 命令 | 说明 |
 |------|------|
 | `map project export` | 导出项目历史到本地 Markdown（话题/实验/决策快照，可提交 Git） |
+| `map sync pull` | 拉取远程项目数据到本地 SQLite 缓存（`.map/cache.db`），支持离线浏览 |
+| `map sync status` | 查看本地缓存的同步状态（最后拉取时间、缓存条目数） |
+| `map sync topics` | 离线列出本地缓存中的话题 |
+| `map sync topic --id <uuid>` | 离线查看缓存中某个话题的完整数据 |
 | `map topic list` | 列出话题（默认排除已归档；`--include-archived` 包含） |
 | `map topic show --id <uuid>` | 显示话题详情（含归档对象） |
 | `map topic close --id <uuid>` / `topic reopen` | 关闭 / 重开话题 |
@@ -171,5 +175,51 @@ map project export --no-archived
 
 > 导出是只读快照，不会修改 Server 上的任何数据。每次导出会覆盖本地文件。
 > `.map/history/` 已加入 `.gitignore` 白名单，可以安全提交到 Git。
+
+## 本地缓存同步（`map sync`）
+
+将远程 Server 上的项目数据拉取到本地 SQLite 缓存（`.map/cache.db`），支持离线浏览话题和实验。
+
+### pull — 拉取数据到本地缓存
+
+```bash
+# 拉取当前项目的所有话题和实验（含已归档）
+map sync pull
+
+# 仅拉取未归档的条目
+map sync pull --no-archived
+
+# 指定项目
+map sync pull --project-key my-project
+```
+
+### status — 查看缓存状态
+
+```bash
+map sync status
+```
+
+输出示例：
+```
+Project: my-project (a1b2c3d4-...)
+  Last pull: 2026-07-28 12:00:00+00:00
+  Topics: 15, Experiments: 3
+```
+
+### topics — 离线列出缓存的话题
+
+```bash
+map sync topics
+```
+
+### topic — 离线查看某个话题的完整数据
+
+```bash
+map sync topic --id <topic-uuid>
+```
+
+> 本地缓存是只读快照，不会修改 Server 上的任何数据。
+> `.map/cache.db` 是二进制文件，已被 `.gitignore` 排除，不会提交到 Git。
+> 如需将数据提交到 Git 版本控制，请使用 `map project export` 导出为 Markdown。
 
 完整子命令列表请运行 `map --help`。
