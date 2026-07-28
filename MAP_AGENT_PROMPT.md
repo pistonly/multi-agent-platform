@@ -31,6 +31,17 @@ pip install multi-agent-platform
 map --help
 ```
 
+## 安装 Skill（推荐）
+
+将 MAP 协作 Skill 安装到当前项目，这样你的 AI Agent 就能自动发现并遵循完整的 MAP 协作流程：
+
+```bash
+map skill install
+```
+
+这会将 6 个 Skill 文件安装到 `.cursor/skills/` 目录。Cursor 会自动发现它们。
+其他 IDE 用户可指定目录：`map skill install -t .map/skills`。
+
 ## 首次接入项目（Bootstrap）
 
 前提：MAP 服务已运行（通常是 http://localhost:8000 或 http://localhost:8001）。

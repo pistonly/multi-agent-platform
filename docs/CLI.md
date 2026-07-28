@@ -107,6 +107,8 @@ map --persona host experiment archive --id <exp-uuid> --undo
 | 命令 | 说明 |
 |------|------|
 | `map project export` | 导出项目历史到本地 Markdown（话题/实验/决策快照，可提交 Git） |
+| `map skill list` | 列出 pip 包内置的 Skill |
+| `map skill install` | 将 Skill 文件安装到当前项目（默认 `.cursor/skills/`），让 AI Agent 自动发现 |
 | `map sync pull` | 拉取远程项目数据到本地 SQLite 缓存（`.map/cache.db`），支持离线浏览 |
 | `map sync status` | 查看本地缓存的同步状态（最后拉取时间、缓存条目数） |
 | `map sync topics` | 离线列出本地缓存中的话题 |
@@ -221,5 +223,31 @@ map sync topic --id <topic-uuid>
 > 本地缓存是只读快照，不会修改 Server 上的任何数据。
 > `.map/cache.db` 是二进制文件，已被 `.gitignore` 排除，不会提交到 Git。
 > 如需将数据提交到 Git 版本控制，请使用 `map project export` 导出为 Markdown。
+
+## Skill 安装（`map skill install`）
+
+将 pip 包内置的 MAP Skill 文件安装到当前项目，让 AI Agent（Cursor、Claude Code 等）自动发现并遵循 MAP 协作流程。
+
+```bash
+# 安装全部 Skill 到 .cursor/skills/（默认，Cursor 自动发现）
+map skill install
+
+# 安装到自定义目录
+map skill install -t .map/skills
+
+# 只安装指定 Skill
+map skill install -s topic-host -s topic-participant
+
+# 覆盖已有文件
+map skill install --force
+```
+
+### list — 查看可安装的 Skill
+
+```bash
+map skill list
+```
+
+安装后，Cursor 会自动从 `.cursor/skills/` 读取 SKILL.md。其他 IDE 用户可将安装目录指向 Agent 的规则文件路径。
 
 完整子命令列表请运行 `map --help`。

@@ -18,7 +18,20 @@ pip install multi-agent-platform
 
 ## 让你的 AI Agent 自动使用 MAP
 
-复制 [MAP_AGENT_PROMPT.md](MAP_AGENT_PROMPT.md) 中的 prompt 内容，粘贴到你的 AI Agent（Claude Code、Cursor、ChatGPT 等）的 system prompt 或项目规则中，Agent 就能自动安装 MAP、接入项目并按 persona 协作。
+两种方式，任选其一：
+
+**方式一：安装 Skill（推荐，完整功能）**
+
+```bash
+pip install multi-agent-platform
+map skill install          # 将 6 个 Skill 文件安装到 .cursor/skills/
+```
+
+安装后 Cursor 会自动发现 Skill，AI Agent 读取后即可遵循完整的 MAP 协作流程（含两轮讨论门禁、实验生命周期等）。
+
+**方式二：使用简化 Prompt（快速上手）**
+
+复制 [MAP_AGENT_PROMPT.md](MAP_AGENT_PROMPT.md) 中的 prompt 内容，粘贴到你的 AI Agent 的 system prompt 或项目规则中。适合不想安装文件、快速体验的场景。
 
 ## 文档
 

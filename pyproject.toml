@@ -1,6 +1,6 @@
 [project]
 name = "multi-agent-platform"
-version = "0.2.0"
+version = "0.3.0"
 description = "Multi-Agent experiment collaboration platform"
 readme = "README.md"
 license = "MIT"
@@ -82,6 +82,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = [".", "sdk/python"]
 include = ["server*", "cli*", "map_client*", "map_mcp*", "map_sdk*", "map_types*"]
+
+[tool.setuptools.package-data]
+"cli.skills" = ["**/*.md", "**/*.sh", "**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

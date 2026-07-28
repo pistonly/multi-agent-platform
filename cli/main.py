@@ -39,6 +39,7 @@ from cli.commands.notification import inbound_event_app, notification_app
 from cli.commands.persona import persona_app
 from cli.commands.project import project_app
 from cli.commands.runtime import runtime_app
+from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
 from cli.e2e_collab import e2e_app
@@ -65,6 +66,7 @@ app.add_typer(feedback_app, name="feedback")
 app.add_typer(docs_app, name="docs")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(sync_app, name="sync")
+app.add_typer(skill_app, name="skill")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
