@@ -16,8 +16,13 @@ pip install multi-agent-platform
 
 **新用户？** 一键启动：`./scripts/quickstart.sh`，或阅读 [Quick Start 指南](docs/QUICKSTART.md)。
 
+## 让你的 AI Agent 自动使用 MAP
+
+复制 [MAP_AGENT_PROMPT.md](MAP_AGENT_PROMPT.md) 中的 prompt 内容，粘贴到你的 AI Agent（Claude Code、Cursor、ChatGPT 等）的 system prompt 或项目规则中，Agent 就能自动安装 MAP、接入项目并按 persona 协作。
+
 ## 文档
 
+- [MAP Agent Prompt（给 AI Agent 的协作指南）](MAP_AGENT_PROMPT.md)
 - [Quick Start 指南（新用户必读）](docs/QUICKSTART.md)
 - [产品需求文档（PRD）](docs/prd/archive/v0.1.md)
 - [产品需求文档 v0.2（角色与项目边界）](docs/prd/archive/v0.2.md)
