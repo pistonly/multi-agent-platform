@@ -44,6 +44,25 @@ description: >-
 
 Reviewer 在 `addressed_review_item` wake 时自行 `review resolve-item`；host 不负责代 resolve。
 
+## Host 编排模式（直接调用 participant）
+
+除 waker 驱动外，host 可以**直接调用** participant agent 同步参与讨论，无需等待 waker 轮询：
+
+```bash
+map --persona host host invoke --persona participant \
+    --prompt "请参与话题 <topic-uuid> 的讨论。先 map --persona participant topic show --id <topic-uuid> 查看上下文，然后发表你的观点。"
+```
+
+- `--prompt` 传完整任务描述（含 topic_id、需要讨论的要点）
+- `--prompt-file` 从文件读取长 prompt
+- `--json` 以 JSON 格式输出（含 response + session_id）
+- `--new-session` 强制开启新 Claude session
+- `--ignore-waker` 在 waker 运行时强制调用（可能冲突）
+
+**适用场景**：话题新建后主动邀请 participant 发言、Round 2 需要 participant 对未决项表态、需要快速获得 participant 反馈而不等待 waker 轮询。
+
+**注意**：调用后仍需通过 `map topic show` 核实 participant 是否已在话题下评论；participant agent 的回复文本在 stdout，但其实际操作（如 `topic comment`）是通过 `map --persona participant` CLI 写入 MAP 平台的。
+
 ## 快速判断
 
 ```bash

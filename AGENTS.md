@@ -129,6 +129,11 @@ map --persona host topic archive --id <uuid>          # 归档
 map --persona host topic archive --id <uuid> --undo   # 反归档（--unarchive 同义）
 map --persona host experiment archive --id <uuid>     # 归档实验
 map --persona host experiment archive --id <uuid> --undo
+
+# Host 编排模式：host 直接调用 participant/reviewer（同步响应，不依赖 waker 轮询）
+map --persona host host invoke --persona participant --prompt "请参与话题 <uuid> 的讨论"
+map --persona host host invoke --persona reviewer --prompt "请评审实验 <uuid> 的计划"
+map --persona host host invoke --persona participant --prompt-file ./task.md --json
 ```
 
 ## 服务地址（Docker override）

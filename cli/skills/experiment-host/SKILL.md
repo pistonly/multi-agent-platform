@@ -14,6 +14,25 @@ description: >-
 
 协作入口见 [map-project-collab](../map-project-collab/SKILL.md) § Waker 模式。
 
+## Host 编排模式（直接调用 reviewer）
+
+除 waker 驱动外，host 可以**直接调用** reviewer agent 同步评审实验，无需等待 waker 轮询：
+
+```bash
+map --persona host host invoke --persona reviewer \
+    --prompt "请评审实验 <exp-uuid> 的计划。先 map --persona reviewer experiment status --id <exp-uuid> 查看上下文，然后提交结构化评审。"
+```
+
+- `--prompt` 传完整任务描述（含 experiment_id、需要评审的维度）
+- `--prompt-file` 从文件读取长 prompt
+- `--json` 以 JSON 格式输出（含 response + session_id）
+- `--new-session` 强制开启新 Claude session
+- `--ignore-waker` 在 waker 运行时强制调用（可能冲突）
+
+**适用场景**：`submit-review` 后主动通知 reviewer 评审、`complete` 后主动通知 reviewer 审批结果、需要快速获得 reviewer 反馈而不等待 waker 轮询。
+
+**注意**：调用后仍需通过 `map experiment status` 核实 reviewer 是否已提交评审；reviewer agent 的回复文本在 stdout，但其实际操作（如 `experiment review add`）是通过 `map --persona reviewer` CLI 写入 MAP 平台的。
+
 ## 硬性规则
 
 1. 先 `map --persona host persona whoami` 与 `map --persona host todos`

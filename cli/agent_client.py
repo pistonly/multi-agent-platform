@@ -49,7 +49,7 @@ _MODEL_ENV_KEYS: tuple[str, ...] = ("ANTHROPIC_MODEL", "CLAUDE_MODEL")
 
 _EXPORT_RE = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
-IntegrationMode = Literal["bridge", "waker", "manual"]
+IntegrationMode = Literal["bridge", "waker", "manual", "orchestrator"]
 
 
 class WakeUpEvent(TypedDict, total=False):
@@ -425,6 +425,17 @@ class PersonaAgentClient:
                 "(topic-host, topic-participant, experiment-host, experiment-reviewer, "
                 "map-project-collab). Follow the operator's instructions for the current task. "
                 "Do not assume simple-waker will send another wake for the same work item."
+            )
+        if self.integration == "orchestrator":
+            return (
+                f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
+                "project. You are being invoked directly by the host agent via "
+                f"`map host invoke`. Use `map --persona {self.persona}` CLI and skills "
+                "under `.cursor/skills/` (topic-host, topic-participant, experiment-host, "
+                "experiment-reviewer, map-project-collab) to handle the task in the prompt. "
+                "Gather context via the `map` CLI, perform the requested action, and report "
+                "a brief summary when done. Do not wait for a waker — this is a synchronous "
+                "invocation and the host is waiting for your response."
             )
         return (
             f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "

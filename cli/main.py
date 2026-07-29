@@ -35,6 +35,7 @@ from cli.commands.audit import audit_app
 from cli.commands.docs import docs_app
 from cli.commands.experiment import experiment_app
 from cli.commands.feedback import feedback_app
+from cli.commands.host import host_app
 from cli.commands.notification import inbound_event_app, notification_app
 from cli.commands.persona import persona_app
 from cli.commands.project import project_app
@@ -67,6 +68,7 @@ app.add_typer(docs_app, name="docs")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(sync_app, name="sync")
 app.add_typer(skill_app, name="skill")
+app.add_typer(host_app, name="host")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
