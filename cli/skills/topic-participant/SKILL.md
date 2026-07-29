@@ -6,6 +6,9 @@ description: >-
   respond to host summaries and action_items, and keep threads active. Use when
   acting as participant persona or when simple-waker wakes for todos items such as
   mentions, pending_round_acks, or my_open_topics.
+  Do not use for: hosting topics or advancing rounds as host, reviewing experiments
+  as reviewer, creating or managing experiments. Do not imitate host's Round Summary
+  or advance-round --ack-ids. Do not use without first reading map-project-collab Skill.
 ---
 
 # MAP 话题参与（Skill）
@@ -117,6 +120,45 @@ map --persona participant topic comment \
 - 代替 reviewer 评审实验计划
 - 代替 host 汇总、advance-round（`--ack-ids`）或开实验
 - 启动 participant bridge
+
+## 常见错误（BAD vs GOOD）
+
+### BAD — Round 2 被唤醒后静默不发帖
+> 议题已收敛，不用再说了
+
+### GOOD — 至少发一条评论或 ack
+```bash
+map --persona participant topic comment --id <uuid> --body "议题 X 已收敛，同意 host 方向"
+# 或直接 ack：
+map --persona participant topic advance-round --id <uuid> --ack accept
+```
+
+### BAD — 模仿 host 发 Round Summary
+> 我来帮忙写个 Summary
+
+### GOOD — 只发表观点和 ack，不代替 host
+```bash
+# participant 不能发 Round Summary / advance-round --ack-ids
+map --persona participant topic comment --id <uuid> --body "**立场**：..."
+```
+
+### BAD — 话题下已有活跃实验还跟评
+> 实验在跑，我再补充点意见
+
+### GOOD — 讨论已转入实验，不再跟评
+```bash
+# 检查实验状态，phase=draft/review/approved/running/result_review 时不跟评
+map --persona participant experiment status --id <exp-uuid>
+```
+
+### BAD — @ 用 persona 短名
+> @host @reviewer
+
+### GOOD — @ 用 agent_name 全名
+```bash
+map persona list  # 查看全名
+# 使用 @multi-agent-platform-host 而非 @host
+```
 
 ## 参考
 

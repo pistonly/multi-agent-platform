@@ -42,6 +42,13 @@ map skill install
 这会将 5 个 Skill 文件安装到 `.cursor/skills/` 目录。Cursor 会自动发现它们。
 其他 IDE 用户可指定目录：`map skill install -t .map/skills`。
 
+每个 Skill 含 SKILL.md（主文档）和 `references/` 子目录（深度参考，按需 Read 加载）：
+- `map-project-collab/` — 通用协作（必读首项）、意图路由表、JSON 契约、Waker 模式
+- `topic-host/` — 主持话题、开实验门禁、防死等策略
+- `topic-participant/` — 参与讨论、ack Round Summary
+- `experiment-host/` — 执行实验、Git 提交、生命周期转换
+- `experiment-reviewer/` — 评审计划、审批结果
+
 ## 首次接入项目（Bootstrap）
 
 前提：MAP 服务已运行（通常是 http://localhost:8000 或 http://localhost:8001）。
@@ -117,6 +124,25 @@ map --persona host experiment start --id <exp-uuid>
 map --persona host experiment complete --id <exp-uuid> --summary "结果" --file ./log.md
 ```
 
+### Host 编排模式（直接调用其他 Agent）
+host 可以直接调用 participant 或 reviewer 同步协作，无需等待 waker 轮询：
+```bash
+# 调用 participant 参与话题讨论
+map --persona host host invoke --persona participant \
+    --prompt "请参与话题 <topic-uuid> 的讨论。先 topic show 查看上下文，然后发表观点。"
+
+# 调用 reviewer 评审实验
+map --persona host host invoke --persona reviewer \
+    --prompt "请评审实验 <exp-uuid> 的计划。先 experiment status 查看上下文，然后提交评审。"
+
+# 从文件读取长 prompt
+map --persona host host invoke --persona participant --prompt-file ./task.md
+
+# 以 JSON 格式输出（含 response + session_id）
+map --persona host host invoke --persona reviewer --prompt "..." --json
+```
+被调用的 agent 会按各自 persona 规则执行并通过 CLI 写回 MAP。调用后仍需通过 `map topic show` / `map experiment status` 核实对方已完成实际操作。
+
 ## 参与者工作流（participant）
 
 ```bash
@@ -154,6 +180,20 @@ map --persona reviewer experiment accept-result --id <exp-uuid> --summary "通�
 3. **待办即真相**：每次开始用 `map work` 查看待办，不要凭记忆判断
 4. **清理待办**：处理完待办后，用对应命令让它消失（回复 thread、dismiss mention 等）
 5. **host 才能创建实验**：实验必须由 host persona 创建，否则后续操作会 403
+6. **选对 Skill**：根据意图路由表选择正确的 persona Skill，不跨 persona 越界操作
+
+## JSON 输出（程序化解析）
+
+需要解析 CLI 输出时，用 `--json` 获取结构化 JSON：
+
+```bash
+map --json topic list --status open
+map --json --persona host work
+```
+
+- **成功**：`{"ok": true, "data": {...}}` → stdout
+- **错误**：`{"ok": false, "error": {"message": "...", "hint": "..."}}` → stderr
+- **判断成功**：检查 `ok == true`，不要用退出码或文本匹配
 
 ## 数据导出与离线浏览
 
@@ -176,6 +216,8 @@ map sync topic --id <topic-uuid>
 | 403 创建实验 | 确保用 `--persona host` 且是话题创建者 |
 | Admin bootstrap 失败 | 检查 `MAP_ADMIN_TOKEN` 环境变量 |
 | token 丢失 | 保留原 `.map/agents.local.yaml`，或删除后重跑 bootstrap |
+| 不确定该用哪个 Skill | 读 `map-project-collab/SKILL.md` 的「意图路由」表 |
+| CLI 输出不好解析 | 用 `--json` 获取结构化 JSON（`{"ok": true, "data": {...}}`） |
 
 ## 完整命令参考
 

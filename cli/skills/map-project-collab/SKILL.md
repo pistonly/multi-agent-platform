@@ -9,6 +9,9 @@ description: >-
   run experiment lifecycle commands, or use map CLI with --persona.
   Also covers waker mode: when resumed by the simple-waker daemon, read this
   Skill first for the wake sequence and kind-to-cleanup dispatch table.
+  Always read this Skill first before persona Skills. Do not skip even if you
+  know the workflow. Do not use persona-specific Skills (topic-host, topic-participant,
+  experiment-host, experiment-reviewer) without reading this first.
 ---
 
 # MAP 项目协作（Skill）
@@ -23,7 +26,7 @@ description: >-
 
 | 入口 | 读 Skill 顺序 |
 |------|---------------|
-| **waker 唤醒** | 本 Skill（含下方 § Waker 模式）→ persona Skill |
+| **waker 唤醒** | 本 Skill → [Waker 模式参考](references/waker-mode.md) → persona Skill |
 | **手动协作** | 本 Skill → persona Skill |
 
 waker 守护进程：`./scripts/start-all-wakers.sh`（详见 [MAP-RUNTIME-WAKER.md](../../docs/MAP-RUNTIME-WAKER.md)）。
@@ -38,6 +41,22 @@ waker 守护进程：`./scripts/start-all-wakers.sh`（详见 [MAP-RUNTIME-WAKER
 - 用户说「以 host 身份…」「bootstrap MAP」「查看 open 话题」「todos」
 - 用户或协作中发现 **MAP 平台本身** 的问题/改进点，要提交反馈
 - 当前仓库存在 `.map/config.yaml` 或用户要求初始化 MAP
+
+## 意图路由（选对 Skill）
+
+根据用户意图选择正确的 Skill，避免跨 persona 越界操作：
+
+| 用户意图 | 路由到 | 不路由到 |
+|----------|--------|----------|
+| Bootstrap、persona 选择、查 todos、提反馈、通用 CLI | **本 Skill**（map-project-collab） | — |
+| 主持话题、两轮讨论、Round Summary、开实验门禁 | [topic-host](../topic-host/SKILL.md) | topic-participant（不主持） |
+| 参与讨论、ack Round Summary | [topic-participant](../topic-participant/SKILL.md) | topic-host（不代替主持） |
+| 执行实验、改仓库、写实验日志、Git 提交 | [experiment-host](../experiment-host/SKILL.md) | experiment-reviewer（不执行） |
+| 评审实验计划、审批实验结果 | [experiment-reviewer](../experiment-reviewer/SKILL.md) | experiment-host（不自审） |
+| 被唤醒后不知道做什么 | **本 Skill**（先读，再按 persona 路由） | 直接跳 persona Skill |
+| 程序化解析 CLI 输出 | **本 Skill** § JSON 输出契约 | — |
+
+**规则**：无论意图是什么，先读本 Skill（硬性规则、JSON 契约、路由表），再按需读 persona Skill。
 
 ## 硬性规则
 
@@ -66,38 +85,9 @@ map --persona <name> work --notification-category wakeable
 
 ## 首次 Bootstrap
 
-前置：MAP API 已运行；admin token 在 `MAP_ADMIN_TOKEN` 或 `~/.map/admin.yaml`：
+前置：MAP API 已运行；admin token 在 `MAP_ADMIN_TOKEN` 或 `~/.map/admin.yaml`。在本仓库根目录运行 `map bootstrap`（生成 `.map/config.yaml`、`agents.yaml`、`agents.local.yaml`）。
 
-```yaml
-token: "<admin-api-token>"
-api_url: http://localhost:8001
-```
-
-在本代码仓库根目录：
-
-```bash
-map bootstrap \
-  --key "<unique-project-key>" \
-  --name "<Human readable name>" \
-  --api-url http://localhost:8001
-```
-
-生成：
-
-| 文件 | 提交 Git |
-|------|----------|
-| `.map/config.yaml` | 是 |
-| `.map/agents.yaml` | 是 |
-| `.map/agents.local.yaml` | **否**（已在 .gitignore） |
-
-若 agent 名已存在（409），bootstrap 会跳过且**无法找回旧 token**——保留原 `agents.local.yaml`。需覆盖 token 时用 `--force`（会重写 `agents.local.yaml`）。
-
-也可运行脚本（等价）：
-
-```bash
-bash .cursor/skills/map-project-collab/scripts/map-bootstrap.sh \
-  --key "<project-key>" --name "<name>"
-```
+> **完整步骤、生成文件说明、409 处理、等价脚本**：Read [references/bootstrap-troubleshooting.md](references/bootstrap-troubleshooting.md)
 
 ## 选择 Persona
 
@@ -348,86 +338,75 @@ map feedback submit \
 
 ## 故障排查
 
-| 现象 | 处理 |
-|------|------|
-| 找不到 `.map/` | 在本仓库根运行 `map bootstrap` |
-| Unknown persona | `map persona list` |
-| 403 开实验 | 确认 `--persona host` 且是话题 creator |
-| 403 submit/approve/complete | 实验须由 **当前 host persona** 创建 |
-| Admin bootstrap 失败 | 检查 `MAP_ADMIN_TOKEN` / `~/.map/admin.yaml` |
-| token 丢失（409 跳过） | 保留原 `agents.local.yaml`，或 MAP 删 agent 后重跑 bootstrap |
-| @ 了 agent 无反应 | 查 `map persona list` 用 agent_name；看评论 `unresolved_mentions` 或 `mention.unresolved` 通知 |
-| 想改 MAP 平台而非业务话题 | 用 `map feedback submit --category suggestion`（见上文 §平台反馈） |
+常见问题：找不到 `.map/`、Unknown persona、403 开实验、token 丢失、@无反应等。
+
+> **完整排查表与处理方式**：Read [references/bootstrap-troubleshooting.md](references/bootstrap-troubleshooting.md)
+
+## JSON 输出契约
+
+MAP CLI 支持统一 JSON 输出，便于 Agent 程序化解析：
+
+```bash
+map --json <command>           # --json 是 --format json 的快捷方式
+map --format json <command>    # 等价
+```
+
+- **成功**：`{"ok": true, "data": {...}}` → stdout
+- **错误**：`{"ok": false, "error": {"message": "...", "hint": "..."}}` → stderr
+- **判断成功**：检查 `ok == true`，**不要**用退出码或文本匹配
+- **判断错误**：检查 `ok == false`，从 `error.message` 获取描述
+
+> **完整契约说明与判断规则**：Read [references/bootstrap-troubleshooting.md](references/bootstrap-troubleshooting.md#json-输出契约)
+
+## 常见错误（BAD vs GOOD）
+
+### BAD — 凭 session 记忆判断"无事可做"
+> 上次看过 todos 是空的，应该没事了
+
+### GOOD — 每次都执行 `map work`
+```bash
+map --persona host work   # 以 API 返回为准
+```
+
+### BAD — 用 httpx 直接调 API
+```python
+httpx.post("http://localhost:8001/api/topics/...")
+```
+
+### GOOD — 用 CLI
+```bash
+map --persona host topic list --status open
+```
+
+### BAD — 从 `status_md` 解析话题/实验列表
+> `status_md` 里有"3个open话题"，直接用
+
+### GOOD — 用快照字段
+```bash
+map status   # open_topics / active_experiments 是服务端聚合的事实
+```
+
+### BAD — 清理待办时只在本地标记"已读"
+> 通知看过了，不用管了
+
+### GOOD — 用与 UI 等价的 API 清理
+```bash
+map notification read --id <uuid>           # 未读通知
+map mention dismiss --id <uuid>             # @提及
+map topic dismiss --id <uuid>               # 不需要的话题
+```
 
 ## Waker 模式（被 simple-waker 唤醒时）
 
-被 **map-simple-waker** 守护进程唤醒/提醒时读本节。手动协作（用户在 Cursor 发指令）**不需要**读本节，直接按上方通用流程即可。
+被 **map-simple-waker** 守护进程唤醒/提醒时，需阅读 Waker 模式深度参考。
 
-### waker 模式
-
-| 模式 | 启动脚本 | Agent 推进粒度 |
-|------|----------|----------------|
-| **simple-waker**（默认且唯一） | `./scripts/start-all-wakers.sh` | 批量：轮询 **`map work`**（topic work items + todos + wakeable 通知）；remind 内带 work_items 摘要 |
-
-**simple-waker** 主信号为 `GET /agents/me/work`（或分拆的 topic-progress + todos）。其中 **topic-progress** 是 `topic_work_items_for_agent` 的 per-agent 投影（`work_items[]`：obligation + contextual），不是「最后一条评论非己」启发式。`my_open_topics` **alone 不触发** remind。其余规则（todos 即真相、清理 = 与 UI 相同）不变。
-
-v0.10 起 simple-waker 在 remind 前推进 `action_item` 升级时间线（WAKE → `action mark-wake-sent`，STALE → `action mark-stale`），并在 remind 后写聚合 `inbound_event` 审计行。
-
-### 每次 wake / 提醒的顺序
-
-1. 本 Skill — persona、CLI 硬性规则
-2. 下表 persona Skill — 具体怎么做
-3. `map --persona <persona> persona whoami` → **`map --persona <persona> work`**（或 `topic progress` + `todos`）
-4. 按 remind 中的 **topic work items** 与 todos **主动参与**开放话题；host 负责回复 thread 与推进轮次
-5. **必须**让已处理项从 `topic progress` / `map todos` 或通知列表消失后再收尾
-
-### 核心规则（与 Web UI 一致）
-
-| 规则 | 说明 |
-|------|------|
-| topic progress / work 即话题真相 | `topic_work_items_for_agent` 投影：obligation（`pending_topic_reply` / `round_ack` / `mention`）+ contextual（`unread_change`）；与 `map todos` 话题分区同源；各 persona **主动** `map work` 或 `map topic progress` |
-| todos 即待办真相 | waker 另轮询 `GET /agents/me/todos` + 未读通知；**kind 名 = todos 字段名** |
-| 清理 = 与 UI 相同 | 处理完成后调用与 UI 等价的 API（见下表）；**禁止**凭 session 记忆判断「已处理」 |
-| 批量提醒 | **simple-waker**：一次提醒可处理多项；收尾前再跑 `map work`（或 `topic progress` + `todos`）验证 |
-| `my_open_topics` alone | 被动清单，**不**单独触发 simple-waker；话题活动看 **topic work items**（topic-progress / work） |
-| action_item 升级 | waker 在 remind 前扫描 `todos.action_items`：WAKE → `action mark-wake-sent`（推进 wake_count），STALE → `action mark-stale`（标记过期） |
-
-### reviewer 评审优先（跨视图调度）
-
-reviewer 的核心义务是实验评审（`pending_reviews` / `pending_result_reviews`）。为避免话题 remind 打断深度评审，simple-waker **调度层**遵守：
-
-- reviewer 存在任一 `pending_review` / `pending_result_review` 时，话题域 **contextual** work item（如 `unread_change`）**不触发 remind**；
-- 话题域 **obligation** item（`@mention`、`pending_round_ack` 等）**仍可 remind**——硬义务不被静音；
-- 此为 waker **调度层**消费规则，**不**进 work item schema；schema 的 `priority: obligation | contextual` 二分保持不变。
-
-### kind → 清理方式 → Skill
-
-| kind | 如何让 UI/waker 停止 wake | Skill |
-|------|---------------------------|-------|
-| `mentions` | `map mention dismiss --id <uuid>` | persona Skill |
-| `pending_topic_replies` | 回复 thread 后服务端重算消失 | [topic-host](../topic-host/SKILL.md) |
-| `pending_advance_rounds` | `map topic advance-round --id <uuid>` | [topic-host](../topic-host/SKILL.md) |
-| `pending_round_acks` | `map topic advance-round --id <uuid> --ack accept/reject/dismiss` | [topic-participant](../topic-participant/SKILL.md) / [experiment-reviewer](../experiment-reviewer/SKILL.md) |
-| `stale_open_topics` | 复盘并推进话题，若只是等待他人则 `map topic dismiss --id <uuid>` | [topic-host](../topic-host/SKILL.md) |
-| `action_items` | 完成/关闭 action item | [topic-host](../topic-host/SKILL.md) |
-| `pending_reviews` / `pending_result_reviews` / `pending_replies` | 评审/回复流程完成 | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
-| `my_open_experiments` | 实验 phase 推进或结束 | [experiment-host](../experiment-host/SKILL.md) |
-| `my_open_topics` | 推进话题或 `map topic dismiss --id <uuid>`（与 UI ✕ 相同） | [topic-host](../topic-host/SKILL.md) |
-| `notification` | `map notification read --id <uuid>` | 按通知类型选 Skill |
-
-若 remind 写有 **Drain topics 模式**，host 应主动推动 open topic 的进展：澄清问题、邀请相关 persona、推进 Round Summary、沉淀结论/action items，并让每个话题形成明确的下一步、实验边界或有依据的关闭理由。
-
-### Persona 默认 Skill
-
-| persona | 必读 |
-|---------|------|
-| host | [topic-host](../topic-host/SKILL.md) + [experiment-host](../experiment-host/SKILL.md) |
-| participant | [topic-participant](../topic-participant/SKILL.md) |
-| reviewer | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
+> **完整 wake 顺序、核心规则、kind→清理方式分发表、reviewer 调度规则**：Read [references/waker-mode.md](references/waker-mode.md)
 
 ## 参考
 
 - 仓库根 [AGENTS.md](../../../AGENTS.md)
 - 模板 [.map/config.yaml.example](../../../.map/config.yaml.example)
 - 主持流程 [topic-host](../topic-host/SKILL.md)
+- [Bootstrap 与故障排查参考](references/bootstrap-troubleshooting.md)
+- [Waker 模式参考](references/waker-mode.md)
 - CLI 全量命令：`map --help`、`map topic --help`、`map experiment --help`

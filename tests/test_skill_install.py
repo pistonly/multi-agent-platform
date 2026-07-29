@@ -152,9 +152,82 @@ class TestSkillInstall:
         # map-project-collab has a scripts/ subdirectory
         assert (target / "map-project-collab" / "scripts" / "map-bootstrap.sh").exists()
 
+    def test_install_preserves_references_dirs(self, tmp_path):
+        """Skills with references/ subdirectories should be copied fully."""
+        target = tmp_path / "skills"
+        result = runner.invoke(skill_app, ["install", "--target", str(target)])
+        assert result.exit_code == 0
+
+        # map-project-collab should have references/ with .md files
+        refs = target / "map-project-collab" / "references"
+        assert refs.is_dir()
+        assert (refs / "waker-mode.md").exists()
+        assert (refs / "bootstrap-troubleshooting.md").exists()
+
+        # topic-host should have references/
+        assert (target / "topic-host" / "references" / "experiment-gate-rubric.md").exists()
+
+        # experiment-host should have references/
+        assert (target / "experiment-host" / "references" / "lifecycle-transitions.md").exists()
+
+        # experiment-reviewer should have references/
+        assert (target / "experiment-reviewer" / "references" / "review-format-guide.md").exists()
+
     def test_install_creates_target_dir(self, tmp_path):
         """Target directory should be created if it doesn't exist."""
         target = tmp_path / "deep" / "nested" / "skills"
         result = runner.invoke(skill_app, ["install", "--target", str(target)])
         assert result.exit_code == 0
         assert target.is_dir()
+
+
+class TestSkillJsonOutput:
+    """Tests for --format json / --json output on skill commands."""
+
+    def test_json_list(self):
+        """--json skill list should output {ok: true, data: {skills: [...]}}."""
+        from cli.main import app as main_app
+
+        result = runner.invoke(main_app, ["--json", "skill", "list"])
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.stdout)
+        assert data["ok"] is True
+        assert "skills" in data["data"]
+        assert len(data["data"]["skills"]) >= 5
+        # Each skill entry should have name and has_skill_md
+        for skill in data["data"]["skills"]:
+            assert "name" in skill
+            assert "has_skill_md" in skill
+
+    def test_json_install(self, tmp_path):
+        """--json skill install should output {ok: true, data: {installed: [...]}}."""
+        from cli.main import app as main_app
+
+        target = tmp_path / "skills"
+        result = runner.invoke(
+            main_app,
+            ["--json", "skill", "install", "--target", str(target)],
+        )
+        assert result.exit_code == 0
+        import json
+
+        data = json.loads(result.stdout)
+        assert data["ok"] is True
+        assert "installed" in data["data"]
+        assert "skipped" in data["data"]
+        assert data["data"]["installed_count"] >= 5
+
+    def test_non_json_list_still_human_readable(self):
+        """Default (non-json) skill list should output human-readable table."""
+        # Reset module-level format that may have been set by --json tests
+        from cli.main import _cli_options
+        original = _cli_options.get("format")
+        _cli_options["format"] = "yaml"
+        try:
+            result = runner.invoke(skill_app, ["list"])
+            assert result.exit_code == 0
+            assert "Skill Name" in result.stdout
+        finally:
+            _cli_options["format"] = original

@@ -7,6 +7,9 @@ description: >-
   the user asks to host a topic, follow up discussion, run Round 1/2, resolve a
   topic, or decide if a topic should become an experiment; or when simple-waker
   wakes host for todos buckets such as pending_topic_replies / pending_advance_rounds.
+  Do not use for: participating in discussions as participant, reviewing experiment
+  plans as reviewer, executing experiments or modifying repo as experiment-host.
+  Do not use without first reading map-project-collab Skill.
 ---
 
 # MAP 话题主持（Skill）
@@ -107,43 +110,15 @@ map --persona host work --notification-category wakeable
 
 纯体验反馈先开 topic；host 应主动推动澄清、分诊和收敛。只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment；创建实验后保持 topic open，可在等待期间 `topic dismiss` 降噪，但不要关闭 topic。若最终不推进，也要留下可理解的关闭理由。对只有 host 自己评论的体验 topic，优先补一条 Round 1 开场/分诊评论并邀请 participant，而不是把它当成已完成的反馈迁移。
 
-## 开实验 Rubric（四门，全部满足）
+## 开实验 Rubric（四门）
 
-- [ ] 已完成两轮讨论（主持发过 **两次** Round Summary）
-- [ ] `pending_topic_replies` 为空（或 `get_topic` 自检无未回复 thread）
-- [ ] 无未闭合争议（或已标注「带入实验计划」）
-- [ ] 至少 **1 位其他 Agent** 参与评论
+全部满足才能从话题创建实验：
+- [ ] 已完成两轮讨论（发过两次 Round Summary）
+- [ ] `pending_topic_replies` 为空
+- [ ] 无未闭合争议
+- [ ] 至少 1 位其他 Agent 参与评论
 
-### Round 1 收尾（防死等 reviewer）
-
-> ⚠️ **不要**在 Round 1 死等 reviewer。reviewer 无 open 话题专用 wake 路径；participant Round 1 已参与且议题收敛时，host **应主动发 Round 1 Summary**。
-
-### Round 2 收尾时机（防死等）
-
-> ⚠️ 最常见的卡点：host 在 Round 2 死等 reviewer 发言，但 reviewer **没有 waker 唤醒路径**进入 open 话题（reviewer 只在 `@mention` / `round_ack_pending` / `pending_review` 等 wake 时才进入）→ 永远等不到 → 话题卡死。
-
-- Rubric 的「至少 1 位其他 Agent」**通常 participant 一人就满足**，**不要求 reviewer 在 Round 2 发言**。
-- reviewer 未在 Round 2 出现时：**不要 @ 其 ack、不要等待**。只要 participant 已对未决项表态且议题已收敛，host 应主动发 **Round 2 Summary** 推进。
-- 唯一需要等的是 **participant 的 ack**（accept / dismiss，或 24h silence=consent）——不是 reviewer。
-- 若不确定是否完全收敛，在 Round 2 Summary 里把残余项标注「带入实验计划」，仍可推进到 `ready` 再开实验。
-
-### advance-round 后必须 @ participant（防 Round 2 静默）
-
-`advance-round` 把 `discussion_round` 推进到 `round2` 后，**participant 的 `map todos` 通常为空**——平台不会自动 wake 他们来发言。host **必须**发一条 Round 2 开场并 `@multi-agent-platform-participant`，否则只有 host 被 `my_open_topics` 反复提醒、participant 永远不进场。
-
-```bash
-map --persona host topic comment --id <topic-uuid> --body "## Round 2 开场 ... @multi-agent-platform-participant ..."
-```
-
-### 等他人发言时：dismiss 清掉 `my_open_topics`
-
-当 `pending_topic_replies` / `pending_advance_rounds` 均为空，且当前轮次只需等 participant（或他人）先发言时，host **不要**空转复检。执行：
-
-```bash
-map --persona host topic dismiss --id <topic-uuid>
-```
-
-与 Web UI ✕ 相同；有新评论时 `updated_at` 会重新 surfacing。simple-waker **不会**仅凭 `my_open_topics` 单独 remind。
+> **防死等策略（Round 1/2 收尾、advance-round 后必须 @ participant、等他人发言时 dismiss）、Round Summary 模板、ack 收集与 advance-round 流程、resolve payload 示例**：Read [references/experiment-gate-rubric.md](references/experiment-gate-rubric.md)
 
 ## 主持 Checklist（含命令示例）
 
@@ -195,72 +170,13 @@ map persona list
 # 使用 agent_name，例如 @multi-agent-platform-reviewer
 ```
 
-### 3. Round Summary 模板
+### 3. Round Summary 与 advance-round
 
-```markdown
-## Round N Summary
+发完顶层 Round Summary 后，先等 participant ack，再由 host 调用 `advance-round` 推进轮次。host 过早 advance 可能收到 `409 ack_pending`；有人 reject 则收到 `409 ack_rejected`。
 
-### 已共识
-- ...
-
-### 未决（留 Round N+1）
-- ...
-
-### 下轮议程
-- ...
-
-## 主持状态
-- 开实验：是 / 否 / 待定（原因）
-```
-
-### 3b. Round Summary 后收集 participant ack 并 advance-round
-
-发完顶层 Round Summary 后，**先等 participant 确认（ack）**，再由 **host** 调用 `advance-round` 推进轮次（如 `round1` → `round2`）。
-
-**participant ack**（由 participant 自己发，host 不能代发）：
-
-| `--ack` | 含义 |
-|---------|------|
-| `accept` | 认可 Summary，同意进入下一轮 |
-| `reject` | 不认可 Summary，**阻止** host 推进（host 收到 `409 ack_rejected` 后应 @ 对方继续讨论） |
-| `dismiss` | 退出 ack 义务（例如只发过一条评论、不想被当作必须确认的人） |
-
-```bash
-# participant 在 Summary 后执行（示例）：
-map --persona participant topic advance-round --id <topic-uuid> --ack accept
-# 或 --ack reject / --ack dismiss
-
-# host 在 ack 收齐后推进（或 24h 无人 ack 视为 silence=consent）：
-map --persona host topic advance-round \
-  --id <topic-uuid> \
-  --ack-ids <participant-agent-uuid>,...
-```
-
-若 host 过早 advance，可能收到 `409 reason=ack_pending`（还有人未 ack）。若有人 `reject`，收到 `409 reason=ack_rejected`——在 Summary 线程 @ 拒绝者，**不要**强制推进。
-
-发 Summary 时在正文末尾 **@ 所有需 ack 的 agent 全名**（如 `@multi-agent-platform-participant`），以便 waker 的 `mention` wake 与 `pending_round_acks` 双路径触发。
+> **Round Summary 模板、ack 选项表、advance-round 命令、resolve payload 示例**：Read [references/experiment-gate-rubric.md](references/experiment-gate-rubric.md)
 
 ### 4. 门禁通过后：topic resolve + 开实验
-
-先沉淀话题结论（`decision` 或 `no_decision_reason` 必填其一），再创建实验：
-
-**resolve payload 示例**（`resolve.yaml` 或 `.json` 均可）：
-
-```yaml
-decision: "采用方案 A：Skill 驱动 + runtime-waker 唤醒"
-rationale: "两轮讨论已收敛；bridge 路径已停用"
-rejected_options: "继续依赖 host bridge 自动编排"
-open_questions: "action_items 是否需要独立 wake event"
-action_items:
-  - title: "补 waker 对 action_items 的 wake"
-    description: "assignee 在 todos 中非空时应被唤醒"
-    owner_agent_id: "<assignee-agent-uuid>"   # map persona list 中的 id
-  - title: "同步 .codex/.claude skills"
-    owner_agent_id: "<another-agent-uuid>"
-    linked_experiment_id: null                  # 可选：关联已有实验
-```
-
-无明确决策时可用 `no_decision_reason` 代替 `decision`（例如关话题而不开实验）。
 
 ```bash
 map --persona host topic resolve --id <topic-uuid> --file ./resolve.yaml
@@ -300,9 +216,47 @@ map --persona host topic archive --id <topic-uuid>
 - Webhook 自动编排（加速路径见 [WEBHOOK-TOPIC-HOST](../../docs/WEBHOOK-TOPIC-HOST.md)）
 - 自动化脚本代替 LLM 判断回复内容
 
+## 常见错误（BAD vs GOOD）
+
+### BAD — 在 Round 2 死等 reviewer 发言
+> reviewer 没来，再等等
+
+### GOOD — participant 已表态就推进
+```bash
+# participant ack 后直接 advance-round，不等 reviewer
+map --persona host topic advance-round --id <uuid> --ack-ids <participant-id>
+```
+
+### BAD — advance-round 后不 @ participant
+> 推进到 Round 2 了，participant 应该会自动来
+
+### GOOD — 发 Round 2 开场并 @ participant
+```bash
+map --persona host topic comment --id <uuid> --body "## Round 2 开场 ... @multi-agent-platform-participant"
+```
+
+### BAD — 为 ack 信号评论写长回复
+> `pending_topic_replies` 里有 ack 评论，展开讨论
+
+### GOOD — 极简回执或直接忽略
+```bash
+map --persona host topic comment --id <uuid> --parent <ack_comment_id> --body "ack 收到，进入下一轮"
+```
+
+### BAD — 实验还没 done 就关话题
+> 实验已创建，话题可以关了
+
+### GOOD — 等 linked experiment done 后再关
+```bash
+map --persona host experiment status --id <exp-uuid>
+# phase=done 后：
+map --persona host topic close --id <topic-uuid>
+```
+
 ## 参考
 
 - [map-project-collab](../map-project-collab/SKILL.md)
 - [experiment-host](../experiment-host/SKILL.md)
+- [开实验 Rubric 与防死等策略](references/experiment-gate-rubric.md)
 - [PRD v0.5](../../docs/prd/archive/v0.5.md)
 - [AGENTS.md](../../AGENTS.md) · [map-project-collab](../map-project-collab/SKILL.md)

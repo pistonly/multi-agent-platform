@@ -4,6 +4,10 @@ description: >-
   Execute MAP experiments as host when resumed by simple-waker: acquire/release
   execution lock, revise plans, implement repo changes, write execution logs via
   map CLI. Do not rely on deprecated host bridge / cli.host_worker.
+  Do not use for: reviewing experiment plans as reviewer, hosting topic discussions
+  without experiments, participating in discussions as participant. Do not
+  accept-result or reject-result on your own experiments (reviewer's job).
+  Do not use without first reading map-project-collab Skill.
 ---
 
 # MAP 实验执行（Host Skill）
@@ -102,24 +106,9 @@ map --persona host experiment lock release --id <exp-uuid>
 
 ## my_open_experiments 各阶段
 
-| phase | 你应执行的动作 |
-|-------|----------------|
-| `draft` | `map experiment submit-review --id <id>` |
-| `review` 且 `open_unreasonable_count > 0` | 修订 plan（见下节 revise_plan） |
-| `review` 且 `open_unreasonable_count = 0` | `map experiment approve --id <id>` |
-| `approved` | `map experiment start --id <id>` |
-| `running` | 按 plan 改代码、跑测试、写 log（见 execute_experiment）；plan 全部验收通过后 `map experiment complete` 提交结果待审批 |
-| `result_review` | 等 reviewer `accept-result` 或 `reject-result`；若被驳回回到 `running`，继续返工 |
+各 phase（draft / review / approved / running / result_review）对应 host 应执行的动作：`running` 前按 plan 推进，`result_review` 等 reviewer 审批。先 `experiment status` 核实，再根据 phase、`actions`、`open_unreasonable_count` 决定下一步。
 
-> **观察项（v0.9 M30A+M31）**：`running` 期间如改动涉及 `inbound_events.rejection_count`（v1 fingerprint 拒绝路径），需在实验日志里附监控口径 —— 单 fingerprint `rejection_count` 增长率、累计 top-N fingerprint、是否需要 `map admin notification cleanup-v1` 兜底（待后续实验定义）。
-
-收到 `my_open_experiments` 待办 wake 时：
-
-```bash
-map --persona host experiment status --id <id>
-```
-
-若 waker prompt 或 `map work` 中的 `my_open_experiments` 样例带有 `actions`，这就是 host 的实验推进义务：先 `experiment status` 核实，再根据 **phase**、`actions` 与 **open_unreasonable_count** 执行上表对应动作。`actions=[]` 且 `blocked_on` 表示等待他人时，记录等待状态即可；`running` 阶段应实际推进执行工作，而不是只检查状态后结束。
+> **完整 phase 动作表与观察项**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
 ## revise_plan
 
@@ -137,83 +126,27 @@ map --persona host experiment plan revise \
 
 ## execute_experiment（running 阶段）
 
-0. **（推荐）** `map --persona host experiment lock acquire --id <id>` — 若 lock busy 则 skip 并记录退避时间
-1. `map experiment status --id <id>` 阅读 `current_plan`
-2. `git status --short` / `git diff --stat` 检查工作树边界；若已有无关 dirty 改动且无法安全拆分，写 blocker 后停止
-3. 在仓库内**实际修改**文件；小步、可验证；不要无关重构
-4. 运行 plan 中列出的验证命令（pytest、grep 等）
-5. 将当前实验改动提交为窄 commit（用户明确禁止提交 git 时除外）
-6. 将执行记录写入临时文件，例如 `.map/generated-plans/experiment-<id>-log.md`，内容含：做了什么、改了哪些文件、验证结果、commit_sha、`git_status_after`、风险与后续
-7. 写入 MAP：
+`running` 阶段执行流程：acquire lock → 读 plan → 改仓库 → 跑验证 → 窄 commit → 写 log → 全部 acceptance 满足后 `pre-complete` + `complete` → release lock。每次 wake 至少推进一个 plan 子项。
 
-```bash
-map --persona host experiment log \
-  --id <exp-uuid> \
-  --summary "I1 完成：…" \
-  --file ./path/to/log.md
-```
-
-8. 若 plan 定义的**全部 acceptance** 已满足，先准备 evidence metadata（例如 `.map/generated-plans/experiment-<id>-evidence.yaml`，包含 `pytest_summary` / `alembic_current` / `api_health` / `image_digest` / `evidence` / `commit_sha` 等至少一项），执行 `map experiment pre-complete --metadata ...`，再调用 `map experiment complete --metadata ...` 提交最终结果日志，实验进入 `result_review`；否则结束本次 wake，等待下次 `experiment_lifecycle` wake 继续下一子项
-9. **`experiment lock release --id <id>`**（若步骤 0 已 acquire）
-
-```bash
-map --persona host experiment pre-complete \
-  --id <exp-uuid> \
-  --metadata ./path/to/evidence.yaml
-
-map --persona host experiment complete \
-  --id <exp-uuid> \
-  --summary "结果提交：…" \
-  --file ./path/to/log.md \
-  --metadata ./path/to/evidence.yaml
-```
+> **完整 9 步执行流程与 pre-complete/complete 命令**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
 ### running 收尾模板
 
-```bash
-git status --short
-git diff --stat
-git add <files>
-git diff --cached --stat
-git commit -m "map exp <short-id>: <summary>"
-git rev-parse --short HEAD
-git status --short
+收尾顺序：窄 commit → `pre-complete` → `complete` → release lock → 刷新 status/work。
 
-map --persona host experiment pre-complete \
-  --id <exp-uuid> \
-  --metadata .map/generated-plans/experiment-<short-id>-evidence.yaml
+> **完整收尾 bash 模板**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
-map --persona host experiment complete \
-  --id <exp-uuid> \
-  --summary "结果提交：..." \
-  --file .map/generated-plans/experiment-<short-id>-result.md \
-  --metadata .map/generated-plans/experiment-<short-id>-evidence.yaml
+失败时按阶段停下：`pre-complete`/`complete`/`release`/`git commit` 失败时各有对应处置，`result_review` 表示 host 工作结束。
 
-map --persona host experiment lock release --id <exp-uuid>
-map --persona host experiment status --id <exp-uuid>
-map --persona host work --notification-category wakeable
-```
-
-失败时按阶段停下：
-
-- `pre-complete` 失败：修 metadata 或验证证据，不要 complete。
-- `complete` 失败：实验仍在 `running`，保留锁或释放前写明 blocker。
-- `release` 失败：先查 `experiment status` 的 lock 字段，必要时记录 blocker。
-- `status` 显示 `result_review`：host 工作结束，等待 reviewer 审批。
-- `git status --short` 显示无关改动：不要混合提交；能明确拆分则只提交当前实验文件，不能拆分则写 blocker 并停止。
-- `git commit` 失败：不要 complete；先修复验证、lint 或提交边界问题。
+> **完整失败处置清单**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
 ## 常见错误处理
 
-| 现象 | 处理 |
-|------|------|
-| metadata 文件不存在 / YAML 读失败 | 先创建或修正 evidence 文件，再重跑 `pre-complete`；不要把 traceback 当作 MAP 已写入 |
-| `complete` 缺 evidence | metadata 至少包含 `pytest_summary`、`alembic_current`、`api_health`、`image_digest` 或 `evidence`；非部署型才显式 `--allow-missing-evidence` |
-| lock busy | 用 `experiment status` 看 holder；必要时 `lock skip --next-attempt-at <ISO8601>` 退避 |
-| `403` lifecycle | 核对实验是否由当前 host persona 创建；不要换 MCP/admin 代跑 |
-| `result_review` 仍出现在清单 | 这是等待 reviewer 的可见性，不是 host 可执行项 |
+常见问题：metadata 缺失、complete 缺 evidence、lock busy、403 lifecycle、`result_review` 误判为可执行项。
 
-结果审批命令由 reviewer 或 admin 执行：
+> **完整错误处理表**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
+
+结果审批命令由 reviewer 或 admin 执行（host 禁止自审）：
 
 ```bash
 map --persona reviewer experiment accept-result \
@@ -234,8 +167,47 @@ map --persona reviewer experiment reject-result \
 - 在 `running` 阶段只 approve/start 不实施
 - host 自己调用 `accept-result` 审批自己提交的实验结果
 
+## 常见错误（BAD vs GOOD）
+
+### BAD — phase=running 时不执行，写"等 bridge 接手"
+> bridge 应该会自动跑实验
+
+### GOOD — 亲自改仓库并写 log
+```bash
+map --persona host experiment log --id <exp-uuid> --summary "I1 完成" --file ./log.md
+```
+
+### BAD — complete 前不提交 git
+> 改了文件就行，不用 commit
+
+### GOOD — 先提交窄 commit 再 complete
+```bash
+git add <files> && git commit -m "map exp <short-id>: <summary>"
+map --persona host experiment complete --id <exp-uuid> --summary "..." --file ./log.md
+```
+
+### BAD — result_review 阶段自审结果
+> 没人审，我先 accept-result
+
+### GOOD — 等 reviewer 审批
+```bash
+# host 不执行 accept-result / reject-result
+map --persona host experiment status --id <exp-uuid>  # 确认 phase=result_review
+```
+
+### BAD — 不检查 git status 就提交
+> 直接 git add . && git commit
+
+### GOOD — 先检查工作树边界
+```bash
+git status --short  # 确认只有当前实验的改动
+git diff --stat
+git add <specific-files>
+```
+
 ## 参考
 
+- [实验生命周期转换参考](references/lifecycle-transitions.md)
 - [topic-host](../topic-host/SKILL.md)
 - [map-project-collab](../map-project-collab/SKILL.md)
 - [MAP-RUNTIME-WAKER](../../docs/MAP-RUNTIME-WAKER.md)

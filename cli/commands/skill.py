@@ -51,14 +51,34 @@ def _list_skill_dirs() -> list[str]:
 @skill_app.command("list")
 def skill_list() -> None:
     """List bundled Skills available for installation."""
+    from cli.main import _cli_options
+
     skill_names = _list_skill_dirs()
     if not skill_names:
         typer.echo("No bundled Skills found. This may indicate a broken installation.")
         raise typer.Exit(1)
 
+    fmt = _cli_options.get("format", "yaml")
+    skills_root = _get_bundled_skills_dir()
+
+    if fmt == "json":
+        import json
+
+        skills_data = [
+            {"name": name, "has_skill_md": (skills_root / name / "SKILL.md").exists()}
+            for name in skill_names
+        ]
+        typer.echo(
+            json.dumps(
+                {"ok": True, "data": {"skills": skills_data}},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
     typer.echo(f"{'Skill Name':<30} {'Has SKILL.md'}")
     typer.echo("-" * 50)
-    skills_root = _get_bundled_skills_dir()
     for name in skill_names:
         has_md = (skills_root / name / "SKILL.md").exists()
         typer.echo(f"{name:<30} {'yes' if has_md else 'no'}")
@@ -101,6 +121,10 @@ def skill_install(
     """
     import shutil
 
+    from cli.main import _cli_options
+
+    fmt = _cli_options.get("format", "yaml")
+
     skills_root = _get_bundled_skills_dir()
     if not skills_root.is_dir():
         typer.echo(
@@ -135,6 +159,8 @@ def skill_install(
 
     installed_count = 0
     skipped_count = 0
+    installed_list: list[str] = []
+    skipped_list: list[str] = []
 
     for skill_name in to_install:
         src = skills_root / skill_name
@@ -142,8 +168,10 @@ def skill_install(
 
         # Check for existing files
         if dst.exists() and not force:
-            typer.echo(f"  Skip: {skill_name}/ (already exists; use --force to overwrite)")
+            if fmt != "json":
+                typer.echo(f"  Skip: {skill_name}/ (already exists; use --force to overwrite)")
             skipped_count += 1
+            skipped_list.append(skill_name)
             continue
 
         # Remove existing directory if --force
@@ -153,10 +181,32 @@ def skill_install(
         # Copy the entire Skill directory
         shutil.copytree(src, dst)
         installed_count += 1
+        installed_list.append(skill_name)
 
         # Count files copied
         file_count = sum(1 for _ in dst.rglob("*") if _.is_file())
-        typer.echo(f"  Installed: {skill_name}/ ({file_count} file(s))")
+        if fmt != "json":
+            typer.echo(f"  Installed: {skill_name}/ ({file_count} file(s))")
+
+    if fmt == "json":
+        import json
+
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "data": {
+                        "installed": installed_list,
+                        "skipped": skipped_list,
+                        "installed_count": installed_count,
+                        "skipped_count": skipped_count,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
 
     typer.echo(
         f"\nDone: {installed_count} Skill(s) installed to {target}/"

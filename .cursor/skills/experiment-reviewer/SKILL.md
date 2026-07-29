@@ -4,6 +4,10 @@ description: >-
   Review MAP experiment plans and accept/reject experiment results as reviewer
   persona; follow action_items assigned via topic resolve. Use when simple-waker
   wakes reviewer for pending_review, pending_result_review, or addressed_review_item.
+  Do not use for: executing experiments or modifying repo as experiment-host,
+  hosting topic discussions, participating in discussions as participant. Do not
+  approve/start/complete experiments (host's job). Do not use without first
+  reading map-project-collab Skill.
 ---
 
 # MAP 实验评审（Skill）
@@ -38,61 +42,29 @@ description: >-
 
 ## 提交评审
 
-准备 `review.yaml`：
+准备 `review.yaml`（含 `reasonable_items` / `unreasonable_items`），通过 `experiment review add` 提交当前计划版本评审。`unreasonable_items` 为空表示无阻塞项；非空时 host 应 `plan revise` 并 `--addressed-item` 回应。
 
-```yaml
-reasonable_items:
-  - "目标清晰"
-unreasonable_items:
-  - "缺少验收标准"
-```
+注意：仅 resolve addressed items 后，若 `pending_reviews` 仍指向当前 `current_plan_version` 且含 `review_add` action，仍需提交评审（认可则 unreasonable 为空），不要当 stale 忽略。
 
-```bash
-map --persona reviewer experiment review add \
-  --id <exp-uuid> \
-  --review ./review.yaml
-```
-
-`unreasonable_items` 为空表示无阻塞项；非空时 host 应 `plan revise` 并 `--addressed-item` 回应。
-
-在 host 修订计划并解决 addressed items 后，`pending_reviews` 表示当前 `current_plan_version` 仍缺本 reviewer 的评审记录。若修订已满足要求，提交一个无阻塞项的 review（reasonable_items 写明认可点，unreasonable_items 为空）；若仍有新问题，提交新的 unreasonable_items。不要只 resolve addressed items 后把仍存在的 `pending_reviews` 当成 stale。
+> **完整 review.yaml 格式与提交命令**：Read [references/review-format-guide.md](references/review-format-guide.md)
 
 ## 处理 addressed 项
 
-```bash
-map --persona reviewer experiment review list --id <exp-uuid>
-map --persona reviewer experiment review resolve-item \
-  --id <exp-uuid> \
-  --item-id <item-uuid>
-```
+host 修订计划并将项标为 `addressed` 后，用 `review list` 查看、`review resolve-item` 逐条 resolve。resolve 后仍需按上节提交当前版本评审，而非结束评审。
+
+> **完整 resolve-item 命令**：Read [references/review-format-guide.md](references/review-format-guide.md)
 
 ## 审批实验结果
 
-```bash
-map --persona reviewer experiment status --id <exp-uuid>
-map --persona reviewer experiment logs --id <exp-uuid>
+先读 `experiment status` 与最终 `logs`，确认验收标准已满足后用 `accept-result` 通过；不满足用 `reject-result` 驳回并写清返工要求。`accept-result` → `done`；`reject-result` → 回到 `running`。不要替 host 修改仓库或直接补执行日志。
 
-map --persona reviewer experiment accept-result \
-  --id <exp-uuid> \
-  --summary "结果通过：验收标准已满足" \
-  --file ./result-review.md
-
-map --persona reviewer experiment reject-result \
-  --id <exp-uuid> \
-  --summary "结果驳回：缺少关键证据" \
-  --file ./result-review.md
-```
-
-`accept-result` 使实验进入 `done`；`reject-result` 使实验回到 `running`，host 继续返工。不要替 host 修改仓库或直接补执行日志。
+> **完整 accept-result / reject-result 命令与状态流转**：Read [references/review-format-guide.md](references/review-format-guide.md)
 
 ## 评审维度（建议）
 
-- 目标与范围是否清晰、可执行
-- 验收标准是否可观测（测试、日志、指标）
-- 与来源话题共识是否一致
-- 风险、依赖、Out of Scope 是否说明
-- 是否有遗漏的非目标或安全/权限问题
-- 实验结果是否覆盖计划中的 acceptance、测试命令、关键风险和产物路径
+围绕目标清晰度、验收标准可观测性、话题共识一致性、风险与依赖说明、非目标与安全/权限遗漏、结果是否覆盖 acceptance 等维度给出具体可验证的条目。
+
+> **完整评审维度清单**：Read [references/review-format-guide.md](references/review-format-guide.md)
 
 ## 非目标
 
@@ -101,7 +73,49 @@ map --persona reviewer experiment reject-result \
 - 假设 bridge 会自动 resolve
 - 对自己创建的实验做结果审批
 
+## 常见错误（BAD vs GOOD）
+
+### BAD — 只 resolve addressed items 就算评审完
+> addressed items 都 resolve 了，pending_reviews 是 stale
+
+### GOOD — resolve 后仍需提交当前版本评审
+```bash
+map --persona reviewer experiment review add --id <exp-uuid> --review ./review.yaml
+```
+
+### BAD — 审批结果时不看实验日志
+> status 看了，应该没问题
+
+### GOOD — 读取 logs 和 status 后再审批
+```bash
+map --persona reviewer experiment status --id <exp-uuid>
+map --persona reviewer experiment logs --id <exp-uuid>
+# 确认验收标准已满足后：
+map --persona reviewer experiment accept-result --id <exp-uuid> --summary "..." --file ./review.md
+```
+
+### BAD — 评审写空泛褒贬
+> "计划不错" / "有问题"
+
+### GOOD — 具体可验证
+```yaml
+reasonable_items:
+  - "目标清晰：验证 CLI --json 输出格式"
+unreasonable_items:
+  - "缺少验收标准：未定义 ok 字段的类型"
+```
+
+### BAD — approve / start / complete 实验
+> 实验看着可以，先 start 了
+
+### GOOD — 只做评审和结果审批
+```bash
+# reviewer 不能 approve/start/complete
+# 只能 review add / accept-result / reject-result
+```
+
 ## 参考
 
 - [map-project-collab](../map-project-collab/SKILL.md)
 - [experiment-host](../experiment-host/SKILL.md)
+- [评审格式与维度参考](references/review-format-guide.md)

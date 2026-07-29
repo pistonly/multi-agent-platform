@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from collections.abc import Iterator
@@ -221,13 +222,21 @@ def cli_global_options(
             "Explicit --format always wins over the MAP_CLI_FORMAT env var."
         ),
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Shortcut for --format json. Overrides --format and MAP_CLI_FORMAT.",
+    ),
 ) -> None:
     # 8a8822b5 (f): resolve --format / MAP_CLI_FORMAT priority.
-    # Explicit --format flag > MAP_CLI_FORMAT env var > default 'yaml'.
+    # --json shortcut > Explicit --format flag > MAP_CLI_FORMAT env var > default 'yaml'.
     env_format = os.environ.get("MAP_CLI_FORMAT", "").strip().lower() or None
     resolved: str | None
     source: str
-    if output_format is not None:
+    if json_output:
+        resolved = "json"
+        source = "explicit --json"
+    elif output_format is not None:
         resolved = output_format.lower()
         source = "explicit --format"
         if env_format and env_format != resolved:
@@ -296,7 +305,16 @@ def _client_ctx() -> Iterator[MAPClient]:
             transport=_transport,
         )
     except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        if _cli_options.get("format") == "json":
+            _emit_json_error_envelope(
+                error_code=None,
+                message=str(exc),
+                hint=None,
+                retryable=False,
+                recovery_command=None,
+            )
+        else:
+            typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
     try:
         yield client
@@ -342,7 +360,16 @@ def _admin_client_ctx() -> Iterator[MAPClient]:
         api_url = _resolve_admin_api_url()
         client = admin_client(api_url, transport=_transport)
     except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        if _cli_options.get("format") == "json":
+            _emit_json_error_envelope(
+                error_code=None,
+                message=str(exc),
+                hint=None,
+                retryable=False,
+                recovery_command=None,
+            )
+        else:
+            typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
     try:
         yield client
@@ -350,8 +377,23 @@ def _admin_client_ctx() -> Iterator[MAPClient]:
         client.close()
 
 
+# Unified JSON output contract:
+# When --format json, success: {"ok": true, "data": {...}} to stdout;
+#       error: {"ok": false, "error": {"error_code", "message", "hint", "retryable"}} to stderr.
+# When --format yaml/table, behavior is unchanged (yaml.safe_dump / table_renderer).
 def _print_json(data: Any) -> None:
+    """Dump data as YAML to stdout (used for yaml/legacy format)."""
     typer.echo(yaml.safe_dump(_to_yamlable(data), allow_unicode=True, sort_keys=False))
+
+
+def _to_jsonable(value: Any) -> Any:
+    """Convert a value to a JSON-serializable structure.
+
+    Uses the same conversion logic as :func:`_to_yamlable`: pydantic
+    models are dumped via ``model_dump(mode="json")``, enums use
+    ``.value``, and lists/tuples/dicts are recursively converted.
+    """
+    return _to_yamlable(value)
 
 
 def _to_yamlable(value: Any) -> Any:
@@ -884,6 +926,14 @@ def _run(
                 _emit_deprecation_warnings(_to_yamlable(result))
             if output_format == "table" and table_renderer is not None:
                 typer.echo(table_renderer(result))
+            elif output_format == "json":
+                typer.echo(
+                    json.dumps(
+                        {"ok": True, "data": _to_jsonable(result)},
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
             else:
                 _print_json(result)
     except MAPHTTPError as exc:
@@ -1016,7 +1066,8 @@ def _emit_json_error_envelope(
         retryable=retryable,
         recovery_command=recovery_command,
     )
-    typer.echo(envelope.model_dump_json(), err=True)
+    payload = {"ok": False, "error": envelope.model_dump(mode="json")}
+    typer.echo(json.dumps(payload, ensure_ascii=False), err=True)
 
 
 def _require_option_uuid(value: uuid.UUID | None, *, option: str = "--id") -> uuid.UUID:
