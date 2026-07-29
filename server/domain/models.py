@@ -19,7 +19,6 @@ from map_types.enums import (
     ReviewSubstituteKind,
     TopicActionItemStatus,
     TopicCommentKind,
-    TopicDiscussionRound,
     TopicStatus,
 )
 from sqlalchemy import (
@@ -280,9 +279,9 @@ class Topic(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TopicStatus] = mapped_column(Enum(TopicStatus), default=TopicStatus.open, nullable=False, index=True)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
-    discussion_round: Mapped[TopicDiscussionRound] = mapped_column(
-        Enum(TopicDiscussionRound),
-        default=TopicDiscussionRound.round1,
+    discussion_round: Mapped[str] = mapped_column(
+        String(20),
+        default="round1",
         nullable=False,
         index=True,
     )

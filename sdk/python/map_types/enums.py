@@ -122,9 +122,34 @@ class TopicStatus(str, enum.Enum):
 
 
 class TopicDiscussionRound(str, enum.Enum):
+    """Known discussion round values.
+
+    The DB column is VARCHAR(20) so arbitrary ``roundN`` strings are accepted.
+    ``round1`` and ``round2`` are kept as named constants for readability;
+    ``ready`` is the terminal state that gates experiment creation.
+    Reaching ``ready`` is a host decision (``advance-round --ready``), not an
+    automatic transition after a fixed number of rounds.
+    """
+
     round1 = "round1"
     round2 = "round2"
     ready = "ready"
+
+    @staticmethod
+    def parse_round_number(value: str) -> int:
+        """Extract the integer N from a ``roundN`` string. Returns 0 for non-matching."""
+        if not value or not value.startswith("round"):
+            return 0
+        try:
+            return int(value[len("round"):])
+        except ValueError:
+            return 0
+
+    @staticmethod
+    def next_round(value: str) -> str:
+        """Return the next round string: ``round1`` → ``round2`` → ``round3`` → ..."""
+        n = TopicDiscussionRound.parse_round_number(value)
+        return f"round{n + 1}"
 
 
 class TopicActionItemStatus(str, enum.Enum):

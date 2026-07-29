@@ -104,6 +104,9 @@ map --persona host topic comment --id <topic-uuid> --body "回复内容"
 # 发起 Round Summary（推进到下一轮讨论）
 map --persona host topic advance-round --id <topic-uuid>
 
+# 标记话题为 ready（可从任意轮次标记，用于开实验门禁）
+map --persona host topic advance-round --id <topic-uuid> --ready
+
 # 沉淀结论
 map --persona host topic resolve --id <topic-uuid> --file ./resolve.yaml
 ```

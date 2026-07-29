@@ -716,7 +716,7 @@ def auto_dismiss_mentions_for_round_ack(
         "triggered_by": f"round_ack:{ack_kind}",
         "summary_comment_id": str(summary.id),
         "dismissing_agent_id": str(agent.id),
-        "round_id": topic.discussion_round.value,
+        "round_id": topic.discussion_round,
     }
     count = _apply_mention_dismiss_cascade(
         db,

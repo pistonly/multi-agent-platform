@@ -123,19 +123,19 @@ def test_sdk_topic_flow(map_client: MAPClient, project: dict):
 
     topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="SDK 话题"))
     assert topic.status.value == "open"
-    assert topic.discussion_round.value == "round1"
+    assert topic.discussion_round == "round1"
     assert topic.round_summary_count == 0
 
     comment = map_client.create_topic_comment(topic.id, TopicCommentCreate(body="一条评论"))
     assert comment.body == "一条评论"
 
     advanced = map_client.advance_topic_round(topic.id)
-    assert advanced.discussion_round.value == "round2"
+    assert advanced.discussion_round == "round2"
     assert advanced.round_summary_count == 1
 
     detail = map_client.get_topic(topic.id)
     assert detail.comment_count == 1
-    assert detail.discussion_round.value == "round2"
+    assert detail.discussion_round == "round2"
     assert detail.comments[0].body == "一条评论"
 
     closed = map_client.close_topic(topic.id)

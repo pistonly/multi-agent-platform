@@ -43,8 +43,7 @@ def _make_topic(
     topic.title = title
     topic.status = MagicMock()
     topic.status.value = status
-    topic.discussion_round = MagicMock()
-    topic.discussion_round.value = "round2"
+    topic.discussion_round = "round2"
     topic.creator_name = "host-agent"
     topic.creator_agent_id = uuid.uuid4()
     topic.created_at = datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc)

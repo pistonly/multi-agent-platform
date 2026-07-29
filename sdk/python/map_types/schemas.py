@@ -610,6 +610,7 @@ class TopicAdvanceRound(BaseModel):
     increment_summary: bool = True
     acknowledged_by: list[uuid.UUID] = Field(default_factory=list)
     ack: Literal["accept", "reject", "dismiss"] | None = None
+    mark_ready: bool = False
 
 
 class TopicActionItemCreate(BaseModel):
@@ -738,7 +739,7 @@ class TopicSummaryRead(BaseModel):
     description: str | None
     status: TopicStatus
     pinned: bool = False
-    discussion_round: TopicDiscussionRound = TopicDiscussionRound.round1
+    discussion_round: str = "round1"
     round_summary_count: int = 0
     comment_count: int = 0
     experiment_count: int = 0
@@ -833,7 +834,7 @@ class TopicWorkItemRead(BaseModel):
 class TopicProgressItemRead(BaseModel):
     topic_id: uuid.UUID
     topic_title: str
-    discussion_round: TopicDiscussionRound
+    discussion_round: str
     last_comment_author_agent_id: uuid.UUID | None = None
     last_comment_author_name: str | None = None
     my_last_comment_id: uuid.UUID | None = None
@@ -883,7 +884,7 @@ class PendingRoundAckTodoRead(BaseModel):
 
     topic_id: uuid.UUID
     topic_title: str
-    discussion_round: TopicDiscussionRound
+    discussion_round: str
     round_summary_count: int = 0
     summary_comment_id: uuid.UUID | None = None
     summary_excerpt: str | None = None
@@ -907,7 +908,7 @@ class PendingAdvanceRoundTodoRead(BaseModel):
 
     topic_id: uuid.UUID
     topic_title: str
-    discussion_round: TopicDiscussionRound
+    discussion_round: str
     round_summary_count: int = 0
     stale_since: datetime | None = Field(
         default=None,
@@ -927,7 +928,7 @@ class StaleOpenTopicTodoRead(BaseModel):
 
     topic_id: uuid.UUID
     topic_title: str
-    discussion_round: TopicDiscussionRound
+    discussion_round: str
     round_summary_count: int = 0
     stale_since: datetime
     updated_at: datetime

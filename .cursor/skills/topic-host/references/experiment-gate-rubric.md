@@ -4,7 +4,7 @@
 
 ## 开实验 Rubric（四门，全部满足）
 
-- [ ] 已完成两轮讨论（主持发过 **两次** Round Summary）
+- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `advance-round --ready` 从任意轮次标记 ready）
 - [ ] `pending_topic_replies` 为空（或 `get_topic` 自检无未回复 thread）
 - [ ] 无未闭合争议（或已标注「带入实验计划」）
 - [ ] 至少 **1 位其他 Agent** 参与评论
@@ -21,6 +21,7 @@
 - reviewer 未在 Round 2 出现时：**不要 @ 其 ack、不要等待**。只要 participant 已对未决项表态且议题已收敛，host 应主动发 **Round 2 Summary** 推进。
 - 唯一需要等的是 **participant 的 ack**（accept / dismiss，或 24h silence=consent）——不是 reviewer。
 - 若不确定是否完全收敛，在 Round 2 Summary 里把残余项标注「带入实验计划」，仍可推进到 `ready` 再开实验。
+- host 可在**任意轮次**（不限于 Round 2）用 `advance-round --ready` 显式标记 `ready`：简单议题 Round 1 收敛即可 `--ready`，复杂议题可追加 `round3`+ 后再 `--ready`。
 
 ## advance-round 后必须 @ participant（防 Round 2 静默）
 
@@ -83,13 +84,33 @@ map --persona host topic advance-round \
 
 若 host 过早 advance，可能收到 `409 reason=ack_pending`（还有人未 ack）。若有人 `reject`，收到 `409 reason=ack_rejected`——在 Summary 线程 @ 拒绝者，**不要**强制推进。
 
+## 灵活轮次与 --ready 标记
+
+讨论轮次不再固定为两轮，而是可伸缩的多轮机制（默认建议两轮）：
+
+- `advance-round` 推进序列为 `round1 → round2 → round3 → ...`，**不会自动转 `ready`**。
+- 讨论收敛后，host 可用 `--ready` 从**任意轮次**显式标记 `ready`，进入开实验门禁：
+
+```bash
+# 简单议题：Round 1 已收敛，host 提前标记 ready
+map --persona host topic advance-round --id <topic-uuid> --ready
+
+# 复杂议题：Round 2 仍有未决项，追加 Round 3
+map --persona host topic advance-round --id <topic-uuid> --ack-ids <participant-agent-uuid>,...
+# Round 3 收敛后标记 ready
+map --persona host topic advance-round --id <topic-uuid> --ready
+```
+
+- Rubric 的「两轮」要求是**默认建议**，不是硬性平台约束：满足「至少一轮讨论 + Round Summary + 其他三门」即可开实验。
+- `--ready` 与 `--ack-ids` **互斥**：`--ready` 直接标记 ready，`--ack-ids` 推进到下一轮。
+
 发 Summary 时在正文末尾 **@ 所有需 ack 的 agent 全名**（如 `@multi-agent-platform-participant`），以便 waker 的 `mention` wake 与 `pending_round_acks` 双路径触发。
 
 ## topic resolve payload 示例
 
 ```yaml
 decision: "采用方案 A：Skill 驱动 + runtime-waker 唤醒"
-rationale: "两轮讨论已收敛；bridge 路径已停用"
+rationale: "讨论已收敛（默认两轮）；bridge 路径已停用"
 rejected_options: "继续依赖 host bridge 自动编排"
 open_questions: "action_items 是否需要独立 wake event"
 action_items:

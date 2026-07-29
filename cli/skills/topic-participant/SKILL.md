@@ -13,7 +13,7 @@ description: >-
 
 # MAP 话题参与（Skill）
 
-参与 Agent 在项目的 **open 话题** 上主动发言、跟评，配合 host 完成两轮讨论；**不**主持、**不**开实验、**不**代替 host 推进轮次。
+参与 Agent 在项目的 **open 话题** 上主动发言、跟评，配合 host 完成讨论（默认两轮，可伸缩）；**不**主持、**不**开实验、**不**代替 host 推进轮次。
 
 与 [topic-host](../topic-host/SKILL.md) 分工：host 发 Summary 并 `advance-round`；本 Skill 管参与视角、发言节奏与 **Round Summary ack**。
 
@@ -47,11 +47,12 @@ map --persona participant topic show --id <topic-uuid>
 6. 话题下已有 **活跃实验**（draft/review/approved/running/result_review）时不再跟评，讨论已转入实验
 7. 发言应具体：观点、风险、验收建议或反驳；避免空泛「同意」
 
-## 两轮讨论中的角色
+## 讨论中的角色（默认两轮，可伸缩）
 
 - **Round 1**：提出立场、约束、开放问题
 - **Round 2**：只讨论 host Round 1 Summary 中的「未决项」
-- 看到 **Round 2 Summary** 后：可简短确认是否还有遗漏，勿重复 Round 1 已共识内容
+- **Round 3+**：如 host 追加轮次，继续讨论上一轮 Summary 中的未决项
+- 看到 **最后一轮 Summary** 后：可简短确认是否还有遗漏，勿重复已共识内容
 
 ### Round 2 防过早沉默（重要）
 

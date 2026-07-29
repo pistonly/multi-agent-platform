@@ -166,6 +166,11 @@ def topic_advance_round(
         "--ack",
         help="Participant: accept, reject, or dismiss acknowledgement for the current round.",
     ),
+    mark_ready: bool = typer.Option(
+        False,
+        "--ready",
+        help="Mark topic as ready for experiment creation instead of advancing to the next round.",
+    ),
 ) -> None:
     from cli.main import _run
 
@@ -176,6 +181,7 @@ def topic_advance_round(
         increment_summary=increment_summary,
         acknowledged_by=acknowledged_by,
         ack=ack,  # type: ignore[arg-type]
+        mark_ready=mark_ready,
     )
     _run(lambda c: c.advance_topic_round(topic_id, payload))
 

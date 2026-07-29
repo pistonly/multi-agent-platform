@@ -271,7 +271,7 @@ def get_agent_work_summary(
                 kind="explicit_only",
                 topic_id=p.topic_id,
                 topic_title=p.topic_title,
-                excerpt=f"advance_round:{p.discussion_round.value}",
+                excerpt=f"advance_round:{p.discussion_round}",
                 updated_at=p.updated_at,
             )
         )

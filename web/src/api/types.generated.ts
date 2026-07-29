@@ -11,11 +11,11 @@ export type AcceptanceType = "migration" | "smoke" | "unit_test" | "integration"
  */
 export type ActionItemCategory = "implementation" | "decision" | "unspecified";
 export type AgentRole = "agent" | "admin";
-export type TopicDiscussionRound = "round1" | "round2" | "ready";
+export type TopicDiscussionRound = string;
 export type ExperimentPhase = "draft" | "review" | "approved" | "running" | "result_review" | "done" | "cancelled";
 export type ReviewItemStatus = "open" | "addressed" | "rebutted" | "resolved" | "withdrawn" | "escalated";
 export type TopicStatus = "open" | "closed";
-export type TopicDiscussionRound1 = "round1" | "round2" | "ready";
+export type TopicDiscussionRound1 = string;
 export type TopicActionItemStatus = "open" | "done" | "cancelled";
 export type NotificationCategory = "wakeable" | "digest";
 /**
@@ -61,7 +61,7 @@ export type FeedbackCategory = "bug" | "suggestion" | "question" | "other";
 export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
 export type TopicCommentKind = "user" | "system";
 export type TopicCommentKind1 = "user" | "system";
-export type TopicDiscussionRound2 = "round1" | "round2" | "ready";
+export type TopicDiscussionRound2 = string;
 
 export interface AcceptanceStatusRead {
   id: string;

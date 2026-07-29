@@ -45,25 +45,46 @@ def test_topic_crud(client, auth_headers, project):
 def test_topic_advance_round_state_machine(client, auth_headers, project):
     topic = _create_topic(client, auth_headers, project)
 
+    # round1 → round2 → round3 → round4 (flexible, no upper bound)
     first = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
     assert first.status_code == 200
     assert first.json()["discussion_round"] == "round2"
     assert first.json()["round_summary_count"] == 1
 
-    too_early = client.post(
-        f"/api/v1/topics/{topic['id']}/advance-round",
-        headers=auth_headers,
-        json={"increment_summary": False},
-    )
-    assert too_early.status_code == 409
-
     second = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
     assert second.status_code == 200
-    assert second.json()["discussion_round"] == "ready"
+    assert second.json()["discussion_round"] == "round3"
     assert second.json()["round_summary_count"] == 2
+
+    third = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert third.status_code == 200
+    assert third.json()["discussion_round"] == "round4"
+    assert third.json()["round_summary_count"] == 3
+
+    # mark_ready from any round
+    ready = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"mark_ready": True},
+    )
+    assert ready.status_code == 200
+    assert ready.json()["discussion_round"] == "ready"
+    assert ready.json()["round_summary_count"] == 4
 
     done = client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
     assert done.status_code == 409
+
+
+def test_mark_ready_requires_at_least_one_summary(client, auth_headers, project):
+    """mark_ready with 0 summaries and increment_summary=False must 409."""
+    topic = _create_topic(client, auth_headers, project)
+
+    too_early = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"mark_ready": True, "increment_summary": False},
+    )
+    assert too_early.status_code == 409
 
 
 def test_only_topic_host_or_admin_can_advance_round(client, auth_headers, reviewer, admin_headers, project):
@@ -593,7 +614,11 @@ def test_only_topic_host_can_create_experiment_from_topic(client, auth_headers, 
 def test_ready_topic_create_experiment_has_no_not_ready_warning(client, auth_headers, project):
     topic = _create_topic(client, auth_headers, project)
     client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
-    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"mark_ready": True},
+    )
 
     resp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",

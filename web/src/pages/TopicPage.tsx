@@ -15,17 +15,21 @@ import { useCommentAnchor } from "../hooks/useCommentAnchor";
 import { commentDomId, parseCommentAnchor } from "../utils/commentAnchor";
 
 const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running", "result_review"]);
-const ROUND_LABELS = {
-  round1: "Round 1",
-  round2: "Round 2",
-  ready: "Ready",
-} as const;
 
-const ROUND_COLORS = {
-  round1: "bg-slate-700 text-slate-200",
-  round2: "bg-blue-900/50 text-blue-200",
-  ready: "bg-emerald-900/50 text-emerald-200",
-} as const;
+function roundLabel(round: string): string {
+  if (round === "ready") return "Ready";
+  if (round.startsWith("round")) {
+    const n = round.slice(5);
+    return n ? `Round ${n}` : round;
+  }
+  return round;
+}
+
+function roundColor(round: string): string {
+  if (round === "ready") return "bg-emerald-900/50 text-emerald-200";
+  if (round === "round1") return "bg-slate-700 text-slate-200";
+  return "bg-blue-900/50 text-blue-200";
+}
 
 export function TopicPage() {
   const { topicId } = useParams<{ topicId: string }>();
@@ -132,8 +136,8 @@ export function TopicPage() {
           >
             {topic.status === "open" ? "进行中" : "已关闭"}
           </span>
-          <span className={`badge ${ROUND_COLORS[discussionRound]}`}>
-            {ROUND_LABELS[discussionRound]} · {topic.round_summary_count}
+          <span className={`badge ${roundColor(discussionRound)}`}>
+            {roundLabel(discussionRound)} · {topic.round_summary_count}
           </span>
           {topic.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>

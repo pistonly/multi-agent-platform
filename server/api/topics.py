@@ -209,6 +209,7 @@ def advance_topic_round(
         topic_id,
         increment_summary=body.increment_summary,
         acknowledged_by=body.acknowledged_by,
+        mark_ready=body.mark_ready,
     )
     emit(
         db,
@@ -217,11 +218,11 @@ def advance_topic_round(
         target_type="topic",
         target_id=topic.id,
         project_id=topic.project_id,
-        summary=f"推进话题轮次至 {topic.discussion_round.value}",
+        summary=f"推进话题轮次至 {topic.discussion_round}",
         event="topic.advance_round",
         event_payload={
             "topic_id": str(topic.id),
-            "discussion_round": topic.discussion_round.value,
+            "discussion_round": topic.discussion_round,
             "round_summary_count": topic.round_summary_count,
         },
     )

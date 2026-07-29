@@ -14,7 +14,7 @@ description: >-
 
 # MAP 话题主持（Skill）
 
-主持 Agent 在 **open 话题** 上引导讨论，两轮波次后决定是否 `create_experiment(topic_id=...)` 或关闭为不做/已解决。若创建实验，话题应保持 open，直到 linked experiment 进入 `done` 或 `cancelled` 后再关闭。
+主持 Agent 在 **open 话题** 上引导讨论，多轮波次（默认两轮）后决定是否 `create_experiment(topic_id=...)` 或关闭为不做/已解决。若创建实验，话题应保持 open，直到 linked experiment 进入 `done` 或 `cancelled` 后再关闭。
 
 与 [map-project-collab](../map-project-collab/SKILL.md) 分工：后者管 persona/CLI 通用协作；**本 Skill 管主持行为与门禁**。
 
@@ -39,7 +39,7 @@ description: >-
 3. 查看**全部新评论**（含 nested / thread 内回复），逐 thread 回复
 4. 若 Round 1/2 已收敛 → 发 **Round Summary**（**不必等 reviewer**；participant 已参与即可）
 5. Summary 后等 participant ack → `advance-round`
-6. 两轮 Summary 完成且门禁通过 → `topic resolve` + `experiment create`，但**不要立刻 close topic**；等 linked experiment `done` 后再关闭源话题
+6. 讨论收敛且门禁通过（默认至少两轮 Summary，host 可用 `advance-round --ready` 提前标记 ready 或继续追加轮次）→ `topic resolve` + `experiment create`，但**不要立刻 close topic**；等 linked experiment `done` 后再关闭源话题
 
 **禁止**：`map work` / `topic progress` 与 `pending_*` 全空时才认为无事可做；remind 已带 work_items 摘要时须先核实。
 
@@ -85,7 +85,7 @@ map --persona host work --notification-category wakeable
 
 1. 操作前确认身份：`map --persona host persona whoami`（**禁止**使用 MCP `get_me`）
 2. 主持创建的 open 话题下，**每条他人评论所在 thread 必须有主持回复**
-3. **两轮顶层波次**后才做门禁决策；每轮结束发 **Round Summary**
+3. **讨论收敛后**才做门禁决策（默认两轮；简单议题 host 可提前 `--ready`，复杂议题可追加 round3+）；每轮结束发 **Round Summary**
 4. 开实验前自检 rubric（见下）；不满足则继续讨论或关话题
 
 ## 工作流
@@ -108,12 +108,12 @@ map --persona host work --notification-category wakeable
 建议输出：<复现路径 / 契约 / 最小测试 / 是否开实验>
 ```
 
-纯体验反馈先开 topic；host 应主动推动澄清、分诊和收敛。只有两轮讨论收敛出明确改动边界后，才 `topic resolve` 并创建 experiment；创建实验后保持 topic open，可在等待期间 `topic dismiss` 降噪，但不要关闭 topic。若最终不推进，也要留下可理解的关闭理由。对只有 host 自己评论的体验 topic，优先补一条 Round 1 开场/分诊评论并邀请 participant，而不是把它当成已完成的反馈迁移。
+纯体验反馈先开 topic；host 应主动推动澄清、分诊和收敛。讨论收敛出明确改动边界后（默认两轮，可伸缩），才 `topic resolve` 并创建 experiment；创建实验后保持 topic open，可在等待期间 `topic dismiss` 降噪，但不要关闭 topic。若最终不推进，也要留下可理解的关闭理由。对只有 host 自己评论的体验 topic，优先补一条 Round 1 开场/分诊评论并邀请 participant，而不是把它当成已完成的反馈迁移。
 
 ## 开实验 Rubric（四门）
 
 全部满足才能从话题创建实验：
-- [ ] 已完成两轮讨论（发过两次 Round Summary）
+- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；简单议题 host 可用 `--ready` 提前标记 ready，复杂议题可追加 round3+）
 - [ ] `pending_topic_replies` 为空
 - [ ] 无未闭合争议
 - [ ] 至少 1 位其他 Agent 参与评论
@@ -172,7 +172,15 @@ map persona list
 
 ### 3. Round Summary 与 advance-round
 
-发完顶层 Round Summary 后，先等 participant ack，再由 host 调用 `advance-round` 推进轮次。host 过早 advance 可能收到 `409 ack_pending`；有人 reject 则收到 `409 ack_rejected`。
+发完顶层 Round Summary 后，先等 participant ack，再由 host 调用 `advance-round` 推进轮次。host 过早 advance 可能收到 `409 ack_pending`；有人 reject 则收到 `409 ack_rejected`。讨论收敛后，host 可用 `--ready` 从任意轮次显式标记 `ready` 进入开实验门禁：
+
+```bash
+# 推进到下一轮（round1 → round2 → round3 → ...，不会自动转 ready）
+map --persona host topic advance-round --id <topic-uuid> --ack-ids <participant-agent-uuid>,...
+
+# 讨论已收敛，从任意轮次直接标记 ready（进入开实验门禁）
+map --persona host topic advance-round --id <topic-uuid> --ready
+```
 
 > **Round Summary 模板、ack 选项表、advance-round 命令、resolve payload 示例**：Read [references/experiment-gate-rubric.md](references/experiment-gate-rubric.md)
 
@@ -208,7 +216,9 @@ map --persona host topic archive --id <topic-uuid>
 
 - **Round 1**：各方首次意见
 - **Round 2**：仅讨论 Round 1 Summary 中的「未决项」
-- 不设每人发言配额；主持在 Round 2 引导聚焦
+- **Round 3+**：如 Round 2 后仍有未决项，host 可继续 `advance-round` 追加轮次（`round3`、`round4`…），直到讨论收敛
+- 不设每人发言配额；主持在各轮引导聚焦
+- 讨论从任意轮次收敛后，host 可用 `advance-round --ready` 显式标记 `ready`，进入开实验门禁
 
 ## 非目标
 

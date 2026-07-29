@@ -18,7 +18,7 @@ description: >-
 
 通过 **`.map/` 本地身份文件 + `map` CLI** 协作。历史背景：Cursor MCP（`map-agent` / `map-admin`）曾用于早期验证，自 v0.7 起停用，本仓库以 Skill + persona 为准。
 
-与 [topic-host](../topic-host/SKILL.md) 分工：本 Skill 管 persona/CLI 通用协作；主持两轮讨论与开实验门禁见 topic-host。
+与 [topic-host](../topic-host/SKILL.md) 分工：本 Skill 管 persona/CLI 通用协作；主持讨论（默认两轮，可伸缩）与开实验门禁见 topic-host。
 
 ## Agent Runtime（本仓库）
 
@@ -49,7 +49,7 @@ waker 守护进程：`./scripts/start-all-wakers.sh`（详见 [MAP-RUNTIME-WAKER
 | 用户意图 | 路由到 | 不路由到 |
 |----------|--------|----------|
 | Bootstrap、persona 选择、查 todos、提反馈、通用 CLI | **本 Skill**（map-project-collab） | — |
-| 主持话题、两轮讨论、Round Summary、开实验门禁 | [topic-host](../topic-host/SKILL.md) | topic-participant（不主持） |
+| 主持话题、讨论（默认两轮可伸缩）、Round Summary、开实验门禁 | [topic-host](../topic-host/SKILL.md) | topic-participant（不主持） |
 | 参与讨论、ack Round Summary | [topic-participant](../topic-participant/SKILL.md) | topic-host（不代替主持） |
 | 执行实验、改仓库、写实验日志、Git 提交 | [experiment-host](../experiment-host/SKILL.md) | experiment-reviewer（不执行） |
 | 评审实验计划、审批实验结果 | [experiment-reviewer](../experiment-reviewer/SKILL.md) | experiment-host（不自审） |
@@ -190,7 +190,7 @@ map --persona participant topic comment \
 
 ## 主持：从话题开实验
 
-仅 **host**（两轮讨论与门禁见 [topic-host](../topic-host/SKILL.md)）：
+仅 **host**（讨论与门禁见 [topic-host](../topic-host/SKILL.md)）：
 
 ```bash
 map experiment create \

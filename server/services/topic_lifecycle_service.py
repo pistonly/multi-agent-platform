@@ -409,6 +409,7 @@ def advance_topic_round(
     *,
     increment_summary: bool = True,
     acknowledged_by: list[uuid.UUID] | None = None,
+    mark_ready: bool = False,
 ) -> Topic:
     topic = _get_topic(db, topic_id)
     if topic.status != TopicStatus.open:
@@ -425,16 +426,16 @@ def advance_topic_round(
     current_count = topic.round_summary_count or 0
     next_count = current_count + 1 if increment_summary else current_count
 
-    if topic.discussion_round == TopicDiscussionRound.round1:
+    if mark_ready:
+        # Host explicitly marks topic as ready for experiment creation.
+        # Require at least one round summary before marking ready.
         if next_count < 1:
-            raise ConflictError("Cannot advance round1 before at least one round summary")
-        topic.discussion_round = TopicDiscussionRound.round2
-    elif topic.discussion_round == TopicDiscussionRound.round2:
-        if next_count < 2:
-            raise ConflictError("Cannot advance round2 before two round summaries")
+            raise ConflictError("Cannot mark ready before at least one round summary")
         topic.discussion_round = TopicDiscussionRound.ready
     else:
-        raise ConflictError(f"Unknown topic discussion round: {topic.discussion_round}")
+        # Advance to next round: round1 → round2 → round3 → ...
+        # No upper bound — host decides when to mark ready.
+        topic.discussion_round = TopicDiscussionRound.next_round(topic.discussion_round)
 
     topic.round_summary_count = next_count
     topic.advance_round_pending_since = None

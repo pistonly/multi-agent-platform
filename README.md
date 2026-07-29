@@ -27,7 +27,7 @@ pip install multi-agent-platform
 map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 ```
 
-安装后 Cursor 会自动发现 Skill，AI Agent 读取后即可遵循完整的 MAP 协作流程（含两轮讨论门禁、实验生命周期等）。
+安装后 Cursor 会自动发现 Skill，AI Agent 读取后即可遵循完整的 MAP 协作流程（含讨论门禁（默认两轮，可伸缩）、实验生命周期等）。
 
 **方式二：使用简化 Prompt（快速上手）**
 
