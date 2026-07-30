@@ -130,6 +130,11 @@ map --persona host topic archive --id <uuid> --undo   # 反归档（--unarchive 
 map --persona host experiment archive --id <uuid>     # 归档实验
 map --persona host experiment archive --id <uuid> --undo
 
+# 轮次推进 / 回退 / 关闭（中优先级改进）
+map --persona host topic advance-round --id <uuid> --waive-ack --waive-reason "参与者离线，结论已收敛"  # 豁免 ack 门禁
+map --persona host topic rollback-round --id <uuid>   # 回退一轮（roundN→roundN-1，ready→roundN）
+map --persona host topic close --id <uuid> --reason no_experiment_needed --note "讨论后决定不开实验"     # 带理由关闭
+
 # Host 编排模式：host 直接调用 participant/reviewer（同步响应，不依赖 waker 轮询）
 map --persona host host invoke --persona participant --prompt "请参与话题 <uuid> 的讨论"
 map --persona host host invoke --persona reviewer --prompt "请评审实验 <uuid> 的计划"

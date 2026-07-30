@@ -151,6 +151,18 @@ class TopicDiscussionRound(str, enum.Enum):
         n = TopicDiscussionRound.parse_round_number(value)
         return f"round{n + 1}"
 
+    @staticmethod
+    def prev_round(value: str) -> str | None:
+        """Return the previous round string, or ``None`` if already at ``round1``.
+
+        ``ready`` is not a ``roundN`` string; callers must handle it separately
+        (typically by mapping ``ready`` back to ``round{round_summary_count}``).
+        """
+        n = TopicDiscussionRound.parse_round_number(value)
+        if n <= 1:
+            return None
+        return f"round{n - 1}"
+
 
 class TopicActionItemStatus(str, enum.Enum):
     open = "open"

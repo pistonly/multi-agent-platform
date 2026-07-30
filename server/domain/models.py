@@ -307,6 +307,8 @@ class Topic(Base):
     advance_round_pending_since: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    close_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    close_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class TopicComment(Base):

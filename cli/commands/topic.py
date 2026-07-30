@@ -171,6 +171,16 @@ def topic_advance_round(
         "--ready",
         help="Mark topic as ready for experiment creation instead of advancing to the next round.",
     ),
+    waive_ack: bool = typer.Option(
+        False,
+        "--waive-ack",
+        help="Host: waive the participant ack requirement and advance immediately (requires --waive-reason).",
+    ),
+    waive_reason: str | None = typer.Option(
+        None,
+        "--waive-reason",
+        help="Reason for waiving the ack requirement (required when --waive-ack is set).",
+    ),
 ) -> None:
     from cli.main import _run
 
@@ -182,8 +192,20 @@ def topic_advance_round(
         acknowledged_by=acknowledged_by,
         ack=ack,  # type: ignore[arg-type]
         mark_ready=mark_ready,
+        waive_ack=waive_ack,
+        waive_reason=waive_reason,
     )
     _run(lambda c: c.advance_topic_round(topic_id, payload))
+
+
+@topic_app.command("rollback-round")
+def topic_rollback_round(
+    topic_id: uuid.UUID = typer.Option(..., "--id"),
+) -> None:
+    """Roll the discussion round back by one step (roundN → roundN-1, or ready → roundN)."""
+    from cli.main import _run
+
+    _run(lambda c: c.rollback_topic_round(topic_id))
 
 
 @topic_app.command("comment")
@@ -212,10 +234,22 @@ def topic_comment(
 
 
 @topic_app.command("close")
-def topic_close(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+def topic_close(
+    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    reason: str | None = typer.Option(
+        None,
+        "--reason",
+        help="Short reason code for closing (e.g. 'no_experiment_needed', 'superseded').",
+    ),
+    note: str | None = typer.Option(
+        None,
+        "--note",
+        help="Longer explanation for why the topic is being closed.",
+    ),
+) -> None:
     from cli.main import _run
 
-    _run(lambda c: c.close_topic(topic_id))
+    _run(lambda c: c.close_topic(topic_id, close_reason=reason, close_note=note))
 
 
 @topic_app.command("reopen")

@@ -87,6 +87,145 @@ def test_mark_ready_requires_at_least_one_summary(client, auth_headers, project)
     assert too_early.status_code == 409
 
 
+def test_waive_ack_allows_advance_without_participant_ack(client, auth_headers, reviewer, project):
+    """Host can waive the ack requirement with a reason, bypassing the 24h timeout."""
+    topic = _create_topic(client, auth_headers, project)
+    # Participant comments so they're in the required_ack set
+    assert _participant_comment(client, reviewer["headers"], topic["id"]).status_code == 201
+
+    # Host posts Round Summary (triggers ack pending)
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- ok\n", "is_round_summary": True},
+    )
+
+    # Without waive_ack, advance should be blocked (ack_pending)
+    blocked = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": []},
+    )
+    assert blocked.status_code == 409
+    assert "ack_pending" in blocked.text
+
+    # With waive_ack and a reason, advance should succeed
+    waived = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"waive_ack": True, "waive_reason": "Participant unreachable; proceeding after review"},
+    )
+    assert waived.status_code == 200
+    assert waived.json()["discussion_round"] == "round2"
+
+    # waive_ack without reason should fail
+    topic2 = _create_topic(client, auth_headers, project, title="第二个话题")
+    _participant_comment(client, reviewer["headers"], topic2["id"])
+    client.post(
+        f"/api/v1/topics/{topic2['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### ok\n", "is_round_summary": True},
+    )
+    no_reason = client.post(
+        f"/api/v1/topics/{topic2['id']}/advance-round",
+        headers=auth_headers,
+        json={"waive_ack": True},
+    )
+    assert no_reason.status_code == 409
+
+
+def test_close_topic_with_reason_and_note(client, auth_headers, project):
+    """Host can close a topic with a close_reason and close_note."""
+    topic = _create_topic(client, auth_headers, project)
+
+    closed = client.post(
+        f"/api/v1/topics/{topic['id']}/close",
+        headers=auth_headers,
+        json={"close_reason": "no_experiment_needed", "close_note": "讨论后决定暂不需要实验"},
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+    assert closed.json()["close_reason"] == "no_experiment_needed"
+    assert closed.json()["close_note"] == "讨论后决定暂不需要实验"
+
+    # Reopen should clear close metadata
+    reopened = client.post(
+        f"/api/v1/topics/{topic['id']}/reopen",
+        headers=auth_headers,
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "open"
+    assert reopened.json()["close_reason"] is None
+    assert reopened.json()["close_note"] is None
+
+
+def test_close_topic_without_reason_still_works(client, auth_headers, project):
+    """Closing without a body still works (backward compat)."""
+    topic = _create_topic(client, auth_headers, project)
+
+    closed = client.post(f"/api/v1/topics/{topic['id']}/close", headers=auth_headers)
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+    assert closed.json()["close_reason"] is None
+    assert closed.json()["close_note"] is None
+
+
+def test_rollback_round_from_ready(client, auth_headers, project):
+    """Rollback from ready undoes mark_ready."""
+    topic = _create_topic(client, auth_headers, project)
+    # Advance to round2, then mark ready
+    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"mark_ready": True},
+    )
+    assert client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers).json()["discussion_round"] == "ready"
+
+    # Rollback from ready → round2
+    rolled = client.post(f"/api/v1/topics/{topic['id']}/rollback-round", headers=auth_headers)
+    assert rolled.status_code == 200
+    assert rolled.json()["discussion_round"] == "round2"
+    assert rolled.json()["round_summary_count"] == 1
+
+
+def test_rollback_round_from_roundN(client, auth_headers, project):
+    """Rollback from roundN goes to roundN-1."""
+    topic = _create_topic(client, auth_headers, project)
+    # Advance: round1 → round2 → round3
+    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+    assert client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers).json()["discussion_round"] == "round3"
+
+    # Rollback: round3 → round2
+    rolled = client.post(f"/api/v1/topics/{topic['id']}/rollback-round", headers=auth_headers)
+    assert rolled.status_code == 200
+    assert rolled.json()["discussion_round"] == "round2"
+    assert rolled.json()["round_summary_count"] == 1
+
+    # Rollback again: round2 → round1
+    rolled2 = client.post(f"/api/v1/topics/{topic['id']}/rollback-round", headers=auth_headers)
+    assert rolled2.status_code == 200
+    assert rolled2.json()["discussion_round"] == "round1"
+    assert rolled2.json()["round_summary_count"] == 0
+
+
+def test_rollback_round_at_round1_fails(client, auth_headers, project):
+    """Cannot rollback beyond round1."""
+    topic = _create_topic(client, auth_headers, project)
+    denied = client.post(f"/api/v1/topics/{topic['id']}/rollback-round", headers=auth_headers)
+    assert denied.status_code == 409
+
+
+def test_rollback_round_only_host_or_admin(client, auth_headers, reviewer, project):
+    """Only host or admin can rollback."""
+    topic = _create_topic(client, auth_headers, project)
+    client.post(f"/api/v1/topics/{topic['id']}/advance-round", headers=auth_headers)
+
+    denied = client.post(f"/api/v1/topics/{topic['id']}/rollback-round", headers=reviewer["headers"])
+    assert denied.status_code == 403
+
+
 def test_round_summary_flag_marks_comment(client, auth_headers, project):
     """--round-summary flag explicitly marks a comment as Round Summary."""
     topic = _create_topic(client, auth_headers, project)

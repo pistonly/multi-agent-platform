@@ -611,6 +611,16 @@ class TopicAdvanceRound(BaseModel):
     acknowledged_by: list[uuid.UUID] = Field(default_factory=list)
     ack: Literal["accept", "reject", "dismiss"] | None = None
     mark_ready: bool = False
+    waive_ack: bool = False
+    waive_reason: str | None = Field(default=None, max_length=1024)
+
+
+class TopicCloseRequest(BaseModel):
+    """Optional body for ``POST /topics/{id}/close`` — records *why* the topic
+    is being closed so the team can distinguish "discussed, no experiment
+    needed" from a plain closure."""
+    close_reason: str | None = Field(default=None, max_length=256)
+    close_note: str | None = None
 
 
 class TopicActionItemCreate(BaseModel):
@@ -757,6 +767,8 @@ class TopicSummaryRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None
+    close_reason: str | None = None
+    close_note: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

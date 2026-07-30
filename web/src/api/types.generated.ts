@@ -330,6 +330,8 @@ export interface TopicSummaryRead {
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
+  close_reason?: string | null;
+  close_note?: string | null;
   /**
    * DEPRECATED alias for stale_since — kept readable for clients still using the old name.
    */

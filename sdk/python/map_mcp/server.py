@@ -259,10 +259,21 @@ def build_server(
             return dump(c.create_topic_comment(parse_uuid(topic_id, "topic_id"), payload))
 
     @mcp.tool()
-    def close_topic(topic_id: str, token: Token = None) -> dict[str, Any]:
-        """Close a topic (open → closed)."""
+    def close_topic(
+        topic_id: str,
+        close_reason: str | None = None,
+        close_note: str | None = None,
+        token: Token = None,
+    ) -> dict[str, Any]:
+        """Close a topic (open → closed). Optionally record a reason and note."""
         with resolver.use(token) as (c, _ctx):
-            return dump(c.close_topic(parse_uuid(topic_id, "topic_id")))
+            return dump(
+                c.close_topic(
+                    parse_uuid(topic_id, "topic_id"),
+                    close_reason=close_reason,
+                    close_note=close_note,
+                )
+            )
 
     @mcp.tool()
     def reopen_topic(topic_id: str, token: Token = None) -> dict[str, Any]:

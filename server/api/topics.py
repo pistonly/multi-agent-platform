@@ -10,6 +10,7 @@ from server.db.session import get_db
 from server.domain.models import Agent, TopicStatus
 from server.domain.schemas import (
     TopicAdvanceRound,
+    TopicCloseRequest,
     TopicCommentCreate,
     TopicCommentRead,
     TopicCommentTreeNode,
@@ -128,11 +129,17 @@ def delete_topic(
 @topics_router.post("/topics/{topic_id}/close", response_model=TopicSummaryRead)
 def close_topic(
     topic_id: uuid.UUID,
+    payload: TopicCloseRequest | None = None,
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
     perm.ensure_topic_host_or_admin(db, agent, topic_id)
-    topic = topic_service.set_topic_status(db, topic_id, TopicStatus.closed)
+    body = payload or TopicCloseRequest()
+    topic = topic_service.set_topic_status(
+        db, topic_id, TopicStatus.closed,
+        close_reason=body.close_reason,
+        close_note=body.close_note,
+    )
     # Phase 2 D2: kind-directed SSE so the waker can map to ``topic_lifecycle``.
     notification_service.emit_kind(
         db,
@@ -210,6 +217,8 @@ def advance_topic_round(
         increment_summary=body.increment_summary,
         acknowledged_by=body.acknowledged_by,
         mark_ready=body.mark_ready,
+        waive_ack=body.waive_ack,
+        waive_reason=body.waive_reason,
     )
     emit(
         db,
@@ -220,6 +229,35 @@ def advance_topic_round(
         project_id=topic.project_id,
         summary=f"推进话题轮次至 {topic.discussion_round}",
         event="topic.advance_round",
+        event_payload={
+            "topic_id": str(topic.id),
+            "discussion_round": topic.discussion_round,
+            "round_summary_count": topic.round_summary_count,
+            "waived_ack": body.waive_ack,
+        },
+    )
+    return topic_service.topic_summary(db, topic)
+
+
+@topics_router.post("/topics/{topic_id}/rollback-round", response_model=TopicSummaryRead)
+def rollback_topic_round(
+    topic_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> TopicSummaryRead:
+    topic = perm.ensure_topic_access(db, agent, topic_id)
+    if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
+        raise ForbiddenError("Only the topic host or admin can rollback the discussion round")
+    topic = topic_service.rollback_topic_round(db, topic_id)
+    emit(
+        db,
+        agent,
+        action="topic.rollback_round",
+        target_type="topic",
+        target_id=topic.id,
+        project_id=topic.project_id,
+        summary=f"回退话题轮次至 {topic.discussion_round}",
+        event="topic.rollback_round",
         event_payload={
             "topic_id": str(topic.id),
             "discussion_round": topic.discussion_round,

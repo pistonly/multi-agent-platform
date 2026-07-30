@@ -751,6 +751,10 @@ class MAPClient:
         data = self._json("POST", f"/topics/{topic_id}/advance-round", json=body)
         return TopicSummaryRead.model_validate(data)
 
+    def rollback_topic_round(self, topic_id: uuid.UUID) -> TopicSummaryRead:
+        data = self._json("POST", f"/topics/{topic_id}/rollback-round")
+        return TopicSummaryRead.model_validate(data)
+
     def update_topic(self, topic_id: uuid.UUID, payload: TopicUpdate) -> TopicSummaryRead:
         data = self._json("PATCH", f"/topics/{topic_id}", json=payload.model_dump(exclude_unset=True))
         return TopicSummaryRead.model_validate(data)
@@ -768,8 +772,22 @@ class MAPClient:
     def delete_topic(self, topic_id: uuid.UUID) -> None:
         self._request("DELETE", f"/topics/{topic_id}")
 
-    def close_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
-        return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/close"))
+    def close_topic(
+        self,
+        topic_id: uuid.UUID,
+        *,
+        close_reason: str | None = None,
+        close_note: str | None = None,
+    ) -> TopicSummaryRead:
+        body: dict[str, object] = {}
+        if close_reason is not None:
+            body["close_reason"] = close_reason
+        if close_note is not None:
+            body["close_note"] = close_note
+        kwargs = {"json": body} if body else {}
+        return TopicSummaryRead.model_validate(
+            self._json("POST", f"/topics/{topic_id}/close", **kwargs)
+        )
 
     def reopen_topic(self, topic_id: uuid.UUID) -> TopicSummaryRead:
         return TopicSummaryRead.model_validate(self._json("POST", f"/topics/{topic_id}/reopen"))

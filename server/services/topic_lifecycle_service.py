@@ -196,6 +196,8 @@ def topic_summaries_for_topics(
             archived_at=topic.archived_at,
             dismissed_at=topic.dismissed_at,
             stale_since=topic.advance_round_pending_since,
+            close_reason=topic.close_reason,
+            close_note=topic.close_note,
         )
         for topic in topics
     ]
@@ -373,7 +375,14 @@ def soft_delete_topic(db: Session, topic_id: uuid.UUID) -> None:
     db.commit()
 
 
-def set_topic_status(db: Session, topic_id: uuid.UUID, target: TopicStatus) -> Topic:
+def set_topic_status(
+    db: Session,
+    topic_id: uuid.UUID,
+    target: TopicStatus,
+    *,
+    close_reason: str | None = None,
+    close_note: str | None = None,
+) -> Topic:
     topic = _get_topic(db, topic_id)
     if topic.status == target:
         return topic
@@ -397,6 +406,12 @@ def set_topic_status(db: Session, topic_id: uuid.UUID, target: TopicStatus) -> T
                 "Cannot close topic while linked experiment "
                 f"{blocking.id} is {blocking.phase.value}; complete or cancel it first"
             )
+        topic.close_reason = close_reason
+        topic.close_note = close_note
+    else:
+        # Reopen: clear close metadata so a future close starts fresh.
+        topic.close_reason = None
+        topic.close_note = None
     topic.status = target
     db.commit()
     db.refresh(topic)
@@ -410,6 +425,8 @@ def advance_topic_round(
     increment_summary: bool = True,
     acknowledged_by: list[uuid.UUID] | None = None,
     mark_ready: bool = False,
+    waive_ack: bool = False,
+    waive_reason: str | None = None,
 ) -> Topic:
     topic = _get_topic(db, topic_id)
     if topic.status != TopicStatus.open:
@@ -417,11 +434,19 @@ def advance_topic_round(
     if topic.discussion_round == TopicDiscussionRound.ready:
         raise ConflictError("Topic discussion round is already ready")
 
-    topic_ack_service.validate_advance_ack(
-        db,
-        topic,
-        acknowledged_by=acknowledged_by or [],
-    )
+    if waive_ack:
+        # Host explicitly waives the participant ack requirement, recording a
+        # reason instead of waiting for the 24h timeout.  The waiver is logged
+        # as a system comment so the audit trail is self-contained.
+        if not waive_reason or not waive_reason.strip():
+            raise ConflictError("waive_ack requires a non-empty waive_reason")
+        topic.advance_round_pending_since = None
+    else:
+        topic_ack_service.validate_advance_ack(
+            db,
+            topic,
+            acknowledged_by=acknowledged_by or [],
+        )
 
     current_count = topic.round_summary_count or 0
     next_count = current_count + 1 if increment_summary else current_count
@@ -470,6 +495,76 @@ def _notify_participants_round_advanced(db: Session, topic: Topic) -> None:
         actor_id=topic.creator_agent_id,
         event="topic.round_advanced",
         summary=f"话题「{topic.title}」已推进到 {topic.discussion_round}，请参与讨论",
+        target_type="topic",
+        target_id=topic.id,
+        payload={
+            "topic_id": str(topic.id),
+            "discussion_round": topic.discussion_round,
+            "round_summary_count": topic.round_summary_count,
+        },
+        wakeable=True,
+        exclude_actor=True,
+    )
+
+
+def rollback_topic_round(db: Session, topic_id: uuid.UUID) -> Topic:
+    """Roll the discussion round back by one step.
+
+    Supported transitions:
+    - ``ready`` → ``round{count}`` (undo ``mark_ready``)
+    - ``roundN`` (N > 1) → ``round{N-1}`` (undo last advance)
+
+    ``round1`` cannot be rolled back.  ``round_summary_count`` is decremented
+    (floored at 0) so it stays consistent with the forward advance logic.
+    ``advance_round_pending_since`` is cleared because the ack state of the
+    previous round is no longer relevant.
+    """
+    topic = _get_topic(db, topic_id)
+    if topic.status != TopicStatus.open:
+        raise ConflictError("Cannot rollback a closed topic")
+
+    current_round = topic.discussion_round
+    current_count = topic.round_summary_count or 0
+
+    if current_round == TopicDiscussionRound.ready:
+        # Undo mark_ready: go back to the round that was current before ready.
+        # When mark_ready was called, count was incremented, so the round
+        # number equals the pre-decrement count.
+        new_round = f"round{current_count}"
+        new_count = max(current_count - 1, 0)
+    else:
+        prev = TopicDiscussionRound.prev_round(current_round)
+        if prev is None:
+            raise ConflictError("Cannot rollback beyond round1")
+        new_round = prev
+        new_count = max(current_count - 1, 0)
+
+    topic.discussion_round = new_round
+    topic.round_summary_count = new_count
+    topic.advance_round_pending_since = None
+    db.commit()
+    db.refresh(topic)
+
+    # Notify participants that the round was rolled back so they can re-engage.
+    _notify_participants_round_rolled_back(db, topic)
+    return topic
+
+
+def _notify_participants_round_rolled_back(db: Session, topic: Topic) -> None:
+    """Generate wakeable notifications for participants after round rollback."""
+    from server.services import notification_service
+
+    participant_ids = topic_ack_service.required_ack_agent_ids(db, topic)
+    if not participant_ids:
+        return
+
+    notification_service.enqueue_for_agents(
+        db,
+        recipient_agent_ids=list(participant_ids),
+        project_id=topic.project_id,
+        actor_id=topic.creator_agent_id,
+        event="topic.round_rolled_back",
+        summary=f"话题「{topic.title}」已回退到 {topic.discussion_round}，请重新参与讨论",
         target_type="topic",
         target_id=topic.id,
         payload={

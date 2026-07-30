@@ -183,7 +183,29 @@ map --persona host topic advance-round --id <topic-uuid> --ack-ids <participant-
 
 # 讨论已收敛，从任意轮次直接标记 ready（进入开实验门禁）
 map --persona host topic advance-round --id <topic-uuid> --ready
+
+# 门禁豁免：参与者未 ack 但需显式跳过门禁（不等 24h 超时）；--waive-ack 必须配非空 --waive-reason
+map --persona host topic advance-round --id <topic-uuid> --waive-ack --waive-reason "participant 已离线，结论已通过其他渠道确认"
 ```
+
+**门禁豁免（waive-ack）**：正常 `advance-round` 需要参与者 ack，未 ack 会返回 `409 ack_pending`。若 participant 长时间未 ack 且不想等待 24h 超时，host 可用 `--waive-ack --waive-reason "<理由>"` 显式跳过门禁。约束：`--waive-ack` 必须搭配**非空**的 `--waive-reason`（理由会记录留痕，便于审计）；优先用于「参与者已离线/明确放弃 ack 但结论已收敛」等场景，不要作为常规绕过手段。
+
+### 3b. 轮次回退（rollback-round）
+
+当 host 误推进了轮次、或 `--ready` 标记过早需要回到上一轮继续讨论时，可用 `rollback-round` 回退：
+
+```bash
+# roundN → roundN-1（如 round2 → round1）
+map --persona host topic rollback-round --id <topic-uuid>
+
+# ready → round{count}（从 ready 退回最近一轮，便于继续讨论后再 --ready）
+map --persona host topic rollback-round --id <topic-uuid>
+```
+
+**约束**：
+- 从 `ready` 回退会回到 `round{count}`（最近一轮）。
+- 从 `round1` 无法回退（返回 `409`，已是第一轮）。
+- 回退后可继续评论、发 Round Summary，再次 `advance-round` 或 `--ready`。
 
 > **Round Summary 模板、ack 选项表、advance-round 命令、resolve payload 示例**：Read [references/experiment-gate-rubric.md](references/experiment-gate-rubric.md)
 
@@ -205,9 +227,13 @@ map --persona host experiment submit-review --id <exp-uuid>
 
 ```bash
 map --persona host experiment status --id <exp-uuid>
-# phase=done 或 cancelled 后：
-map --persona host topic close --id <topic-uuid>
+# phase=done 或 cancelled 后关闭源话题；--reason / --note 可选，用于记录关闭原因与备注
+map --persona host topic close --id <topic-uuid> \
+  --reason "no_experiment_needed" \
+  --note "讨论后确认无需开实验，结论已沉淀"
 ```
+
+`close` 的 `--reason`（关闭原因，如 `no_experiment_needed` / `resolved` / `cancelled`）与 `--note`（自由文本备注）均为**可选**，但建议填写以便后续追踪。`topic reopen` 会清除已记录的 `close_reason` 与 `close_note`。
 
 话题关闭后可归档（列表默认隐藏，非 delete）：
 

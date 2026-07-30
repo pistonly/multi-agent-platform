@@ -153,8 +153,11 @@ map --persona participant topic progress
 
 ```bash
 map topic create --title "..." --description "..."
-map topic close --id <topic-uuid>    # 若有关联实验，需等实验 done/cancelled 后再关
-map topic reopen --id <topic-uuid>   # 如需重新打开
+# 若有关联实验，需等实验 done/cancelled 后再关；--reason / --note 可选，记录关闭原因与备注
+map topic close --id <topic-uuid> --reason "no_experiment_needed" --note "..."
+map topic reopen --id <topic-uuid>   # 如需重新打开；reopen 会清除 close_reason 与 close_note
+# 轮次回退（host）：roundN → roundN-1，或 ready → round{count}；round1 不可回退（409）
+map topic rollback-round --id <topic-uuid>
 ```
 
 若话题已经 `topic resolve` 并创建 linked experiment，`close` 表示“问题已解决或明确不做”，不是“已转交实验”。实验处于 `draft` / `review` / `approved` / `running` / `result_review` 时不要关闭源话题；等待期间可用 `topic dismiss` 降噪。
@@ -403,6 +406,8 @@ map topic dismiss --id <uuid>               # 不需要的话题
 > **完整 wake 顺序、核心规则、kind→清理方式分发表、reviewer 调度规则**：Read [references/waker-mode.md](references/waker-mode.md)
 
 > **轮次自动通知**：host 调用 `advance-round`（非 `--ready`）后，平台会自动为所有 required participant 生成 wakeable 通知，simple-waker 会据此唤醒 participant——host **无需**再手动 `@multi-agent-platform-participant`。
+
+> **门禁豁免与轮次回退**：`advance-round` 支持 `--waive-ack --waive-reason "<理由>"`，允许 host 在参与者未 ack 时显式跳过门禁并记录理由（不等 24h 超时）；`--waive-ack` 必须配非空 `--waive-reason`。轮次回退用 `topic rollback-round`（roundN → roundN-1，ready → round{count}，round1 不可回退返回 409）。关闭话题可用 `topic close --reason ... --note ...`（均可选），`reopen` 会清除 `close_reason` 与 `close_note`。
 
 ## 参考
 
