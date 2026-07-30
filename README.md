@@ -35,71 +35,41 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 
 ## 文档
 
+- [文档总入口](docs/INDEX.md)
 - [MAP Agent Prompt（给 AI Agent 的协作指南）](MAP_AGENT_PROMPT.md)
 - [Quick Start 指南（新用户必读）](docs/QUICKSTART.md)
-- [产品需求文档（PRD）](docs/prd/archive/v0.1.md)
-- [产品需求文档 v0.2（角色与项目边界）](docs/prd/archive/v0.2.md)
-- [产品需求文档 v0.3（话题独立、UI 写闭环、待办与通知）](docs/prd/archive/v0.3.md)
-- [产品需求文档 v0.4（站内收件箱、@提及、计划 diff、话题置顶）](docs/prd/archive/v0.4.md)
-- [产品需求文档 v0.5（主持待办 pending_topic_replies、topic-host Skill）](docs/prd/archive/v0.5.md)
-- [产品需求文档 v0.6（列表归档、独立列表页、通知 SSE）](docs/prd/archive/v0.6.md)
-- [产品需求文档 v0.9 草案（waker Phase 2 通知降噪）](docs/prd/v0.9.md)
-- [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
-- [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
+- [CLI 指南](docs/CLI.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
 - [MCP Server 指南（stdio）](docs/MCP.md)
+- [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
+- [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
+- [Persona 行为差异](docs/MAP-PERSONA-COMPARE.md)
+- [Web 端 Agent UI 视图](docs/UI-AGENTS.md)
+- [证据元数据契约](docs/MAP-EVIDENCE-METADATA.md)
+- [错误码清单](docs/MAP-ERROR-CODES.md)
+
+### PRD
+
+- [现行草案：v0.9（waker Phase 2 通知降噪）](docs/prd/v0.9.md)
+- [归档：v0.1 / v0.2 / v0.3 / v0.4 / v0.5 / v0.6](docs/prd/archive/)
+- [占位：v0.7 / v0.8（未单独成稿）](docs/prd/archive/v0.7.md)
 
 ## 状态
 
-**M1 已完成**：数据模型、Alembic 迁移、Projects/Experiments CRUD REST API。  
-**M2 已完成**：Plans 修订、Reviews、Comments、实验阶段与不合理项状态机。  
-**M3 已完成**：实验日志、Start/Complete、全局 Status API、CLI（`map` 命令）。  
-**M4 已完成**：React + Vite Web UI（看板、项目、实验话题页）。  
-**M5 已完成**：Python SDK（`map_client`）、SDK 文档、CLI 基于 SDK 重构、Docker 部署。  
-**M6 已完成**：MCP stdio + HTTP 服务（`map-mcp`），供 IDE Agent 调用。  
-**M7 已完成**：项目角色边界（`project_key`、Agent 项目绑定、权限门控、Status MD v1）。  
-**M8 已完成**：项目 Current Status MD 版本化（修订 API、历史查询、CLI/MCP）。
+**稳定能力**：
 
-**v0.3 已完成（M11–M14）**：
+- **实验生命周期**：计划修订、评审、执行日志、结果审批、状态机
+- **话题协作**：独立话题 + 评论树 + @提及 + 多轮讨论 + Round Summary + 结论与行动项
+- **待办与通知**：Agent 待办视图 + 站内通知 + SSE 实时推送 + Webhook 出站
+- **Web UI**：React + Vite 看板 / 话题 / 实验详情，写操作闭环
+- **多入口接入**：Python SDK + `map` CLI + MCP stdio/HTTP（`map-mcp`）
+- **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
+- **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 
-- **M11**：话题（Topic）独立实体 + 评论树 + 实验↔话题可选关联 + Alembic 迁移 + CLI/SDK/MCP 适配。
-- **M12**：Web UI 写操作闭环——发布话题/实验、修订计划、提交评审、追加日志、撤回/取消/编辑、通用讨论；新增话题详情页。
-- **M13**：Agent 待办视图（`GET /agents/me/todos`）+ 实验列表筛选/分页/搜索（`q`/`creator`/`page` + `X-Total-Count` header）。
-- **M14**：Webhook 出站通知（HMAC 签名 + 投递记录 + Admin CRUD）+ 审计日志（关键写操作打点 + 对象/全局查询）。
+**当前主线**：v0.9 草案（waker Phase 2 通知降噪）。详见 [PRD v0.9](docs/prd/v0.9.md) 与 [status-md-v10.md](docs/status-md-v10.md)。
 
-详见 [PRD v0.3](docs/prd/archive/v0.3.md)。
-
-**v0.4 已完成（M15–M18）**：
-
-- **M15**：站内通知收件箱（`notifications` 表 + 统一事件扇出 + API/Web/CLI/SDK/MCP）。
-- **M16**：评论 `@提及` → 待办 `mentions` 分区 + 定向通知。
-- **M17**：实验页计划版本 diff 只读视图（`PlanDiffView`）。
-- **M18**：话题置顶（`topics.pinned` + 列表优先排序）。
-
-详见 [PRD v0.4](docs/prd/archive/v0.4.md)。
-
-**v0.5 已完成（M19–M21）**：
-
-- **M19**：`GET /agents/me/todos` 新增 `pending_topic_replies`（话题主持 thread 级待回复）。
-- **M20**：topic-host Skill（`.cursor/skills/topic-host/SKILL.md`）。
-- **M21**：Webhook 主持接线文档（[WEBHOOK-TOPIC-HOST.md](docs/WEBHOOK-TOPIC-HOST.md)）。
-
-详见 [PRD v0.5](docs/prd/archive/v0.5.md)。
-
-**v0.6 已完成（M22–M24）**：
-
-- **M22**：话题/实验 `archived_at` 归档（默认列表排除、`include_archived`、活跃实验 per-topic 约束更新）。
-- **M23**：Web 独立列表页（`/projects/:id/topics`、`/experiments`）+ `client.ts` vitest。
-- **M24**：站内通知 **SSE**（`GET /agents/me/notifications/stream`）+ Web 实时 invalidate。
-
-详见 [PRD v0.6](docs/prd/archive/v0.6.md)。项目叙事参考 [docs/status-md-v6.md](docs/status-md-v6.md)。
-
-**v0.8 MVP 已完成**：
-
-- 话题结论（Decision）与行动项（Action Items）：`POST /topics/{id}/resolve`、项目级 `decisions` / `action-items` 查询、`todos.action_items`。
-- CLI：`map topic resolve --id <topic-id> --file decision.md|decision.yaml`、`map project decisions`、`map action list --mine`。
-- Web：话题详情页展示/修订结论，项目页展示最近结论，待办页展示分配给当前 Agent 的行动项。
+历史里程碑详见 PRD 归档：[v0.1–v0.6](docs/prd/archive/) · [占位 v0.7 / v0.8](docs/prd/archive/v0.7.md)。
 
 **Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
 
@@ -167,15 +137,29 @@ map topic archive --id <topic-id>               # v0.7 P3：归档（薄包装 P
 map topic archive --id <topic-id> --undo       # 反归档（--unarchive 同义）
 map experiment archive --id <exp-id>           # 归档实验
 map topic comment --id <topic-id> --file comment.md
-map topic mark-seen --id <topic-id>            # 清 contextual unread，不清 reply/ack/mention
+map topic comment --id <topic-id> --body "..." --round-summary   # 标记 Round Summary（触发 ack 流）
+map topic advance-round --id <topic-id>                          # roundN → roundN+1
+map topic advance-round --id <topic-id> --ready                  # 标记 ready（可开实验）
+map topic advance-round --id <topic-id> --ack accept|reject|dismiss   # participant 表态
+map topic advance-round --id <topic-id> --waive-ack --waive-reason "参与者离线，结论已收敛"
+map topic rollback-round --id <topic-id>                         # 回退一轮
+map topic close --id <topic-id> --reason no_experiment_needed --note "讨论后决定不开实验"
+map topic dismiss --id <topic-id>                                # 退出话题（与 UI ✕ 相同）
+map topic mark-seen --id <topic-id>                              # 清 contextual unread，不清 reply/ack/mention
 map project decisions
 map action list --mine
+map action mark-wake-sent --id <action-item-id>                  # waker 升级：标记 WAKE 已发
+map action mark-stale --id <action-item-id>                      # waker 升级：标记 STALE
 map notification list --unread-only
 map notification read --id <notification-id>
 map notification read-all
 map --persona participant mention list
 map --persona participant mention dismiss --id <mention-id>
 map --persona participant mention dismiss-all
+
+# Host 编排模式：host 直接调用 participant/reviewer（同步响应，不依赖 waker 轮询）
+map --persona host host invoke --persona participant --prompt "请参与话题 <topic-id> 的讨论"
+map --persona host host invoke --persona reviewer --prompt-file ./review-task.md --json
 
 # Web UI（React + Vite）
 cd web && npm install && npm run dev   # http://localhost:5173
@@ -232,14 +216,11 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 
 **@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。
 
-## Host Worker（旧 bridge，维护模式）
+## Host Worker（已退役）
 
-`map-host-bridge` / `map-host-worker` 为早期轮询 bridge（进程内 `PersonaAgentClient`），已由 **waker** 取代。`main-bac` 分支保留 bridge 实现供对照；日常开发请在 `agent-runtime` 分支使用 waker。
+早期轮询 bridge（`map-host-bridge` / `map-host-worker`、`start-host-bridge*.sh`、`start-runtime-waker-claude.sh`、`start-all-wakers-legacy.sh`）已由 **simple-waker** 全面取代并停用（`MAP_USE_LEGACY_WAKER` 不再生效）。`pyproject.toml` 仅保留 `map-participant-bridge` / `map-reviewer-bridge` 两个 legacy console entry（维护模式），`map-host-bridge` 不再提供。
 
-```bash
-# 旧路径（不推荐新接入）
-map-host-bridge --persona host --interval 30
-```
+详见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
 
 ## Docker（API + Web）
 
