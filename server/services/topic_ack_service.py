@@ -249,7 +249,10 @@ def latest_host_round_summary_comment(
         for comment in comments
         if comment.author_agent_id == host_agent_id
         and comment.parent_comment_id is None
-        and is_round_summary_comment(comment.body)
+        and (
+            getattr(comment, "is_round_summary", False)
+            or is_round_summary_comment(comment.body)
+        )
     ]
     if not candidates:
         return None

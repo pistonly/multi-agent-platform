@@ -441,7 +441,45 @@ def advance_topic_round(
     topic.advance_round_pending_since = None
     db.commit()
     db.refresh(topic)
+
+    # After advancing to a new round (not mark_ready), auto-notify required
+    # participants so the waker can wake them without host manually @mentioning.
+    if not mark_ready:
+        _notify_participants_round_advanced(db, topic)
+
     return topic
+
+
+def _notify_participants_round_advanced(db: Session, topic: Topic) -> None:
+    """Generate wakeable notifications for participants after round advancement.
+
+    This replaces the manual ``@participant`` workaround that the Skill had to
+    document as a "防死等" patch. Now the platform guarantees participants are
+    woken whenever a new round starts.
+    """
+    from server.services import notification_service
+
+    participant_ids = topic_ack_service.required_ack_agent_ids(db, topic)
+    if not participant_ids:
+        return
+
+    notification_service.enqueue_for_agents(
+        db,
+        recipient_agent_ids=list(participant_ids),
+        project_id=topic.project_id,
+        actor_id=topic.creator_agent_id,
+        event="topic.round_advanced",
+        summary=f"话题「{topic.title}」已推进到 {topic.discussion_round}，请参与讨论",
+        target_type="topic",
+        target_id=topic.id,
+        payload={
+            "topic_id": str(topic.id),
+            "discussion_round": topic.discussion_round,
+            "round_summary_count": topic.round_summary_count,
+        },
+        wakeable=True,
+        exclude_actor=True,
+    )
 
 
 def record_participant_round_ack(

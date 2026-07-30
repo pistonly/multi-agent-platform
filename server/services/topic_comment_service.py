@@ -133,12 +133,19 @@ def create_topic_comment(
         )
         if parent is None:
             raise NotFoundError("Parent comment not found")
+    # Determine is_round_summary: explicit flag takes priority, but also
+    # check regex for backward compat with clients that don't send the flag.
+    is_round_summary = payload.is_round_summary or (
+        payload.parent_id is None
+        and topic_ack_service.is_round_summary_comment(payload.body)
+    )
     comment = TopicComment(
         topic_id=topic_id,
         author_agent_id=author.id,
         parent_comment_id=payload.parent_id,
         body=payload.body,
         kind=resolve_topic_comment_kind(payload.body),
+        is_round_summary=is_round_summary,
         comment_seq=_next_topic_comment_seq(db, topic_id),
     )
     db.add(comment)
@@ -148,7 +155,7 @@ def create_topic_comment(
     if (
         author.id == topic.creator_agent_id
         and payload.parent_id is None
-        and topic_ack_service.is_round_summary_comment(payload.body)
+        and is_round_summary
     ):
         topic_ack_service.mark_round_ack_pending(topic)
     db.flush()
@@ -186,6 +193,7 @@ def topic_comment_read(
         parent_comment_id=comment.parent_comment_id,
         body=comment.body,
         kind=_comment_kind(comment),
+        is_round_summary=getattr(comment, "is_round_summary", False),
         comment_seq=comment.comment_seq,
         created_at=comment.created_at,
         unresolved_mentions=list(unresolved_mentions or ()),

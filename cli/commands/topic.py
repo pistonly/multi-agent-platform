@@ -192,6 +192,11 @@ def topic_comment(
     body: str | None = typer.Option(None, "--body"),
     body_file: Path | None = typer.Option(None, "--file"),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
+    round_summary: bool = typer.Option(
+        False,
+        "--round-summary",
+        help="Mark this comment as a Round Summary (triggers participant ack flow).",
+    ),
 ) -> None:
     from cli.main import _read_text_file, _run
 
@@ -202,7 +207,7 @@ def topic_comment(
         typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
     content = body if body is not None else _read_text_file(body_file, kind="comment")
-    payload = TopicCommentCreate(body=content, parent_id=parent)
+    payload = TopicCommentCreate(body=content, parent_id=parent, is_round_summary=round_summary)
     _run(lambda c: c.create_topic_comment(topic_id, payload))
 
 

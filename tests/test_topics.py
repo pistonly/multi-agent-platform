@@ -87,6 +87,88 @@ def test_mark_ready_requires_at_least_one_summary(client, auth_headers, project)
     assert too_early.status_code == 409
 
 
+def test_round_summary_flag_marks_comment(client, auth_headers, project):
+    """--round-summary flag explicitly marks a comment as Round Summary."""
+    topic = _create_topic(client, auth_headers, project)
+
+    # Post with explicit --round-summary flag (via API is_round_summary=True)
+    summary = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "总结一下讨论结果", "is_round_summary": True},
+    )
+    assert summary.status_code == 201
+    assert summary.json()["is_round_summary"] is True
+
+    # Post a normal comment without the flag
+    normal = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "普通评论"},
+    )
+    assert normal.status_code == 201
+    assert normal.json()["is_round_summary"] is False
+
+
+def test_round_summary_regex_backfill_still_works(client, auth_headers, project):
+    """Comments with ## Round N Summary heading are auto-detected even without the flag."""
+    topic = _create_topic(client, auth_headers, project)
+
+    summary = client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- 方案A\n"},
+    )
+    assert summary.status_code == 201
+    # is_round_summary should be True even without explicit flag, via regex backfill
+    assert summary.json()["is_round_summary"] is True
+
+
+def test_advance_round_notifies_participants(client, auth_headers, reviewer, project):
+    """advance-round should generate a wakeable notification for required participants."""
+    topic = _create_topic(client, auth_headers, project)
+    # Participant comments so they're in the required_ack set
+    assert _participant_comment(client, reviewer["headers"], topic["id"]).status_code == 201
+
+    # Host posts Round Summary (triggers ack pending)
+    client.post(
+        f"/api/v1/topics/{topic['id']}/comments",
+        headers=auth_headers,
+        json={"body": "## Round 1 Summary\n\n### 已共识\n- ok\n", "is_round_summary": True},
+    )
+
+    # Participant acks
+    client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=reviewer["headers"],
+        json={"ack": "accept"},
+    )
+
+    # Clear any existing notifications for reviewer
+    reviewer_work = client.get(
+        "/api/v1/agents/me/work?notification_category=wakeable",
+        headers=reviewer["headers"],
+    ).json()
+    pre_count = len(reviewer_work.get("notifications", {}).get("items", []))
+
+    # Host advances round
+    advanced = client.post(
+        f"/api/v1/topics/{topic['id']}/advance-round",
+        headers=auth_headers,
+        json={"acknowledged_by": [reviewer["id"]]},
+    )
+    assert advanced.status_code == 200
+    assert advanced.json()["discussion_round"] == "round2"
+
+    # Reviewer should now have a wakeable notification about the round advancement
+    reviewer_work_after = client.get(
+        "/api/v1/agents/me/work?notification_category=wakeable",
+        headers=reviewer["headers"],
+    ).json()
+    after_count = len(reviewer_work_after.get("notifications", {}).get("items", []))
+    assert after_count > pre_count, "Participant should receive notification after round advancement"
+
+
 def test_only_topic_host_or_admin_can_advance_round(client, auth_headers, reviewer, admin_headers, project):
     topic = _create_topic(client, auth_headers, project)
 

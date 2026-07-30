@@ -42,6 +42,7 @@ WAKEABLE_NOTIFICATION_EVENTS: set[str] = {
     "system.runtime_attention",
     "topic.lifecycle.closed",
     "topic.lifecycle.reopened",
+    "topic.round_advanced",
     "action_item.wake_sent",
     "action_item.stale",
 }

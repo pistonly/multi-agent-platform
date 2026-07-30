@@ -768,6 +768,7 @@ class TopicSummaryRead(BaseModel):
 class TopicCommentCreate(BaseModel):
     body: str = Field(min_length=1)
     parent_id: uuid.UUID | None = None
+    is_round_summary: bool = False
 
 
 class TopicCommentRead(ORMModel):
@@ -778,6 +779,7 @@ class TopicCommentRead(ORMModel):
     parent_comment_id: uuid.UUID | None
     body: str
     kind: TopicCommentKind = TopicCommentKind.user
+    is_round_summary: bool = False
     comment_seq: int
     created_at: datetime
     unresolved_mentions: list[str] = Field(default_factory=list)

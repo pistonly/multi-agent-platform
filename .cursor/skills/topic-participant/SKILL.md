@@ -58,6 +58,7 @@ map --persona participant topic show --id <topic-uuid>
 
 > ⚠️ 若 Round 2 相关待办仍在 `map todos` 中而你**完全不发帖**，heartbeat 到期前 waker 可能不再唤醒你，host 也收不到你的收尾意见。
 
+- **新轮次开始时你会被自动唤醒**：host 调用 `advance-round`（非 `--ready`）后，平台会自动为所有 required participant 生成 wakeable 通知，simple-waker 会据此唤醒你——**无需 host 手动 @mention**。被唤醒后请主动发言或 ack。
 - 被 Round 2 唤醒时，**至少发一条评论**（哪怕只是「议题 X 已收敛，同意 host 方向；Y 项留待实验验证」），给 host 发 Round 2 Summary 的信号。
 - 不要因「自认议题已收敛」就静默——你的**静默对 host 是「未表态」，不是「同意」**。
 - 若确实无话可说，发一条明确收尾意见或对 Round 1 Summary 发 `--ack accept`，**不要什么都不留**。

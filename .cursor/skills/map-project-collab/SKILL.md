@@ -402,6 +402,8 @@ map topic dismiss --id <uuid>               # 不需要的话题
 
 > **完整 wake 顺序、核心规则、kind→清理方式分发表、reviewer 调度规则**：Read [references/waker-mode.md](references/waker-mode.md)
 
+> **轮次自动通知**：host 调用 `advance-round`（非 `--ready`）后，平台会自动为所有 required participant 生成 wakeable 通知，simple-waker 会据此唤醒 participant——host **无需**再手动 `@multi-agent-platform-participant`。
+
 ## 参考
 
 - 仓库根 [AGENTS.md](../../../AGENTS.md)

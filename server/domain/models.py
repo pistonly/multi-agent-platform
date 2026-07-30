@@ -320,6 +320,9 @@ class TopicComment(Base):
     kind: Mapped[TopicCommentKind] = mapped_column(
         Enum(TopicCommentKind), default=TopicCommentKind.user, nullable=False
     )
+    is_round_summary: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     comment_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

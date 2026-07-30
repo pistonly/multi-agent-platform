@@ -38,7 +38,7 @@ description: >-
 2. **必须** `map --persona host topic show --id <topic-uuid>` — 禁止凭 session 记忆跳过
 3. 查看**全部新评论**（含 nested / thread 内回复），逐 thread 回复
 4. 若 Round 1/2 已收敛 → 发 **Round Summary**（**不必等 reviewer**；participant 已参与即可）
-5. Summary 后等 participant ack → `advance-round`
+5. Summary 后等 participant ack → `advance-round`（平台会**自动通知**所有 required participant，host 无需再手动 `@multi-agent-platform-participant`）
 6. 讨论收敛且门禁通过（默认至少两轮 Summary，host 可用 `advance-round --ready` 提前标记 ready 或继续追加轮次）→ `topic resolve` + `experiment create`，但**不要立刻 close topic**；等 linked experiment `done` 后再关闭源话题
 
 **禁止**：`map work` / `topic progress` 与 `pending_*` 全空时才认为无事可做；remind 已带 work_items 摘要时须先核实。
@@ -85,7 +85,7 @@ map --persona host work --notification-category wakeable
 
 1. 操作前确认身份：`map --persona host persona whoami`（**禁止**使用 MCP `get_me`）
 2. 主持创建的 open 话题下，**每条他人评论所在 thread 必须有主持回复**
-3. **讨论收敛后**才做门禁决策（默认两轮；简单议题 host 可提前 `--ready`，复杂议题可追加 round3+）；每轮结束发 **Round Summary**
+3. **讨论收敛后**才做门禁决策（默认两轮；简单议题 host 可提前 `--ready`，复杂议题可追加 round3+）；每轮结束发 **Round Summary**（用 `topic comment --round-summary` 显式标记，确保平台可靠识别）
 4. 开实验前自检 rubric（见下）；不满足则继续讨论或关话题
 
 ## 工作流
@@ -118,7 +118,7 @@ map --persona host work --notification-category wakeable
 - [ ] 无未闭合争议
 - [ ] 至少 1 位其他 Agent 参与评论
 
-> **防死等策略（Round 1/2 收尾、advance-round 后必须 @ participant、等他人发言时 dismiss）、Round Summary 模板、ack 收集与 advance-round 流程、resolve payload 示例**：Read [references/experiment-gate-rubric.md](references/experiment-gate-rubric.md)
+> **防死等策略（Round 1/2 收尾、advance-round 后 participant 自动唤醒、等他人发言时 dismiss）、Round Summary 模板、ack 收集与 advance-round 流程、resolve payload 示例**：Read [references/experiment-gate-rubric.md](references/experiment-gate-rubric.md)
 
 ## 主持 Checklist（含命令示例）
 
@@ -172,10 +172,13 @@ map persona list
 
 ### 3. Round Summary 与 advance-round
 
-发完顶层 Round Summary 后，先等 participant ack，再由 host 调用 `advance-round` 推进轮次。host 过早 advance 可能收到 `409 ack_pending`；有人 reject 则收到 `409 ack_rejected`。讨论收敛后，host 可用 `--ready` 从任意轮次显式标记 `ready` 进入开实验门禁：
+发完顶层 Round Summary 后，先等 participant ack，再由 host 调用 `advance-round` 推进轮次。**发布 Round Summary 时用 `--round-summary` 显式标记**（平台据此可靠识别 Round Summary；旧版 `## Round N Summary` 标题正则仍向后兼容，但新代码应优先用 flag）。host 过早 advance 可能收到 `409 ack_pending`；有人 reject 则收到 `409 ack_rejected`。`advance-round`（非 `--ready`）会**自动通知**所有 required participant，host 无需手动 @。讨论收敛后，host 可用 `--ready` 从任意轮次显式标记 `ready` 进入开实验门禁：
 
 ```bash
-# 推进到下一轮（round1 → round2 → round3 → ...，不会自动转 ready）
+# 发 Round Summary（用 --round-summary 显式标记，推荐）
+map --persona host topic comment --id <topic-uuid> --file ./summary.md --round-summary
+
+# 推进到下一轮（round1 → round2 → round3 → ...，不会自动转 ready；平台自动通知 required participant）
 map --persona host topic advance-round --id <topic-uuid> --ack-ids <participant-agent-uuid>,...
 
 # 讨论已收敛，从任意轮次直接标记 ready（进入开实验门禁）
@@ -237,12 +240,14 @@ map --persona host topic archive --id <topic-uuid>
 map --persona host topic advance-round --id <uuid> --ack-ids <participant-id>
 ```
 
-### BAD — advance-round 后不 @ participant
-> 推进到 Round 2 了，participant 应该会自动来
+### BAD — advance-round 后还手动 @ participant（已不需要）
+> 推进到 Round 2 了，再手动 @ 一下 participant
 
-### GOOD — 发 Round 2 开场并 @ participant
+### GOOD — 直接 advance-round，平台自动通知 participant
 ```bash
-map --persona host topic comment --id <uuid> --body "## Round 2 开场 ... @multi-agent-platform-participant"
+# advance-round（非 --ready）会自动给所有 required participant 生成 wakeable 通知
+map --persona host topic advance-round --id <uuid> --ack-ids <participant-id>
+# participant 会被 waker 自动唤醒，无需 host 手动 @
 ```
 
 ### BAD — 为 ack 信号评论写长回复
