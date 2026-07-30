@@ -28,6 +28,7 @@ from server.domain.schemas import (
     ExperimentLogCreate,
     ExperimentLogRead,
     ExperimentResultDecision,
+    ExperimentStart,
     ExperimentSummaryRead,
     ExperimentUpdate,
     LogCreateResponse,
@@ -510,11 +511,13 @@ def list_comments(
 @experiments_router.post("/experiments/{experiment_id}/start", response_model=ExperimentSummaryRead)
 def start_experiment(
     experiment_id: uuid.UUID,
+    payload: ExperimentStart | None = None,
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.start_experiment(db, experiment_id, agent)
+    executor_agent_id = payload.executor_agent_id if payload is not None else None
+    phase_service.start_experiment(db, experiment_id, agent, executor_agent_id)
     experiment = svc.get_experiment(db, experiment_id)
     emit(
         db,
@@ -525,7 +528,16 @@ def start_experiment(
         project_id=experiment.project_id,
         summary=f"开始执行（{experiment.title}）",
         event="experiment.phase_changed",
-        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
+        event_payload={
+            "id": str(experiment_id),
+            "phase": experiment.phase.value,
+            "title": experiment.title,
+            # Migration 042: surface executor delegation in the SSE event
+            # so waker / web UI can show "host delegated to {executor}".
+            "executor_agent_id": (
+                str(experiment.executor_agent_id) if experiment.executor_agent_id else None
+            ),
+        },
     )
     return _summary_for_agent(db, experiment, agent)
 

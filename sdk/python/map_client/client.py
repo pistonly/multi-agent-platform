@@ -492,8 +492,25 @@ class MAPClient:
         data = self._json("POST", f"/experiments/{experiment_id}/cancel")
         return ExperimentSummaryRead.model_validate(data)
 
-    def start_experiment(self, experiment_id: uuid.UUID) -> ExperimentSummaryRead:
-        data = self._json("POST", f"/experiments/{experiment_id}/start")
+    def start_experiment(
+        self,
+        experiment_id: uuid.UUID,
+        executor_agent_id: uuid.UUID | None = None,
+    ) -> ExperimentSummaryRead:
+        """Start experiment execution, optionally delegating to another agent.
+
+        Migration 042: when ``executor_agent_id`` is provided, that agent
+        becomes the sole non-admin caller allowed to ``complete`` the
+        experiment. When omitted, the host self-executes.
+        """
+        json_body: dict[str, Any] | None = None
+        if executor_agent_id is not None:
+            json_body = {"executor_agent_id": str(executor_agent_id)}
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/start",
+            json=json_body,
+        )
         return ExperimentSummaryRead.model_validate(data)
 
     def complete_experiment(self, experiment_id: uuid.UUID, payload: ExperimentComplete) -> ExperimentSummaryRead:

@@ -140,6 +140,9 @@ class Agent(Base):
     created_experiments: Mapped[list["Experiment"]] = relationship(
         back_populates="creator", foreign_keys="Experiment.creator_agent_id"
     )
+    executed_experiments: Mapped[list["Experiment"]] = relationship(
+        back_populates="executor", foreign_keys="Experiment.executor_agent_id"
+    )
     escalation_target_experiments: Mapped[list["Experiment"]] = relationship(
         back_populates="escalation_target", foreign_keys="Experiment.escalation_target_agent_id"
     )
@@ -201,6 +204,20 @@ class Experiment(Base):
     topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True, index=True)
     project: Mapped["Project"] = relationship(back_populates="experiments")
     creator: Mapped["Agent"] = relationship(back_populates="created_experiments", foreign_keys=[creator_agent_id])
+    # --- executor delegation (migration 042) -------------------------------
+    # The agent who actually *runs* the experiment (calls ``complete``).
+    # Set by ``start_experiment`` when the host delegates execution to
+    # another agent (typically a ``participant`` persona). NULL on legacy
+    # experiments; ``phase_service.complete_experiment`` falls back to
+    # ``creator_agent_id`` in that case. Host-only lifecycle gates
+    # (create / approve / start / withdraw / cancel) still check
+    # ``creator_agent_id`` — the host retains decision authority.
+    executor_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id"), nullable=True, index=True
+    )
+    executor: Mapped["Agent | None"] = relationship(
+        back_populates="executed_experiments", foreign_keys=[executor_agent_id]
+    )
     topic: Mapped["Topic | None"] = relationship(back_populates="experiments")
     plan_versions: Mapped[list["PlanVersion"]] = relationship(
         back_populates="experiment", order_by="PlanVersion.version"

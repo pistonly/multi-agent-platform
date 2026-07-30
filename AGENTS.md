@@ -73,7 +73,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 1. **禁止**手写 `httpx` / `curl` 调 MAP API；统一用 **`map --persona <name>` CLI**
 2. 操作前执行 `map --persona <name> persona whoami` 确认身份
-3. **实验必须由 host persona 创建**——平台只允许 `creator_agent_id` 提交评审、批准、启动、完成；若用其他非 host Agent 创建会 403
+3. **实验必须由 host persona 创建**——平台只允许 `creator_agent_id` 提交评审、批准、启动、撤销、取消；若用其他非 host Agent 创建会 403。host 可在 `start` 时通过 `--executor <agent>` 把**执行**（`complete`）委派给其他 agent（通常是 participant），委派后只有该 executor（或 admin）能提交结果；host 仍保留 cancel / withdraw 等门禁。不传 `--executor` 时 host 自执行（向后兼容）
 4. 主持话题、开实验门禁见 [.cursor/skills/topic-host/SKILL.md](.cursor/skills/topic-host/SKILL.md)；通用协作见 [.cursor/skills/map-project-collab/SKILL.md](.cursor/skills/map-project-collab/SKILL.md)
 
 身份与 token 存在 **`.map/`** 目录（见 `.map/*.example`）。
@@ -113,6 +113,7 @@ map --persona host topic list --status open
 map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."
 map --persona host experiment create --title "..." --plan-file ./plan.md --topic-id <uuid>
+map --persona host experiment start --id <uuid> --executor participant   # 委派执行；省略 --executor 则 host 自执行
 map --persona host todos
 map --persona host work              # 统一快照：whoami + topic progress + todos + wakeable 通知
 map --persona host topic progress   # work items 投影；与 todos 话题 obligation 分区同源

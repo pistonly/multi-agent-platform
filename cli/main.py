@@ -1177,6 +1177,58 @@ def _resolve_creator_agent_id(
     return matches[0].id
 
 
+def _resolve_executor_agent_id(
+    client: MAPClient,
+    project_id: uuid.UUID,
+    executor: str,
+) -> uuid.UUID:
+    """Resolve ``--executor`` (name or UUID) into an ``executor_agent_id``.
+
+    Migration 042: used by ``map experiment start --executor <name|uuid>``
+    to delegate execution to another agent. Mirrors the
+    ``_resolve_creator_agent_id`` lookup path:
+
+    - Valid UUID → pass through (skip the /agents lookup).
+    - Name → look up via ``list_agents(project_id)``; exact match within
+      current project, ignoring admin rows. 0 hits → error + list
+      available names; >1 hits → error (project-internal name collision).
+    """
+    try:
+        executor_uuid = uuid.UUID(executor)
+    except ValueError:
+        executor_uuid = None
+    if executor_uuid is not None:
+        return executor_uuid
+    agents = client.list_agents(project_id=project_id)
+    matches = [
+        a
+        for a in agents
+        if a.role.value != "admin" and a.project_id == project_id and a.name == executor
+    ]
+    if len(matches) == 0:
+        available = sorted(
+            a.name for a in agents if a.role.value != "admin" and a.project_id == project_id
+        )
+        available_hint = (
+            f" Available agent_name in this project: {', '.join(available)}."
+            if available
+            else " No project-bound agents found in this project."
+        )
+        typer.echo(
+            f"Error: executor '{executor}' not found in current project.{available_hint}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        typer.echo(
+            f"Error: executor '{executor}' matches {len(matches)} agents in current project; "
+            "name is ambiguous. Pass --executor <UUID> instead.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return matches[0].id
+
+
 def _load_topic_resolve_payload(path: Path) -> TopicResolve:
     text = _read_text_file(path, kind="resolve")
     if path.suffix.lower() in {".yaml", ".yml"}:

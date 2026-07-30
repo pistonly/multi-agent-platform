@@ -215,10 +215,26 @@ class ExperimentUpdate(BaseModel):
     archived: bool | None = None
 
 
+class ExperimentStart(BaseModel):
+    """Optional body for ``POST /experiments/{id}/start`` (migration 042).
+
+    When omitted (or ``executor_agent_id`` is null) the host self-executes
+    and the server populates ``experiments.executor_agent_id`` with the
+    caller's id. When set, that agent becomes the sole non-admin caller
+    allowed to ``complete`` the experiment.
+    """
+
+    executor_agent_id: uuid.UUID | None = None
+
+
 class ExperimentSummaryRead(ORMModel):
     id: uuid.UUID
     project_id: uuid.UUID
     creator_agent_id: uuid.UUID
+    # Migration 042: agent designated to run the experiment (calls
+    # ``complete``). NULL on legacy experiments; falls back to creator
+    # for permission checks. Set by ``start_experiment``.
+    executor_agent_id: uuid.UUID | None = None
     title: str
     description: str | None
     phase: ExperimentPhase

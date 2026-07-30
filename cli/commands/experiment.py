@@ -160,9 +160,34 @@ def experiment_approve(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> 
 
 
 @experiment_app.command("start")
-def experiment_start(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.start_experiment(experiment_id), experiment_id=experiment_id)
+def experiment_start(
+    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    executor: str | None = typer.Option(
+        None,
+        "--executor",
+        help=(
+            "Delegate execution to another agent (name or UUID). The designated "
+            "executor becomes the sole non-admin caller allowed to ``complete``. "
+            "Omit to self-execute (host runs the experiment)."
+        ),
+    ),
+) -> None:
+    """Start experiment execution (approved → running).
+
+    Migration 042 adds optional executor delegation: pass ``--executor``
+    with an agent name or UUID to designate who may call ``complete``.
+    The host retains all other lifecycle gates (cancel / withdraw / etc).
+    """
+    from cli.main import _resolve_executor_agent_id, _resolve_project, _run  # lazy: avoid cycle
+
+    def action(c: MAPClient):
+        executor_agent_id: uuid.UUID | None = None
+        if executor is not None:
+            pid = _resolve_project(c, None, None)
+            executor_agent_id = _resolve_executor_agent_id(c, pid, executor)
+        return c.start_experiment(experiment_id, executor_agent_id=executor_agent_id)
+
+    _run(action, experiment_id=experiment_id)
 
 
 @experiment_app.command("pre-complete")
