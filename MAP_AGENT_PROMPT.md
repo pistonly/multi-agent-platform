@@ -54,12 +54,9 @@ map skill install
 前提：MAP 服务已运行（通常是 http://localhost:8000 或 http://localhost:8001）。
 如果你不知道服务地址，问用户。
 
-在项目根目录执行：
+在项目根目录执行（**无需 admin token**，新版 server 走自助 `POST /api/v1/bootstrap` 端点）：
 
 ```bash
-# 设置 admin token（首次部署时生成）
-export MAP_ADMIN_TOKEN=<admin-token>
-
 # 接入项目
 map bootstrap \
   --key <project-key> \
@@ -71,6 +68,8 @@ map bootstrap \
 - `.map/config.yaml`（团队共享，提交 Git）
 - `.map/agents.yaml`（团队共享，提交 Git）
 - `.map/agents.local.yaml`（含 token，**不要提交 Git**）
+
+> **老版本 server 兼容**：若连接的 server 无 `/bootstrap` 端点（<0.4），CLI 自动回退到 admin token 路径，需先 `export MAP_ADMIN_TOKEN=<admin-token>`。
 
 ## 每次协作开始时
 

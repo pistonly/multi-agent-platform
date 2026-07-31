@@ -11,6 +11,7 @@ from server.api.router import (
     action_items_router,
     agents_router,
     audit_router,
+    bootstrap_router,
     experiments_router,
     feedback_router,
     notifications_router,
@@ -116,6 +117,7 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
         allow_headers=["*"],
     )
     prefix = settings.api_prefix
+    app.include_router(bootstrap_router, prefix=prefix)
     app.include_router(projects_router, prefix=prefix)
     app.include_router(experiments_router, prefix=prefix)
     app.include_router(agents_router, prefix=prefix)

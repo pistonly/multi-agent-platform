@@ -72,6 +72,35 @@ class ProjectRead(ORMModel):
     archived_at: datetime | None
 
 
+# --- Bootstrap (self-service) ---
+
+
+class BootstrapRequest(BaseModel):
+    """Body for ``POST /api/v1/bootstrap`` — self-service project + persona agents.
+
+    Lets a new user create a project and the 3 default persona agents
+    (host/participant/reviewer) in a single atomic call without an admin
+    token. Returns the plaintext API tokens (shown once).
+    """
+
+    project_key: str = Field(min_length=2, max_length=64)
+    project_name: str = Field(min_length=1, max_length=255)
+    workspace_path: str = Field(min_length=1, max_length=1024)
+    description: str | None = None
+
+
+class BootstrapAgentResult(BaseModel):
+    persona: str
+    agent_id: uuid.UUID
+    agent_name: str
+    api_token: str
+
+
+class BootstrapResponse(BaseModel):
+    project: ProjectRead
+    agents: list[BootstrapAgentResult]
+
+
 class ProjectStatusRead(BaseModel):
     project: ProjectRead
     experiment_counts_by_phase: dict[str, int]

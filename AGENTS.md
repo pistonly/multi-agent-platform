@@ -80,14 +80,15 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 ## 首次接入
 
-1. 准备 admin token（一次性）：`export MAP_ADMIN_TOKEN=...` 或 `~/.map/admin.yaml`
-2. 在本仓库根目录执行：
+1. 在本仓库根目录执行（**无需 admin token**，走自助 `POST /api/v1/bootstrap` 端点）：
 
 ```bash
 map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhost:8001
 ```
 
-3. 确认生成 `.map/config.yaml`、`.map/agents.yaml`、`.map/agents.local.yaml`（**后者勿提交**）
+2. 确认生成 `.map/config.yaml`、`.map/agents.yaml`、`.map/agents.local.yaml`（**后者勿提交**）
+
+> **老版本 server 兼容**：若连接的 server 无 `/bootstrap` 端点（<0.4），CLI 自动回退到 admin token 路径，需先 `export MAP_ADMIN_TOKEN=...` 或写入 `~/.map/admin.yaml`。
 
 ## 日常：选择身份
 

@@ -4,14 +4,9 @@
 
 ## 首次 Bootstrap
 
-前置：MAP API 已运行；admin token 在 `MAP_ADMIN_TOKEN` 或 `~/.map/admin.yaml`：
+前置：MAP API 已运行。
 
-```yaml
-token: "<admin-api-token>"
-api_url: http://localhost:8001
-```
-
-在本代码仓库根目录：
+新版 server（>=0.4）**无需 admin token**——bootstrap 走自助 `POST /api/v1/bootstrap` 端点。直接在本代码仓库根目录运行：
 
 ```bash
 map bootstrap \
@@ -19,6 +14,13 @@ map bootstrap \
   --name "<Human readable name>" \
   --api-url http://localhost:8001
 ```
+
+> **老版本 server 兼容**：若连接的 server 无 `/bootstrap` 端点（<0.4），CLI 自动回退到 admin token 路径。此时需先准备 admin token，写入 `MAP_ADMIN_TOKEN` 或 `~/.map/admin.yaml`：
+>
+> ```yaml
+> token: "<admin-api-token>"
+> api_url: http://localhost:8001
+> ```
 
 生成：
 
@@ -45,7 +47,7 @@ bash .cursor/skills/map-project-collab/scripts/map-bootstrap.sh \
 | Unknown persona | `map persona list` |
 | 403 开实验 | 确认 `--persona host` 且是话题 creator |
 | 403 submit/approve/complete | 实验须由 **当前 host persona** 创建 |
-| Admin bootstrap 失败 | 检查 `MAP_ADMIN_TOKEN` / `~/.map/admin.yaml` |
+| Admin bootstrap 失败 | 新版 server（>=0.4）无需 admin token；老版本需检查 `MAP_ADMIN_TOKEN` / `~/.map/admin.yaml` |
 | token 丢失（409 跳过） | 保留原 `agents.local.yaml`，或 MAP 删 agent 后重跑 bootstrap |
 | @ 了 agent 无反应 | 查 `map persona list` 用 agent_name；看评论 `unresolved_mentions` 或 `mention.unresolved` 通知 |
 | 想改 MAP 平台而非业务话题 | 用 `map feedback submit --category suggestion`（见 SKILL.md §平台反馈） |

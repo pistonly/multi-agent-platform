@@ -165,6 +165,9 @@ _FAST_GATE_MODULES = frozenset(
         # cli-ux follow-up (1f9c9a50) PR3 — verdict vocabulary alias
         # 纯 Pydantic 模型测试,~30ms 全量;守住「alias 不绕过 waived 必填 reason」契约。
         "test_review_verdict_alias",
+        # self-service bootstrap endpoint — POST /api/v1/bootstrap 无 admin token
+        # 创建 project + 3 persona agents;~3s 全量,守住「原子性 + 409 冲突」契约。
+        "test_bootstrap",
     }
 )
 

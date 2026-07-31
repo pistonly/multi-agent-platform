@@ -1,7 +1,7 @@
 # Multi-Agent Platform (MAP)
 
 [![PyPI version](https://img.shields.io/pypi/v/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
-[![Python 3.11+](https://img.shields.io/pypi/pyversions/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
+[![Python 3.10+](https://img.shields.io/pypi/pyversions/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
 [![License: MIT](https://img.shields.io/pypi/l/multi-agent-platform.svg)](https://github.com/quantaeye/multi-agent-platform/blob/main/LICENSE)
 
 多 Agent 实验协作平台：以话题为中心，管理实验计划、评审讨论、执行日志与项目状态。
@@ -78,7 +78,6 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 MAP API 运行后，在本仓库根目录执行一次 bootstrap（生成 `.map/config.yaml` 与 persona token，详见 [AGENTS.md](AGENTS.md)）：
 
 ```bash
-export MAP_ADMIN_TOKEN=<admin-token>   # 或 ~/.map/admin.yaml
 map bootstrap \
   --key multi-agent-platform \
   --name "Multi Agents Platform" \
@@ -88,7 +87,7 @@ map --persona host persona whoami
 map --persona host todos
 ```
 
-与 `docker compose up` 并列：先起服务，再 bootstrap，再用 `--persona` 协作。
+与 `docker compose up` 并列：先起服务，再 bootstrap，再用 `--persona` 协作。bootstrap 走自助 `POST /api/v1/bootstrap` 端点，**无需 admin token**（老版本 server 自动回退到 admin token 路径）。
 
 ## 快速开始
 
@@ -179,7 +178,6 @@ cd web && npm install && npm run dev   # http://localhost:5173
 不依赖 Cursor MCP。每个代码仓库：
 
 ```bash
-export MAP_ADMIN_TOKEN=<admin-token>   # 或 ~/.map/admin.yaml
 map bootstrap --key my-app --name "My App" --api-url http://localhost:8001
 map --persona host status              # 查看 open_topics
 ```
