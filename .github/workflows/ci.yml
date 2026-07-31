@@ -9,15 +9,14 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    # eng experiment (55634575) PR8: pyproject requires-python=">=3.11",
+    # eng experiment (55634575) PR8: pyproject requires-python=">=3.10",
     # but the project only tested on 3.12 — a real coverage gap. Pin
-    # both 3.11 and 3.12 in matrix; uv.lock is frozen so installs are
-    # reproducible across both. Bump [3.11, 3.12] in lockstep when
-    # adding 3.13.
+    # 3.10 / 3.11 / 3.12 in matrix; uv.lock is frozen so installs are
+    # reproducible across all three. Bump in lockstep when adding 3.13.
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
 

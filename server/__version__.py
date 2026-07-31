@@ -11,4 +11,4 @@ line in ``pyproject.toml`` in the same commit. The test fails if the
 two drift.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

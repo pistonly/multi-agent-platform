@@ -1,23 +1,26 @@
 """Tests for eng experiment (55634575) PR6 — typing_extensions cleanup.
 
-Per the topic-21812ad2 resolve plan: ``pyproject`` is ``>=3.11``,
-which means stdlib ``typing`` covers everything we need
-(``Protocol``, ``Literal``, ``TypedDict``, ``Final``, ``Self``,
-``assert_never``, ``assert_type`` are all in 3.11+). This file
-pins that invariant so a future PR doesn't reintroduce
+``pyproject`` declares ``>=3.10``. The source only uses stdlib
+``typing`` constructs available in 3.10+ (``Protocol``, ``Literal``,
+``TypedDict``, ``Final``, ``TypeVar``, ``Generic``, etc.).
+This file pins that invariant so a future PR doesn't reintroduce
 ``typing_extensions`` imports into ``server/``, ``cli/``, ``sdk/``,
 ``map_client/``, ``map_sdk/`` without justification.
 
-The plan called for ``grep 'from typing_extensions' server/`` to be
-zero — we extend the grep to all runtime source roots.
+If a future change needs a ``typing`` construct not in 3.10 stdlib
+(e.g. ``Self`` / ``assert_never`` / ``LiteralString`` which are 3.11+),
+either bump ``requires-python`` or add a justified
+``typing_extensions`` import and update this guard.
 """
 
 from __future__ import annotations
 
 import re
 import subprocess
+from pathlib import Path
 
-PROJECT_ROOT = "/home/AI02/Documents/quantaeye/multi_agents_platform"
+# 推断项目根目录：本测试位于 <root>/tests/ 下。
+PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 
 # Runtime source roots — covers everything that ships or runs in dev/CI.
 # Generated code under .map/ is excluded (those are plan/log artifacts).
@@ -62,27 +65,28 @@ def _grep_typing_extensions() -> list[str]:
 def test_no_typing_extensions_imports_in_source():
     """No source file imports ``typing_extensions``.
 
-    pyproject requires Python ``>=3.11`` — stdlib ``typing`` covers
+    pyproject requires Python ``>=3.10`` — stdlib ``typing`` covers
     every construct the project actually uses (``Protocol``,
-    ``Literal``, ``TypedDict``, ``Final``, ``Self``, ``assert_never``,
-    ``assert_type``, ``TypeVar``, ``Generic``, etc.). If you need
-    something not in 3.11 stdlib, justify ``typing_extensions`` in
-    code review and update this guard.
+    ``Literal``, ``TypedDict``, ``Final``, ``TypeVar``,
+    ``Generic``, etc.). If you need something not in 3.10 stdlib
+    (e.g. ``Self`` / ``assert_never`` / ``LiteralString`` which are
+    3.11+), justify ``typing_extensions`` in code review and update
+    this guard.
     """
     hits = _grep_typing_extensions()
     assert not hits, (
         f"Found {len(hits)} typing_extensions import(s) under source roots "
-        f"{SOURCE_ROOTS}. pyproject requires Python >=3.11 — stdlib "
+        f"{SOURCE_ROOTS}. pyproject requires Python >=3.10 — stdlib "
         f"`typing` covers everything we use. Move the import to "
         f"stdlib `typing` or document the justification.\n\n"
         + "\n".join(hits)
     )
 
 
-def test_pyproject_requires_python_311_or_above():
-    """pyproject must continue to require Python 3.11+. If it drops
-    below 3.11, the no-typing_extensions invariant above becomes
-    load-bearing for ``Self`` / ``assert_never`` / etc.
+def test_pyproject_requires_python_310_or_above():
+    """pyproject must continue to require Python 3.10+. If it drops
+    below 3.10, the no-typing_extensions invariant above becomes
+    load-bearing for ``Protocol`` / ``TypedDict`` / ``Literal`` etc.
     """
     pyproject = f"{PROJECT_ROOT}/pyproject.toml"
     with open(pyproject, encoding="utf-8") as fh:
@@ -90,14 +94,14 @@ def test_pyproject_requires_python_311_or_above():
     match = re.search(r'requires-python\s*=\s*"([^"]+)"', text)
     assert match is not None, "pyproject.toml must declare requires-python"
     requires = match.group(1)
-    # Match patterns like ">=3.11" or ">=3.11,<4.0"
+    # Match patterns like ">=3.10" or ">=3.10,<4.0"
     version_match = re.search(r">=\s*3\.(\d+)", requires)
     assert version_match is not None, (
-        f"pyproject requires-python {requires!r} must include >=3.11 "
+        f"pyproject requires-python {requires!r} must include >=3.10 "
         f"for the no-typing_extensions invariant to hold"
     )
     minor = int(version_match.group(1))
-    assert minor >= 11, (
-        f"pyproject requires-python {requires!r} drops below 3.11 — "
+    assert minor >= 10, (
+        f"pyproject requires-python {requires!r} drops below 3.10 — "
         f"the no-typing_extensions guard is no longer safe."
     )

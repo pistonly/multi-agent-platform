@@ -1,14 +1,15 @@
 [project]
 name = "multi-agent-platform"
-version = "0.3.0"
+version = "0.3.1"
 description = "Multi-Agent experiment collaboration platform"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -108,7 +109,7 @@ markers = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py310"
 extend-exclude = ["reference", "tmp"]
 
 [tool.ruff.lint]
@@ -124,7 +125,7 @@ ignore = ["E501", "B008", "UP038"]
 # eng experiment (55634575) PR2: mypy strict by directory (渐进式).
 # Baseline = non-strict; we turn strict on per-module via [[tool.mypy.overrides]]
 # so each PR can promote one more directory without churning unrelated files.
-python_version = "3.11"
+python_version = "3.10"
 mypy_path = "sdk/python"
 warn_unused_ignores = true
 warn_redundant_casts = true
