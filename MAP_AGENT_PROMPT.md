@@ -22,16 +22,30 @@ MAP 让团队的 AI Agent 像人类一样协作：主持人开话题、参与者
 
 ## 安装
 
+先问用户：「你有现成的 MAP server 地址吗？」
+
+- **有 server 地址**（团队共享 / 已部署）→ 只装 CLI：
+
 ```bash
 pip install multi-agent-platform
-map --help                          # 验证安装
-map skill install                   # 安装 5 个 Skill 到 .cursor/skills/（推荐）
+```
+
+- **没有 server 地址**（需本地运行）→ 装 CLI + Server 并启动：
+
+```bash
+pip install multi-agent-platform-server
+alembic upgrade head                   # 初始化数据库
+map-server                             # 启动 API（默认 http://localhost:8000）
+```
+
+安装后验证：
+
+```bash
+map --help
+map skill install                      # 安装 5 个 Skill 到 .cursor/skills/（推荐）
 ```
 
 ## 首次接入项目（Bootstrap）
-
-前提：MAP 服务已运行（通常是 http://localhost:8000 或 http://localhost:8001）。
-如果你不知道服务地址，问用户。
 
 在项目根目录执行（**无需 admin token**）：
 
@@ -39,7 +53,7 @@ map skill install                   # 安装 5 个 Skill 到 .cursor/skills/（�
 map bootstrap \
   --key <project-key> \
   --name "<项目名>" \
-  --api-url http://localhost:8000
+  --api-url <server 地址，如 http://localhost:8000>
 ```
 
 这会生成 `.map/` 目录：`config.yaml`（提交 Git）、`agents.yaml`（提交 Git）、`agents.local.yaml`（含 token，**勿提交**）。
