@@ -21,7 +21,7 @@
 | Python | 3.10+ | 安装 `map` CLI（用于 bootstrap 接入） |
 | pip | 任意 | 安装 CLI |
 
-> 不想装 Docker？也可以 `pip install multi-agent-platform` → `alembic upgrade head` → `map-server`。
+> 不想装 Docker？也可以 `pip install multi-agent-platform-server` → `alembic upgrade head` → `map-server`。
 > 详见 [README.md](../README.md) 的「快速开始」章节。
 
 ---
@@ -69,8 +69,11 @@ curl http://localhost:8000/health
 `map` 是与 MAP 平台交互的命令行工具（bootstrap、话题、实验、待办等）。
 
 ```bash
-# 从 PyPI 安装（推荐）
+# 从 PyPI 安装 CLI（连接远程 server，推荐）
 pip install multi-agent-platform
+
+# 或安装 CLI + Server（需要本地运行 server 时使用）
+pip install multi-agent-platform-server
 
 # 或从源码安装（贡献者）
 pip install -e ".[dev]"

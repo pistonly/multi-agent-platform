@@ -884,18 +884,10 @@ name = "multi-agent-platform"
 version = "0.3.1"
 source = { editable = "." }
 dependencies = [
-    { name = "alembic" },
-    { name = "bcrypt" },
-    { name = "cryptography" },
-    { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
     { name = "pyyaml" },
-    { name = "sqlalchemy" },
     { name = "typer" },
-    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
@@ -903,45 +895,73 @@ claude-runtime = [
     { name = "claude-agent-sdk" },
 ]
 dev = [
+    { name = "alembic" },
+    { name = "bcrypt" },
+    { name = "cryptography" },
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "mcp", version = "1.27.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "mcp", version = "1.28.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic-settings" },
     { name = "pydantic-to-typescript" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "python-multipart" },
     { name = "ruff" },
+    { name = "sqlalchemy" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 mcp = [
+    { name = "alembic" },
+    { name = "bcrypt" },
+    { name = "cryptography" },
+    { name = "fastapi" },
     { name = "mcp", version = "1.27.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "mcp", version = "1.28.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+    { name = "sqlalchemy" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+server = [
+    { name = "alembic" },
+    { name = "bcrypt" },
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+    { name = "sqlalchemy" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = ">=1.14.0,<2.0" },
-    { name = "bcrypt", specifier = ">=4.2.0,<6.0" },
+    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.14.0,<2.0" },
+    { name = "bcrypt", marker = "extra == 'server'", specifier = ">=4.2.0,<6.0" },
     { name = "claude-agent-sdk", marker = "extra == 'claude-runtime'", specifier = ">=0.2,<1.0" },
-    { name = "cryptography", specifier = ">=44.0.0,<50.0" },
-    { name = "fastapi", specifier = ">=0.115.0,<0.116" },
+    { name = "cryptography", marker = "extra == 'server'", specifier = ">=44.0.0,<50.0" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0,<0.116" },
     { name = "httpx", specifier = ">=0.28.0,<0.29" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0,<0.29" },
     { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.26.0,<2.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.26.0,<2.0" },
+    { name = "multi-agent-platform", extras = ["server"], marker = "extra == 'dev'" },
+    { name = "multi-agent-platform", extras = ["server"], marker = "extra == 'mcp'" },
     { name = "pydantic", specifier = ">=2.10.0,<2.12" },
-    { name = "pydantic-settings", specifier = ">=2.6.0,<2.9" },
+    { name = "pydantic-settings", marker = "extra == 'server'", specifier = ">=2.6.0,<2.9" },
     { name = "pydantic-to-typescript", marker = "extra == 'dev'", specifier = ">=2.0.0,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0,<9.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0,<1.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0,<7.0" },
-    { name = "python-multipart", specifier = ">=0.0.17,<0.1" },
+    { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.17,<0.1" },
     { name = "pyyaml", specifier = ">=6.0,<7.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0,<1.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.36,<2.1" },
+    { name = "sqlalchemy", marker = "extra == 'server'", specifier = ">=2.0.36,<2.1" },
     { name = "typer", specifier = ">=0.15.0,<0.17" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0,<0.41" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32.0,<0.41" },
 ]
-provides-extras = ["dev", "mcp", "codex-runtime", "claude-runtime"]
+provides-extras = ["server", "dev", "mcp", "codex-runtime", "claude-runtime"]
 
 [[package]]
 name = "packaging"

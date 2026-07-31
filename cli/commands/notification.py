@@ -188,9 +188,9 @@ def inbound_event_record(
 ) -> None:
     """Record that the caller is about to act on ``event_id``."""
     from map_types.enums import InboundEventSource
+    from map_types.schemas import InboundEventCreate
 
     from cli.main import _read_text_file, _run
-    from server.domain.schemas import InboundEventCreate
 
     extra_payload: dict | None = None
     if payload_file is not None:

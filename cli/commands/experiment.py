@@ -18,9 +18,7 @@ from map_sdk.evidence import (
     EVIDENCE_METADATA_KEYS,
     metadata_has_completion_evidence,
 )
-
-from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
-from server.domain.schemas import (
+from map_types.schemas import (
     ExperimentComplete,
     ExperimentCreate,
     ExperimentLogCreate,
@@ -29,6 +27,8 @@ from server.domain.schemas import (
     PlanRevise,
     ReviewCreate,
 )
+
+from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
 experiment_app = typer.Typer(help="Experiment commands", rich_markup_mode=None)
 lock_app = typer.Typer(help="Experiment execution lock commands (per-project).")
@@ -128,8 +128,9 @@ def experiment_list(
     Defaults to a compact table view. Use ``--format yaml`` or
     ``--format json`` for full structured output (scripts / piping).
     """
+    from map_types.enums import ExperimentPhase
+
     from cli.main import _resolve_project, _run  # lazy: avoid cycle
-    from server.domain.models import ExperimentPhase
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
@@ -544,7 +545,7 @@ def experiment_archive(
     """
     from cli.main import _require_option_uuid, _run  # lazy: avoid cycle
     experiment_id = _require_option_uuid(experiment_id)
-    from server.domain.schemas import ExperimentUpdate
+    from map_types.schemas import ExperimentUpdate
 
     payload = ExperimentUpdate(archived=not (undo or unarchive))
     object_kind = "experiment"
@@ -760,9 +761,10 @@ def experiment_comment(
     body_file: Path | None = typer.Option(None, "--file", help="Read body from a file (avoids shell-quoting issues)."),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
 ) -> None:
+    from map_types.enums import CommentAnchorType
+    from map_types.schemas import CommentCreate
+
     from cli.main import _read_text_file, _run  # lazy: avoid cycle
-    from server.domain.models import CommentAnchorType
-    from server.domain.schemas import CommentCreate
 
     if body is None and body_file is None:
         typer.echo("Error: either --body or --file is required", err=True)

@@ -22,6 +22,8 @@ from map_sdk.evidence import (
     EVIDENCE_METADATA_KEYS,
     metadata_has_completion_evidence,
 )
+from map_types.enums import AgentRole
+from map_types.schemas import TopicResolve
 from pydantic import BaseModel, ConfigDict
 
 # arch experiment (0519e2a3) PR3/PR5: agent / notification /
@@ -45,8 +47,6 @@ from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
 from cli.e2e_collab import e2e_app
-from server.domain.models import AgentRole
-from server.domain.schemas import TopicResolve
 
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
 # Sub-apps live in cli/commands/*; imported here only to register via

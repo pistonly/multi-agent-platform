@@ -21,13 +21,13 @@ from typing import Any
 
 import typer
 from map_client.client import MAPClient
-
-from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
-from server.domain.schemas import (
+from map_types.schemas import (
     TopicAdvanceRound,
     TopicCommentCreate,
     TopicUpdate,
 )
+
+from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
 topic_app = typer.Typer(help="Topic commands", rich_markup_mode=None)
 mention_app = typer.Typer(help="Mention todo commands")
@@ -46,8 +46,9 @@ def topic_create(
     project_key: str | None = typer.Option(None, "--project-key"),
     description: str | None = typer.Option(None, "--description"),
 ) -> None:
+    from map_types.schemas import TopicCreate
+
     from cli.main import _resolve_project, _run
-    from server.domain.schemas import TopicCreate
 
     payload = TopicCreate(title=title, description=description)
 
@@ -102,8 +103,9 @@ def topic_list(
     Defaults to a compact table view. Use ``--format yaml`` or
     ``--format json`` for full structured output (scripts / piping).
     """
+    from map_types.enums import TopicStatus
+
     from cli.main import _resolve_creator_agent_id, _resolve_project, _run
-    from server.domain.models import TopicStatus
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)

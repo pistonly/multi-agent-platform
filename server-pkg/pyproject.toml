@@ -1,0 +1,33 @@
+[project]
+name = "multi-agent-platform-server"
+version = "0.3.1"
+description = "Meta-package: Multi-Agent Platform CLI + server dependencies"
+license = "MIT"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: OS Independent",
+]
+# Meta-package: 仅依赖 multi-agent-platform[server]，自动拉入 CLI + server 全部依赖。
+dependencies = [
+    "multi-agent-platform[server]>=0.3.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/quantaeye/multi-agent-platform"
+Documentation = "https://github.com/quantaeye/multi-agent-platform/tree/main/docs"
+Repository = "https://github.com/quantaeye/multi-agent-platform"
+Issues = "https://github.com/quantaeye/multi-agent-platform/issues"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Meta-package: 无源码，仅发布元数据。
+packages = []

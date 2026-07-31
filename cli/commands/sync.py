@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
 
 import typer
 from map_client.client import MAPClient
@@ -20,8 +19,8 @@ sync_app = typer.Typer(help="Local cache sync commands (offline browsing)")
 
 def _require_cache_session():
     """Open the local cache DB, exiting with a helpful hint if .map/ is missing."""
-    from cli.main import find_map_dir, _cli_options
-    from cli.local_cache import init_cache, get_cache_path
+    from cli.local_cache import get_cache_path, init_cache
+    from cli.main import _cli_options, find_map_dir
 
     map_dir = find_map_dir(_cli_options.get("project_root"))
     if map_dir is None:
@@ -46,8 +45,8 @@ def sync_pull(
     After pulling, you can browse topics and experiments offline using
     `map sync topics` and `map sync topic --id <uuid>`.
     """
-    from cli.main import _resolve_project, _run
     from cli.local_cache import pull_project_to_cache
+    from cli.main import _resolve_project, _run
 
     map_dir, db_path, session = _require_cache_session()
 
