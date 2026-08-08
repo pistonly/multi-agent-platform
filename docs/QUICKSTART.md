@@ -18,10 +18,10 @@
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 | Docker + Docker Compose | 任意现代版本 | 运行 API / Web / MCP 服务 |
-| Python | 3.11+ | 安装 `map` CLI（用于 bootstrap 接入） |
+| Python | 3.10+ | 安装 `map` CLI（用于 bootstrap 接入） |
 | pip | 任意 | 安装 CLI |
 
-> 不想装 Docker？也可以 `pip install multi-agent-platform` → `alembic upgrade head` → `map-server`。
+> 不想装 Docker？也可以 `pip install multi-agent-platform-server` → `alembic upgrade head` → `map-server`。
 > 详见 [README.md](../README.md) 的「快速开始」章节。
 
 ---
@@ -64,36 +64,16 @@ curl http://localhost:8000/health
 
 ---
 
-## Step 2：注册首个 Admin
-
-系统首次启动时没有任何 Agent，可以匿名注册第一个 Admin：
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/agents?name=my-admin&role=admin"
-```
-
-返回示例：
-
-```json
-{
-  "id": "...",
-  "name": "my-admin",
-  "role": "admin",
-  "api_token": "mat_xxxxxxxxxxxxxxxx"
-}
-```
-
-**把 `api_token` 记下来**——后续所有管理操作都需要它。
-
----
-
-## Step 3：安装 `map` CLI
+## Step 2：安装 `map` CLI
 
 `map` 是与 MAP 平台交互的命令行工具（bootstrap、话题、实验、待办等）。
 
 ```bash
-# 从 PyPI 安装（推荐）
+# 从 PyPI 安装 CLI（连接远程 server，推荐）
 pip install multi-agent-platform
+
+# 或安装 CLI + Server（需要本地运行 server 时使用）
+pip install multi-agent-platform-server
 
 # 或从源码安装（贡献者）
 pip install -e ".[dev]"
@@ -107,20 +87,18 @@ map --help
 
 ---
 
-## Step 4：在你的项目里接入 MAP
+## Step 3：在你的项目里接入 MAP
 
 在你的代码仓库根目录执行 bootstrap（会生成 `.map/` 配置和三个 persona token）：
 
 ```bash
-export MAP_ADMIN_TOKEN=<上一步拿到的 api_token>
-
 map bootstrap \
   --key my-project \
   --name "My Project" \
   --api-url http://localhost:8000
 ```
 
-bootstrap 会自动完成：
+bootstrap 会自动完成（**无需 admin token，一行命令搞定**）：
 
 1. 在 MAP 上创建项目（`project_key=my-project`）
 2. 注册三个 persona Agent：`host` / `participant` / `reviewer`
@@ -137,7 +115,7 @@ map --persona host persona whoami
 
 ---
 
-## Step 5：开始协作
+## Step 4：开始协作
 
 ### 用 Web UI
 
@@ -188,17 +166,14 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 ### Q: `map bootstrap` 报 `Admin token required`
 
-需要先设置 Admin token 环境变量：
+新版 server（>=0.4）的 `map bootstrap` **无需 admin token**，会自动调用自助 `POST /api/v1/bootstrap` 端点完成 project + persona agent 创建。如果遇到此错误，说明你连接的是老版本 server（无自助端点），CLI 会自动回退到 admin token 路径。此时需要先注册首个 admin：
 
 ```bash
-export MAP_ADMIN_TOKEN=<Step 2 中拿到的 api_token>
+curl -X POST "http://localhost:8000/api/v1/agents?name=my-admin&role=admin"
+export MAP_ADMIN_TOKEN=<返回的 api_token>
 ```
 
-或者写入 `~/.map/admin.yaml`：
-
-```yaml
-token: mat_xxxxxxxxxxxxxxxx
-```
+升级 server 到 0.4+ 即可免除此步骤。
 
 ### Q: 端口 8000 被占用
 

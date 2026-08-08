@@ -9,8 +9,7 @@ from pathlib import Path
 
 import typer
 from map_client.client import MAPClient
-
-from server.domain.schemas import ProjectStatusRevise
+from map_types.schemas import ProjectStatusRevise
 
 project_app = typer.Typer(help="Project commands")
 status_app = typer.Typer(help="Project Current Status commands")
@@ -124,7 +123,7 @@ def project_export(
     from cli.project_export import export_project_history
 
     if output_dir is None:
-        from cli.main import find_map_dir, _cli_options
+        from cli.main import _cli_options, find_map_dir
         map_dir = find_map_dir(_cli_options.get("project_root"))
         if map_dir is not None:
             output_dir = map_dir / "history"

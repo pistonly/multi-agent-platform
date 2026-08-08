@@ -248,12 +248,7 @@ fi
 
 echo -e "${BOLD}To connect your project to MAP:${NC}"
 echo ""
-echo -e "  ${CYAN}# In your project repo:${NC}"
-if [[ -n "${ADMIN_TOKEN:-}" ]]; then
-  echo -e "  ${CYAN}export MAP_ADMIN_TOKEN=${ADMIN_TOKEN}${NC}"
-else
-  echo -e "  ${CYAN}export MAP_ADMIN_TOKEN=<your-admin-token>${NC}"
-fi
+echo -e "  ${CYAN}# In your project repo (no admin token needed on new servers):${NC}"
 echo -e "  ${CYAN}map bootstrap --key my-project --name \"My Project\" --api-url ${API_URL}${NC}"
 echo -e "  ${CYAN}map --persona host persona whoami${NC}"
 echo ""

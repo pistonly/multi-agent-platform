@@ -33,9 +33,9 @@ def feedback_submit(
     ),
 ) -> None:
     from map_types.enums import FeedbackCategory
+    from map_types.schemas import PlatformFeedbackCreate
 
     from cli.main import _read_text_file, _run  # lazy: avoid cli.main ↔ cli.commands.* cycle
-    from server.domain.schemas import PlatformFeedbackCreate
 
     if body is None and body_file is None:
         typer.echo("Error: either --body or --file is required", err=True)
@@ -94,9 +94,9 @@ def feedback_update(
     archived: bool | None = typer.Option(None, "--archived/--no-archived"),
 ) -> None:
     from map_types.enums import FeedbackCategory, FeedbackStatus
+    from map_types.schemas import PlatformFeedbackUpdate
 
     from cli.main import _run  # lazy
-    from server.domain.schemas import PlatformFeedbackUpdate
 
     payload = PlatformFeedbackUpdate(
         status=FeedbackStatus(status) if status else None,

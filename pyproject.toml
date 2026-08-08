@@ -1,35 +1,27 @@
 [project]
 name = "multi-agent-platform"
-version = "0.3.0"
+version = "0.3.2"
 description = "Multi-Agent experiment collaboration platform"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    # 当前 CLI 与 server 代码存在耦合（cli/ 直接 import server.domain.*），
-    # 暂时保持全量依赖。后续解耦后可拆分到 [server] extra。
-    "fastapi>=0.115.0,<0.116",
-    "uvicorn[standard]>=0.32.0,<0.41",
-    "sqlalchemy>=2.0.36,<2.1",
-    "alembic>=1.14.0,<2.0",
-    "pydantic>=2.10.0,<2.12",
-    "pydantic-settings>=2.6.0,<2.9",
-    "bcrypt>=4.2.0,<6.0",
-    "python-multipart>=0.0.17,<0.1",
+    # CLI 轻量依赖：仅 SDK + CLI 运行所需。
+    # server 相关依赖（fastapi/sqlalchemy/uvicorn 等）见 [server] extra。
     "typer>=0.15.0,<0.17",
     "httpx>=0.28.0,<0.29",
     "pyyaml>=6.0,<7.0",
-    # Fernet at-rest encryption for Webhook.secret (EncryptedString)
-    "cryptography>=44.0.0,<50.0",
+    "pydantic>=2.10.0,<2.12",
 ]
 
 [project.urls]
@@ -39,7 +31,21 @@ Repository = "https://github.com/quantaeye/multi-agent-platform"
 Issues = "https://github.com/quantaeye/multi-agent-platform/issues"
 
 [project.optional-dependencies]
+# server 依赖：运行 MAP API server 所需（fastapi/sqlalchemy/uvicorn 等）。
+# 安装方式：pip install "multi-agent-platform[server]" 或 pip install multi-agent-platform-server
+server = [
+    "fastapi>=0.115.0,<0.116",
+    "uvicorn[standard]>=0.32.0,<0.41",
+    "sqlalchemy>=2.0.36,<2.1",
+    "alembic>=1.14.0,<2.0",
+    "pydantic-settings>=2.6.0,<2.9",
+    "bcrypt>=4.2.0,<6.0",
+    "python-multipart>=0.0.17,<0.1",
+    # Fernet at-rest encryption for Webhook.secret (EncryptedString)
+    "cryptography>=44.0.0,<50.0",
+]
 dev = [
+    "multi-agent-platform[server]",  # server 依赖：测试需要
     "pytest>=8.3.0,<9.0",
     "pytest-asyncio>=0.24.0,<1.0",
     "pytest-cov>=5.0.0,<7.0",
@@ -51,6 +57,7 @@ dev = [
     "pydantic-to-typescript>=2.0.0,<3.0",
 ]
 mcp = [
+    "multi-agent-platform[server]",  # 需要 fastapi/starlette
     "mcp>=1.26.0,<2.0",
 ]
 codex-runtime = [
@@ -108,7 +115,7 @@ markers = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py310"
 extend-exclude = ["reference", "tmp"]
 
 [tool.ruff.lint]
@@ -124,7 +131,7 @@ ignore = ["E501", "B008", "UP038"]
 # eng experiment (55634575) PR2: mypy strict by directory (渐进式).
 # Baseline = non-strict; we turn strict on per-module via [[tool.mypy.overrides]]
 # so each PR can promote one more directory without churning unrelated files.
-python_version = "3.11"
+python_version = "3.10"
 mypy_path = "sdk/python"
 warn_unused_ignores = true
 warn_redundant_casts = true

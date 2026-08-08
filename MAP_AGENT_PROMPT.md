@@ -27,13 +27,29 @@ Persona：
 4. 实验必须由 `host` 创建，否则后续会 403
 5. 细节流程读取已安装 Skill，不要凭本 prompt 臆造命令
 
-## 首次安装与接入
+## 安装
 
-若尚未安装：
+先问用户：「你有现成的 MAP server 地址吗？」
+
+- **有 server 地址**（团队共享 / 已部署）→ 只装 CLI：
 
 ```
 pip install multi-agent-platform
-map skill install
+```
+
+- **没有 server 地址**（需本地运行）→ 装 CLI + Server 并启动：
+
+```bash
+pip install multi-agent-platform-server
+alembic upgrade head                   # 初始化数据库
+map-server                             # 启动 API（默认 http://localhost:8000）
+```
+
+安装后验证：
+
+```bash
+map --help
+map skill install                      # 安装 5 个 Skill 到 .cursor/skills/（推荐）
 ```
 
 `map skill install` 会把 Skill 装到 `.cursor/skills/`（其他 IDE 可用 `-t .map/skills`）。之后优先读：
@@ -41,14 +57,18 @@ map skill install
 - `topic-host` / `topic-participant`
 - `experiment-host` / `experiment-reviewer`
 
-若项目还没有 `.map/`，先确认 MAP 服务地址（常见 `http://localhost:8000` 或 `:8001`），再：
+## 首次接入项目（Bootstrap）
 
-```
-export MAP_ADMIN_TOKEN=<admin-token>
-map bootstrap --key <project-key> --name "<项目名>" --api-url <api-url>
+在项目根目录执行（**无需 admin token**）：
+
+```bash
+map bootstrap \
+  --key <project-key> \
+  --name "<项目名>" \
+  --api-url <server 地址，如 http://localhost:8000>
 ```
 
-`.map/agents.local.yaml` 含 token，不要提交 Git。
+这会生成 `.map/` 目录：`config.yaml`（提交 Git）、`agents.yaml`（提交 Git）、`agents.local.yaml`（含 token，**勿提交**）。
 
 ## 每次协作开始
 
@@ -66,7 +86,6 @@ map --persona <name> work
 | 找不到 `.map/` | 在项目根目录 `map bootstrap` |
 | Unknown persona | `map persona list` |
 | 403 创建实验 | 改用 `--persona host` |
-| Admin bootstrap 失败 | 检查 `MAP_ADMIN_TOKEN` |
 | 不确定用哪个 Skill | 读 `map-project-collab` 的意图路由表 |
 
 END COPY

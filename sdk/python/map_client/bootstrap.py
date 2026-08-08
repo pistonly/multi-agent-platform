@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import yaml
-from map_types import AgentCreateResponse
+from map_types import AgentCreateResponse, BootstrapResponse
 
 from map_client.client import MAPClient
-from map_client.exceptions import MAPHTTPError
+from map_client.exceptions import MAPHTTPError, raise_for_status
 from map_client.project_config import (
     AGENTS_FILE,
     AGENTS_LOCAL_FILE,
@@ -67,6 +68,69 @@ def admin_client(api_url: str, *, transport: Any = None) -> MAPClient:
     return MAPClient(api_url.rstrip("/"), str(token), transport=transport)
 
 
+def _public_bootstrap(
+    api_url: str,
+    *,
+    project_key: str,
+    project_name: str,
+    workspace_path: str,
+    description: str | None,
+    transport: Any = None,
+) -> BootstrapResponse | None:
+    """Try the self-service ``POST /api/v1/bootstrap`` endpoint (no admin token).
+
+    Returns the parsed ``BootstrapResponse`` on success. Returns ``None``
+    if the endpoint doesn't exist (old server without the self-service
+    path) so the caller can fall back to the admin-token flow. Other
+    errors (409 conflict, 422 validation, 5xx) raise ``MAPHTTPError``.
+    """
+    url = f"{api_url.rstrip('/')}/api/v1/bootstrap"
+    body: dict[str, Any] = {
+        "project_key": project_key,
+        "project_name": project_name,
+        "workspace_path": workspace_path,
+    }
+    if description is not None:
+        body["description"] = description
+    try:
+        client = httpx.Client(transport=transport, timeout=30.0)
+    except Exception:
+        return None
+    try:
+        resp = client.post(url, json=body)
+    except Exception:
+        return None
+    finally:
+        client.close()
+    if resp.status_code == 404:
+        # Old server — no /bootstrap endpoint; fall back to admin path.
+        return None
+    if resp.status_code >= 400:
+        detail = resp.text
+        error_code: str | None = None
+        hint: str | None = None
+        retryable: bool | None = None
+        if resp.content:
+            try:
+                payload = resp.json()
+                if isinstance(payload, dict) and "detail" in payload:
+                    detail = str(payload["detail"])
+                if isinstance(payload, dict):
+                    error_code = payload.get("error_code")
+                    hint = payload.get("hint")
+                    retryable = payload.get("retryable")
+            except Exception:
+                pass
+        raise_for_status(
+            resp.status_code,
+            detail,
+            error_code=error_code if isinstance(error_code, str) else None,
+            hint=hint if isinstance(hint, str) else None,
+            retryable=retryable if isinstance(retryable, bool) else None,
+        )
+    return BootstrapResponse.model_validate(resp.json())
+
+
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -87,6 +151,68 @@ def _register_agent(
         if exc.status_code == 409:
             return None
         raise
+
+
+def _finalize_from_public_bootstrap(
+    resp: BootstrapResponse,
+    *,
+    map_dir: Path,
+    api_url: str,
+    project_key: str,
+    personas: dict[str, dict[str, str]],
+) -> BootstrapResult:
+    """Convert a successful ``POST /bootstrap`` response into ``.map/`` files.
+
+    The server already created the project + 3 persona agents atomically;
+    here we just write the 3 YAML files and build the ``ProjectMapConfig``
+    so the return value matches the admin-token path.
+    """
+    project_id = str(resp.project.id)
+    agents_yaml: dict[str, Any] = {"personas": {}}
+    agents_local: dict[str, Any] = {"personas": {}}
+
+    for agent_info in resp.agents:
+        persona_key = agent_info.persona
+        spec = personas.get(persona_key, {})
+        agents_yaml["personas"][persona_key] = {
+            "agent_name": agent_info.agent_name,
+            "description": spec.get("description"),
+            "role": "agent",
+        }
+        agents_local["personas"][persona_key] = {
+            "token": agent_info.api_token,
+            "agent_id": str(agent_info.agent_id),
+            "agent_name": agent_info.agent_name,
+        }
+
+    config_yaml = {
+        "api_url": api_url,
+        "project_key": project_key,
+        "project_id": project_id,
+        "default_persona": "host",
+    }
+    _write_yaml(map_dir / CONFIG_FILE, config_yaml)
+    _write_yaml(map_dir / AGENTS_FILE, agents_yaml)
+    _write_yaml(map_dir / AGENTS_LOCAL_FILE, agents_local)
+
+    cfg = ProjectMapConfig(
+        map_dir=map_dir,
+        api_url=api_url,
+        project_key=project_key,
+        project_id=project_id,
+        default_persona="host",
+        personas={
+            k: PersonaInfo(
+                name=k,
+                agent_name=v["agent_name"],
+                description=v.get("description"),
+                role=v.get("role"),
+            )
+            for k, v in agents_yaml["personas"].items()
+        },
+        tokens={k: v["token"] for k, v in agents_local["personas"].items()},
+    )
+    return BootstrapResult(config=cfg, created_project=True, skipped_agent_names=[])
 
 
 def bootstrap_project_map(
@@ -112,6 +238,26 @@ def bootstrap_project_map(
         )
 
     resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:8000").rstrip("/")
+
+    # 优先尝试自助 bootstrap 端点（无需 admin token，新版本 server 支持）
+    public_resp = _public_bootstrap(
+        resolved_api_url,
+        project_key=project_key,
+        project_name=project_name,
+        workspace_path=str(workspace_path),
+        description=description,
+        transport=transport,
+    )
+    if public_resp is not None:
+        return _finalize_from_public_bootstrap(
+            public_resp,
+            map_dir=map_dir,
+            api_url=resolved_api_url,
+            project_key=project_key,
+            personas=personas or DEFAULT_PERSONAS,
+        )
+
+    # 回退：admin token 路径（老版本 server 无 /bootstrap 端点）
     admin = admin_client(resolved_api_url, transport=transport)
 
     try:
