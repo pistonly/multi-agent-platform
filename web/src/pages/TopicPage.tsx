@@ -10,6 +10,7 @@ import { SystemCommentBody } from "../components/SystemCommentBody";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
 import { AgentMentionInput, AgentMentionTextarea } from "../components/AgentMentionInput";
+import { CopyableId } from "../components/CopyableId";
 import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
 import { commentDomId, parseCommentAnchor } from "../utils/commentAnchor";
@@ -154,6 +155,8 @@ export function TopicPage() {
             compact
           />
           <span>发布于 {new Date(topic.created_at).toLocaleString()}</span>
+          <span className="text-slate-600">·</span>
+          <CopyableId id={topic.id} label="Topic ID" />
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {isTopicHost && (

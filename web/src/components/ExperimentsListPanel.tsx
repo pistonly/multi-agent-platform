@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { fetchProjectExperiments } from "../api/client";
 import type { ExperimentPhase, ExperimentSummary } from "../api/types";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { CopyableId } from "./CopyableId";
 import { PaginationBar } from "./PaginationBar";
 import { PhaseBadge } from "./PhaseStepper";
 
@@ -123,6 +124,7 @@ function ExperimentTable({
       <thead className="text-slate-500">
         <tr>
           <th className="pb-2 pr-4">标题</th>
+          <th className="pb-2 pr-4">ID</th>
           <th className="pb-2 pr-4">阶段</th>
           <th className="pb-2 pr-4">计划</th>
           <th className="pb-2">更新</th>
@@ -138,6 +140,9 @@ function ExperimentTable({
               </Link>
             </td>
             <td className="py-2 pr-4">
+              <CopyableId id={exp.id} />
+            </td>
+            <td className="py-2 pr-4">
               <PhaseBadge phase={exp.phase} />
             </td>
             <td className="py-2 pr-4 text-slate-400">v{exp.current_plan_version}</td>
@@ -146,7 +151,7 @@ function ExperimentTable({
         ))}
         {experiments.length === 0 && (
           <tr>
-            <td colSpan={4} className="py-4 text-slate-500">
+            <td colSpan={5} className="py-4 text-slate-500">
               {emptyLabel}
             </td>
           </tr>

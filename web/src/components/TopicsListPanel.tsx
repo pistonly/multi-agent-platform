@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { fetchTopics } from "../api/client";
 import type { TopicStatus, TopicSummary } from "../api/types";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { CopyableId } from "./CopyableId";
 import { PaginationBar } from "./PaginationBar";
 
 const TOPIC_STATUS_TABS: { label: string; value: TopicStatus | undefined }[] = [
@@ -119,6 +120,7 @@ function TopicList({ topics, emptyLabel }: { topics: TopicSummary[]; emptyLabel?
             {t.title}
           </Link>
           <div className="flex items-center gap-3 text-xs text-slate-500">
+            <CopyableId id={t.id} />
             <span>{t.creator_name ?? `${t.creator_agent_id.slice(0, 8)}…`}</span>
             <span
               className={`badge ${t.status === "open" ? "bg-emerald-900/40 text-emerald-200" : "bg-surface text-slate-400"}`}

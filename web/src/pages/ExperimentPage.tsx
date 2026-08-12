@@ -14,6 +14,7 @@ import {
   withdrawExperiment,
 } from "../api/client";
 import { CommentTree, DisputeSection } from "../components/CommentTree";
+import { CopyableId } from "../components/CopyableId";
 import { LogPanel } from "../components/LogPanel";
 import { PlanPanel } from "../components/PlanPanel";
 import { getUnreasonableItems, ReviewSummary } from "../components/ReviewSummary";
@@ -220,14 +221,18 @@ export function ExperimentPage() {
           {experiment.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>
         {experiment.description && <p className="mt-2 text-slate-300">{experiment.description}</p>}
-        {experiment.topic_id && (
-          <p className="mt-1 text-xs text-slate-500">
-            来源话题：
-            <Link to={`/topics/${experiment.topic_id}`} className="text-accent hover:underline">
-              查看
-            </Link>
-          </p>
-        )}
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <CopyableId id={experiment.id} label="Experiment ID" />
+          {experiment.topic_id && (
+            <span className="inline-flex items-center gap-1">
+              <span className="text-slate-600">·</span>
+              <span>来源话题：</span>
+              <Link to={`/topics/${experiment.topic_id}`} className="text-accent hover:underline">
+                查看
+              </Link>
+            </span>
+          )}
+        </div>
       </div>
 
       <section className="card">
