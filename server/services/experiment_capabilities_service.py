@@ -148,6 +148,9 @@ def compute_experiment_capabilities(
 
     if phase == ExperimentPhase.draft:
         if is_creator or is_admin:
+            # v0.10: direct mode skips review — host can start directly.
+            if getattr(experiment, "mode", "standard") == "direct":
+                return ["start"], "none"
             return ["submit_for_review"], "none"
         return actions, blocked_on
 
@@ -188,7 +191,24 @@ def compute_experiment_capabilities(
         if phase == ExperimentPhase.approved:
             return ["start"], "none"
         if phase == ExperimentPhase.running:
+            # v0.10: in direct mode, completion is delegated to the
+            # executor (usually participant). But if the host self-
+            # executes (no --executor given), they can still complete.
+            if getattr(experiment, "mode", "standard") == "direct":
+                if actor.id == experiment.executor_agent_id:
+                    return ["complete"], "none"
+                return [], "waiting_for_executor"
             return ["complete"], "none"
+
+    # v0.10: in direct mode, the designated executor (participant) can
+    # complete the experiment during the running phase.
+    if (
+        phase == ExperimentPhase.running
+        and getattr(experiment, "mode", "standard") == "direct"
+        and experiment.executor_agent_id is not None
+        and actor.id == experiment.executor_agent_id
+    ):
+        return ["complete"], "none"
 
     return actions, blocked_on
 
@@ -236,15 +256,17 @@ def experiment_summary_for_actor(
         latest_log = get_latest_log(db, experiment.id)
         latest_log_summary = latest_log.summary if latest_log else None
 
+    exp_mode = getattr(experiment, "mode", "standard")
+
     update: dict[str, Any] = {
         "actions": actions,
         "blocked_on": blocked_on,
         "legacy_self_review": legacy,
         "log_count": log_count,
         "latest_log_summary": latest_log_summary,
-        "phase_owner": owner_for(experiment.phase),
+        "phase_owner": owner_for(experiment.phase, mode=exp_mode),
         "informational_only": is_informational_only(
-            experiment.phase, actions=actions, blocked_on=blocked_on
+            experiment.phase, actions=actions, blocked_on=blocked_on, mode=exp_mode
         ),
         "hidden_for_current_persona": (
             actions == []

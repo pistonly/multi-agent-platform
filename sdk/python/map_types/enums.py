@@ -16,6 +16,21 @@ class ExperimentPhase(str, enum.Enum):
     cancelled = "cancelled"
 
 
+class ExperimentMode(str, enum.Enum):
+    """Experiment lifecycle mode (v0.10).
+
+    ``standard`` — full lifecycle with reviewer gates (draft → review →
+    approved → running → result_review → done). Default for backward compat.
+
+    ``direct`` — fast path without reviewer gates (draft → running → done).
+    Host creates the plan and delegates execution to a participant via
+    ``--executor``; no review or result_review phase is entered.
+    """
+
+    standard = "standard"
+    direct = "direct"
+
+
 class PhaseOwner(str, enum.Enum):
     """Decision-owner role for each ``ExperimentPhase`` (experiment f873c287 I1(b)).
 

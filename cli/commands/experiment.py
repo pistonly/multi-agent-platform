@@ -28,6 +28,8 @@ from map_types.schemas import (
     ReviewCreate,
 )
 
+from map_types.enums import ExperimentMode
+
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
 experiment_app = typer.Typer(help="Experiment commands", rich_markup_mode=None)
@@ -48,6 +50,15 @@ def experiment_create(
     description: str | None = typer.Option(None, "--description"),
     submit_for_review: bool = typer.Option(False, "--submit-for-review"),
     topic_id: uuid.UUID | None = typer.Option(None, "--topic-id"),
+    mode: str = typer.Option(
+        "standard",
+        "--mode",
+        help=(
+            "Experiment lifecycle mode: 'standard' (default, with reviewer gates) "
+            "or 'direct' (host specifies plan, participant executes, no reviewer). "
+            "direct mode: draft → running → done."
+        ),
+    ),
     force_lint_bypass: bool = typer.Option(
         False,
         "--force-lint-bypass",
@@ -80,12 +91,23 @@ def experiment_create(
             )
             raise typer.Exit(2)
 
+    # Validate mode value early so the user gets a clear error.
+    try:
+        exp_mode = ExperimentMode(mode)
+    except ValueError:
+        typer.echo(
+            f"Error: invalid mode '{mode}'. Use 'standard' or 'direct'.",
+            err=True,
+        )
+        raise typer.Exit(2)
+
     payload = ExperimentCreate(
         title=title,
         description=description,
         plan=PlanInput(content_md=content),
         submit_for_review=submit_for_review,
         topic_id=topic_id,
+        mode=exp_mode,
     )
 
     def action(c: MAPClient):
@@ -97,13 +119,14 @@ def experiment_create(
 
 def _render_experiment_table(experiments: Any) -> str:
     """Render a list of ExperimentSummaryRead as a compact table."""
-    headers = ["ID", "Title", "Phase", "Plan v", "Logs", "Topic", "Updated"]
+    headers = ["ID", "Title", "Phase", "Mode", "Plan v", "Logs", "Topic", "Updated"]
     rows = []
     for e in experiments:
         rows.append([
             short_uuid(e.id),
             truncate(e.title, 50),
             enum_value(e.phase),
+            enum_value(getattr(e, "mode", "standard")),
             f"v{e.current_plan_version}",
             str(getattr(e, "log_count", 0)),
             short_uuid(e.topic_id) if e.topic_id else "-",
@@ -173,11 +196,15 @@ def experiment_start(
         ),
     ),
 ) -> None:
-    """Start experiment execution (approved → running).
+    """Start experiment execution (approved → running, or draft → running in direct mode).
 
     Migration 042 adds optional executor delegation: pass ``--executor``
     with an agent name or UUID to designate who may call ``complete``.
     The host retains all other lifecycle gates (cancel / withdraw / etc).
+
+    v0.10: in ``direct`` mode, the experiment goes from ``draft`` directly
+    to ``running`` (skipping review/approved). Use ``--executor participant``
+    to delegate execution to the participant persona.
     """
     from cli.main import _resolve_executor_agent_id, _resolve_project, _run  # lazy: avoid cycle
 

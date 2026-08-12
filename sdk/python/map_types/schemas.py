@@ -10,6 +10,7 @@ from map_types.enums import (
     ActionItemCategory,
     AgentRole,
     CommentAnchorType,
+    ExperimentMode,
     ExperimentPhase,
     FeedbackCategory,
     FeedbackStatus,
@@ -236,6 +237,10 @@ class ExperimentCreate(BaseModel):
     plan: PlanInput
     submit_for_review: bool = False
     topic_id: uuid.UUID | None = None
+    # v0.10: ``direct`` mode skips reviewer gates (draft → running → done).
+    # When ``mode=direct``, ``submit_for_review`` is silently ignored
+    # (direct mode has no review phase to submit to).
+    mode: ExperimentMode = ExperimentMode.standard
 
 
 class ExperimentUpdate(BaseModel):
@@ -267,6 +272,8 @@ class ExperimentSummaryRead(ORMModel):
     title: str
     description: str | None
     phase: ExperimentPhase
+    # v0.10: experiment lifecycle mode.
+    mode: ExperimentMode = ExperimentMode.standard
     current_plan_version: int
     topic_id: uuid.UUID | None = None
     warnings: list[str] = Field(default_factory=list)

@@ -4,6 +4,7 @@ from datetime import datetime
 from map_types.enums import (
     AgentRole,
     CommentAnchorType,
+    ExperimentMode,
     ExperimentPhase,
     FeedbackCategory,
     FeedbackStatus,
@@ -192,6 +193,13 @@ class Experiment(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     phase: Mapped[ExperimentPhase] = mapped_column(
         Enum(ExperimentPhase), default=ExperimentPhase.draft, nullable=False, index=True
+    )
+    # v0.10: experiment lifecycle mode. ``standard`` (default) uses the
+    # full draft → review → approved → running → result_review → done
+    # lifecycle. ``direct`` skips reviewer gates: draft → running → done.
+    # Set at creation time; immutable thereafter.
+    mode: Mapped[str] = mapped_column(
+        String(16), default=ExperimentMode.standard.value, nullable=False
     )
     current_plan_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

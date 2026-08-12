@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from server.domain.models import ExperimentPhase, ReviewItem, ReviewItemStatus
+from map_types.enums import ExperimentMode, ExperimentPhase, ReviewItemStatus
+from server.domain.models import ReviewItem
 
 
 class StateMachineError(Exception):
@@ -8,6 +9,31 @@ class StateMachineError(Exception):
 
 
 TERMINAL_PHASES = frozenset({ExperimentPhase.done, ExperimentPhase.cancelled})
+
+_DIRECT_ALLOWED: dict[ExperimentPhase, set[ExperimentPhase]] = {
+    ExperimentPhase.draft: {ExperimentPhase.running, ExperimentPhase.cancelled},
+    ExperimentPhase.running: {ExperimentPhase.done, ExperimentPhase.cancelled},
+    ExperimentPhase.done: set(),
+    ExperimentPhase.cancelled: set(),
+}
+
+_STANDARD_ALLOWED: dict[ExperimentPhase, set[ExperimentPhase]] = {
+    ExperimentPhase.draft: {ExperimentPhase.review, ExperimentPhase.cancelled},
+    ExperimentPhase.review: {
+        ExperimentPhase.approved,
+        ExperimentPhase.draft,
+        ExperimentPhase.cancelled,
+    },
+    ExperimentPhase.approved: {ExperimentPhase.running, ExperimentPhase.cancelled},
+    ExperimentPhase.running: {ExperimentPhase.result_review, ExperimentPhase.cancelled},
+    ExperimentPhase.result_review: {
+        ExperimentPhase.done,
+        ExperimentPhase.running,
+        ExperimentPhase.cancelled,
+    },
+    ExperimentPhase.done: set(),
+    ExperimentPhase.cancelled: set(),
+}
 
 
 @dataclass
@@ -18,28 +44,20 @@ class ReviewItemTransitionContext:
     via_plan_revision: bool = False
 
 
-def validate_phase_transition(current: ExperimentPhase, target: ExperimentPhase) -> None:
-    allowed: dict[ExperimentPhase, set[ExperimentPhase]] = {
-        ExperimentPhase.draft: {ExperimentPhase.review, ExperimentPhase.cancelled},
-        ExperimentPhase.review: {
-            ExperimentPhase.approved,
-            ExperimentPhase.draft,
-            ExperimentPhase.cancelled,
-        },
-        ExperimentPhase.approved: {ExperimentPhase.running, ExperimentPhase.cancelled},
-        ExperimentPhase.running: {ExperimentPhase.result_review, ExperimentPhase.cancelled},
-        ExperimentPhase.result_review: {
-            ExperimentPhase.done,
-            ExperimentPhase.running,
-            ExperimentPhase.cancelled,
-        },
-        ExperimentPhase.done: set(),
-        ExperimentPhase.cancelled: set(),
-    }
+def validate_phase_transition(
+    current: ExperimentPhase,
+    target: ExperimentPhase,
+    *,
+    mode: str = ExperimentMode.standard.value,
+) -> None:
     if current in TERMINAL_PHASES:
         raise StateMachineError(f"Cannot transition from terminal phase '{current.value}'")
-    if target not in allowed.get(current, set()):
-        raise StateMachineError(f"Invalid phase transition: {current.value} -> {target.value}")
+    table = _DIRECT_ALLOWED if mode == ExperimentMode.direct.value else _STANDARD_ALLOWED
+    if target not in table.get(current, set()):
+        raise StateMachineError(
+            f"Invalid phase transition: {current.value} -> {target.value}"
+            f" (mode={mode})"
+        )
 
 
 def validate_review_item_transition(

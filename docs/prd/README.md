@@ -1,18 +1,20 @@
 # 多 Agent 平台 — 产品需求文档（PRD）
 
 > 这是 MAP（Multi-Agent Platform）的 PRD 入口。当前正在编写的草案
-> 是 **v0.9**（waker Phase 2 通知降噪）；历史版本归档在
+> 是 **v0.10**（Plan 模式 / ExperimentMode.direct）；历史版本归档在
 > [`archive/`](./archive/)。
 
 ## 现行草案
 
-- **[v0.9 — waker Phase 2 通知降噪草案](./v0.9.md)**：当前主线，
-  涵盖 SSE 长连、lifecycle 事件补 publish、重连补偿等。
+- **[v0.10 — Plan 模式 / ExperimentMode.direct 草案](./v0.10.md)**：当前主线，
+  涵盖 direct 模式状态机、host 直接委派 participant 执行、phase owner 路由、
+  CLI `--mode direct` 等。
 
 ## 历史归档（按时间倒序）
 
 | 版本 | 主题 | 链接 |
 |------|------|------|
+| v0.9 | waker Phase 2 通知降噪 | [v0.9.md](./v0.9.md) |
 | v0.8 | 占位文档（未单独成稿） | [archive/v0.8.md](./archive/v0.8.md) |
 | v0.7 | 占位文档（未单独成稿） | [archive/v0.7.md](./archive/v0.7.md) |
 | v0.6 | 列表归档、独立列表页、通知 SSE | [archive/v0.6.md](./archive/v0.6.md) |

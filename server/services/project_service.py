@@ -305,6 +305,13 @@ def create_experiment(
                 f"Topic already has an active experiment ({active.id}); complete or cancel it first"
             )
     phase = ExperimentPhase.review if payload.submit_for_review else ExperimentPhase.draft
+    # v0.10: direct mode skips reviewer gates. If both submit_for_review
+    # and mode=direct are set, direct takes precedence (no review phase
+    # exists in the direct lifecycle).
+    experiment_mode = payload.mode.value if hasattr(payload, "mode") else "standard"
+    if experiment_mode == "direct" and payload.submit_for_review:
+        # Silently override: direct mode has no review phase.
+        phase = ExperimentPhase.draft
     # I1(b): mirror the phase_owner column to the resolver's answer at
     # creation time so the ``informational_only`` auto-classification
     # works for the create-with-submit path too (not just for the
@@ -318,9 +325,10 @@ def create_experiment(
         title=payload.title,
         description=payload.description,
         phase=phase,
+        mode=experiment_mode,
         current_plan_version=1,
         topic_id=payload.topic_id,
-        phase_owner=owner_for(phase).value,
+        phase_owner=owner_for(phase, mode=experiment_mode).value,
     )
     db.add(experiment)
     db.flush()

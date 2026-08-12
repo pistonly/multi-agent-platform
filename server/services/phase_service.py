@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections import Counter
 from typing import Any
@@ -5,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from map_types.enums import ExperimentMode
 from server.domain.models import (
     Agent,
     AgentRole,
@@ -39,11 +41,16 @@ def _sync_phase_owner(experiment) -> None:
     future override path (e.g. admin override, experiment.phase_owner
     column hand-edit) can plug in here without touching every site.
 
+    In ``direct`` mode (v0.10), the resolver routes ``running`` to
+    ``participant`` instead of ``host``.
+
     Type-annotation uses a string forward reference (``Experiment``) so
     this helper can live next to its callers without pulling the heavy
     model imports into this module's top-level namespace.
     """
-    experiment.phase_owner = owner_for(experiment.phase).value
+    experiment.phase_owner = owner_for(
+        experiment.phase, mode=getattr(experiment, "mode", "standard")
+    ).value
 
 
 def _ensure_creator_or_admin(experiment, actor: Agent) -> None:
@@ -93,7 +100,7 @@ def submit_for_review(db: Session, experiment_id: uuid.UUID, actor: Agent) -> No
     _ensure_creator_or_admin(experiment, actor)
     if experiment.current_plan_version < 1:
         raise StateTransitionError("Experiment must have a plan before review")
-    validate_phase_transition(experiment.phase, ExperimentPhase.review)
+    validate_phase_transition(experiment.phase, ExperimentPhase.review, mode=experiment.mode)
     experiment.phase = ExperimentPhase.review
     _sync_phase_owner(experiment)
     db.commit()
@@ -103,7 +110,7 @@ def approve_experiment(db: Session, experiment_id: uuid.UUID, actor: Agent) -> N
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
     assert_approve_eligibility(db, experiment)
-    validate_phase_transition(experiment.phase, ExperimentPhase.approved)
+    validate_phase_transition(experiment.phase, ExperimentPhase.approved, mode=experiment.mode)
     experiment.phase = ExperimentPhase.approved
     _sync_phase_owner(experiment)
     db.commit()
@@ -112,7 +119,7 @@ def approve_experiment(db: Session, experiment_id: uuid.UUID, actor: Agent) -> N
 def withdraw_from_review(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
-    validate_phase_transition(experiment.phase, ExperimentPhase.draft)
+    validate_phase_transition(experiment.phase, ExperimentPhase.draft, mode=experiment.mode)
     experiment.phase = ExperimentPhase.draft
     _sync_phase_owner(experiment)
     db.commit()
@@ -121,7 +128,7 @@ def withdraw_from_review(db: Session, experiment_id: uuid.UUID, actor: Agent) ->
 def cancel_experiment(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
-    validate_phase_transition(experiment.phase, ExperimentPhase.cancelled)
+    validate_phase_transition(experiment.phase, ExperimentPhase.cancelled, mode=experiment.mode)
     experiment.phase = ExperimentPhase.cancelled
     _sync_phase_owner(experiment)
     db.commit()
@@ -133,7 +140,10 @@ def start_experiment(
     actor: Agent,
     executor_agent_id: uuid.UUID | None = None,
 ) -> None:
-    """Transition ``approved → running`` and optionally delegate execution.
+    """Transition to ``running`` and optionally delegate execution.
+
+    Standard mode: ``approved → running``.
+    Direct mode (v0.10): ``draft → running`` (skips review/approved).
 
     ``actor`` must be the host creator (or admin) — the host retains the
     decision to *start* the experiment. ``executor_agent_id`` designates
@@ -171,7 +181,7 @@ def start_experiment(
             raise ForbiddenError(
                 "Executor must be a member of the same project as the experiment"
             )
-    validate_phase_transition(experiment.phase, ExperimentPhase.running)
+    validate_phase_transition(experiment.phase, ExperimentPhase.running, mode=experiment.mode)
     experiment.executor_agent_id = resolved_executor_id
     experiment.phase = ExperimentPhase.running
     _sync_phase_owner(experiment)
@@ -311,7 +321,70 @@ def complete_experiment(
 ) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_can_complete(experiment, actor)
-    validate_phase_transition(experiment.phase, ExperimentPhase.result_review)
+
+    is_direct = experiment.mode == ExperimentMode.direct.value
+
+    if is_direct:
+        # v0.10 direct mode: running → done (skip result_review).
+        # Evidence metadata is a soft warning, not a hard gate.
+        validate_phase_transition(
+            experiment.phase, ExperimentPhase.done, mode=experiment.mode
+        )
+        if not metadata_has_completion_evidence(payload.metadata):
+            logging.warning(
+                "direct-mode experiment %s completed without evidence metadata",
+                experiment_id,
+            )
+        append_log(
+            db,
+            experiment_id,
+            actor,
+            ExperimentLogCreate(
+                summary=payload.summary,
+                content_md=payload.content_md,
+                metadata=payload.metadata,
+            ),
+        )
+        # A2 cascade: mark linked open action_items as done (same as
+        # accept_result in standard mode).
+        open_items = db.scalars(
+            select(TopicActionItem).where(
+                TopicActionItem.linked_experiment_id == experiment_id,
+                TopicActionItem.status == TopicActionItemStatus.open,
+            )
+        ).all()
+        cascaded: list[dict[str, Any]] = []
+        for item in open_items:
+            cascaded.append(
+                topic_service._complete_action_item_no_commit(
+                    db,
+                    item,
+                    triggered_by=f"experiment.completed:{experiment_id}",
+                )
+            )
+        experiment.phase = ExperimentPhase.done
+        _sync_phase_owner(experiment)
+        audit_service.log_no_commit(
+            db,
+            action="experiment.completed",
+            target_type="experiment",
+            target_id=experiment_id,
+            agent_id=actor.id,
+            project_id=experiment.project_id,
+            summary=f"实验完成「{experiment.title}」(direct)",
+            payload={
+                "experiment_id": str(experiment_id),
+                "mode": "direct",
+                "cascaded_action_items": cascaded,
+            },
+        )
+        db.commit()
+        return
+
+    # --- standard mode (unchanged) ---
+    validate_phase_transition(
+        experiment.phase, ExperimentPhase.result_review, mode=experiment.mode
+    )
     if not metadata_has_completion_evidence(payload.metadata):
         keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
         raise StateTransitionError(
@@ -343,7 +416,7 @@ def accept_result(
     _ensure_result_reviewer(
         experiment.creator_agent_id, actor, experiment.executor_agent_id
     )
-    validate_phase_transition(experiment.phase, ExperimentPhase.done)
+    validate_phase_transition(experiment.phase, ExperimentPhase.done, mode=experiment.mode)
 
     # === A2 cascade: 同事务把关联的 open action_item 自动 done ===
     open_items = db.scalars(
@@ -445,7 +518,7 @@ def reject_result(
     _ensure_result_reviewer(
         experiment.creator_agent_id, actor, experiment.executor_agent_id
     )
-    validate_phase_transition(experiment.phase, ExperimentPhase.running)
+    validate_phase_transition(experiment.phase, ExperimentPhase.running, mode=experiment.mode)
     if payload.verdict_file is not None:
         verdict_fragment = _validate_and_summarize_verdict_file(
             db, experiment_id, payload.verdict_file

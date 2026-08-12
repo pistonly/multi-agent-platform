@@ -32,7 +32,7 @@ from typing import Final
 # Reuse the SDK enum so the public contract stays single-source. If the
 # enum is ever renamed, this import will surface that immediately at the
 # service layer.
-from map_types.enums import ExperimentPhase, PhaseOwner
+from map_types.enums import ExperimentMode, ExperimentPhase, PhaseOwner
 
 # Mirror the enum values verbatim so Alembic / non-SDK callers don't need
 # to import pydantic. KEPT IN SYNC with PhaseOwner — assertion below.
@@ -55,16 +55,33 @@ assert set(_OWNERS) == {*{p.value for p in ExperimentPhase}, "revise"}, (
     f"extra={set(_OWNERS) - {p.value for p in ExperimentPhase} - {'revise'}}"
 )
 
+# v0.10: in direct mode, the ``running`` phase is owned by the
+# participant (executor), not the host. The host is informational_only
+# during execution — waiting for the participant to complete.
+_DIRECT_OVERRIDES: Final[dict[str, str]] = {
+    ExperimentPhase.running.value: PhaseOwner.participant.value,
+}
 
-def owner_for(phase: str | ExperimentPhase) -> PhaseOwner:
+
+def owner_for(
+    phase: str | ExperimentPhase,
+    *,
+    mode: str = ExperimentMode.standard.value,
+) -> PhaseOwner:
     """Return the persona who currently holds decision authority for ``phase``.
 
     Accepts either an ``ExperimentPhase`` enum member or its raw string
     value. Unknown phases fall back to ``host`` — the conservative default
     that keeps ``informational_only`` false (which means the experiment
     stays in the host's actionable obligation list).
+
+    In ``direct`` mode (v0.10), the ``running`` phase is owned by the
+    participant (executor) instead of the host, so todos / waker route
+    execution obligations to the participant persona.
     """
     key = phase.value if isinstance(phase, ExperimentPhase) else phase
+    if mode == ExperimentMode.direct.value and key in _DIRECT_OVERRIDES:
+        return PhaseOwner(_DIRECT_OVERRIDES[key])
     return PhaseOwner(_OWNERS.get(key, PhaseOwner.host.value))
 
 
@@ -73,6 +90,7 @@ def is_informational_only(
     *,
     actions: list[str],
     blocked_on: str | None,
+    mode: str = ExperimentMode.standard.value,
 ) -> bool:
     """I1(a) auto-classification predicate.
 
@@ -87,9 +105,12 @@ def is_informational_only(
     ``my_open_experiments.partition[].informational_only`` field; it is
     re-used by the waker exclusion rule (I1(f)) and by the participant
     filter (I1(e)).
+
+    In ``direct`` mode (v0.10), the ``running`` phase is owned by the
+    participant, so the host is informational_only during execution.
     """
     if actions:
         return False
     if not blocked_on:
         return False
-    return owner_for(phase) is not PhaseOwner.host
+    return owner_for(phase, mode=mode) is not PhaseOwner.host
