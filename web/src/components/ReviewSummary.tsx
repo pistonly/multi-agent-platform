@@ -10,6 +10,7 @@ const STATUS_LABELS: Record<ReviewItemStatus, string> = {
   resolved: "已认可",
   withdrawn: "已撤回",
   escalated: "已升级",
+  closed: "已关闭",
 };
 
 const STATUS_COLORS: Record<ReviewItemStatus, string> = {
@@ -19,6 +20,7 @@ const STATUS_COLORS: Record<ReviewItemStatus, string> = {
   resolved: "bg-emerald-900/50 text-emerald-200",
   withdrawn: "bg-slate-700 text-slate-300",
   escalated: "bg-purple-900/50 text-purple-200",
+  closed: "bg-slate-700 text-slate-400",
 };
 
 const ARCHIVED_REASON_LABELS: Record<string, string> = {

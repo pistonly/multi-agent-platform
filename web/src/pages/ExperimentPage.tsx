@@ -369,6 +369,7 @@ export function ExperimentPage() {
             onUpdated={invalidate}
             canRevise={hasExperimentAction(actions, "plan_revise")}
             highlightRevise={highlightPlanRevise}
+            planFilePath={experiment.plan_file_path}
           />
         </div>
         <div ref={reviewPanelRef}>
@@ -431,6 +432,7 @@ export function ExperimentPage() {
           logs={logs}
           canAppend={canAppendLog}
           onUpdated={invalidate}
+          logFilePath={experiment.log_file_path}
         />
       </section>
     </div>

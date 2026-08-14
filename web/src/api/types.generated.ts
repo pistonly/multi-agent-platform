@@ -11,11 +11,40 @@ export type AcceptanceType = "migration" | "smoke" | "unit_test" | "integration"
  */
 export type ActionItemCategory = "implementation" | "decision" | "unspecified";
 export type AgentRole = "agent" | "admin";
-export type TopicDiscussionRound = string;
+export type AgentRole1 = "agent" | "admin";
 export type ExperimentPhase = "draft" | "review" | "approved" | "running" | "result_review" | "done" | "cancelled";
-export type ReviewItemStatus = "open" | "addressed" | "rebutted" | "resolved" | "withdrawn" | "escalated";
+/**
+ * Experiment lifecycle mode (v0.10).
+ *
+ * ``standard`` — full lifecycle with reviewer gates (draft → review →
+ * approved → running → result_review → done). Default for backward compat.
+ *
+ * ``direct`` — fast path without reviewer gates (draft → running → done).
+ * Host creates the plan and delegates execution to a participant via
+ * ``--executor``; no review or result_review phase is entered.
+ */
+export type ExperimentMode = "standard" | "direct";
+/**
+ * Decision-owner role for each ``ExperimentPhase`` (experiment f873c287 I1(b)).
+ *
+ * Maps which persona holds the decision authority to *advance* a given
+ * phase — used by ``informational_only`` auto-classification
+ * (I1(a): ``actions=[] AND blocked_on AND phase_owner != host``) and by
+ * the UI "host blocked, waiting on {phase_owner}" copy (I1(d)).
+ *
+ * Semantics — "decision owner", not "executor":
+ * - ``draft``      → host    (creator drafts the plan)
+ * - ``review``     → reviewer (non-creator reviews & submits verdict)
+ * - ``revise``     → host    (revising is a host decision during review)
+ * - ``approved``   → host    (host decides to start)
+ * - ``running``    → host    (host owns execution)
+ * - ``result_review`` → reviewer (non-creator reviews result)
+ * - ``done``       → host    (host owns archival / follow-ups)
+ * - ``cancelled``  → host    (host decides to cancel; admin can override)
+ */
+export type PhaseOwner = "host" | "reviewer" | "participant" | "admin";
+export type ReviewItemStatus = "open" | "addressed" | "rebutted" | "resolved" | "withdrawn" | "escalated" | "closed";
 export type TopicStatus = "open" | "closed";
-export type TopicDiscussionRound1 = string;
 export type TopicActionItemStatus = "open" | "done" | "cancelled";
 export type NotificationCategory = "wakeable" | "digest";
 /**
@@ -30,9 +59,65 @@ export type NotificationCategory = "wakeable" | "digest";
  */
 export type NotificationFingerprintVersion = "v1" | "v2";
 export type CommentAnchorType = "plan" | "review" | "review_item" | "comment";
+/**
+ * Experiment lifecycle mode (v0.10).
+ *
+ * ``standard`` — full lifecycle with reviewer gates (draft → review →
+ * approved → running → result_review → done). Default for backward compat.
+ *
+ * ``direct`` — fast path without reviewer gates (draft → running → done).
+ * Host creates the plan and delegates execution to a participant via
+ * ``--executor``; no review or result_review phase is entered.
+ */
+export type ExperimentMode1 = "standard" | "direct";
+/**
+ * Decision-owner role for each ``ExperimentPhase`` (experiment f873c287 I1(b)).
+ *
+ * Maps which persona holds the decision authority to *advance* a given
+ * phase — used by ``informational_only`` auto-classification
+ * (I1(a): ``actions=[] AND blocked_on AND phase_owner != host``) and by
+ * the UI "host blocked, waiting on {phase_owner}" copy (I1(d)).
+ *
+ * Semantics — "decision owner", not "executor":
+ * - ``draft``      → host    (creator drafts the plan)
+ * - ``review``     → reviewer (non-creator reviews & submits verdict)
+ * - ``revise``     → host    (revising is a host decision during review)
+ * - ``approved``   → host    (host decides to start)
+ * - ``running``    → host    (host owns execution)
+ * - ``result_review`` → reviewer (non-creator reviews result)
+ * - ``done``       → host    (host owns archival / follow-ups)
+ * - ``cancelled``  → host    (host decides to cancel; admin can override)
+ */
+export type PhaseOwner1 = "host" | "reviewer" | "participant" | "admin";
 export type ReviewSubstituteKind = "none" | "admin_for_others" | "admin_self_substitute";
+/**
+ * Reason a ``Review`` row was archived.
+ *
+ * ``auto`` — archived automatically by ``plan_revise`` because the host
+ * bumped ``current_plan_version`` and this row is no longer canonical.
+ * Also used as the historical backfill marker for rows that predate
+ * the archive feature (the UI renders those with a
+ * ``(pre-archive, all reviews shown)`` hint).
+ * ``manual`` — archived explicitly by an admin or host (e.g. duplicate
+ * review row, withdrawn reviewer).
+ * ``superseded`` — the review's plan_version was explicitly superseded
+ * by a later authoritative review at the same plan_version (rare;
+ * reserved for the future review-amendment flow).
+ */
 export type ReviewArchivedReason = "auto" | "manual" | "superseded";
 export type ReviewItemKind = "reasonable" | "unreasonable";
+export type ResolutionReason = "resolved" | "rebutted" | "superseded";
+/**
+ * Experiment lifecycle mode (v0.10).
+ *
+ * ``standard`` — full lifecycle with reviewer gates (draft → review →
+ * approved → running → result_review → done). Default for backward compat.
+ *
+ * ``direct`` — fast path without reviewer gates (draft → running → done).
+ * Host creates the plan and delegates execution to a participant via
+ * ``--executor``; no review or result_review phase is entered.
+ */
+export type ExperimentMode2 = "standard" | "direct";
 /**
  * Reviewer's per-item verdict on experiment acceptance.
  *
@@ -61,7 +146,6 @@ export type FeedbackCategory = "bug" | "suggestion" | "question" | "other";
 export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
 export type TopicCommentKind = "user" | "system";
 export type TopicCommentKind1 = "user" | "system";
-export type TopicDiscussionRound2 = string;
 
 export interface AcceptanceStatusRead {
   id: string;
@@ -117,10 +201,26 @@ export interface ActionItemWakeSentPayload {
   elapsed_since_first_open_seconds: number;
   triggered_by?: string;
 }
+/**
+ * Body for ``POST /api/v1/agents`` (cleanup experiment f12a5638 P2 #5).
+ *
+ * Replaces the legacy query-param creation contract so the endpoint
+ * follows the same body-driven pattern as every other write endpoint
+ * in the API. ``project_id`` and ``project_key`` are both accepted for
+ * caller convenience — at most one must resolve to a project for
+ * ``role=agent`` (admin-only). When both are omitted the service layer
+ * raises ``ValueError`` which maps to 400.
+ */
+export interface AgentCreate {
+  name: string;
+  role?: AgentRole;
+  project_id?: string | null;
+  project_key?: string | null;
+}
 export interface AgentCreateResponse {
   id: string;
   name: string;
-  role: AgentRole;
+  role: AgentRole1;
   project_id: string | null;
   project_key?: string | null;
   created_at: string;
@@ -129,7 +229,7 @@ export interface AgentCreateResponse {
 export interface AgentRead {
   id: string;
   name: string;
-  role: AgentRole;
+  role: AgentRole1;
   project_id: string | null;
   project_key?: string | null;
   created_at: string;
@@ -150,7 +250,7 @@ export interface TopicProgressListRead {
 export interface TopicProgressItemRead {
   topic_id: string;
   topic_title: string;
-  discussion_round: TopicDiscussionRound;
+  discussion_round: string;
   last_comment_author_agent_id?: string | null;
   last_comment_author_name?: string | null;
   my_last_comment_id?: string | null;
@@ -206,9 +306,11 @@ export interface ExperimentSummaryRead {
   id: string;
   project_id: string;
   creator_agent_id: string;
+  executor_agent_id?: string | null;
   title: string;
   description: string | null;
   phase: ExperimentPhase;
+  mode?: ExperimentMode;
   current_plan_version: number;
   topic_id?: string | null;
   warnings?: string[];
@@ -226,6 +328,31 @@ export interface ExperimentSummaryRead {
   actions?: string[];
   blocked_on?: string | null;
   legacy_self_review?: boolean;
+  phase_owner?: PhaseOwner;
+  informational_only?: boolean;
+  hidden_for_current_persona?: boolean;
+  template_validation?: TemplateValidationSchema | null;
+  plan_file_path?: string | null;
+  log_file_path?: string | null;
+}
+/**
+ * Soft validation result for a result submission (b72d0542 I1.b).
+ *
+ * Mirrors :class:`EvidenceValidationSchema` (8ac93d4e I1.c): ``valid``
+ * is always True (soft validation never blocks ``experiment complete``).
+ * ``warnings`` lists missing 4-段 sections or malformed markdown links
+ * detected in the ``## 实施 log`` section body.
+ */
+export interface TemplateValidationSchema {
+  warnings?: TemplateWarningSchema[];
+  sections_present?: string[];
+  log_link_count?: number;
+  valid?: boolean;
+}
+export interface TemplateWarningSchema {
+  code: "MISSING_TEMPLATE_SECTION" | "NO_LINK_IN_LOG_SECTION" | "MALFORMED_MARKDOWN_LINK";
+  section?: string | null;
+  detail?: string | null;
 }
 /**
  * Read-only experiment review snapshot for non-reviewer personas.
@@ -267,7 +394,7 @@ export interface PendingTopicReplyTodoRead {
 export interface PendingRoundAckTodoRead {
   topic_id: string;
   topic_title: string;
-  discussion_round: TopicDiscussionRound;
+  discussion_round: string;
   round_summary_count?: number;
   summary_comment_id?: string | null;
   summary_excerpt?: string | null;
@@ -284,7 +411,7 @@ export interface PendingRoundAckTodoRead {
 export interface PendingAdvanceRoundTodoRead {
   topic_id: string;
   topic_title: string;
-  discussion_round: TopicDiscussionRound;
+  discussion_round: string;
   round_summary_count?: number;
   stale_since?: string | null;
   updated_at: string;
@@ -299,7 +426,7 @@ export interface PendingAdvanceRoundTodoRead {
 export interface StaleOpenTopicTodoRead {
   topic_id: string;
   topic_title: string;
-  discussion_round: TopicDiscussionRound;
+  discussion_round: string;
   round_summary_count?: number;
   stale_since: string;
   updated_at: string;
@@ -311,9 +438,10 @@ export interface TopicSummaryRead {
   creator_name?: string | null;
   title: string;
   description: string | null;
+  slug?: string | null;
   status: TopicStatus;
   pinned?: boolean;
-  discussion_round?: TopicDiscussionRound1;
+  discussion_round?: string;
   round_summary_count?: number;
   comment_count?: number;
   experiment_count?: number;
@@ -408,14 +536,9 @@ export interface AgentWorkSummaryRead {
   buckets?: SummaryBucket[];
   topics_needing_attention?: number;
   experiments_needing_attention?: number;
-  /**
-   * f873c287 I1(e): per-phase_owner breakdown of the experiment attention
-   * counter. Keys are PhaseOwner.value strings ("host" / "reviewer" /
-   * "participant" / "admin"). Visibility-filtered: under
-   * `visibility_filter_applied: true` the `host` key is dropped because the
-   * underlying bucket is host_only.
-   */
-  experiments_needing_attention_by_owner?: { [key: string]: number };
+  experiments_needing_attention_by_owner?: {
+    [k: string]: number;
+  };
   topics_truncated?: number;
   experiments_truncated?: number;
   visibility_filter_applied?: boolean;
@@ -465,6 +588,39 @@ export interface AuditLogRead {
   } | null;
   created_at: string;
 }
+export interface BootstrapAgentResult {
+  persona: string;
+  agent_id: string;
+  agent_name: string;
+  api_token: string;
+}
+/**
+ * Body for ``POST /api/v1/bootstrap`` — self-service project + persona agents.
+ *
+ * Lets a new user create a project and the 3 default persona agents
+ * (host/participant/reviewer) in a single atomic call without an admin
+ * token. Returns the plaintext API tokens (shown once).
+ */
+export interface BootstrapRequest {
+  project_key: string;
+  project_name: string;
+  workspace_path: string;
+  description?: string | null;
+}
+export interface BootstrapResponse {
+  project: ProjectRead;
+  agents: BootstrapAgentResult[];
+}
+export interface ProjectRead {
+  id: string;
+  project_key: string;
+  name: string;
+  workspace_path: string;
+  description: string | null;
+  current_status_version: number;
+  created_at: string;
+  archived_at: string | null;
+}
 export interface CommentCreate {
   anchor_type: CommentAnchorType;
   anchor_id: string;
@@ -496,12 +652,52 @@ export interface CommentTreeNode {
   unresolved_mentions?: string[];
   children?: CommentTreeNode[];
 }
+export interface CrossPersonaCallRecord {
+  visibility_diff?: {
+    [k: string]: unknown;
+  };
+  result_partition_count?: number;
+  diff_size?: number;
+}
 export interface DismissAllMentionsResultRead {
   dismissed: number;
 }
 export interface DismissMentionResultRead {
   id: string;
   dismissed_at: string;
+}
+/**
+ * Resolution of a STATE_MACHINE.* error's escalation contact.
+ *
+ * Returned by ``GET /api/v1/agents/me/escalation-target?experiment_id=...``.
+ * The CLI uses this on ``MAPHTTPError`` with a STATE_MACHINE.* error_code
+ * so the user knows who to ping about a state-machine refusal.
+ */
+export interface EscalationTargetRead {
+  experiment_id: string | null;
+  escalation_target_id: string | null;
+  escalation_label: string;
+  tier: string;
+}
+/**
+ * Soft validation result for an ``ExperimentLogCreate`` payload.
+ *
+ * The validator never blocks the log save — ``valid`` is always True.
+ * ``warnings`` lists evidence_keys declared in plan frontmatter that are
+ * missing from the supplied metadata; ``parse_error`` is set when the
+ * plan frontmatter existed but its YAML failed to parse.
+ */
+export interface EvidenceValidationSchema {
+  warnings?: EvidenceWarningSchema[];
+  parse_error?: string | null;
+  plan_keys?: string[];
+  valid?: boolean;
+}
+export interface EvidenceWarningSchema {
+  code: "MISSING_EVIDENCE_KEY";
+  missing_key: string;
+  plan_required?: boolean;
+  log_provided?: boolean;
 }
 /**
  * Aggregated experiment page payload (detail + plans + reviews + comment tree + logs).
@@ -517,9 +713,11 @@ export interface ExperimentDetailRead {
   id: string;
   project_id: string;
   creator_agent_id: string;
+  executor_agent_id?: string | null;
   title: string;
   description: string | null;
   phase: ExperimentPhase;
+  mode?: ExperimentMode1;
   current_plan_version: number;
   topic_id?: string | null;
   warnings?: string[];
@@ -537,6 +735,12 @@ export interface ExperimentDetailRead {
   actions?: string[];
   blocked_on?: string | null;
   legacy_self_review?: boolean;
+  phase_owner?: PhaseOwner1;
+  informational_only?: boolean;
+  hidden_for_current_persona?: boolean;
+  template_validation?: TemplateValidationSchema | null;
+  plan_file_path?: string | null;
+  log_file_path?: string | null;
   current_plan?: PlanVersionRead | null;
   plan_version_count?: number;
   review_count?: number;
@@ -568,6 +772,7 @@ export interface ReviewItemRead {
   kind: ReviewItemKind;
   content: string;
   status: ReviewItemStatus | null;
+  last_resolution_reason?: ResolutionReason | null;
   created_at: string;
   updated_at: string;
   /**
@@ -588,10 +793,11 @@ export interface ExperimentLogRead {
 }
 export interface ExperimentComplete {
   summary: string;
-  content_md: string;
+  content_md?: string | null;
   metadata?: {
     [k: string]: unknown;
   } | null;
+  log_file_path?: string | null;
 }
 export interface ExperimentCreate {
   title: string;
@@ -599,10 +805,13 @@ export interface ExperimentCreate {
   plan: PlanInput;
   submit_for_review?: boolean;
   topic_id?: string | null;
+  mode?: ExperimentMode2;
+  plan_file_path?: string | null;
 }
 export interface PlanInput {
-  content_md: string;
+  content_md?: string | null;
   change_note?: string | null;
+  file_path?: string | null;
 }
 /**
  * Per-project execution-lock snapshot (CP-3).
@@ -630,6 +839,7 @@ export interface ExperimentLogCreate {
   metadata?: {
     [k: string]: unknown;
   } | null;
+  force_skip_similarity?: boolean;
 }
 export interface ExperimentResultDecision {
   summary: string;
@@ -660,6 +870,17 @@ export interface ReviewInvariantCheck {
   verified: boolean;
   note?: string | null;
 }
+/**
+ * Optional body for ``POST /experiments/{id}/start`` (migration 042).
+ *
+ * When omitted (or ``executor_agent_id`` is null) the host self-executes
+ * and the server populates ``experiments.executor_agent_id`` with the
+ * caller's id. When set, that agent becomes the sole non-admin caller
+ * allowed to ``complete`` the experiment.
+ */
+export interface ExperimentStart {
+  executor_agent_id?: string | null;
+}
 export interface ExperimentUpdate {
   title?: string | null;
   description?: string | null;
@@ -683,16 +904,6 @@ export interface ProjectStatusRead {
   status_version?: number;
   status_md?: string | null;
   status_updated_at?: string | null;
-}
-export interface ProjectRead {
-  id: string;
-  project_key: string;
-  name: string;
-  workspace_path: string;
-  description: string | null;
-  current_status_version: number;
-  created_at: string;
-  archived_at: string | null;
 }
 /**
  * Waker-side record of a notification it intends to act on.
@@ -738,6 +949,50 @@ export interface InboundEventRead {
 export interface InboundEventRecordResult {
   status: "recorded" | "duplicate" | "rejected_v1";
   event: InboundEventRead;
+}
+/**
+ * Wrapper returned by ``POST /experiments/{id}/logs`` (8ac93d4e I1.c).
+ *
+ * The persisted ``log`` is unchanged from ``ExperimentLogRead`` so v1
+ * consumers can still parse the response by reaching into ``log``. The
+ * new ``validation`` field surfaces soft evidence-key warnings without
+ * breaking v1 schema.
+ *
+ * b72d0542 I1.b(2)(e): ``similarity_warning`` carries the soft
+ * content-similarity check result (always None on endpoints other than
+ * ``POST /experiments/{id}/logs``). When the warning fires AND
+ * ``force_skip_similarity=True`` was supplied, the warning is suppressed
+ * in this response and a ``log.force_skip`` audit row is written
+ * instead. ``force_skip`` field echoes whether the caller opted in
+ * (False on responses without a similarity check).
+ */
+export interface LogCreateResponse {
+  log: ExperimentLogRead;
+  validation: EvidenceValidationSchema;
+  similarity_warning?: SimilarityWarningSchema | null;
+  force_skip?: boolean;
+}
+/**
+ * Soft warning fired when the new log body is too similar to a
+ * previous log on the same experiment (b72d0542 I1.b(2)(b)).
+ *
+ * ``score`` is the cosine similarity in ``[0.0, 1.0]`` between the new
+ * log's content embedding and the most-similar previous log on the
+ * same experiment. ``threshold`` is the warn threshold (plan default
+ * 0.7). ``ref_log_id`` points to the previous log the score was
+ * computed against. ``model`` is the embedding model id used (e.g.
+ * ``sentence-transformers/all-MiniLM-L6-v2``).
+ *
+ * The warning is non-blocking; callers may pass
+ * ``force_skip_similarity=True`` to suppress it AND write a
+ * ``log.force_skip`` audit row instead.
+ */
+export interface SimilarityWarningSchema {
+  code: "HIGH_CONTENT_SIMILARITY";
+  score: number;
+  threshold: number;
+  ref_log_id: string;
+  model: string;
 }
 export interface ORMModel {}
 export interface PlanRevise {
@@ -855,10 +1110,25 @@ export interface TopicAdvanceRound {
   increment_summary?: boolean;
   acknowledged_by?: string[];
   ack?: ("accept" | "reject" | "dismiss") | null;
+  mark_ready?: boolean;
+  waive_ack?: boolean;
+  waive_reason?: string | null;
+}
+/**
+ * Optional body for ``POST /topics/{id}/close`` — records *why* the topic
+ * is being closed so the team can distinguish "discussed, no experiment
+ * needed" from a plain closure.
+ */
+export interface TopicCloseRequest {
+  close_reason?: string | null;
+  close_note?: string | null;
 }
 export interface TopicCommentCreate {
-  body: string;
+  body?: string | null;
   parent_id?: string | null;
+  is_round_summary?: boolean;
+  file_path?: string | null;
+  excerpt?: string | null;
 }
 export interface TopicCommentRead {
   id: string;
@@ -868,9 +1138,12 @@ export interface TopicCommentRead {
   parent_comment_id: string | null;
   body: string;
   kind?: TopicCommentKind;
+  is_round_summary?: boolean;
   comment_seq: number;
   created_at: string;
   unresolved_mentions?: string[];
+  file_path?: string | null;
+  excerpt?: string | null;
 }
 export interface TopicCommentTreeNode {
   id: string;
@@ -880,14 +1153,18 @@ export interface TopicCommentTreeNode {
   parent_comment_id: string | null;
   body: string;
   kind?: TopicCommentKind1;
+  is_round_summary?: boolean;
   comment_seq: number;
   created_at: string;
   unresolved_mentions?: string[];
+  file_path?: string | null;
+  excerpt?: string | null;
   children?: TopicCommentTreeNode[];
 }
 export interface TopicCreate {
   title: string;
   description?: string | null;
+  slug?: string | null;
 }
 export interface TopicDecisionRead {
   id: string;
@@ -912,9 +1189,10 @@ export interface TopicRead {
   creator_name?: string | null;
   title: string;
   description: string | null;
+  slug?: string | null;
   status: TopicStatus;
   pinned?: boolean;
-  discussion_round?: TopicDiscussionRound2;
+  discussion_round?: string;
   round_summary_count?: number;
   comment_count?: number;
   experiment_count?: number;
@@ -931,6 +1209,8 @@ export interface TopicRead {
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
+  close_reason?: string | null;
+  close_note?: string | null;
   experiments?: ExperimentSummaryRead[];
   comments?: TopicCommentTreeNode[];
   decision?: TopicDecisionRead | null;

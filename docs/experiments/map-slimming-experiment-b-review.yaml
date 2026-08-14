@@ -1,0 +1,7 @@
+reasonable_items:
+  - "重新生成 TypeScript 类型，使用 gen_types.py 自动生成确保前后端同步"
+  - "新增 useDoc hook 使用 TanStack Query 缓存，staleTime 30 秒合理"
+  - "FileBreadcrumb 组件设计简洁：复制路径 + 编辑器打开链接覆盖核心需求"
+  - "CommentNode/TopicPage 的 file_path 渲染逻辑，fallback 到 body 保证向后兼容"
+  - "PlanPanel/LogPanel 统一使用 MarkdownBody，改善渲染一致性（当前无 remark-gfm）"
+unreasonable_items: []

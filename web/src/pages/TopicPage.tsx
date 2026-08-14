@@ -13,7 +13,9 @@ import { AgentMentionInput, AgentMentionTextarea } from "../components/AgentMent
 import { CopyableId } from "../components/CopyableId";
 import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
+import { useDoc } from "../hooks/useDoc";
 import { commentDomId, parseCommentAnchor } from "../utils/commentAnchor";
+import { FileBreadcrumb } from "../components/FileBreadcrumb";
 
 const ACTIVE_EXPERIMENT_PHASES = new Set(["draft", "review", "approved", "running", "result_review"]);
 
@@ -478,6 +480,23 @@ function ResolveTopicForm({
   );
 }
 
+function TopicCommentContent({ filePath, fallback }: { filePath?: string | null; fallback: string }) {
+  const { agent } = useAuth();
+  const docQuery = useDoc(agent?.project_id ?? null, filePath);
+
+  if (!filePath) {
+    return <MarkdownBody content={fallback} />;
+  }
+
+  const content = docQuery.data?.content ?? fallback;
+  return (
+    <>
+      <FileBreadcrumb path={filePath} className="mb-1" />
+      <MarkdownBody content={content} />
+    </>
+  );
+}
+
 interface TopicCommentNodesProps {
   nodes: TopicCommentTreeNode[];
   topicId: string;
@@ -540,7 +559,7 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth =
               {n.kind === "system" ? (
                 <SystemCommentBody content={n.body} />
               ) : (
-                <MarkdownBody content={n.body} />
+                <TopicCommentContent filePath={n.file_path} fallback={n.body} />
               )}
             </div>
             <button

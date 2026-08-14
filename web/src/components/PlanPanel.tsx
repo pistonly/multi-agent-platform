@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
 import { revisePlan } from "../api/client";
 import type { PlanVersion } from "../api/types";
 import { PlanDiffView } from "./PlanDiffView";
+import { MarkdownBody } from "./MarkdownBody";
+import { FileBreadcrumb } from "./FileBreadcrumb";
+import { useDoc } from "../hooks/useDoc";
+import { useAuth } from "../context/AuthContext";
 
 interface PlanPanelProps {
   experimentId: string;
@@ -14,6 +17,7 @@ interface PlanPanelProps {
   onUpdated: () => void;
   canRevise?: boolean;
   highlightRevise?: boolean;
+  planFilePath?: string | null;
 }
 
 export function PlanPanel({
@@ -25,12 +29,15 @@ export function PlanPanel({
   onUpdated,
   canRevise = false,
   highlightRevise = false,
+  planFilePath = null,
 }: PlanPanelProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
   const [diffMode, setDiffMode] = useState(false);
   const [compareVersion, setCompareVersion] = useState<number | null>(null);
+  const { agent } = useAuth();
+  const docQuery = useDoc(agent?.project_id ?? null, planFilePath);
 
   const comparePlan =
     compareVersion != null ? versions.find((p) => p.version === compareVersion) ?? null : null;
@@ -118,9 +125,14 @@ export function PlanPanel({
           oldLabel={`v${comparePlan.version}`}
           newLabel={`v${plan.version}`}
         />
+      ) : planFilePath ? (
+        <div className="max-h-[480px] overflow-y-auto">
+          <FileBreadcrumb path={planFilePath} className="mb-2" />
+          <MarkdownBody content={docQuery.data?.content ?? plan?.content_md ?? ""} />
+        </div>
       ) : plan ? (
         <div className="markdown-body max-h-[480px] overflow-y-auto">
-          <ReactMarkdown>{plan.content_md}</ReactMarkdown>
+          <MarkdownBody content={plan.content_md} />
         </div>
       ) : (
         <p className="text-sm text-slate-500">暂无计划</p>

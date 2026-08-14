@@ -623,3 +623,18 @@ export async function updateFeedback(
   const { data } = await api.patch<PlatformFeedback>(`/feedback/${feedbackId}`, payload);
   return data;
 }
+
+export interface DocReadResponse {
+  path: string;
+  content: string;
+  size: number;
+  exists: boolean;
+}
+
+export async function fetchDoc(projectId: string, path: string): Promise<DocReadResponse> {
+  const { data } = await api.get<DocReadResponse>(
+    `/projects/${projectId}/docs/read`,
+    { params: { path } }
+  );
+  return data;
+}
