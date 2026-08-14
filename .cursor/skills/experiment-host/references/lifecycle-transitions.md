@@ -7,7 +7,7 @@
 | phase | 你应执行的动作 |
 |-------|----------------|
 | `draft` | `map experiment submit-review --id <id>` |
-| `review` 且 `open_unreasonable_count > 0` | 修订 plan（见 SKILL.md §revise_plan） |
+| `review` 且 `open_unreasonable_count > 0` | 修订 plan（见 [execution-cookbook.md](execution-cookbook.md) §revise_plan） |
 | `review` 且 `open_unreasonable_count = 0` | `map experiment approve --id <id>` |
 | `approved` | `map experiment start --id <id>` |
 | `running` | 按 plan 改代码、跑测试、写 log（见下方 execute_experiment）；plan 全部验收通过后 `map experiment complete` 提交结果待审批 |
