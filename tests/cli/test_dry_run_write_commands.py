@@ -19,14 +19,18 @@ import pytest
 from cli.map_command_client import _is_write_command
 
 MAIN_PY = Path(__file__).resolve().parents[2] / "cli" / "main.py"
+COMMANDS_DIR = Path(__file__).resolve().parents[2] / "cli" / "commands"
+E2E_COLLAB_PY = Path(__file__).resolve().parents[2] / "cli" / "e2e_collab.py"
 
-# sub-app 变量名 → 命令路径前缀（与 main.py 的 ``app.add_typer(..., name=...)`` 对应）。
+# sub-app 变量名 → 命令路径前缀（与 cli/main.py 的 ``app.add_typer(..., name=...)``
+# 及各 commands/*.py 内的嵌套 ``add_typer`` 对应）。
 # 新增 sub-app 必须在此登记，否则 test_every_subgroup_command_is_classified 会失败。
 _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "project_app": ("project",),
     "experiment_app": ("experiment",),
     "persona_app": ("persona",),
     "runtime_app": ("runtime",),
+    "agent_app": ("agent",),
     "status_app": ("project", "status"),
     "lock_app": ("experiment", "lock"),
     "review_app": ("experiment", "review"),
@@ -40,6 +44,10 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "feedback_app": ("feedback",),
     "audit_app": ("audit",),
     "docs_app": ("docs",),
+    "e2e_app": ("e2e",),
+    "sync_app": ("sync",),
+    "skill_app": ("skill",),
+    "host_app": ("host",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -70,6 +78,17 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("project", "status", "versions"),
     ("audit", "list"),
     ("docs", "error-codes"),
+    # 369ccac 拆分后补登记（此前绕过 dry-run 分类）
+    ("agent", "list"),
+    ("agent", "show"),
+    ("agent", "escalation-target"),
+    ("project", "export"),
+    ("skill", "list"),
+    ("skill", "install"),  # 只写本地文件（.cursor/skills/），不改 MAP 状态
+    ("sync", "pull"),
+    ("sync", "status"),
+    ("sync", "topic"),
+    ("sync", "topics"),
 }
 
 # 同时匹配单行 `@x_app.command("name")` 与多行 `@x_app.command(\n  "name",`。
@@ -77,15 +96,22 @@ _COMMAND_RE = re.compile(r'@(\w+_app)\.command\(\s*"([\w-]+)"')
 
 
 def _scan_subgroup_commands() -> list[tuple[str, ...]]:
-    text = MAIN_PY.read_text(encoding="utf-8")
+    """扫描 cli/main.py + cli/commands/*.py + cli/e2e_collab.py 的全部子命令。
+
+    369ccac 拆分后子命令装饰器已从 main.py 迁至 cli/commands/*.py；
+    只扫 main.py 会得到空集（反射正则失效但无人察觉）。
+    """
+    files = [MAIN_PY, *sorted(COMMANDS_DIR.glob("*.py")), E2E_COLLAB_PY]
     paths: list[tuple[str, ...]] = []
-    for var, name in _COMMAND_RE.findall(text):
-        prefix = _APP_VAR_TO_PATH.get(var)
-        assert prefix is not None, (
-            f"main.py 用 @{var}.command 注册命令，但 _APP_VAR_TO_PATH 未登记该 sub-app，"
-            "请在 test_dry_run_write_commands.py 补充映射。"
-        )
-        paths.append(prefix + (name,))
+    for fp in files:
+        text = fp.read_text(encoding="utf-8")
+        for var, name in _COMMAND_RE.findall(text):
+            prefix = _APP_VAR_TO_PATH.get(var)
+            assert prefix is not None, (
+                f"{fp.name} 用 @{var}.command 注册命令，但 _APP_VAR_TO_PATH 未登记该 sub-app，"
+                "请在 test_dry_run_write_commands.py 补充映射。"
+            )
+            paths.append(prefix + (name,))
     return paths
 
 

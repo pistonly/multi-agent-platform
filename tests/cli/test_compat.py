@@ -122,6 +122,7 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "progress",
         "resolve",
         "advance-round",
+        "rollback-round",
         "comment",
         "close",
         "reopen",
@@ -164,8 +165,11 @@ def test_subapp_commands_match_snapshot(
 # cli/main.py shrank 2967 → 2200 across PR3-PR7, then ~1400 after
 # experiment/project/persona/runtime split. Bumped from 1450 → 1600 after
 # adding the `dashboard` command (~130 lines) and `--format table` support
-# (~25 lines in _run). Hold the line at <= 1600 — intentional growth
-# requires bumping this + a commit note explaining why.
+# (~25 lines in _run). After 369ccac the package split left main.py at 1662
+# (over cap); the persona-compare rendering block (~275 lines) moved to
+# cli/persona_compare.py bringing it back to ~1400. Hold the line at
+# <= 1600 — intentional growth requires bumping this + a commit note
+# explaining why.
 MAX_CLI_MAIN_PY_LINES = 1600
 
 
@@ -191,10 +195,13 @@ EXPECTED_SUBAPP_FILES = [
     "docs.py",
     "experiment.py",
     "feedback.py",
+    "host.py",
     "notification.py",
     "persona.py",
     "project.py",
     "runtime.py",
+    "skill.py",
+    "sync.py",
     "topic.py",
 ]
 

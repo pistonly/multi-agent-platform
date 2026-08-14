@@ -416,6 +416,7 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("topic", "reopen"),
     ("topic", "dismiss"),
     ("topic", "advance-round"),
+    ("topic", "rollback-round"),
     ("topic", "resolve"),
     ("topic", "archive"),
     ("topic", "read"),
@@ -454,6 +455,10 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("inbound-event", "record"),
     # todo 分区清理
     ("todo", "clear"),
+    # agent / e2e / host 编排（369ccac 拆分后补登记，此前绕过 dry-run）
+    ("agent", "register"),
+    ("e2e", "run"),
+    ("host", "invoke"),
 }
 
 _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {
