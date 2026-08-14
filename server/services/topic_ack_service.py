@@ -182,6 +182,17 @@ def ack_timeout_elapsed(topic: Topic, *, now: datetime | None = None) -> bool:
     return current - pending >= ADVANCE_ROUND_ACK_TIMEOUT
 
 
+def clear_round_ack_pending(topic: Topic) -> None:
+    """Single write point for clearing the pending-ack window.
+
+    All round transitions that invalidate outstanding ack state (advance /
+    rollback / waive / gate-pass) must go through this helper instead of
+    assigning ``topic.advance_round_pending_since`` directly, so the ack
+    state machine has exactly one owner in this module.
+    """
+    topic.advance_round_pending_since = None
+
+
 def validate_advance_ack(
     db: Session,
     topic: Topic,
@@ -201,17 +212,17 @@ def validate_advance_ack(
 
     required = required_ack_agent_ids(db, topic)
     if not required:
-        topic.advance_round_pending_since = None
+        clear_round_ack_pending(topic)
         return
 
     acked = acknowledged_agent_ids(db, topic, host_ack_ids=acknowledged_by)
     missing = required - acked
     if not missing:
-        topic.advance_round_pending_since = None
+        clear_round_ack_pending(topic)
         return
 
     if ack_timeout_elapsed(topic, now=now):
-        topic.advance_round_pending_since = None
+        clear_round_ack_pending(topic)
         return
 
     if topic.advance_round_pending_since is None:

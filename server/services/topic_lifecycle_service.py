@@ -442,7 +442,7 @@ def advance_topic_round(
         # as a system comment so the audit trail is self-contained.
         if not waive_reason or not waive_reason.strip():
             raise ConflictError("waive_ack requires a non-empty waive_reason")
-        topic.advance_round_pending_since = None
+        topic_ack_service.clear_round_ack_pending(topic)
     else:
         topic_ack_service.validate_advance_ack(
             db,
@@ -465,24 +465,35 @@ def advance_topic_round(
         topic.discussion_round = TopicDiscussionRound.next_round(topic.discussion_round)
 
     topic.round_summary_count = next_count
-    topic.advance_round_pending_since = None
+    topic_ack_service.clear_round_ack_pending(topic)
     db.commit()
     db.refresh(topic)
 
     # After advancing to a new round (not mark_ready), auto-notify required
     # participants so the waker can wake them without host manually @mentioning.
     if not mark_ready:
-        _notify_participants_round_advanced(db, topic)
+        _notify_participants_round_event(
+            db,
+            topic,
+            event="topic.round_advanced",
+            summary=f"话题「{topic.title}」已推进到 {topic.discussion_round}，请参与讨论",
+        )
 
     return topic
 
 
-def _notify_participants_round_advanced(db: Session, topic: Topic) -> None:
-    """Generate wakeable notifications for participants after round advancement.
+def _notify_participants_round_event(
+    db: Session,
+    topic: Topic,
+    *,
+    event: str,
+    summary: str,
+) -> None:
+    """Generate wakeable notifications for participants after a round transition.
 
-    This replaces the manual ``@participant`` workaround that the Skill had to
-    document as a "防死等" patch. Now the platform guarantees participants are
-    woken whenever a new round starts.
+    Shared by advance / rollback. This replaces the manual ``@participant``
+    workaround that the Skill had to document as a "防死等" patch: the platform
+    guarantees participants are woken whenever a round starts over.
     """
     from server.services import notification_service
 
@@ -495,8 +506,8 @@ def _notify_participants_round_advanced(db: Session, topic: Topic) -> None:
         recipient_agent_ids=list(participant_ids),
         project_id=topic.project_id,
         actor_id=topic.creator_agent_id,
-        event="topic.round_advanced",
-        summary=f"话题「{topic.title}」已推进到 {topic.discussion_round}，请参与讨论",
+        event=event,
+        summary=summary,
         target_type="topic",
         target_id=topic.id,
         payload={
@@ -543,40 +554,18 @@ def rollback_topic_round(db: Session, topic_id: uuid.UUID) -> Topic:
 
     topic.discussion_round = new_round
     topic.round_summary_count = new_count
-    topic.advance_round_pending_since = None
+    topic_ack_service.clear_round_ack_pending(topic)
     db.commit()
     db.refresh(topic)
 
     # Notify participants that the round was rolled back so they can re-engage.
-    _notify_participants_round_rolled_back(db, topic)
-    return topic
-
-
-def _notify_participants_round_rolled_back(db: Session, topic: Topic) -> None:
-    """Generate wakeable notifications for participants after round rollback."""
-    from server.services import notification_service
-
-    participant_ids = topic_ack_service.required_ack_agent_ids(db, topic)
-    if not participant_ids:
-        return
-
-    notification_service.enqueue_for_agents(
+    _notify_participants_round_event(
         db,
-        recipient_agent_ids=list(participant_ids),
-        project_id=topic.project_id,
-        actor_id=topic.creator_agent_id,
+        topic,
         event="topic.round_rolled_back",
         summary=f"话题「{topic.title}」已回退到 {topic.discussion_round}，请重新参与讨论",
-        target_type="topic",
-        target_id=topic.id,
-        payload={
-            "topic_id": str(topic.id),
-            "discussion_round": topic.discussion_round,
-            "round_summary_count": topic.round_summary_count,
-        },
-        wakeable=True,
-        exclude_actor=True,
     )
+    return topic
 
 
 def record_participant_round_ack(
