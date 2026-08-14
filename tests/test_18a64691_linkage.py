@@ -89,7 +89,7 @@ def test_field_rename_files_do_not_introduce_obligation_term():
     """
     # Files this experiment introduced / rewrote for (c) field rename + summary.
     paths_to_scan = [
-        "sdk/python/map_types/schemas.py",
+        "sdk/python/map_types/schemas",  # package dir (split from schemas.py)
         "server/services/agent_work_service.py",
         "web/src/api/client.ts",
         "web/src/api/types.ts",
@@ -100,11 +100,16 @@ def test_field_rename_files_do_not_introduce_obligation_term():
     pattern = re.compile(r"\bobligation\b", re.IGNORECASE)
     for rel in paths_to_scan:
         fp = REPO_ROOT / rel
-        if not fp.exists():
+        if fp.is_dir():
+            files = sorted(fp.glob("*.py"))
+        elif fp.exists():
+            files = [fp]
+        else:
             continue
-        for lineno, line in enumerate(fp.read_text(encoding="utf-8").splitlines(), 1):
-            if pattern.search(line):
-                violations.append((rel, lineno, line.strip()))
+        for f in files:
+            for lineno, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                if pattern.search(line):
+                    violations.append((str(f.relative_to(REPO_ROOT)), lineno, line.strip()))
     assert not violations, (
         "18a64691 linkage broken: (c) field rename introduced fresh `obligation`:\n"
         + "\n".join(f"  {p}:{ln}: {text}" for p, ln, text in violations)

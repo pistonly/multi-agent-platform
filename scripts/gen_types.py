@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """从 Pydantic schema 生成 TypeScript 类型（``web/src/api/types.generated.ts``）。
 
-事实源：``sdk/python/map_types/schemas.py``（Pydantic 模型，前后端共享）。
+事实源：``sdk/python/map_types/schemas/``（Pydantic 模型包，前后端共享；由单文件
+``schemas.py`` 按域拆分而来，``schemas/__init__.py`` 按原定义序 re-export）。
 工具链：``pydantic-to-typescript``（``pyproject.toml`` 的 dev 依赖）+ ``json2ts``
 （``web`` 的 devDependency ``json-schema-to-typescript``）。
 

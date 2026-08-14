@@ -1447,7 +1447,7 @@ def _load_review_verdict_file(path: Path | None):
 # cheapest fix for "I don't know what fields the SDK wants" — the same
 # information as grepping the SDK, but in 200ms via the CLI.
 _REVIEW_VERDICT_SCHEMA_YAML = """\
-# Review verdict file — schema: sdk/python/map_types/schemas.py:ReviewVerdictFile
+# Review verdict file — schema: sdk/python/map_types/schemas/experiment.py:ReviewVerdictFile
 # (also docs/cli-schemas.md#review-verdict-file)
 #
 # review_id: REQUIRED — UUID from `map experiment review list --id <exp-id>`

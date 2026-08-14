@@ -25,7 +25,7 @@ map --persona reviewer experiment accept-result --schema
 **用途**：`map experiment accept-result --review-verdict-file <yaml>` /
 `map experiment reject-result --review-verdict-file <yaml>`
 
-**SDK 权威源**：`sdk/python/map_types/schemas.py:ReviewVerdictFile`
+**SDK 权威源**：`sdk/python/map_types/schemas/experiment.py:ReviewVerdictFile`
 
 **模板**（`--schema` 输出）：
 

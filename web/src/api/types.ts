@@ -1,7 +1,7 @@
-// 前端类型。Pydantic 派生类型由 scripts/gen_types.py 从 schemas.py 自动生成；
+// 前端类型。Pydantic 派生类型由 scripts/gen_types.py 从 map_types/schemas/ 包自动生成；
 // 改 schema 后重跑该脚本并提交更新后的 types.generated.ts。
 //
-// 勿手改 generated 文件里的字段——它是 schemas.py 的 TS 镜像。本文件只保留：
+// 勿手改 generated 文件里的字段——它是 map_types/schemas/ 的 TS 镜像。本文件只保留：
 //  - 前端惯用别名（去 Read 后缀 / Payload 命名），保持现有 import 兼容；
 //  - 非派生自 Pydantic 的业务类型（无 schema，手维护）。
 

@@ -42,7 +42,7 @@ map experiment status --id <uuid> --persona-compare --raw
 
 下表列出**同一实验在同一时刻**三个 persona 应看到的 partition 形状
 （plan v2 5b schema baseline）。partition 列值用 `"schema_field:
-value"` 简写；完整定义见 `sdk/python/map_types/schemas.py`。
+value"` 简写；完整定义见 `sdk/python/map_types/schemas/`（按域拆分的 schema 包）。
 
 ### 1. `acceptance_status`
 
