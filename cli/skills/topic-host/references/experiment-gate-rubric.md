@@ -109,6 +109,16 @@ map --persona host topic advance-round --id <topic-uuid> --ready
 - Rubric 的「两轮」要求是**默认建议**，不是硬性平台约束：满足「至少一轮讨论 + Round Summary + 其他三门」即可开实验。
 - `--ready` 与 `--ack-ids` **互斥**：`--ready` 直接标记 ready，`--ack-ids` 推进到下一轮。
 
+## 豁免 ack 门禁（--waive-ack）
+
+参与者离线但结论已收敛时，host 可显式豁免 ack 门禁直接推进（**必须**配非空理由，审计可见）：
+
+```bash
+map --persona host topic advance-round --id <uuid> --waive-ack --waive-reason "参与者离线，结论已收敛"
+```
+
+适用：24h silence=consent 之外的正向豁免场景（如明确知道 participant 长期离线、结论无争议）。误推进可用 `topic rollback-round` 回退一轮。
+
 发 Summary 时在正文末尾 **@ 所有需 ack 的 agent 全名**（如 `@multi-agent-platform-participant`），以便 waker 的 `mention` wake 与 `pending_round_acks` 双路径触发。
 
 ## topic resolve payload 示例

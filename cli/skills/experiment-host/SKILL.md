@@ -16,7 +16,7 @@ description: >-
 
 **已停用（勿依赖）**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh` / `start-host-bridge-claude.sh`、runner 的 stdin/stdout JSON 契约。没有 bridge 会代写 MAP、代跑 `execute_experiment` 或代提交 git。
 
-协作入口见 [map-project-collab](../map-project-collab/SKILL.md) § Waker 模式。
+协作入口见 [map-project-collab](../map-project-collab/SKILL.md) § Waker 模式（被唤醒时读其 [references/wake.md](../map-project-collab/references/wake.md) 最小协议）。
 
 ## Host 编排模式（直接调用 reviewer）
 
@@ -134,6 +134,17 @@ map --persona host experiment plan revise \
 
 收尾顺序：窄 commit → `pre-complete` → `complete` → release lock → 刷新 status/work。
 
+`complete` 支持瘦身模式：只存日志文件路径（约定 `docs/experiments/<slug>-log.md`），日志内容不进数据库：
+
+```bash
+map --persona host experiment complete \
+  --id <exp-uuid> \
+  --summary "..." \
+  --log-file-path docs/experiments/<slug>-log.md
+```
+
+同理创建实验时可用 `--plan-file-path docs/experiments/<slug>-plan.md` 只存计划路径（详见 map-project-collab 的 references/file-reference.md）。
+
 > **完整收尾 bash 模板**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
 失败时按阶段停下：`pre-complete`/`complete`/`release`/`git commit` 失败时各有对应处置，`result_review` 表示 host 工作结束。
@@ -166,58 +177,6 @@ map --persona reviewer experiment reject-result \
 - 返回 bridge 用的 JSON（`execution_log_md` 等）而不写 MAP log
 - 在 `running` 阶段只 approve/start 不实施
 - host 自己调用 `accept-result` 审批自己提交的实验结果
-
-## Direct 模式（v0.10 Plan 模式）
-
-当 host 明确知道要做什么、只需 participant 去执行时，使用 `--mode direct` 创建实验。direct 模式跳过 reviewer 门禁（review / result_review），生命周期为 `draft → running → done`。
-
-### 创建 direct 模式实验
-
-```bash
-map --persona host experiment create \
-    --title "实现某功能" \
-    --plan-file ./plan.md \
-    --mode direct \
-    --topic-id <uuid>
-```
-
-### 启动并委派给 participant
-
-```bash
-map --persona host experiment start --id <uuid> --executor participant
-```
-
-- direct 模式下 `start` 从 `draft` 直接跳到 `running`（跳过 review/approved）
-- `--executor participant` 把执行权（`complete`）委派给 participant
-- host 保留 `cancel` 权限，但不能 `complete`
-
-### participant 执行
-
-participant 通过 `map --persona participant work` 发现待执行的 direct 实验后：
-
-```bash
-map --persona participant experiment complete \
-    --id <uuid> --summary "完成实现" --file ./log.md
-```
-
-- direct 模式下 `complete` 直接跳到 `done`（跳过 result_review）
-- evidence metadata 缺失时记 warning 但不阻断
-
-### Host 编排 direct 模式
-
-host 可以直接调用 participant 执行 direct 实验：
-
-```bash
-map --persona host host invoke --persona participant \
-    --prompt "请执行实验 <uuid>。先 map --persona participant experiment status --id <uuid> 查看计划，然后实施并 complete。"
-```
-
-### Direct 模式注意事项
-
-- `mode` 创建时指定，不可中途切换
-- direct 模式下 `submit_for_review` / `accept_result` / `reject_result` 不可用（对应 phase 不存在于生命周期）
-- host 在 `running` 阶段标记为 `informational_only`（等待 participant 完成）
-- participant 通过 `map --persona participant work` 的 todos 发现待执行实验
 
 ## 常见错误（BAD vs GOOD）
 
