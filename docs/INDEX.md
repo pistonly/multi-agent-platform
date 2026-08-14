@@ -51,10 +51,10 @@
 
 ### 状态叙事（按时间）
 
-- [status-md-v6.md](status-md-v6.md) — v0.6 阶段叙事
-- [status-md-v7.md](status-md-v7.md) — v0.7 P2 阶段
-- [status-md-v8.md](status-md-v8.md) — v0.7 P3 阶段
-- [status-md-v9.md](status-md-v9.md) — Phase 1 前夜
+- [status-md-v6.md](archive/status-md-v6.md) — v0.6 阶段叙事（已归档）
+- [status-md-v7.md](archive/status-md-v7.md) — v0.7 P2 阶段（已归档）
+- [status-md-v8.md](archive/status-md-v8.md) — v0.7 P3 阶段（已归档）
+- [status-md-v9.md](archive/status-md-v9.md) — Phase 1 前夜（已归档）
 - [status-md-v10.md](status-md-v10.md) — Phase 1 + Phase 2 主线
 
 ### 实验 / 锁定机制
