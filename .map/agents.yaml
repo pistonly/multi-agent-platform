@@ -1,13 +1,13 @@
 personas:
   host:
-    agent_name: multi-agent-platform-host
+    agent_name: multi-agents-platform-host
     description: 主持话题、从话题开实验、推进实验生命周期
     role: agent
   participant:
-    agent_name: multi-agent-platform-participant
+    agent_name: multi-agents-platform-participant
     description: 参与话题讨论、提交 review、查看实验结果
     role: agent
   reviewer:
-    agent_name: multi-agent-platform-reviewer
+    agent_name: multi-agents-platform-reviewer
     description: 评审实验计划、写 reasonable/unreasonable 项
     role: agent
