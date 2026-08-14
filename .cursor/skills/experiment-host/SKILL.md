@@ -134,6 +134,17 @@ map --persona host experiment plan revise \
 
 收尾顺序：窄 commit → `pre-complete` → `complete` → release lock → 刷新 status/work。
 
+`complete` 支持瘦身模式：只存日志文件路径（约定 `docs/experiments/<slug>-log.md`），日志内容不进数据库：
+
+```bash
+map --persona host experiment complete \
+  --id <exp-uuid> \
+  --summary "..." \
+  --log-file-path docs/experiments/<slug>-log.md
+```
+
+同理创建实验时可用 `--plan-file-path docs/experiments/<slug>-plan.md` 只存计划路径（详见 map-project-collab「MAP 瘦身」章节）。
+
 > **完整收尾 bash 模板**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
 失败时按阶段停下：`pre-complete`/`complete`/`release`/`git commit` 失败时各有对应处置，`result_review` 表示 host 工作结束。

@@ -58,6 +58,8 @@ host 修订计划并将项标为 `addressed` 后，用 `review list` 查看、`r
 
 先读 `experiment status` 与最终 `logs`，确认验收标准已满足后用 `accept-result` 通过；不满足用 `reject-result` 驳回并写清返工要求。`accept-result` → `done`；`reject-result` → 回到 `running`。不要替 host 修改仓库或直接补执行日志。
 
+**瘦身模式注意**：实验可能用本地文件引用——`status` 返回 `plan_file_path`，logs 可能带 `log_file_path`。此时正文不在数据库里，需**直接读仓库中对应 MD 文件**获取 plan/log 全文（通常在 `docs/experiments/` 下），Web UI 也是这样渲染的。`content_md` 为 stub（`See file: ...`）时不要据此判断内容缺失。
+
 > **完整 accept-result / reject-result 命令与状态流转**：Read [references/review-format-guide.md](references/review-format-guide.md)
 
 ## 评审维度（建议）

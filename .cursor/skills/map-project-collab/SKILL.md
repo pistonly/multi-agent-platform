@@ -149,10 +149,29 @@ map --persona host topic progress
 map --persona participant topic progress
 ```
 
+## MAP 瘦身：本地 MD 文件引用模式
+
+实验 A/B（话题 `694ed1c9`）落地后，内容主体可存**本地 Markdown 文件**，平台只保留路径与摘要元数据（`body`/`plan_content` 存 stub）：
+
+| 对象 | 写文件 | 发布（CLI） | 平台存储 |
+|------|--------|-------------|----------|
+| 话题评论 | `docs/topics/<slug>/round<N>-<persona>.md` | `topic comment --file-path <相对路径> --excerpt "摘要"` | `file_path` + `excerpt`（≤200 字符） |
+| 实验计划 | `docs/experiments/<slug>-plan.md` | `experiment create --plan-file-path <相对路径>` | `plan_file_path` |
+| 实验日志 | `docs/experiments/<slug>-log.md` | `experiment complete --log-file-path <相对路径>` | `log_file_path` |
+
+规则：
+
+- `--file-path` 与 `--body`/`--file` 互斥（内容模式 vs 文件引用模式）；两者均向后兼容，短评/ack 仍可 `--body`
+- MD 文件由 Agent 自行写入仓库（自然进 Git，可 diff、可追溯）；路径必须是仓库相对路径
+- Web UI 通过 `GET /projects/{id}/docs/read?path=...` 渲染全文；Agent 读取上下文直接读本地文件或看 `topic show` 返回的 `file_path`
+- `topic create --slug <name>` 指定路径约定用的 slug（未指定时从标题自动生成）
+- 读取他人文件引用评论：`topic show --id <uuid>` 拿到 `file_path` 后直接读该本地文件
+
 ## 话题（host）
 
 ```bash
 map topic create --title "..." --description "..."
+# --slug map-slimming：指定瘦身模式的文件路径约定（可选，默认从标题自动生成）
 # 若有关联实验，需等实验 done/cancelled 后再关；--reason / --note 可选，记录关闭原因与备注
 map topic close --id <topic-uuid> --reason "no_experiment_needed" --note "..."
 map topic reopen --id <topic-uuid>   # 如需重新打开；reopen 会清除 close_reason 与 close_note
@@ -187,6 +206,12 @@ map --persona participant topic comment \
 map --persona participant topic comment \
   --id <topic-uuid> \
   --file ./comment.md
+
+# 瘦身模式（推荐）：内容写本地 MD，平台只存路径+摘要（见「MAP 瘦身」章节）
+map --persona participant topic comment \
+  --id <topic-uuid> \
+  --file-path docs/topics/<slug>/round1-participant.md \
+  --excerpt "一句话摘要（列表/通知用）"
 ```
 
 回复楼中楼：加 `--parent <comment-uuid>`
@@ -199,6 +224,11 @@ map --persona participant topic comment \
 map experiment create \
   --title "..." \
   --plan-file ./plan.md \
+  --topic-id <topic-uuid>
+# 瘦身模式：只存计划文件路径，plan 内容不进数据库
+map experiment create \
+  --title "..." \
+  --plan-file-path docs/experiments/<slug>-plan.md \
   --topic-id <topic-uuid>
 
 # 创建并直接提交评审
@@ -216,6 +246,7 @@ map experiment approve --id <exp-uuid>
 map experiment start --id <exp-uuid>
 map experiment pre-complete --id <exp-uuid> --metadata ./evidence.yaml
 map experiment complete --id <exp-uuid> --summary "..." --file ./log.md --metadata ./evidence.yaml   # running -> result_review
+map experiment complete --id <exp-uuid> --summary "..." --log-file-path docs/experiments/<slug>-log.md   # 瘦身模式：只存日志路径
 map experiment logs --id <exp-uuid>
 map experiment accept-result --id <exp-uuid> --summary "..." --file ./review.md
 map experiment reject-result --id <exp-uuid> --summary "..." --file ./review.md

@@ -148,6 +148,14 @@ map --persona host topic comment \
   --id <topic-uuid> \
   --file ./reply.md \
   --parent <comment-uuid>
+
+# 瘦身模式（推荐，长回复/Round Summary）：内容写本地 MD，平台只存路径+摘要
+# 路径约定：docs/topics/<slug>/round<N>-host.md（详见 map-project-collab「MAP 瘦身」章节）
+map --persona host topic comment \
+  --id <topic-uuid> \
+  --file-path docs/topics/<slug>/round1-host.md \
+  --excerpt "一句话摘要（列表/通知用）" \
+  --parent <comment-uuid>
 ```
 
 thread 级判定：主持在同一 `thread_root_id` 子树下有过回复即视为已回应整 thread。
@@ -217,6 +225,12 @@ map --persona host topic resolve --id <topic-uuid> --file ./resolve.yaml
 map --persona host experiment create \
   --title "..." \
   --plan-file ./plan.md \
+  --topic-id <topic-uuid>
+
+# 瘦身模式：只存计划文件路径 docs/experiments/<slug>-plan.md，plan 内容不进数据库
+map --persona host experiment create \
+  --title "..." \
+  --plan-file-path docs/experiments/<slug>-plan.md \
   --topic-id <topic-uuid>
 
 # 可选：创建后直接提交评审
