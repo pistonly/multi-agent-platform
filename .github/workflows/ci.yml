@@ -38,7 +38,7 @@ jobs:
         run: uv pip install --python "$(uv python find)" -e ".[dev,mcp]"
 
       - name: Ruff
-        run: ruff check server cli sdk tests
+        run: ruff check server cli sdk scripts tests
 
       - name: Mypy strict (topics.py 渐进首目录)
         # eng experiment (55634575) PR2: strict on server/api/topics.py
