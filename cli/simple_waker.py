@@ -12,7 +12,7 @@ import hashlib
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -509,7 +509,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 # Backward-compatible aliases for tests
@@ -570,7 +570,7 @@ class SimpleWaker:
                     typer.echo(f"[simple-waker:cycle-error] {exc}", err=True)
                     persona_state = self._persona_state(self.config.persona)
                     persona_state["last_cycle_error"] = str(exc)
-                    persona_state["last_cycle_error_at"] = datetime.now(UTC).isoformat()
+                    persona_state["last_cycle_error_at"] = datetime.now(timezone.utc).isoformat()
                     self._state_dirty = True
                     self._save_state_if_needed(force=True)
                     stats = SimpleWakerStats(cycles=1, cycle_errors=1)
@@ -642,7 +642,7 @@ class SimpleWaker:
 
         persona_state = self._persona_state(self.config.persona)
         last_remind_at = _parse_datetime(persona_state.get("last_remind_at"))
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         should_remind, skip_reason = should_send_remind(
             context,
             now=now,
@@ -839,7 +839,7 @@ class SimpleWaker:
             await self.backend.reset_session()
         persona_state["runtime_contract_hash"] = self._runtime_contract_hash
         persona_state["runtime_contract_version"] = RUNTIME_CONTRACT_VERSION
-        persona_state["runtime_contract_updated_at"] = datetime.now(UTC).isoformat()
+        persona_state["runtime_contract_updated_at"] = datetime.now(timezone.utc).isoformat()
         self._state_dirty = True
         self._save_state_if_needed(force=True)
 

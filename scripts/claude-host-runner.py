@@ -25,7 +25,7 @@ import json
 import os
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -299,7 +299,7 @@ async def _run_query(prompt: str, env: dict[str, str], model: str | None) -> str
                 print(
                     json.dumps(
                         {
-                            "ts": datetime.now(UTC).isoformat(),
+                            "ts": datetime.now(timezone.utc).isoformat(),
                             "kind": "sdk_stream_event",
                             "event_type": ev.get("type"),
                             "data": ev,

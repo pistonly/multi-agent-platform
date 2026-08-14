@@ -21,7 +21,7 @@ project agent。本文件覆盖:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from map_types.enums import AgentRole, ExperimentPhase
@@ -111,7 +111,7 @@ def _make_topic(
 def test_list_active_persons_includes_recent_log(db_session: Session, project: dict) -> None:
     """A log within the N=7 window makes the author "active"."""
     project_id = uuid.UUID(project["id"])
-    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
     creator = _make_agent(db_session, project_id=project_id, name="creator")
     active = _make_agent(db_session, project_id=project_id, name="active-host")
     exp = _make_experiment(db_session, project_id=project_id, creator_id=creator.id)
@@ -144,7 +144,7 @@ def test_list_active_persons_excludes_log_older_than_window(
     days``, the author must NOT be considered active.
     """
     project_id = uuid.UUID(project["id"])
-    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
     creator = _make_agent(db_session, project_id=project_id, name="creator")
     stale = _make_agent(db_session, project_id=project_id, name="stale-host")
     exp = _make_experiment(db_session, project_id=project_id, creator_id=creator.id)
@@ -178,7 +178,7 @@ def test_list_active_persons_includes_activity_at_window_boundary(
     ``>=`` not ``>``.
     """
     project_id = uuid.UUID(project["id"])
-    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
     creator = _make_agent(db_session, project_id=project_id, name="creator")
     boundary = _make_agent(db_session, project_id=project_id, name="boundary-host")
     exp = _make_experiment(db_session, project_id=project_id, creator_id=creator.id)
@@ -207,7 +207,7 @@ def test_list_active_persons_empty_when_no_activity_in_window(
 ) -> None:
     """No recent activity → empty result (not admin / not creator)."""
     project_id = uuid.UUID(project["id"])
-    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
     _make_agent(db_session, project_id=project_id, name="dormant-host")
 
     result = list_active_personas(
@@ -260,7 +260,7 @@ def test_list_active_persons_excludes_other_projects(
             summary="recent but other project",
             content_md="",
             log_index=1,
-            created_at=datetime.now(UTC) - timedelta(hours=1),
+            created_at=datetime.now(timezone.utc) - timedelta(hours=1),
         )
     )
     db_session.flush()
@@ -277,7 +277,7 @@ def test_list_active_persons_returns_all_roles(db_session: Session, project: dic
     so it must surface admins and reviewers as well as agents.
     """
     project_id = uuid.UUID(project["id"])
-    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
     creator = _make_agent(db_session, project_id=project_id, name="creator")
     host = _make_agent(
         db_session, project_id=project_id, name="host", role=AgentRole.agent
@@ -351,7 +351,7 @@ def test_list_active_persons_respects_custom_window(
     """``window_days=30`` includes activity from 10 days ago that the
     default N=7 would exclude."""
     project_id = uuid.UUID(project["id"])
-    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
     creator = _make_agent(db_session, project_id=project_id, name="creator")
     aged = _make_agent(db_session, project_id=project_id, name="10-day-old-host")
     exp = _make_experiment(db_session, project_id=project_id, creator_id=creator.id)

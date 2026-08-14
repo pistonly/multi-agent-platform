@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from map_types.enums import ExperimentPhase, NotificationCategory, NotificationFingerprintVersion
@@ -280,7 +280,7 @@ def _upsert_notification(
     ``wake_version`` bump is gated by a CASE on the incoming ``category``
     so digest upserts don't push a new waker fingerprint.
     """
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     group_key = _group_key(
         recipient_agent_id=recipient_agent_id,
         project_id=project_id,
@@ -642,7 +642,7 @@ def mark_agent_mentioned_notifications_read_no_commit(
 
     if not mentions:
         return 0
-    now = now or datetime.now(UTC)
+    now = now or datetime.now(timezone.utc)
     touched = 0
     for mention in mentions:
         if not isinstance(mention, Mention):
@@ -670,14 +670,14 @@ def mark_read(db: Session, agent: Agent, notification_id: uuid.UUID) -> Notifica
     if notification.recipient_agent_id != agent.id:
         raise ForbiddenError("Cannot mark another agent's notification")
     if notification.read_at is None:
-        notification.read_at = datetime.now(UTC)
+        notification.read_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(notification)
     return notification
 
 
 def mark_all_read(db: Session, agent: Agent) -> int:
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     rows = list(
         db.scalars(
             select(Notification).where(
@@ -824,7 +824,7 @@ def _aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        return value.replace(tzinfo=timezone.utc)
     return value
 
 
@@ -862,9 +862,9 @@ def notify_stalled_experiment_locks(
     Notification grouping keeps repeated scans from creating many rows; wakeable
     upserts still bump ``wake_version`` so waker fingerprints can advance.
     """
-    reference = now or datetime.now(UTC)
+    reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=UTC)
+        reference = reference.replace(tzinfo=timezone.utc)
     emitted: list[uuid.UUID] = []
     filters = [
         Experiment.phase == ExperimentPhase.running,

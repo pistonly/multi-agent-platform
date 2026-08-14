@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from map_types.enums import ExperimentPhase, NotificationCategory
 from sqlalchemy import select
@@ -45,7 +45,7 @@ def test_stalled_lock_sends_wakeable_to_holder_and_digest_to_project_members(db_
     project = _project(db_session)
     host = _agent(db_session, project, "host")
     reviewer = _agent(db_session, project, "reviewer")
-    now = datetime(2026, 7, 7, 8, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 7, 8, 0, tzinfo=timezone.utc)
     exp = _running_locked_experiment(
         db_session,
         project,
@@ -77,7 +77,7 @@ def test_stalled_lock_digest_before_wake_threshold(db_session):
     project = _project(db_session)
     host = _agent(db_session, project, "host")
     reviewer = _agent(db_session, project, "reviewer")
-    now = datetime(2026, 7, 7, 8, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 7, 8, 0, tzinfo=timezone.utc)
     _running_locked_experiment(
         db_session,
         project,
@@ -103,7 +103,7 @@ def test_stalled_lock_skips_when_progress_log_exists_after_lock(db_session):
     project = _project(db_session)
     host = _agent(db_session, project, "host")
     reviewer = _agent(db_session, project, "reviewer")
-    now = datetime(2026, 7, 7, 8, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 7, 8, 0, tzinfo=timezone.utc)
     exp = _running_locked_experiment(
         db_session,
         project,
@@ -133,7 +133,7 @@ def test_stalled_lock_skips_when_progress_log_exists_after_lock(db_session):
 def test_stalled_lock_skips_released_and_non_running_experiments(db_session):
     project = _project(db_session)
     host = _agent(db_session, project, "host")
-    now = datetime(2026, 7, 7, 8, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 7, 8, 0, tzinfo=timezone.utc)
     released = _running_locked_experiment(
         db_session,
         project,
@@ -168,7 +168,7 @@ def test_stalled_lock_scan_can_be_scoped_to_project(db_session):
     host = _agent(db_session, project, "host")
     reviewer = _agent(db_session, project, "reviewer")
     other_host = _agent(db_session, other_project, "other-host")
-    now = datetime(2026, 7, 7, 8, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 7, 8, 0, tzinfo=timezone.utc)
     exp = _running_locked_experiment(
         db_session,
         project,
@@ -217,7 +217,7 @@ def test_stalled_lock_scan_endpoint_host_scopes_to_own_project(
     assert host_a_resp.status_code == 201
     host_a = db_session.get(Agent, uuid.UUID(host_a_resp.json()["id"]))
     host_b = _agent(db_session, db_session.get(Project, uuid.UUID(project_b["id"])), "host-b")
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     exp_a = _running_locked_experiment(
         db_session,
         db_session.get(Project, uuid.UUID(project_a["id"])),

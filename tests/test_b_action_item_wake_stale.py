@@ -18,7 +18,7 @@ Acceptance mapping (plan §8):
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from map_types.enums import AgentRole, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
@@ -52,7 +52,7 @@ def _aware(dt: datetime | None) -> datetime | None:
     """
     if dt is None:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _seed_open_item(
@@ -148,7 +148,7 @@ def test_mark_wake_sent_first_call_stamps_first_open_at_when_missing(db_session)
     fill it in on the first wake. Without this, B-2's T+24h window would
     never open.
     """
-    when = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+    when = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     item = _seed_open_item(db_session, first_open_at=None)
 
     new_count = mark_wake_sent_no_commit(db_session, item=item, now=when)
@@ -161,11 +161,11 @@ def test_mark_wake_sent_first_call_stamps_first_open_at_when_missing(db_session)
 
 def test_mark_wake_sent_does_not_reset_first_open_at_on_subsequent_wakes(db_session):
     """Plan §2: timer is anchored to first_open_at; later wakes must not move it."""
-    first_open = datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
+    first_open = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
     item = _seed_open_item(db_session, first_open_at=first_open, wake_count=1)
 
     mark_wake_sent_no_commit(
-        db_session, item=item, now=datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+        db_session, item=item, now=datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     )
 
     assert _aware(item.first_open_at) == first_open  # unchanged
@@ -174,7 +174,7 @@ def test_mark_wake_sent_does_not_reset_first_open_at_on_subsequent_wakes(db_sess
 
 def test_mark_wake_sent_writes_action_item_wake_sent_audit_row(db_session):
     """B-2 audit signal: wake_count after increment is recorded for grep."""
-    when = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+    when = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     item = _seed_open_item(db_session, wake_count=3)
 
     new_count = mark_wake_sent_no_commit(db_session, item=item, now=when)
@@ -193,13 +193,13 @@ def test_mark_wake_sent_writes_action_item_wake_sent_audit_row(db_session):
 
 def test_mark_wake_sent_advances_through_all_four_stages(db_session):
     """B-2 / B-3 / B-4 walk: 1 → 2 → 3 → 4 across four separate wakes."""
-    item = _seed_open_item(db_session, first_open_at=datetime(2026, 6, 1, tzinfo=UTC))
+    item = _seed_open_item(db_session, first_open_at=datetime(2026, 6, 1, tzinfo=timezone.utc))
 
     for expected in (1, 2, 3, 4):
         out = mark_wake_sent_no_commit(
             db_session,
             item=item,
-            now=datetime(2026, 7, expected, 12, 0, tzinfo=UTC),
+            now=datetime(2026, 7, expected, 12, 0, tzinfo=timezone.utc),
         )
         assert out == expected
         assert item.wake_count == expected
@@ -248,8 +248,8 @@ def test_mark_wake_sent_no_commit_does_not_commit(db_session):
 
 def test_mark_stale_stamps_stale_at_and_writes_audit(db_session):
     """B-5: stale fires after wake_count >= WAKE_MAX_COUNT_BEFORE_STALE."""
-    when = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
-    last_woken = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+    when = datetime(2026, 7, 4, 12, 0, tzinfo=timezone.utc)
+    last_woken = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     item = _seed_open_item(
         db_session,
         wake_count=WAKE_MAX_COUNT_BEFORE_STALE,
@@ -275,18 +275,18 @@ def test_mark_stale_stamps_stale_at_and_writes_audit(db_session):
 
 def test_mark_stale_is_idempotent_does_not_rewrite_audit(db_session):
     """B-6: re-marking an already-stale item is a no-op (no spam audit rows)."""
-    stale_ts = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
+    stale_ts = datetime(2026, 7, 4, 12, 0, tzinfo=timezone.utc)
     item = _seed_open_item(
         db_session,
         wake_count=WAKE_MAX_COUNT_BEFORE_STALE,
-        last_woken_at=datetime(2026, 7, 3, 12, 0, tzinfo=UTC),
+        last_woken_at=datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc),
         stale_at=stale_ts,
     )
 
     mark_stale_no_commit(
         db_session,
         item=item,
-        now=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+        now=datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc),
     )
     db_session.commit()
 
@@ -304,7 +304,7 @@ def test_mark_stale_rejects_unassigned_item(db_session):
         db_session,
         owner_agent_id=None,
         wake_count=4,
-        last_woken_at=datetime.now(UTC),
+        last_woken_at=datetime.now(timezone.utc),
     )
     with pytest.raises(ValueError, match="owner_agent_id"):
         mark_stale_no_commit(db_session, item=item)
@@ -326,7 +326,7 @@ def test_mark_stale_rejects_non_open_status(db_session):
     item = _seed_open_item(
         db_session,
         wake_count=4,
-        last_woken_at=datetime.now(UTC),
+        last_woken_at=datetime.now(timezone.utc),
     )
     item.status = TopicActionItemStatus.cancelled
 
@@ -346,7 +346,7 @@ def test_full_wake_to_stale_lifecycle(db_session):
     the service helpers without mocking time-of-day — callers pass ``now``
     so the test is deterministic.
     """
-    first_open = datetime(2026, 6, 1, 0, 0, tzinfo=UTC)
+    first_open = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
     item = _seed_open_item(db_session, first_open_at=first_open)
 
     # T+24h: first wake

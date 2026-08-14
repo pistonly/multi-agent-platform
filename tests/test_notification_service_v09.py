@@ -30,7 +30,7 @@ the host's wiring relies on:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import (
     NotificationCategory,
@@ -275,7 +275,7 @@ def test_digest_read_at_reset_increments_unread_count_without_sse(
     assert captured == [], "first digest emit must not publish SSE frame"
 
     # Mark as read — simulates the user clicking the notification.
-    rows[0].read_at = datetime.now(UTC)
+    rows[0].read_at = datetime.now(timezone.utc)
     db_session.commit()
 
     # Second emit on the same target — aggregation path. Must:
@@ -349,7 +349,7 @@ def test_wakeable_wake_version_strictly_monotonic_and_atomic_read_at_reset(
     assert notif.fingerprint_version == NotificationFingerprintVersion.v2
 
     # Mark as read (the waker would have acked).
-    notif.read_at = datetime.now(UTC)
+    notif.read_at = datetime.now(timezone.utc)
     db_session.commit()
 
     # Second wakeable hit — must bump wake_version AND reset read_at in the

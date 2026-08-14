@@ -102,9 +102,9 @@ def test_ensure_creator_or_admin_404_when_soft_deleted(db_session):
     db_session.flush()
     creator = _agent(db_session, project, "host-creator")
     exp = _experiment(db_session, project, creator)
-    from datetime import UTC, datetime
+    from datetime import datetime, timezone
 
-    exp.deleted_at = datetime.now(UTC)
+    exp.deleted_at = datetime.now(timezone.utc)
     db_session.add(exp)
     db_session.commit()
 

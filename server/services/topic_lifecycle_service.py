@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import ExperimentPhase, TopicDiscussionRound
 from sqlalchemy import func, select
@@ -68,7 +68,7 @@ def dismiss_topic(db: Session, *, agent: Agent, topic_id: uuid.UUID) -> Topic | 
     if topic is None or topic.creator_agent_id != agent.id:
         return None
     if topic.dismissed_at is None:
-        topic.dismissed_at = datetime.now(UTC)
+        topic.dismissed_at = datetime.now(timezone.utc)
         topic.dismissed_by_agent_id = agent.id
         db.commit()
         db.refresh(topic)
@@ -97,7 +97,7 @@ def mark_topic_read(
         )
         or 0
     )
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     cursor = db.scalar(
         select(TopicReadCursor).where(
             TopicReadCursor.topic_id == topic.id,
@@ -170,6 +170,7 @@ def topic_summaries_for_topics(
             creator_name=creator_names.get(topic.creator_agent_id),
             title=topic.title,
             description=topic.description,
+            slug=topic.slug,
             status=topic.status,
             pinned=topic.pinned,
             discussion_round=topic.discussion_round,
@@ -285,6 +286,7 @@ def create_topic(
         title=payload.title,
         description=payload.description,
         status=TopicStatus.open,
+        slug=payload.slug,
     )
     db.add(topic)
     db.flush()
@@ -363,7 +365,7 @@ def update_topic(db: Session, topic_id: uuid.UUID, payload: TopicUpdate) -> Topi
     for key, value in data.items():
         setattr(topic, key, value)
     if archived is not None:
-        topic.archived_at = datetime.now(UTC) if archived else None
+        topic.archived_at = datetime.now(timezone.utc) if archived else None
     db.commit()
     db.refresh(topic)
     return topic
@@ -371,7 +373,7 @@ def update_topic(db: Session, topic_id: uuid.UUID, payload: TopicUpdate) -> Topi
 
 def soft_delete_topic(db: Session, topic_id: uuid.UUID) -> None:
     topic = _get_topic(db, topic_id)
-    topic.deleted_at = datetime.now(UTC)
+    topic.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
 

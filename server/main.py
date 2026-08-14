@@ -12,6 +12,7 @@ from server.api.router import (
     agents_router,
     audit_router,
     bootstrap_router,
+    docs_router,
     experiments_router,
     feedback_router,
     notifications_router,
@@ -128,6 +129,7 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
     app.include_router(audit_router, prefix=prefix)
     app.include_router(feedback_router, prefix=prefix)
     app.include_router(action_items_router, prefix=prefix)
+    app.include_router(docs_router, prefix=prefix)
 
     register_domain_exception_handlers(app)
 

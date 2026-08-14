@@ -29,7 +29,7 @@ Related plan sections:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -49,13 +49,13 @@ WAKE_MAX_COUNT_BEFORE_STALE = 4  # 4th unanswered wake -> stale
 
 
 def _utcnow() -> datetime:
-    """Return the waker-canonical ``datetime.now(UTC)``.
+    """Return the waker-canonical ``datetime.now(timezone.utc)``.
 
     Centralised so tests can monkey-patch the service module rather than
     chasing ``datetime.now`` through every call site (plan §4 clock-skew
     requirement: only server time, never client time).
     """
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _ensure_first_open_at(item: TopicActionItem, now: datetime) -> None:

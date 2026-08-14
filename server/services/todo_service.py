@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import exists, func, or_, select
@@ -163,13 +163,13 @@ def list_stale_open_topics(
     if threshold_minutes < 0:
         raise ValueError("threshold_minutes must be >= 0")
 
-    now = now or datetime.now(UTC)
+    now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=threshold_minutes)
 
     def _as_utc(value: datetime) -> datetime:
         if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     suppressed_topic_ids = {
         item.topic_id for item in (pending_topic_replies or [])

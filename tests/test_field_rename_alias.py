@@ -11,7 +11,7 @@ Locks in:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.schemas import (
     PendingAdvanceRoundTodoRead,
@@ -23,7 +23,7 @@ from map_types.schemas import (
     TopicWorkItemRead,
 )
 
-NOW = datetime(2026, 7, 8, 10, 0, tzinfo=UTC)
+NOW = datetime(2026, 7, 8, 10, 0, tzinfo=timezone.utc)
 
 
 def test_topic_summary_accepts_new_field_name():

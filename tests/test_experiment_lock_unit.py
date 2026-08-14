@@ -15,7 +15,7 @@ Coverage:
 from __future__ import annotations
 
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -108,7 +108,7 @@ def test_acquire_expired_lock_reclaims(tmp_path: Path):
     backend.states["p1"] = LockState(
         project_id="p1",
         lock_holder_experiment_id="old-holder",
-        lock_acquired_at=(datetime.now(UTC) - timedelta(seconds=10_000)).isoformat(),
+        lock_acquired_at=(datetime.now(timezone.utc) - timedelta(seconds=10_000)).isoformat(),
         lock_ttl_seconds=1800,
     )
     manager = ExperimentLockManager(backend=backend, local_lock_dir=tmp_path)
@@ -137,7 +137,7 @@ def test_compute_backoff_grows_then_caps_at_1800s():
 
 def test_record_skip_increments_and_emits_next_attempt(tmp_path: Path):
     backend, manager = _manager(local_lock_dir=tmp_path)
-    fixed_now = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
+    fixed_now = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
     skip_count, next_attempt = manager.record_skip(
         project_id="p1", experiment_id="e1", now=fixed_now
     )
@@ -149,7 +149,7 @@ def test_record_skip_increments_and_emits_next_attempt(tmp_path: Path):
 
 def test_record_skip_emits_lock_stuck_at_threshold(tmp_path: Path, caplog):
     _, manager = _manager(local_lock_dir=tmp_path)
-    fixed_now = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
+    fixed_now = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
     caplog.set_level("WARNING", logger="map.experiment_lock")
     # First 9 failures do not trigger.
     for _ in range(1, 10):
@@ -266,12 +266,12 @@ def test_priority_aging_advances_over_time():
     manager.acquire(project_id="p1", experiment_id="e1")
     # Three experiments waiting in FIFO order.
     queue = [
-        ("e2", datetime.now(UTC) - timedelta(seconds=240)),
-        ("e3", datetime.now(UTC) - timedelta(seconds=120)),
-        ("e4", datetime.now(UTC)),
+        ("e2", datetime.now(timezone.utc) - timedelta(seconds=240)),
+        ("e3", datetime.now(timezone.utc) - timedelta(seconds=120)),
+        ("e4", datetime.now(timezone.utc)),
     ]
     weighted = sorted(
-        ((exp_id, enq, max(0, int((datetime.now(UTC) - enq).total_seconds() // 60)))
+        ((exp_id, enq, max(0, int((datetime.now(timezone.utc) - enq).total_seconds() // 60)))
          for exp_id, enq in queue),
         key=lambda item: (-item[2], item[1]),
     )
@@ -313,7 +313,7 @@ def test_lock_state_is_expired_handles_naive_timestamp():
     state = LockState(
         project_id="p1",
         lock_holder_experiment_id="x",
-        lock_acquired_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        lock_acquired_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     )
     # Should not raise.
     state.is_expired()

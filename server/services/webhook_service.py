@@ -7,7 +7,7 @@ import logging
 import secrets
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import delete, or_, select
@@ -216,7 +216,7 @@ def _perform_delivery(
 
         # Persist progress so admin can watch attempts tick up even mid-retry.
         delivery.attempts = attempts
-        delivery.last_attempt_at = datetime.now(UTC)
+        delivery.last_attempt_at = datetime.now(timezone.utc)
         delivery.last_error = _summarize_error(last_status, last_exc)
         db.flush()
 
@@ -226,7 +226,7 @@ def _perform_delivery(
 
     delivery.attempts = attempts
     delivery.success = success
-    delivery.last_attempt_at = datetime.now(UTC)
+    delivery.last_attempt_at = datetime.now(timezone.utc)
     delivery.last_error = _summarize_error(last_status, last_exc)
     if success:
         logger.info(

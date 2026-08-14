@@ -14,7 +14,7 @@ Pins three Layer-2 N+1 fixes on the waker hot path:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import event
 
@@ -73,7 +73,7 @@ def _make_topic(db, project: Project, host: Agent, title: str) -> Topic:
         title=title,
         description="perf hotpath",
         status=TopicStatus.open,
-        advance_round_pending_since=datetime.now(UTC) - timedelta(hours=1),
+        advance_round_pending_since=datetime.now(timezone.utc) - timedelta(hours=1),
     )
     db.add(topic)
     db.flush()

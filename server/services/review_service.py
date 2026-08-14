@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import ResolutionReason, ReviewSubstituteKind, ReviewVerdict
 from sqlalchemy import func, select
@@ -566,7 +566,7 @@ def update_review_item(
 
     before_state = item.status.value if item.status is not None else None
     item.status, item.last_resolution_reason = _normalize_terminal_status(payload.status)
-    item.updated_at = datetime.now(UTC)
+    item.updated_at = datetime.now(timezone.utc)
     after_state = item.status.value
 
     # I1(e): emit a ``review_item.mutation`` audit row capturing the

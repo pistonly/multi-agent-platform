@@ -19,7 +19,7 @@ exclude_agent_id。
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,7 +52,7 @@ def list_active_personas(
             v2 (5c) / (f) acceptance). Must be >= 1; ``window_days=0``
             is rejected because it would always return zero rows and
             provide a confusing default.
-        now: Reference "now" timestamp. Defaults to ``datetime.now(UTC)``.
+        now: Reference "now" timestamp. Defaults to ``datetime.now(timezone.utc)``.
             Tests inject a fixed value to pin the boundary at exactly
             7 / 8 / 0 days.
 
@@ -67,7 +67,7 @@ def list_active_personas(
             "use the default 7 (plan v2 (5c)) or larger."
         )
     if now is None:
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=window_days)
 
     project_agents = set(

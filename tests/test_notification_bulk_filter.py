@@ -13,7 +13,7 @@ Tests use ``CliRunner`` against the live typer app; no subprocess needed.
 """
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -45,11 +45,11 @@ def _mk_notification(
         wake_version=1,
         fingerprint_version="v2",
         event_count=1,
-        first_event_at=datetime.now(UTC),
-        last_event_at=datetime.now(UTC),
-        read_at=None if unread else datetime.now(UTC),
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+        first_event_at=datetime.now(timezone.utc),
+        last_event_at=datetime.now(timezone.utc),
+        read_at=None if unread else datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
 
 

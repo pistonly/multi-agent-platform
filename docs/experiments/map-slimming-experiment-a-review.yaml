@@ -1,0 +1,12 @@
+reasonable_items:
+  - "分层清晰：DB → Model → Schema → API → CLI → SDK → Tests，实施路径无遗漏"
+  - "向后兼容完备：所有新字段 nullable，body/file_path 二选一，plan_content/plan_file_path 二选一"
+  - "安全意识到位：/docs/read 端点明确提到路径校验和目录穿越防护"
+  - "验收标准可验证：每条 acceptance criteria 都对应具体命令或 curl 请求"
+  - "实验拆分合理：实验 A（CLI+数据模型）先行，实验 B（UI 渲染）依赖 A 的 file_path 字段"
+unreasonable_items:
+  - "建议1 slug 唯一性：DB 层应加 UNIQUE 约束（nullable 列允许多个 NULL），避免两个话题文件路径冲突——非阻塞，实施时落实"
+  - "建议2 file_path 路径规范化：CLI --doc-path 的相对路径应在 CLI 层转为相对于项目根目录的规范路径，确保不同工作目录的 Agent 引用一致——非阻塞"
+  - "建议3 /docs/read 安全加固：resolve() 会跟随符号链接，需额外检查 resolved path 仍在允许根目录内；文件不存在时返回 404 而非 500——非阻塞"
+  - "建议4 excerpt 验证：API 层应验证 excerpt 长度 ≤ 200 字符；当 file_path 存在时 excerpt 应为必填——非阻塞"
+  - "建议5 waker 兼容性：simple-waker 读取评论内容生成 remind prompt，当评论有 file_path 无 body 时应使用 excerpt 作为摘要——非阻塞"

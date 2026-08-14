@@ -1075,7 +1075,7 @@ def test_ack_reject_superseded_by_accept_on_revised_summary(client, auth_headers
 
 def test_ack_timeout_silence_consent(client, db_session, auth_headers, reviewer, project):
     import uuid
-    from datetime import UTC, datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from server.domain.models import Topic
 
@@ -1090,7 +1090,7 @@ def test_ack_timeout_silence_consent(client, db_session, auth_headers, reviewer,
     assert pending.status_code == 409
 
     row = db_session.get(Topic, uuid.UUID(topic["id"]))
-    row.advance_round_pending_since = datetime.now(UTC) - timedelta(hours=25)
+    row.advance_round_pending_since = datetime.now(timezone.utc) - timedelta(hours=25)
     db_session.commit()
 
     advanced = client.post(

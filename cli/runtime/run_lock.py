@@ -26,7 +26,7 @@ import os
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -116,9 +116,9 @@ class LockState:
             acquired = datetime.fromisoformat(self.lock_acquired_at.replace("Z", "+00:00"))
         except ValueError:
             return True
-        reference = now or datetime.now(UTC)
+        reference = now or datetime.now(timezone.utc)
         if acquired.tzinfo is None:
-            acquired = acquired.replace(tzinfo=UTC)
+            acquired = acquired.replace(tzinfo=timezone.utc)
         return reference >= acquired + timedelta(seconds=self.lock_ttl_seconds)
 
 
@@ -158,7 +158,7 @@ class InMemoryLockBackend:
     def write_lock(self, project_id: str, experiment_id: str, *, ttl: int) -> LockState:
         state = self.get_lock_state(project_id)
         state.lock_holder_experiment_id = experiment_id
-        state.lock_acquired_at = datetime.now(UTC).isoformat()
+        state.lock_acquired_at = datetime.now(timezone.utc).isoformat()
         state.lock_ttl_seconds = ttl
         return state
 
@@ -305,7 +305,7 @@ class ExperimentLockManager:
             "previous_holder": previous_holder,
             "reason": reason,
             "actor": actor,
-            "at": datetime.now(UTC).isoformat(),
+            "at": datetime.now(timezone.utc).isoformat(),
         }
         logger.warning("%s %s", LOG_FORCE, json.dumps(audit, ensure_ascii=False, sort_keys=True))
         return self.backend.get_lock_state(project_id)
@@ -329,7 +329,7 @@ class ExperimentLockManager:
         Returns ``(new_skip_count, iso_next_attempt_at)``. Emits ``lock_stuck``
         when threshold is crossed.
         """
-        reference = now or datetime.now(UTC)
+        reference = now or datetime.now(timezone.utc)
         prior = self.backend.get_lock_state(project_id).lock_skip_count
         new_count = prior + 1
         backoff = self.compute_backoff(skip_count=new_count)
@@ -431,7 +431,7 @@ class MapClientLockBackend:
             return LockState(
                 project_id=project_id,
                 lock_holder_experiment_id=experiment_id,
-                lock_acquired_at=datetime.now(UTC).isoformat(),
+                lock_acquired_at=datetime.now(timezone.utc).isoformat(),
                 lock_ttl_seconds=ttl,
             )
         try:

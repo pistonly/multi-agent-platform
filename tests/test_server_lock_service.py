@@ -16,7 +16,7 @@ Covers race experiment (eca0f522) PR1:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -112,7 +112,7 @@ def test_acquire_reclaim_after_expiry(db_session):
 
     # Manually set A as a stale holder (TTL expired).
     a.lock_holder_experiment_id = a.id
-    a.lock_acquired_at = datetime(2020, 1, 1, tzinfo=UTC)
+    a.lock_acquired_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
     a.lock_ttl_seconds = 60
     db_session.flush()
 
@@ -128,10 +128,10 @@ def test_force_release_clears_all_holders(db_session):
     b = _running_experiment(db_session, project, host, "exp-b")
 
     a.lock_holder_experiment_id = a.id
-    a.lock_acquired_at = datetime.now(UTC)
+    a.lock_acquired_at = datetime.now(timezone.utc)
     a.lock_ttl_seconds = 1000
     b.lock_holder_experiment_id = b.id  # pathological state for test
-    b.lock_acquired_at = datetime.now(UTC)
+    b.lock_acquired_at = datetime.now(timezone.utc)
     b.lock_ttl_seconds = 1000
     db_session.flush()
 
@@ -147,9 +147,9 @@ def test_record_skip_bumps_count_and_advances_next_attempt(db_session):
     project = _project(db_session)
     host = _host(db_session, project)
     a = _running_experiment(db_session, project, host, "exp-a")
-    next_at = datetime.now(UTC) + timedelta(seconds=60)
+    next_at = datetime.now(timezone.utc) + timedelta(seconds=60)
 
     result = lock_service.record_experiment_lock_skip(db_session, a.id, host, next_attempt_at=next_at)
     assert result.skip_count == 1
     # SQLite drops tzinfo on roundtrip; compare the timestamp, not the tzinfo.
-    assert result.next_attempt_at.replace(tzinfo=UTC) == next_at
+    assert result.next_attempt_at.replace(tzinfo=timezone.utc) == next_at

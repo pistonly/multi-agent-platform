@@ -19,7 +19,7 @@ Pins plan (b) acceptance:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from map_types.enums import AgentRole, ExperimentPhase
 from sqlalchemy.orm import Session
@@ -171,7 +171,7 @@ def test_resolve_escalation_target_tier2b_same_role_recent(
             summary="stale activity",
             content_md="",
             log_index=2,
-            created_at=datetime.now(UTC) - timedelta(days=ACTIVE_LOOKBACK_DAYS + 30),
+            created_at=datetime.now(timezone.utc) - timedelta(days=ACTIVE_LOOKBACK_DAYS + 30),
         )
     )
     db_session.flush()

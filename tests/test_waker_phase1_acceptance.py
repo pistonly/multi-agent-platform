@@ -28,7 +28,7 @@ import json
 import threading
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -374,7 +374,7 @@ def test_a4_p95_baseline_by_kind(tmp_path, capsys) -> None:
     iterations_per_kind = 25
     for kind in kinds:
         for i in range(iterations_per_kind):
-            t0 = datetime.now(UTC).timestamp()
+            t0 = datetime.now(timezone.utc).timestamp()
             log_dir = tmp_path / f"sessions-{kind}"
             append_session_wake_log(
                 log_dir=log_dir,
@@ -388,7 +388,7 @@ def test_a4_p95_baseline_by_kind(tmp_path, capsys) -> None:
                 event_source="polling",
                 fingerprint=f"host:{kind}:obj-{i}:v1",
             )
-            t1 = datetime.now(UTC).timestamp()
+            t1 = datetime.now(timezone.utc).timestamp()
             samples[kind].append(t1 - t0)
 
     p95_by_kind: dict[str, float] = {}
@@ -423,7 +423,7 @@ def test_a4_p95_baseline_by_kind(tmp_path, capsys) -> None:
                 "p50_seconds_by_kind": {k: stats_by_kind[k]["p50"] for k in kinds},
                 "p95_seconds_by_kind": p95_by_kind,
                 "p99_seconds_by_kind": {k: stats_by_kind[k]["p99"] for k in kinds},
-                "captured_at": datetime.now(UTC).isoformat(),
+                "captured_at": datetime.now(timezone.utc).isoformat(),
                 "note": (
                     "jsonl-append-only baseline; A4 is informational, no threshold. "
                     "Phase 2 SSE overlay should re-run this test and diff."

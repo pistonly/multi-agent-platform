@@ -132,8 +132,15 @@ class ProjectStatusVersionRead(ORMModel):
 
 
 class PlanInput(BaseModel):
-    content_md: str = Field(min_length=1)
+    content_md: str | None = Field(default=None, min_length=1)
     change_note: str | None = Field(default=None, max_length=1024)
+    file_path: str | None = None
+
+    @model_validator(mode="after")
+    def _require_content_or_path(self) -> "PlanInput":
+        if not self.content_md and not self.file_path:
+            raise ValueError("Either content_md or file_path must be provided")
+        return self
 
 
 class PlanRevise(BaseModel):
@@ -241,6 +248,9 @@ class ExperimentCreate(BaseModel):
     # When ``mode=direct``, ``submit_for_review`` is silently ignored
     # (direct mode has no review phase to submit to).
     mode: ExperimentMode = ExperimentMode.standard
+    # MAP slimming: when set, the plan MD lives at this local path and
+    # ``plan.content_md`` may be a stub. Stored on the Experiment row.
+    plan_file_path: str | None = None
 
 
 class ExperimentUpdate(BaseModel):
@@ -317,6 +327,9 @@ class ExperimentSummaryRead(ORMModel):
     # on ``experiment complete`` calls. None on other endpoints (status,
     # list, etc.) — server sets it explicitly in ``complete_experiment``.
     template_validation: "TemplateValidationSchema | None" = None
+    # MAP slimming: local MD file paths for plan and log.
+    plan_file_path: str | None = None
+    log_file_path: str | None = None
 
 
 class AcceptanceStatusRead(BaseModel):
@@ -490,8 +503,17 @@ class SimilarityWarningSchema(BaseModel):
 
 class ExperimentComplete(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
-    content_md: str = Field(min_length=1)
+    content_md: str | None = Field(default=None, min_length=1)
     metadata: dict | None = None
+    # MAP slimming: when set, the log MD lives at this local path and
+    # ``content_md`` may be omitted. Stored on the Experiment row.
+    log_file_path: str | None = None
+
+    @model_validator(mode="after")
+    def _require_content_or_path(self) -> "ExperimentComplete":
+        if not self.content_md and not self.log_file_path:
+            raise ValueError("Either content_md or log_file_path must be provided")
+        return self
 
 
 # --- Review verdict file (accept-result structured) -----------------------
@@ -649,6 +671,7 @@ class AgentCreate(BaseModel):
 class TopicCreate(BaseModel):
     title: str = Field(min_length=1, max_length=512)
     description: str | None = None
+    slug: str | None = Field(default=None, max_length=256)
 
 
 class TopicUpdate(BaseModel):
@@ -799,6 +822,7 @@ class TopicSummaryRead(BaseModel):
     creator_name: str | None = None
     title: str
     description: str | None
+    slug: str | None = None
     status: TopicStatus
     pinned: bool = False
     discussion_round: str = "round1"
@@ -830,9 +854,11 @@ class TopicSummaryRead(BaseModel):
 
 
 class TopicCommentCreate(BaseModel):
-    body: str = Field(min_length=1)
+    body: str | None = Field(default=None, min_length=1)
     parent_id: uuid.UUID | None = None
     is_round_summary: bool = False
+    file_path: str | None = None
+    excerpt: str | None = Field(default=None, max_length=200)
 
 
 class TopicCommentRead(ORMModel):
@@ -847,6 +873,8 @@ class TopicCommentRead(ORMModel):
     comment_seq: int
     created_at: datetime
     unresolved_mentions: list[str] = Field(default_factory=list)
+    file_path: str | None = None
+    excerpt: str | None = None
 
 
 class TopicCommentTreeNode(TopicCommentRead):

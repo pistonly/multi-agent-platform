@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -35,7 +35,7 @@ def test_same_second_host_reply_clears_pending_topic_reply(
         },
     ).json()
 
-    stamp = datetime(2026, 7, 5, 1, 0, 0, tzinfo=UTC)
+    stamp = datetime(2026, 7, 5, 1, 0, 0, tzinfo=timezone.utc)
     ids = [uuid.UUID(participant_comment["id"]), uuid.UUID(host_reply["id"])]
     for row in db_session.scalars(select(TopicComment).where(TopicComment.id.in_(ids))):
         row.created_at = stamp

@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -288,7 +288,7 @@ def test_stale_open_topics_surface_after_threshold(
         headers=auth_headers,
         json={"title": "久未推进的话题"},
     ).json()
-    stale_at = datetime.now(UTC) - timedelta(minutes=31)
+    stale_at = datetime.now(timezone.utc) - timedelta(minutes=31)
     row = db_session.get(Topic, uuid.UUID(topic["id"]))
     row.updated_at = stale_at
     db_session.commit()
@@ -317,7 +317,7 @@ def test_stale_open_topics_threshold_is_parameterized(
         json={"title": "tight window"},
     ).json()
     row = db_session.get(Topic, uuid.UUID(topic_tight["id"]))
-    row.updated_at = datetime.now(UTC) - timedelta(minutes=5)
+    row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     db_session.commit()
 
     from server.domain.models import Agent
@@ -358,7 +358,7 @@ def test_stale_open_topics_threshold_via_settings_env(
             json={"title": "settings env 派生话题"},
         ).json()
         row = db_session.get(Topic, uuid.UUID(topic["id"]))
-        row.updated_at = datetime.now(UTC) - timedelta(minutes=5)
+        row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
         db_session.commit()
 
         todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
@@ -377,7 +377,7 @@ def test_stale_open_topics_respects_dismiss_and_stronger_obligations(
         headers=host_headers,
         json={"title": "待回复优先"},
     ).json()
-    stale_at = datetime.now(UTC) - timedelta(minutes=31)
+    stale_at = datetime.now(timezone.utc) - timedelta(minutes=31)
     row = db_session.get(Topic, uuid.UUID(topic["id"]))
     row.updated_at = stale_at
     db_session.commit()

@@ -25,7 +25,7 @@ import asyncio
 import re
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +89,7 @@ class Scenario:
 
 
 def _now_ts() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _echo(msg: str = "") -> None:
@@ -413,7 +413,7 @@ class E2EDriver:
     def write_run_log(self) -> None:
         log_file = self.scenario.run_dir / "run.log"
         lines = [
-            f"E2E run log — finished {datetime.now(UTC).isoformat()}",
+            f"E2E run log — finished {datetime.now(timezone.utc).isoformat()}",
             f"subject: {self.scenario.subject}",
             f"topic_title: {self.scenario.topic_title}",
             f"topic_id: {self.scenario.topic_id}",

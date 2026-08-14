@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import ReviewArchivedReason
 from sqlalchemy import select
@@ -86,7 +86,7 @@ def _archive_prior_version_reviews(
     Returns the number of rows newly archived in this call (used by
     end-to-end tests; service callers may ignore).
     """
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     stmt = select(Review).where(
         Review.experiment_id == experiment_id,
         Review.plan_version < new_version,

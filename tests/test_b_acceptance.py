@@ -40,7 +40,7 @@ B-12) live in:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -82,7 +82,7 @@ from server.services.notification_service import (
 
 
 def _utcnow() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -93,7 +93,7 @@ def _aware(dt: datetime | None) -> datetime | None:
     """
     if dt is None:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 @pytest.fixture
@@ -159,7 +159,7 @@ def b10_seed(db_session):
     db_session.add(decision)
     db_session.flush()
 
-    first_open = datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
+    first_open = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
     item = TopicActionItem(
         decision_id=decision.id,
         project_id=project.id,
@@ -368,7 +368,7 @@ def test_b9_mark_wake_sent_stamps_last_woken_at_with_server_now(db_session, b10_
     would have returned.
     """
     item = b10_seed["item"]
-    server_now = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+    server_now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     # Drift the waker's clock forward by 5 minutes; the API should still
     # stamp ``last_woken_at`` with the server's actual ``_utcnow`` value.
     waker_now = server_now + timedelta(minutes=5)

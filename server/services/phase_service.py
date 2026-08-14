@@ -322,6 +322,11 @@ def complete_experiment(
     experiment = get_experiment(db, experiment_id)
     _ensure_can_complete(experiment, actor)
 
+    if payload.log_file_path:
+        experiment.log_file_path = payload.log_file_path
+
+    log_content = payload.content_md or f"See file: {payload.log_file_path}"
+
     is_direct = experiment.mode == ExperimentMode.direct.value
 
     if is_direct:
@@ -341,7 +346,7 @@ def complete_experiment(
             actor,
             ExperimentLogCreate(
                 summary=payload.summary,
-                content_md=payload.content_md,
+                content_md=log_content,
                 metadata=payload.metadata,
             ),
         )
@@ -397,7 +402,7 @@ def complete_experiment(
         actor,
         ExperimentLogCreate(
             summary=payload.summary,
-            content_md=payload.content_md,
+            content_md=log_content,
             metadata=payload.metadata,
         ),
     )

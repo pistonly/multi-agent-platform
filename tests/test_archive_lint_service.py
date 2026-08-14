@@ -17,7 +17,7 @@ Mirrors ``tests/test_plan_marker_service.py`` structure. Pinned cases
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy.orm import Session
@@ -79,7 +79,7 @@ def _make_review(
     plan_version: int,
     archived: bool = False,
 ) -> Review:
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     review = Review(
         id=uuid.uuid4(),
         experiment_id=experiment_id,

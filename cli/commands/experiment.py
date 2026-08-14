@@ -44,7 +44,17 @@ experiment_app.add_typer(plan_app, name="plan")
 @experiment_app.command("create")
 def experiment_create(
     title: str = typer.Option(..., "--title"),
-    plan_file: Path = typer.Option(..., "--plan-file"),
+    plan_file: Path | None = typer.Option(
+        None,
+        "--plan-file",
+        help="Plan MD file to read and send as content (existing behavior).",
+    ),
+    plan_file_path: str | None = typer.Option(
+        None,
+        "--plan-file-path",
+        help="MAP slimming: store local plan MD file path instead of sending content. "
+        "Use as alternative to --plan-file.",
+    ),
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     description: str | None = typer.Option(None, "--description"),
@@ -66,12 +76,24 @@ def experiment_create(
     ),
 ) -> None:
     from cli.main import _read_text_file, _resolve_project, _run  # lazy: avoid cycle
-    content = _read_text_file(plan_file, kind="plan")
+
+    if plan_file is None and plan_file_path is None:
+        typer.echo("Error: either --plan-file or --plan-file-path is required", err=True)
+        raise typer.Exit(2)
+    if plan_file is not None and plan_file_path is not None:
+        typer.echo("Error: use only one of --plan-file or --plan-file-path", err=True)
+        raise typer.Exit(2)
+
+    if plan_file is not None:
+        content = _read_text_file(plan_file, kind="plan")
+        plan_input = PlanInput(content_md=content)
+    else:
+        plan_input = PlanInput(file_path=plan_file_path)
     # Local plan frontmatter lint pre-check (a764abf6 I1.(c)). The server
     # has its own hard validator (``assert_plan_frontmatter_ok``), but a
     # local gate saves a round trip and gives a clearer error message
     # when the author simply forgot the YAML block.
-    if not force_lint_bypass:
+    if not force_lint_bypass and plan_file is not None:
         from server.services.plan_marker_service import validate_plan_frontmatter
 
         result = validate_plan_frontmatter(content)
@@ -104,10 +126,11 @@ def experiment_create(
     payload = ExperimentCreate(
         title=title,
         description=description,
-        plan=PlanInput(content_md=content),
+        plan=plan_input,
         submit_for_review=submit_for_review,
         topic_id=topic_id,
         mode=exp_mode,
+        plan_file_path=plan_file_path,
     )
 
     def action(c: MAPClient):
@@ -262,7 +285,17 @@ def experiment_pre_complete(
 def experiment_complete(
     experiment_id: uuid.UUID = typer.Option(..., "--id"),
     summary: str = typer.Option(..., "--summary"),
-    log_file: Path = typer.Option(..., "--file"),
+    log_file: Path | None = typer.Option(
+        None,
+        "--file",
+        help="Log MD file to read and send as content (existing behavior).",
+    ),
+    log_file_path: str | None = typer.Option(
+        None,
+        "--log-file-path",
+        help="MAP slimming: store local log MD file path instead of sending content. "
+        "Use as alternative to --file.",
+    ),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
     allow_missing_evidence: bool = typer.Option(
         False,
@@ -293,14 +326,22 @@ def experiment_complete(
     )
     if schema:
         _print_complete_metadata_schema_and_exit()
+    if log_file is None and log_file_path is None:
+        typer.echo("Error: either --file or --log-file-path is required", err=True)
+        raise typer.Exit(2)
+    if log_file is not None and log_file_path is not None:
+        typer.echo("Error: use only one of --file or --log-file-path", err=True)
+        raise typer.Exit(2)
     metadata = _load_complete_metadata(
         metadata_file,
         allow_missing_evidence=allow_missing_evidence,
     )
+    content_md = _read_text_file(log_file, kind="log") if log_file else None
     payload = ExperimentComplete(
         summary=summary,
-        content_md=_read_text_file(log_file, kind="log"),
+        content_md=content_md,
         metadata=metadata,
+        log_file_path=log_file_path,
     )
     _run(lambda c: c.complete_experiment(experiment_id, payload), experiment_id=experiment_id)
 

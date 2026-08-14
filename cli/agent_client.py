@@ -13,7 +13,7 @@ import logging
 import os
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
@@ -150,7 +150,7 @@ class PersonaAgentClient:
         # the real session_id only arrives with the ResultMessage. A long
         # running turn is then observable live — a stuck agent shows up as the
         # last event ts going stale.
-        pre_sid = resume_session_id or f"new-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}"
+        pre_sid = resume_session_id or f"new-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}"
         log_path = resolve_session_log_path(self._resolve_session_log_dir(), pre_sid, self.persona)
         self._log_event(
             log_path,
@@ -261,7 +261,7 @@ class PersonaAgentClient:
         else:
             status = "ok"
 
-        self.state["last_wakeup_at"] = datetime.now(UTC).isoformat()
+        self.state["last_wakeup_at"] = datetime.now(timezone.utc).isoformat()
         self.state["last_wakeup_status"] = status
         self._save_state_fn()
 
@@ -337,7 +337,7 @@ class PersonaAgentClient:
             return str(result.session_id)
         if resume_session_id:
             return str(resume_session_id)
-        return f"unknown-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
+        return f"unknown-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
 
     def _log_event(
         self,

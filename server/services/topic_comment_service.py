@@ -20,7 +20,7 @@ helper（避免新模块依赖 topic_service 的私有 API 引入循环）；这
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import AgentRole, TopicCommentKind
 from sqlalchemy import func, select
@@ -75,6 +75,8 @@ def _build_comment_tree(
             kind=_comment_kind(comment),
             comment_seq=comment.comment_seq,
             created_at=comment.created_at,
+            file_path=comment.file_path,
+            excerpt=comment.excerpt,
             children=[],
         )
     roots: list[TopicCommentTreeNode] = []
@@ -133,25 +135,31 @@ def create_topic_comment(
         )
         if parent is None:
             raise NotFoundError("Parent comment not found")
+    # MAP slimming: when file_path is set, body may be a stub.
+    body = payload.body or (f"See file: {payload.file_path}" if payload.file_path else payload.body)
+    if body is None:
+        raise ValueError("Either body or file_path must be provided")
     # Determine is_round_summary: explicit flag takes priority, but also
     # check regex for backward compat with clients that don't send the flag.
     is_round_summary = payload.is_round_summary or (
         payload.parent_id is None
-        and topic_ack_service.is_round_summary_comment(payload.body)
+        and topic_ack_service.is_round_summary_comment(body)
     )
     comment = TopicComment(
         topic_id=topic_id,
         author_agent_id=author.id,
         parent_comment_id=payload.parent_id,
-        body=payload.body,
-        kind=resolve_topic_comment_kind(payload.body),
+        body=body,
+        kind=resolve_topic_comment_kind(body),
         is_round_summary=is_round_summary,
         comment_seq=_next_topic_comment_seq(db, topic_id),
+        file_path=payload.file_path,
+        excerpt=payload.excerpt,
     )
     db.add(comment)
     # Bump topic.updated_at so any prior host-side dismiss on this topic
     # is automatically un-dismissed — there's new activity worth seeing.
-    topic.updated_at = datetime.now(UTC)
+    topic.updated_at = datetime.now(timezone.utc)
     if (
         author.id == topic.creator_agent_id
         and payload.parent_id is None
@@ -197,6 +205,8 @@ def topic_comment_read(
         comment_seq=comment.comment_seq,
         created_at=comment.created_at,
         unresolved_mentions=list(unresolved_mentions or ()),
+        file_path=comment.file_path,
+        excerpt=comment.excerpt,
     )
 
 
@@ -230,6 +240,8 @@ def list_topic_comments(
             kind=_comment_kind(comment),
             comment_seq=comment.comment_seq,
             created_at=comment.created_at,
+            file_path=comment.file_path,
+            excerpt=comment.excerpt,
         )
         for comment in comments
     ]

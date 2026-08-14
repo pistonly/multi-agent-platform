@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import FeedbackCategory, FeedbackStatus
 from sqlalchemy import func, select
@@ -108,7 +108,7 @@ def update_feedback(
     for key, value in data.items():
         setattr(feedback, key, value)
     if archived is not None:
-        feedback.archived_at = datetime.now(UTC) if archived else None
+        feedback.archived_at = datetime.now(timezone.utc) if archived else None
     db.commit()
     db.refresh(feedback)
     return feedback_to_read(db, feedback)

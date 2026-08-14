@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -48,12 +48,12 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def should_wake_action_item(
@@ -77,7 +77,7 @@ def should_wake_action_item(
       written the diagnostic audit row we stop bothering the assignee.
     - First wake fires 24h after ``first_open_at``; second at 72h; further
       wakes every 7d; the (N+1)th check after the 4th wake writes stale.
-    - ``now`` defaults to ``datetime.now(UTC)`` — callers that need a
+    - ``now`` defaults to ``datetime.now(timezone.utc)`` — callers that need a
       deterministic clock (tests, dogfood) inject their own.
     """
     if not isinstance(item, dict):
@@ -91,7 +91,7 @@ def should_wake_action_item(
     if _parse_iso_datetime(item.get("stale_at")) is not None:
         return ActionItemWakeDecision.SKIP
 
-    current = now or datetime.now(UTC)
+    current = now or datetime.now(timezone.utc)
     first_open_at = _parse_iso_datetime(item.get("first_open_at"))
     if first_open_at is None:
         # Pre-I1 backfill may have missed this row (closed before I1, etc).

@@ -23,7 +23,7 @@ import json
 import os
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -287,7 +287,7 @@ def main() -> None:
             print(
                 json.dumps(
                     {
-                        "ts": datetime.now(UTC).isoformat(),
+                        "ts": datetime.now(timezone.utc).isoformat(),
                         "kind": "sdk_stream_event",
                         "event_type": ev_type,
                         "data": ev_data,

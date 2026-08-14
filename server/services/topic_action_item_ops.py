@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from map_types.enums import ActionItemCategory, ExperimentPhase, TopicActionItemStatus
@@ -41,7 +41,7 @@ def _suggest_linked_experiment(db: Session, item: TopicActionItem) -> tuple[uuid
     if item.owner_agent_id is None:
         return None, None
 
-    cutoff = datetime.now(UTC) - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     item_norm = item.title.lower().replace(" ", "")
     candidates = db.scalars(
         select(Experiment)
@@ -90,7 +90,7 @@ def _suggest_linked_experiments_batch(
     if not eligible:
         return result
 
-    cutoff = datetime.now(UTC) - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     groups: dict[tuple[uuid.UUID, uuid.UUID | None], list[TopicActionItem]] = {}
     for item in eligible:
         groups.setdefault((item.project_id, item.owner_agent_id), []).append(item)

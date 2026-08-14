@@ -227,6 +227,10 @@ class Experiment(Base):
         back_populates="executed_experiments", foreign_keys=[executor_agent_id]
     )
     topic: Mapped["Topic | None"] = relationship(back_populates="experiments")
+    # MAP slimming: file paths for plan and log MD files. When present,
+    # PlanVersion.content_md / ExperimentLog.content_md store stubs.
+    plan_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    log_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     plan_versions: Mapped[list["PlanVersion"]] = relationship(
         back_populates="experiment", order_by="PlanVersion.version"
     )
@@ -304,6 +308,10 @@ class Topic(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TopicStatus] = mapped_column(Enum(TopicStatus), default=TopicStatus.open, nullable=False, index=True)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    # MAP slimming: human-readable identifier for file path convention
+    # (e.g. docs/topics/<slug>/round1-host.md). Nullable for backward
+    # compat; UNIQUE on non-NULL values enforced by partial index.
+    slug: Mapped[str | None] = mapped_column(String(256), nullable=True)
     discussion_round: Mapped[str] = mapped_column(
         String(20),
         default="round1",
@@ -344,6 +352,10 @@ class TopicComment(Base):
     author_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     parent_comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topic_comments.id"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # MAP slimming: local MD file path + short excerpt for list views.
+    # When file_path is set, body stores a stub (e.g. "See file: ...").
+    file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    excerpt: Mapped[str | None] = mapped_column(String(200), nullable=True)
     kind: Mapped[TopicCommentKind] = mapped_column(
         Enum(TopicCommentKind), default=TopicCommentKind.user, nullable=False
     )

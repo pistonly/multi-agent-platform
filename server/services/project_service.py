@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from map_types.schemas import TopicSummaryRead
@@ -92,7 +92,7 @@ def update_project(db: Session, project_id: uuid.UUID, payload: ProjectUpdate) -
     for key, value in data.items():
         setattr(project, key, value)
     if archived is not None:
-        project.archived_at = datetime.now(UTC) if archived else None
+        project.archived_at = datetime.now(timezone.utc) if archived else None
     db.commit()
     db.refresh(project)
     return project
@@ -329,6 +329,7 @@ def create_experiment(
         current_plan_version=1,
         topic_id=payload.topic_id,
         phase_owner=owner_for(phase, mode=experiment_mode).value,
+        plan_file_path=payload.plan_file_path,
     )
     db.add(experiment)
     db.flush()
@@ -530,7 +531,7 @@ def update_experiment(
                 "Cannot archive experiment while it is "
                 f"{experiment.phase.value}; complete or cancel it first"
             )
-        experiment.archived_at = datetime.now(UTC) if archived else None
+        experiment.archived_at = datetime.now(timezone.utc) if archived else None
     db.commit()
     db.refresh(experiment)
     return experiment
@@ -538,5 +539,5 @@ def update_experiment(
 
 def soft_delete_experiment(db: Session, experiment_id: uuid.UUID) -> None:
     experiment = get_experiment(db, experiment_id)
-    experiment.deleted_at = datetime.now(UTC)
+    experiment.deleted_at = datetime.now(timezone.utc)
     db.commit()

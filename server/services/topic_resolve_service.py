@@ -10,7 +10,7 @@ Action-item 序列化委托 ``topic_action_item_ops``；
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from map_types.enums import AgentRole, TopicActionItemStatus
@@ -133,7 +133,7 @@ def resolve_topic(
         if old_item.status == TopicActionItemStatus.open:
             prev_status = old_item.status
             old_item.status = TopicActionItemStatus.done
-            old_item.updated_at = datetime.now(UTC)
+            old_item.updated_at = datetime.now(timezone.utc)
             audit_entries.append(
                 {
                     "action": "action_item.completed",
@@ -183,7 +183,7 @@ def resolve_topic(
                     due_at=item_payload.due_at,
                     linked_experiment_id=item_payload.linked_experiment_id,
                     category=item_payload.category.value if item_payload.category else None,
-                    first_open_at=datetime.now(UTC),
+                    first_open_at=datetime.now(timezone.utc),
                 )
             )
 

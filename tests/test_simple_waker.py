@@ -1,7 +1,7 @@
 import asyncio
 import importlib
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -308,7 +308,7 @@ def test_map_command_client_work_requests_wakeable(monkeypatch) -> None:
 
 def test_should_send_remind_requires_work_and_respects_cooldown() -> None:
     summary = summarize_pending_work({"mentions": [{"id": "m1"}]})
-    now = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     ok, reason = should_send_remind(
         summary,
         now=now,
@@ -344,7 +344,7 @@ def test_should_send_remind_skips_when_inflight() -> None:
     summary = summarize_pending_work({"mentions": [{"id": "m1"}]})
     ok, reason = should_send_remind(
         summary,
-        now=datetime.now(UTC),
+        now=datetime.now(timezone.utc),
         last_remind_at=None,
         inflight=True,
         min_remind_seconds=30,

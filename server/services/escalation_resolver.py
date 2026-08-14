@@ -20,7 +20,7 @@ falls back to printing the bare error_code + hint instead of crashing).
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from map_types.enums import AgentRole
 from sqlalchemy import select
@@ -142,7 +142,7 @@ def _recent_same_role_agent(
     keeps the query small enough that the optimizer's row counts stay
     predictable. The 7-day lookback bounds the row count regardless.
     """
-    cutoff = datetime.now(UTC) - _ACTIVITY_SINCE
+    cutoff = datetime.now(timezone.utc) - _ACTIVITY_SINCE
 
     agents_in_project = select(Agent.id).where(
         Agent.project_id == project_id, Agent.role == role

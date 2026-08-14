@@ -13,7 +13,7 @@ window (T+24h → T+72h → every 7d up to 4 times → stale). This file verifie
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from map_types.enums import AgentRole, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
@@ -47,9 +47,9 @@ def _seed_item(
     pass ``last_woken_at=None`` to exercise the no-prior-wake rejection.
     """
     if last_woken_at is _UNSET:
-        last_woken_at = datetime.now(UTC) - timedelta(hours=1)
+        last_woken_at = datetime.now(timezone.utc) - timedelta(hours=1)
     if first_open_at is _UNSET:
-        first_open_at = datetime.now(UTC) - timedelta(days=30)
+        first_open_at = datetime.now(timezone.utc) - timedelta(days=30)
 
     project = Project(
         project_key=f"p-{uuid.uuid4().hex[:8]}",

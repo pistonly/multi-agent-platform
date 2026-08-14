@@ -19,7 +19,7 @@ same fixtures because the persona filter is the only thing it adds.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -29,7 +29,7 @@ from cli.action_item_escalation import (
     should_wake_action_item,
 )
 
-NOW = datetime(2026, 7, 3, 12, 0, 0, tzinfo=UTC)
+NOW = datetime(2026, 7, 3, 12, 0, 0, tzinfo=timezone.utc)
 OWNER = "8ab78cfc-8289-442e-ae63-fa0df4d2cd68"
 OTHER = "98b23700-8386-4def-8235-afe252c1df35"
 

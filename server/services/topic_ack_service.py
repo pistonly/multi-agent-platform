@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -170,14 +170,14 @@ def advance_round_ack_state(
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def ack_timeout_elapsed(topic: Topic, *, now: datetime | None = None) -> bool:
     if topic.advance_round_pending_since is None:
         return False
-    current = _as_utc(now or datetime.now(UTC))
+    current = _as_utc(now or datetime.now(timezone.utc))
     pending = _as_utc(topic.advance_round_pending_since)
     return current - pending >= ADVANCE_ROUND_ACK_TIMEOUT
 
@@ -215,7 +215,7 @@ def validate_advance_ack(
         return
 
     if topic.advance_round_pending_since is None:
-        topic.advance_round_pending_since = now or datetime.now(UTC)
+        topic.advance_round_pending_since = now or datetime.now(timezone.utc)
     db.commit()
     db.refresh(topic)
 
@@ -312,4 +312,4 @@ def agent_needs_round_ack(
 
 
 def mark_round_ack_pending(topic: Topic, *, now: datetime | None = None) -> None:
-    topic.advance_round_pending_since = now or datetime.now(UTC)
+    topic.advance_round_pending_since = now or datetime.now(timezone.utc)

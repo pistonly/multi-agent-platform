@@ -45,12 +45,17 @@ def topic_create(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     description: str | None = typer.Option(None, "--description"),
+    slug: str | None = typer.Option(
+        None,
+        "--slug",
+        help="Human-readable identifier for file path convention (e.g. 'map-slimming').",
+    ),
 ) -> None:
     from map_types.schemas import TopicCreate
 
     from cli.main import _resolve_project, _run
 
-    payload = TopicCreate(title=title, description=description)
+    payload = TopicCreate(title=title, description=description, slug=slug)
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
@@ -221,17 +226,37 @@ def topic_comment(
         "--round-summary",
         help="Mark this comment as a Round Summary (triggers participant ack flow).",
     ),
+    file_path: str | None = typer.Option(
+        None,
+        "--file-path",
+        help="MAP slimming: store local MD file path instead of inline body. "
+        "Use with --excerpt for list preview.",
+    ),
+    excerpt: str | None = typer.Option(
+        None,
+        "--excerpt",
+        help="Short excerpt for list views (max 200 chars). Use with --file-path.",
+    ),
 ) -> None:
     from cli.main import _read_text_file, _run
 
-    if body is None and body_file is None:
-        typer.echo("Error: either --body or --file is required", err=True)
+    has_inline = body is not None or body_file is not None
+    if not has_inline and file_path is None:
+        typer.echo(
+            "Error: provide --body, --file, or --file-path", err=True
+        )
         raise typer.Exit(2)
     if body is not None and body_file is not None:
         typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
-    content = body if body is not None else _read_text_file(body_file, kind="comment")
-    payload = TopicCommentCreate(body=content, parent_id=parent, is_round_summary=round_summary)
+    content = body if body is not None else (_read_text_file(body_file, kind="comment") if body_file else None)
+    payload = TopicCommentCreate(
+        body=content,
+        parent_id=parent,
+        is_round_summary=round_summary,
+        file_path=file_path,
+        excerpt=excerpt,
+    )
     _run(lambda c: c.create_topic_comment(topic_id, payload))
 
 
