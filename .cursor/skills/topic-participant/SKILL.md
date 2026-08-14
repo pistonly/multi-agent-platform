@@ -116,7 +116,7 @@ map --persona participant topic comment \
   --parent <comment-uuid>
 ```
 
-读取他人文件引用评论：`topic show` 返回的评论带 `file_path`，直接读该本地文件获取全文（详见 map-project-collab「MAP 瘦身」章节）。
+读取他人文件引用评论：`topic show` 返回的评论带 `file_path`，直接读该本地文件获取全文（详见 map-project-collab 的 references/file-reference.md）。
 
 ## @提及
 

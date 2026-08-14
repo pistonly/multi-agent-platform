@@ -150,7 +150,7 @@ map --persona host topic comment \
   --parent <comment-uuid>
 
 # 瘦身模式（推荐，长回复/Round Summary）：内容写本地 MD，平台只存路径+摘要
-# 路径约定：docs/topics/<slug>/round<N>-host.md（详见 map-project-collab「MAP 瘦身」章节）
+# 路径约定：docs/topics/<slug>/round<N>-host.md（详见 map-project-collab 的 references/file-reference.md）
 map --persona host topic comment \
   --id <topic-uuid> \
   --file-path docs/topics/<slug>/round1-host.md \

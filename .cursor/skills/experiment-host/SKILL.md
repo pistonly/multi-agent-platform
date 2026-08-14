@@ -16,7 +16,7 @@ description: >-
 
 **已停用（勿依赖）**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh` / `start-host-bridge-claude.sh`、runner 的 stdin/stdout JSON 契约。没有 bridge 会代写 MAP、代跑 `execute_experiment` 或代提交 git。
 
-协作入口见 [map-project-collab](../map-project-collab/SKILL.md) § Waker 模式。
+协作入口见 [map-project-collab](../map-project-collab/SKILL.md) § Waker 模式（被唤醒时读其 [references/wake.md](../map-project-collab/references/wake.md) 最小协议）。
 
 ## Host 编排模式（直接调用 reviewer）
 
@@ -143,7 +143,7 @@ map --persona host experiment complete \
   --log-file-path docs/experiments/<slug>-log.md
 ```
 
-同理创建实验时可用 `--plan-file-path docs/experiments/<slug>-plan.md` 只存计划路径（详见 map-project-collab「MAP 瘦身」章节）。
+同理创建实验时可用 `--plan-file-path docs/experiments/<slug>-plan.md` 只存计划路径（详见 map-project-collab 的 references/file-reference.md）。
 
 > **完整收尾 bash 模板**：Read [references/lifecycle-transitions.md](references/lifecycle-transitions.md)
 
