@@ -32,7 +32,6 @@ from server.services import phase_service
 from server.services.errors import ForbiddenError
 from tests._frontmatter import make_valid_plan
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

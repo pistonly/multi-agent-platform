@@ -9,13 +9,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
-from cli.project_export import export_project_history, _slugify, _fmt_dt
-
+from cli.project_export import _fmt_dt, _slugify, export_project_history
 
 # ---------------------------------------------------------------------------
 # Fixtures: build mock SDK objects matching the Pydantic schema shapes

@@ -7,8 +7,6 @@ from pydantic import BaseModel, Field
 
 from .base import ORMModel
 
-
-
 # --- Webhook ---
 
 

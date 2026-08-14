@@ -9,8 +9,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,7 +16,6 @@ import pytest
 from typer.testing import CliRunner
 
 from cli.commands.host import host_app
-
 
 runner = CliRunner()
 

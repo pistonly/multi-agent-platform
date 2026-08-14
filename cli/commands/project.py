@@ -125,10 +125,7 @@ def project_export(
     if output_dir is None:
         from cli.main import _cli_options, find_map_dir
         map_dir = find_map_dir(_cli_options.get("project_root"))
-        if map_dir is not None:
-            output_dir = map_dir / "history"
-        else:
-            output_dir = Path(".map") / "history"
+        output_dir = map_dir / "history" if map_dir is not None else Path(".map") / "history"
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)

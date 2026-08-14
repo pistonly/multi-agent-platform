@@ -9,8 +9,6 @@ from map_types.enums import FeedbackCategory, FeedbackStatus
 
 from .base import ORMModel
 
-
-
 # --- Platform Feedback ---
 
 

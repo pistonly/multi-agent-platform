@@ -10,7 +10,6 @@ from map_types.enums import AgentRole
 from .base import ORMModel
 
 
-
 class AgentRead(ORMModel):
     id: uuid.UUID
     name: str

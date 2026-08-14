@@ -10,8 +10,6 @@ from map_types.enums import InboundEventSource
 
 from .base import ORMModel
 
-
-
 # --- InboundEvent ---
 
 

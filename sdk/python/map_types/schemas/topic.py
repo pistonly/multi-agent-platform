@@ -11,8 +11,6 @@ from map_types.enums import ActionItemCategory, ExperimentPhase, TopicActionItem
 from .base import ORMModel
 from .experiment import ExperimentSummaryRead
 
-
-
 # --- Topic ---
 
 

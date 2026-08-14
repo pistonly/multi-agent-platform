@@ -6,145 +6,6 @@ trailing ``model_rebuild()`` calls are replayed verbatim, so consumers
 (cli / sdk / server / scripts/gen_types.py) are unaffected.
 """
 
-from .project import (
-    PROJECT_KEY_PATTERN,
-    ProjectCreate,
-    ProjectUpdate,
-    ProjectRead,
-    BootstrapRequest,
-    BootstrapAgentResult,
-    BootstrapResponse,
-    ProjectStatusRead,
-    ProjectStatusRevise,
-    ProjectStatusVersionRead,
-    GlobalStatusRead,
-)
-from .base import ORMModel
-from .plan import (
-    PlanInput,
-    PlanRevise,
-    PlanVersionRead,
-)
-from .review import (
-    ReviewCreate,
-    ReviewItemRead,
-    ReviewItemUpdate,
-    ReviewRead,
-)
-from .comment import (
-    CommentCreate,
-    CommentRead,
-    CommentTreeNode,
-)
-from .experiment import (
-    ExperimentCreate,
-    ExperimentUpdate,
-    ExperimentStart,
-    ExperimentSummaryRead,
-    AcceptanceStatusRead,
-    ExperimentDetailRead,
-    ExperimentLockRead,
-    ExperimentLockStalledScanRead,
-    ExperimentLogCreate,
-    ExperimentLogRead,
-    EvidenceWarningCode,
-    EvidenceWarningSchema,
-    EvidenceValidationSchema,
-    LogCreateResponse,
-    TemplateWarningCode,
-    TemplateWarningSchema,
-    TemplateValidationSchema,
-    SimilarityWarningCode,
-    SimilarityWarningSchema,
-    ExperimentComplete,
-    WaivedReason,
-    ReviewVerdictItem,
-    ReviewInvariantCheck,
-    ReviewVerdictFile,
-    ExperimentResultDecision,
-    ExperimentBundleRead,
-)
-from .agent import (
-    AgentRead,
-    AgentCreateResponse,
-    AgentCreate,
-    EscalationTargetRead,
-)
-from .topic import (
-    TopicCreate,
-    TopicUpdate,
-    TopicAdvanceRound,
-    TopicCloseRequest,
-    TopicActionItemCreate,
-    ActionItemCancel,
-    TopicResolve,
-    TopicActionItemRead,
-    TopicDecisionRead,
-    TopicSummaryRead,
-    TopicCommentCreate,
-    TopicCommentRead,
-    TopicCommentTreeNode,
-    TopicRead,
-)
-from .topic_progress import (
-    TopicProgressCommentRead,
-    TopicWorkItemRead,
-    TopicProgressItemRead,
-    TopicProgressListRead,
-)
-from .todo import (
-    PendingReplyRead,
-    PendingPlanRevisionRead,
-    PendingTopicReplyTodoRead,
-    PendingRoundAckTodoRead,
-    PendingAdvanceRoundTodoRead,
-    StaleOpenTopicTodoRead,
-    MentionTodoRead,
-    DismissMentionResultRead,
-    DismissAllMentionsResultRead,
-    TopicReadCursorRead,
-    TopicActionItemTodoRead,
-    ExperimentReviewInformationalRead,
-    TodoRead,
-)
-from .notification import (
-    NotificationRead,
-    NotificationListRead,
-)
-from .agent_work import (
-    AgentWorkRead,
-    BucketVisibility,
-    SummaryBucketKind,
-    SummaryBucketItem,
-    SummaryBucket,
-    AgentWorkSummaryRead,
-)
-from .inbound_event import (
-    InboundEventCreate,
-    InboundEventRead,
-    InboundEventRecordResult,
-)
-from .webhook import (
-    WebhookCreate,
-    WebhookUpdate,
-    WebhookRead,
-    WebhookCreateResponse,
-    WebhookDeliveryRead,
-)
-from .audit import (
-    AuditLogRead,
-    CrossPersonaCallRecord,
-    ACTION_ITEM_WAKE_SENT,
-    ACTION_ITEM_STALE,
-    ActionItemWakeSentPayload,
-    ActionItemStalePayload,
-)
-from .feedback import (
-    PlatformFeedbackCreate,
-    PlatformFeedbackUpdate,
-    PlatformFeedbackRead,
-)
-
 # Re-export enums: the original single-file module had no ``__all__``, so its
 # imported enum names were part of the public surface picked up by
 # ``from map_types.schemas import *`` (e.g. the ``server/domain/schemas.py``
@@ -172,6 +33,145 @@ from map_types.enums import (  # noqa: E402
     TopicCommentKind,
     TopicDiscussionRound,
     TopicStatus,
+)
+
+from .agent import (
+    AgentCreate,
+    AgentCreateResponse,
+    AgentRead,
+    EscalationTargetRead,
+)
+from .agent_work import (
+    AgentWorkRead,
+    AgentWorkSummaryRead,
+    BucketVisibility,
+    SummaryBucket,
+    SummaryBucketItem,
+    SummaryBucketKind,
+)
+from .audit import (
+    ACTION_ITEM_STALE,
+    ACTION_ITEM_WAKE_SENT,
+    ActionItemStalePayload,
+    ActionItemWakeSentPayload,
+    AuditLogRead,
+    CrossPersonaCallRecord,
+)
+from .base import ORMModel
+from .comment import (
+    CommentCreate,
+    CommentRead,
+    CommentTreeNode,
+)
+from .experiment import (
+    AcceptanceStatusRead,
+    EvidenceValidationSchema,
+    EvidenceWarningCode,
+    EvidenceWarningSchema,
+    ExperimentBundleRead,
+    ExperimentComplete,
+    ExperimentCreate,
+    ExperimentDetailRead,
+    ExperimentLockRead,
+    ExperimentLockStalledScanRead,
+    ExperimentLogCreate,
+    ExperimentLogRead,
+    ExperimentResultDecision,
+    ExperimentStart,
+    ExperimentSummaryRead,
+    ExperimentUpdate,
+    LogCreateResponse,
+    ReviewInvariantCheck,
+    ReviewVerdictFile,
+    ReviewVerdictItem,
+    SimilarityWarningCode,
+    SimilarityWarningSchema,
+    TemplateValidationSchema,
+    TemplateWarningCode,
+    TemplateWarningSchema,
+    WaivedReason,
+)
+from .feedback import (
+    PlatformFeedbackCreate,
+    PlatformFeedbackRead,
+    PlatformFeedbackUpdate,
+)
+from .inbound_event import (
+    InboundEventCreate,
+    InboundEventRead,
+    InboundEventRecordResult,
+)
+from .notification import (
+    NotificationListRead,
+    NotificationRead,
+)
+from .plan import (
+    PlanInput,
+    PlanRevise,
+    PlanVersionRead,
+)
+from .project import (
+    PROJECT_KEY_PATTERN,
+    BootstrapAgentResult,
+    BootstrapRequest,
+    BootstrapResponse,
+    GlobalStatusRead,
+    ProjectCreate,
+    ProjectRead,
+    ProjectStatusRead,
+    ProjectStatusRevise,
+    ProjectStatusVersionRead,
+    ProjectUpdate,
+)
+from .review import (
+    ReviewCreate,
+    ReviewItemRead,
+    ReviewItemUpdate,
+    ReviewRead,
+)
+from .todo import (
+    DismissAllMentionsResultRead,
+    DismissMentionResultRead,
+    ExperimentReviewInformationalRead,
+    MentionTodoRead,
+    PendingAdvanceRoundTodoRead,
+    PendingPlanRevisionRead,
+    PendingReplyRead,
+    PendingRoundAckTodoRead,
+    PendingTopicReplyTodoRead,
+    StaleOpenTopicTodoRead,
+    TodoRead,
+    TopicActionItemTodoRead,
+    TopicReadCursorRead,
+)
+from .topic import (
+    ActionItemCancel,
+    TopicActionItemCreate,
+    TopicActionItemRead,
+    TopicAdvanceRound,
+    TopicCloseRequest,
+    TopicCommentCreate,
+    TopicCommentRead,
+    TopicCommentTreeNode,
+    TopicCreate,
+    TopicDecisionRead,
+    TopicRead,
+    TopicResolve,
+    TopicSummaryRead,
+    TopicUpdate,
+)
+from .topic_progress import (
+    TopicProgressCommentRead,
+    TopicProgressItemRead,
+    TopicProgressListRead,
+    TopicWorkItemRead,
+)
+from .webhook import (
+    WebhookCreate,
+    WebhookCreateResponse,
+    WebhookDeliveryRead,
+    WebhookRead,
+    WebhookUpdate,
 )
 
 ProjectStatusRead.model_rebuild()

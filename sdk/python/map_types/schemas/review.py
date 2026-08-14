@@ -5,11 +5,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from map_types.enums import ResolutionReason, ReviewArchivedReason, ReviewItemKind, ReviewItemStatus, ReviewSubstituteKind
+from map_types.enums import (
+    ResolutionReason,
+    ReviewArchivedReason,
+    ReviewItemKind,
+    ReviewItemStatus,
+    ReviewSubstituteKind,
+)
 
 from .base import ORMModel
-
-
 
 # --- Review ---
 

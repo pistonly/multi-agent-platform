@@ -24,13 +24,13 @@ Each invoked persona runs in its own Claude session with its own credentials.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
 from cli.bridge_state import load_bridge_state, save_bridge_state
-from cli.host_worker_types import WorkerError
 from cli.runtime_chat import (
     default_runtime_home,
     default_state_file,
@@ -157,10 +157,8 @@ class HostOrchestrator:
     async def disconnect_all(self) -> None:
         """Disconnect all managed persona clients."""
         for client in self._clients.values():
-            try:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
-            except Exception:
-                pass
         self._clients.clear()
 
     # ------------------------------------------------------------------

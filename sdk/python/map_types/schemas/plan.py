@@ -7,8 +7,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from .base import ORMModel
 
-
-
 # --- Plan ---
 
 

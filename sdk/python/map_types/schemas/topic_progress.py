@@ -8,7 +8,6 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
 from .base import ORMModel
 
 
-
 class TopicProgressCommentRead(ORMModel):
     id: uuid.UUID
     author_agent_id: uuid.UUID

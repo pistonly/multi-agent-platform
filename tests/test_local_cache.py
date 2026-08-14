@@ -9,10 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock
-
-import pytest
 
 from cli.local_cache import (
     CachedExperiment,
@@ -25,7 +22,6 @@ from cli.local_cache import (
     list_cached_topics,
     pull_project_to_cache,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: build mock SDK objects matching the Pydantic schema shapes

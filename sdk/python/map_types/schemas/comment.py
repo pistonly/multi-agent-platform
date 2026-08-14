@@ -9,8 +9,6 @@ from map_types.enums import CommentAnchorType
 
 from .base import ORMModel
 
-
-
 # --- Comment ---
 
 

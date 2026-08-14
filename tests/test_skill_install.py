@@ -5,14 +5,9 @@ to a target directory, including selective install and force overwrite.
 """
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-
-import pytest
 from typer.testing import CliRunner
 
-from cli.commands.skill import skill_app, _get_bundled_skills_dir, _list_skill_dirs
-
+from cli.commands.skill import _get_bundled_skills_dir, _list_skill_dirs, skill_app
 
 runner = CliRunner()
 

@@ -18,6 +18,7 @@ from map_sdk.evidence import (
     EVIDENCE_METADATA_KEYS,
     metadata_has_completion_evidence,
 )
+from map_types.enums import ExperimentMode
 from map_types.schemas import (
     ExperimentComplete,
     ExperimentCreate,
@@ -27,8 +28,6 @@ from map_types.schemas import (
     PlanRevise,
     ReviewCreate,
 )
-
-from map_types.enums import ExperimentMode
 
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
@@ -121,7 +120,7 @@ def experiment_create(
             f"Error: invalid mode '{mode}'. Use 'standard' or 'direct'.",
             err=True,
         )
-        raise typer.Exit(2)
+        raise typer.Exit(2) from None
 
     payload = ExperimentCreate(
         title=title,

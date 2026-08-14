@@ -9,8 +9,6 @@ from map_types.enums import NotificationCategory, NotificationFingerprintVersion
 
 from .base import ORMModel
 
-
-
 # --- Notification ---
 
 

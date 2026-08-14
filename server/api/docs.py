@@ -54,11 +54,11 @@ def read_doc(
 
     try:
         target.relative_to(workspace)
-    except ValueError:
+    except ValueError as err:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Path is outside the project workspace",
-        )
+        ) from err
 
     if not target.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")

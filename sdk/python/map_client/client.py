@@ -84,7 +84,6 @@ from map_types import (
 from map_client.config import load_config
 from map_client.exceptions import raise_for_status
 
-
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", ""}
 
 

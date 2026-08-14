@@ -5,12 +5,11 @@ Covers state machine transitions, phase owner routing, capabilities
 """
 
 import pytest
-
 from map_types.enums import ExperimentMode, ExperimentPhase, PhaseOwner
 from map_types.schemas import ExperimentCreate, ExperimentSummaryRead, PlanInput
+
 from server.domain.state_machine import StateMachineError, validate_phase_transition
 from server.services.phase_owner_resolver import is_informational_only, owner_for
-
 
 # ─── State Machine ───────────────────────────────────────────────────────
 

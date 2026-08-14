@@ -6,13 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from map_types.enums import PhaseOwner
-
 from .agent import AgentRead
 from .notification import NotificationListRead
 from .todo import TodoRead
 from .topic_progress import TopicProgressListRead
-
 
 
 class AgentWorkRead(BaseModel):

@@ -48,6 +48,21 @@ from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
 from cli.e2e_collab import e2e_app
 
+# Persona-compare rendering moved to cli.persona_compare (main.py size
+# cap, see tests/cli/test_compat.py). Re-exported here so existing
+# `from cli.main import ...` call sites keep working.
+from cli.persona_compare import (  # noqa: F401
+    _PERSONA_COMPARE_DIFF_FIELDS,
+    _PERSONA_COMPARE_PARTITION_ALL_AGREE,
+    _PERSONA_COMPARE_PARTITION_CROSS_PHASE_FOLD,
+    _PERSONA_COMPARE_PARTITION_FULL_DIFF,
+    _PERSONA_COMPARE_PARTITION_PARTIAL_DIFF,
+    _classify_persona_compare_partition,
+    _format_compare_value,
+    _persona_compare_view,
+    _write_cross_persona_call_audit,
+)
+
 app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
 # Sub-apps live in cli/commands/*; imported here only to register via
 # add_typer. Command bodies lazy-import helpers from this module to
@@ -408,22 +423,6 @@ def _to_yamlable(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _to_yamlable(item) for key, item in value.items()}
     return value
-
-
-# Persona-compare rendering moved to cli.persona_compare (main.py size
-# cap, see tests/cli/test_compat.py). Re-exported here so existing
-# `from cli.main import ...` call sites keep working.
-from cli.persona_compare import (  # noqa: F401
-    _PERSONA_COMPARE_DIFF_FIELDS,
-    _PERSONA_COMPARE_PARTITION_ALL_AGREE,
-    _PERSONA_COMPARE_PARTITION_CROSS_PHASE_FOLD,
-    _PERSONA_COMPARE_PARTITION_FULL_DIFF,
-    _PERSONA_COMPARE_PARTITION_PARTIAL_DIFF,
-    _classify_persona_compare_partition,
-    _format_compare_value,
-    _persona_compare_view,
-    _write_cross_persona_call_audit,
-)
 
 
 def _print_warnings(warnings: list[str] | None) -> None:

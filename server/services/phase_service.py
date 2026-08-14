@@ -3,10 +3,10 @@ import uuid
 from collections import Counter
 from typing import Any
 
+from map_types.enums import ExperimentMode
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from map_types.enums import ExperimentMode
 from server.domain.models import (
     Agent,
     AgentRole,

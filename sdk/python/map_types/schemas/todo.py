@@ -8,8 +8,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
 from map_types.enums import ExperimentPhase, ReviewItemStatus, TopicActionItemStatus
 
 from .experiment import ExperimentSummaryRead
-from .topic import TopicActionItemRead, TopicSummaryRead
-
+from .topic import TopicSummaryRead
 
 
 class PendingReplyRead(BaseModel):
