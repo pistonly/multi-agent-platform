@@ -180,14 +180,20 @@ def test_missing_env_var_raises(monkeypatch) -> None:
     """When neither an env var nor a test key is set, encrypt fails fast."""
     set_key_for_tests(None)
     monkeypatch.delenv("MAP_WEBHOOK_SECRET_ENCRYPTION_KEY", raising=False)
-    from server.config import get_settings
 
-    get_settings.cache_clear()
-    try:
-        with pytest.raises(SecretEncryptionKeyMissing, match="MAP_WEBHOOK_SECRET_ENCRYPTION_KEY"):
-            encrypt_value("anything")
-    finally:
-        get_settings.cache_clear()
+    # 本地 .env 可能提供该 key（Settings 的 env_file 读取不受 monkeypatch.delenv
+    # 影响），这里给 secret_encryption 注入一个不读 .env 的 Settings，保证测试
+    # 在任何检出环境下都确定性地命中"key 缺失"分支。
+    import server.services.secret_encryption as secret_encryption
+    from server.config import Settings
+
+    monkeypatch.setattr(
+        secret_encryption, "get_settings", lambda: Settings(_env_file=None)
+    )
+    with pytest.raises(
+        SecretEncryptionKeyMissing, match="MAP_WEBHOOK_SECRET_ENCRYPTION_KEY"
+    ):
+        encrypt_value("anything")
 
 
 def test_migration_backfill_encrypts_in_place(db_session, project) -> None:

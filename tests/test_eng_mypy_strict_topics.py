@@ -16,8 +16,10 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from pathlib import Path
 
-PYPROJECT = "/home/AI02/Documents/quantaeye/multi_agents_platform/pyproject.toml"
+PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
+PYPROJECT = f"{PROJECT_ROOT}/pyproject.toml"
 
 
 def _read_pyproject() -> str:
@@ -32,12 +34,11 @@ def test_topics_py_passes_mypy_strict():
     We invoke mypy as a subprocess because the project's pyproject
     config + sdk/python path need to be honored exactly as CI does it.
     """
-    project_root = "/home/AI02/Documents/quantaeye/multi_agents_platform"
     result = subprocess.run(
         [sys.executable, "-m", "mypy", "--strict", "server/api/topics.py"],
         capture_output=True,
         text=True,
-        cwd=project_root,
+        cwd=PROJECT_ROOT,
     )
     file_errors = [
         line for line in result.stdout.splitlines()
@@ -94,12 +95,11 @@ def test_baseline_mypy_clean_for_topics_py():
     here — common.py / projects.py have pre-existing type gaps that
     will be addressed by their own future strict promotions.
     """
-    project_root = "/home/AI02/Documents/quantaeye/multi_agents_platform"
     result = subprocess.run(
         [sys.executable, "-m", "mypy", "server/api/topics.py"],
         capture_output=True,
         text=True,
-        cwd=project_root,
+        cwd=PROJECT_ROOT,
     )
     file_errors = [
         line for line in result.stdout.splitlines()

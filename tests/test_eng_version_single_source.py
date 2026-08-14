@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-PROJECT_ROOT = Path("/home/AI02/Documents/quantaeye/multi_agents_platform")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = PROJECT_ROOT / "pyproject.toml"
 SERVER = PROJECT_ROOT / "server"
 

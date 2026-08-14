@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PROJECT_ROOT = Path("/home/AI02/Documents/quantaeye/multi_agents_platform")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = PROJECT_ROOT / "tests"
 CONFTEST = TESTS_DIR / "conftest.py"
 

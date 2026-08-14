@@ -21,9 +21,10 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from pathlib import Path
 
-PYPROJECT = "/home/AI02/Documents/quantaeye/multi_agents_platform/pyproject.toml"
-PROJECT_ROOT = "/home/AI02/Documents/quantaeye/multi_agents_platform"
+PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
+PYPROJECT = f"{PROJECT_ROOT}/pyproject.toml"
 TARGET = f"{PROJECT_ROOT}/server/services/topic_service.py"
 TARGET_BASENAME = "topic_service.py"
 LIFECYCLE = f"{PROJECT_ROOT}/server/services/topic_lifecycle_service.py"
