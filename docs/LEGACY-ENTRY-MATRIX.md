@@ -55,7 +55,7 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 | 区域 | 分类 | 说明 |
 |------|------|------|
 | `tests/test_simple_waker*.py` | 主路径 | simple-waker 行为 |
-| `tests/test_b_waker_should_wake_action_item.py` 等 | 主路径 | escalation 决策测试，已改从 `cli.action_item_escalation` 导入 |
+| `tests/test_waker_should_wake_action_item.py` 等 | 主路径 | escalation 决策测试，已改从 `cli.action_item_escalation` 导入 |
 
 ## CI manifest（check-deprecated.sh）
 

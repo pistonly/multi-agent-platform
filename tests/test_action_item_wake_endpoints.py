@@ -9,7 +9,7 @@ three-stage escalation timeline. They wrap ``action_item_service.mark_wake_sent`
 - ``mark-stale`` → admin only (system escalation, not assignee-driven)
 
 The audit-row invariants are owned by ``action_item_service`` and covered
-by ``tests/test_b_action_item_wake_stale.py`` — this file focuses on the
+by ``tests/test_action_item_wake_stale.py`` — this file focuses on the
 HTTP-level concerns (access control, idempotency, payload echo).
 
 Fixtures (tests/conftest.py):

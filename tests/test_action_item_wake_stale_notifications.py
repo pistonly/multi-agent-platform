@@ -17,7 +17,7 @@ The recipient policy (plan §3):
 
 The tests below verify each policy by reading the ``notifications`` table
 directly via the DB session fixture; the HTTP-level success path is covered
-by ``test_b_action_item_wake_endpoints.py``.
+by ``test_action_item_wake_endpoints.py``.
 """
 
 from __future__ import annotations

@@ -28,13 +28,13 @@ test (would be a recursive full-suite).
 The earlier B-* acceptance items (B-1, B-2, B-3, B-4, B-5, B-6, B-8, B-11,
 B-12) live in:
 
-- B-1: tests/test_b_waker_should_wake_action_item.py
-- B-2/B-3/B-4: tests/test_b_action_item_wake_stale.py
-- B-5: tests/test_b_action_item_wake_stale.py + tests/test_b_action_item_wake_stale_notifications.py
-- B-6: tests/test_b_action_item_wake_stale.py (idempotent mark_stale)
-- B-8: tests/test_b_action_item_wake_stale_notifications.py (creator audit-only)
-- B-11: tests/test_b_action_item_stale.py (grep-friendly audit row)
-- B-12: tests/test_b_action_item_wake_stale_notifications.py (admin delivery)
+- B-1: tests/test_waker_should_wake_action_item.py
+- B-2/B-3/B-4: tests/test_action_item_wake_stale.py
+- B-5: tests/test_action_item_wake_stale.py + tests/test_action_item_wake_stale_notifications.py
+- B-6: tests/test_action_item_wake_stale.py (idempotent mark_stale)
+- B-8: tests/test_action_item_wake_stale_notifications.py (creator audit-only)
+- B-11: tests/test_action_item_stale.py (grep-friendly audit row)
+- B-12: tests/test_action_item_wake_stale_notifications.py (admin delivery)
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ def _utcnow() -> datetime:
 def _aware(dt: datetime | None) -> datetime | None:
     """Normalize SQLite's naive datetimes back to UTC-aware for comparisons.
 
-    Same trick as test_b_action_item_wake_stale.py: SQLite strips tzinfo on
+    Same trick as test_action_item_wake_stale.py: SQLite strips tzinfo on
     read-back from a ``VARCHAR(64)`` column; production PG keeps it.
     """
     if dt is None:
