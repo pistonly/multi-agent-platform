@@ -961,7 +961,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15.0,<0.17" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32.0,<0.41" },
 ]
-provides-extras = ["server", "dev", "mcp", "codex-runtime", "claude-runtime"]
+provides-extras = ["server", "dev", "mcp", "claude-runtime"]
 
 [[package]]
 name = "packaging"

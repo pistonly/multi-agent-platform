@@ -60,12 +60,6 @@ mcp = [
     "multi-agent-platform[server]",  # 需要 fastapi/starlette
     "mcp>=1.26.0,<2.0",
 ]
-codex-runtime = [
-    # REMOVED in eng PR1 (2026-07-09): openai-codex was a placeholder
-    # dependency that never resolved on PyPI and broke `uv lock`. The
-    # codex runtime integration never shipped; remove the extra
-    # entirely if no caller appears by 2026-Q4.
-]
 claude-runtime = [
     # Optional: needed only by tests that import claude_agent_sdk directly
     # (tests/test_agent_client.py). Install with: pip install -e ".[dev,claude-runtime]"
