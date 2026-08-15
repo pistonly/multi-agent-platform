@@ -20,6 +20,7 @@ from server.domain.schemas import (
     SummaryBucket,
     SummaryBucketItem,
     SummaryBucketKind,
+    TopicProgressListRead,
 )
 from server.services import notification_service, todo_service, topic_progress_service
 from server.services import project_service as svc
@@ -93,6 +94,14 @@ def get_agent_work(
     topic_progress = topic_progress_service.list_topic_progress_for_agent(
         db, agent, bundle=bundle
     )
+    # fs source-of-truth: map/ 话题的文件存在性待办并入统一快照，
+    # waker（simple-waker 轮询本端点）由此被 FS 待办唤醒，无第二套规则。
+    from server.services import fs_source_service
+
+    fs_progress = fs_source_service.fs_topic_progress_for_agent(db, agent)
+    if fs_progress:
+        merged = list(topic_progress.items) + fs_progress
+        topic_progress = TopicProgressListRead(items=merged, total=len(merged))
 
     notif_items, notif_total = notification_service.list_for_agent(
         db,

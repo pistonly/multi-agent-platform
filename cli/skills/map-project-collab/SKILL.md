@@ -32,6 +32,18 @@ description: >-
 - 用户或协作中发现 **MAP 平台本身** 的问题/改进点，要提交反馈
 - 当前仓库存在 `.map/config.yaml` 或用户要求初始化 MAP
 
+## 两级内容模型（先判别再动手）
+
+| | FS 事实源（新，推荐） | DB 话题（存量） |
+|--|--|--|
+| 事实源 | `map/topics/<slug>/` 文件夹（平台实时解析，无内容 DB） | 平台 DB（评论走 API） |
+| 判别 | `map/topics/<slug>/` 目录存在 | 目录不存在 |
+| 发言 | 写文件 `map fs comment --topic <slug> --file <md>` | `map topic comment --id <uuid> ...` |
+| 推进轮次 | `map fs advance-round --topic <slug>`（验证型写：校验后写回 index.md） | `map topic advance-round --id <uuid>` |
+| 待办清理 | 文件写入即消失（`map work` 同样可见） | 服务端重算消失 |
+
+话题生命周期（创建/推进/关闭）FS 命令与 DB 命令**不可混用**：FS topic_id 是 uuid5 派生，传给 `map topic --id` 会 404。实验仍走 DB 生命周期（`map experiment ...`），计划/日志文件在 `map/experiments/<slug>/`。
+
 ## 意图路由（选对 Skill）
 
 | 用户意图 | 路由到 |

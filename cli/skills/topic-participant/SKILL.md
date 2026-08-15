@@ -59,16 +59,25 @@ map --persona participant topic advance-round --id <topic-uuid> --ack accept
 
 被新轮次唤醒时**至少留一条痕迹**：发一条评论（哪怕只是「议题 X 已收敛，同意 host 方向」）或 `--ack accept`。你的**静默对 host 是「未表态」，不是「同意」**；完全不发帖会导致 heartbeat 后 waker 不再唤醒你、host 收不到收尾意见。新轮次开始时平台会自动为 required participant 生成 wakeable 通知（无需 host 手动 @mention）。
 
-## 评论命令（三模式）
+## 评论命令
+
+**FS 话题（`map/topics/<slug>/` 存在，优先判别）**——发言就是写文件，不调 API：
+
+```bash
+map --persona participant fs comment --topic <slug> --file ./my-opinion.md
+# 即写 map/topics/<slug>/round<N>-participant.md；待办随文件存在自动消失
+```
+
+**DB 话题（存量）**——三模式：
 
 ```bash
 # 短评（默认）：--body "..."
 # 长内容：--file ./comment.md
-# 瘦身模式（推荐）：--file-path docs/topics/<slug>/round<N>-participant.md --excerpt "一句话摘要"
+# 瘦身模式（推荐）：--file-path map/topics/<slug>/round<N>-participant.md --excerpt "一句话摘要"
 map --persona participant topic comment --id <topic-uuid> --body "..." --parent <comment-uuid>
 ```
 
-完整三模式命令、发言结构模板、逐轮职责、防刷屏细则见 [references/participant-checklist.md](references/participant-checklist.md)。读取他人 `file_path` 评论：直接读本地 MD 全文。
+FS 话题的 round_ack：本轮写完自己的发言文件即视为表态；FS 轮次推进由 host 执行 `map fs advance-round`（无需 participant 显式 ack 命令）。完整命令、发言结构模板、逐轮职责、防刷屏细则见 [references/participant-checklist.md](references/participant-checklist.md)。读取他人 `file_path` 评论：直接读本地 MD 全文。
 
 ## 非目标
 

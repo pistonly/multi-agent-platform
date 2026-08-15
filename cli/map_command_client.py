@@ -459,6 +459,9 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("agent", "register"),
     ("e2e", "run"),
     ("host", "invoke"),
+    # fs plane 验证型写（走 API，服务端写回 index.md）
+    ("fs", "advance-round"),
+    ("fs", "close"),
 }
 
 _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {

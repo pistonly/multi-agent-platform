@@ -7,6 +7,7 @@ from server.api.bootstrap import bootstrap_router
 from server.api.docs import docs_router
 from server.api.experiments import experiments_router
 from server.api.feedback import feedback_router
+from server.api.fs import fs_router
 from server.api.notifications import notifications_router
 from server.api.projects import router
 from server.api.status import status_router
@@ -23,6 +24,7 @@ __all__ = [
     "audit_router",
     "experiments_router",
     "feedback_router",
+    "fs_router",
     "status_router",
     "topics_router",
     "webhooks_router",

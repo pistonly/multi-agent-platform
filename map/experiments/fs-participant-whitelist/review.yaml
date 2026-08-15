@@ -1,0 +1,10 @@
+reasonable_items:
+  - "缺陷定性准确：reviewer 被无差别投影已在 slimming-e2e 实证，与 fs-refactor-review round2 决策一致"
+  - "过滤点选在 derive_work()（parser 层）单一 choke point，fs_work_items / fs_topic_progress_for_agent / CLI fs work 三条路径同时生效"
+  - "三源合并语义（declared ∪ speakers ∪ creator）兼顾向后兼容与防噪音；发言自动并入避免被邀请后忘记声明的死角"
+  - "ack missing 计算不收缩：advance-round 仍要求全量 participants 交文件，白名单不反向削弱推进门禁"
+  - "验收标准可验证：每条 acceptance 对应具体测试断言或命令"
+unreasonable_items:
+  - "建议1 front-matter 容错：participants 为字符串（非列表）时按单元素处理（手写 YAML 常见 participants: host 单值写法）——非阻塞，实施时落实并写测试钉住"
+  - "建议2 participants 合并顺序：declared 在前、按并入时间追加，列表去重即可，保证 fs show 展示稳定——非阻塞"
+  - "建议3 write_round_comment 自动并入时若 index.md 不存在，静默跳过但打一条 stderr 提示，便于排查——非阻塞"

@@ -61,6 +61,15 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 
 ## 工作流
 
+**FS 话题（`map/topics/<slug>/` 存在，新话题默认走此路径）**：
+
+1. **建**：`map fs topic-create --slug <name> --title "..."`（纯写 index.md）；发起帖 `map fs comment --topic <slug> --file <md>`
+2. **读**：`map fs show --topic <slug>`（实时解析文件夹）
+3. **敛**：参与者交齐本轮文件后 `map fs advance-round --topic <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--mark-ready`
+4. **断/清**：`map fs close --topic <slug> --reason ...`；实验仍走 `map experiment create`（DB 生命周期）
+
+**DB 话题（存量）**：
+
 1. **读**：`topic show` 全量评论树 + `topic progress` 待办
 2. **回**：逐 thread 回复 `pending_topic_replies`（短评 `--body`；长内容 `--file-path` 瘦身模式）
 3. **敛**：议题收敛后发 Round Summary（`--round-summary`，末尾 @ 需 ack 的 agent 全名），participant ack 收齐后 `advance-round`；已收敛可从任意轮次 `--ready`

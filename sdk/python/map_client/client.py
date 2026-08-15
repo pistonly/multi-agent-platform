@@ -34,6 +34,12 @@ from map_types import (
     ExperimentResultDecision,
     ExperimentSummaryRead,
     ExperimentUpdate,
+    FsAdvanceRoundRequest,
+    FsCloseRequest,
+    FsExperimentRead,
+    FsTopicDetailRead,
+    FsTopicSummaryRead,
+    FsWorkItemRead,
     FeedbackCategory,
     FeedbackStatus,
     GlobalStatusRead,
@@ -706,6 +712,51 @@ class MAPClient:
     def create_topic(self, project_id: uuid.UUID, payload: TopicCreate) -> TopicSummaryRead:
         data = self._json("POST", f"/projects/{project_id}/topics", json=payload.model_dump())
         return TopicSummaryRead.model_validate(data)
+
+    # --- fs plane（map/ 文件夹事实源）---
+
+    def list_fs_topics(self, project_id: uuid.UUID) -> list[FsTopicSummaryRead]:
+        data = self._json("GET", f"/projects/{project_id}/fs/topics")
+        return [FsTopicSummaryRead.model_validate(item) for item in data]
+
+    def get_fs_topic(self, project_id: uuid.UUID, slug: str) -> FsTopicDetailRead:
+        return FsTopicDetailRead.model_validate(
+            self._json("GET", f"/projects/{project_id}/fs/topics/{slug}")
+        )
+
+    def list_fs_experiments(self, project_id: uuid.UUID) -> list[FsExperimentRead]:
+        data = self._json("GET", f"/projects/{project_id}/fs/experiments")
+        return [FsExperimentRead.model_validate(item) for item in data]
+
+    def fs_work(self, project_id: uuid.UUID, persona: str) -> list[FsWorkItemRead]:
+        data = self._json(
+            "GET", f"/projects/{project_id}/fs/work", params={"persona": persona}
+        )
+        return [FsWorkItemRead.model_validate(item) for item in data]
+
+    def fs_advance_round(
+        self,
+        project_id: uuid.UUID,
+        slug: str,
+        payload: FsAdvanceRoundRequest | None = None,
+    ) -> FsTopicSummaryRead:
+        body = (payload or FsAdvanceRoundRequest()).model_dump(mode="json")
+        data = self._json(
+            "POST", f"/projects/{project_id}/fs/topics/{slug}/advance-round", json=body
+        )
+        return FsTopicSummaryRead.model_validate(data)
+
+    def fs_close_topic(
+        self,
+        project_id: uuid.UUID,
+        slug: str,
+        payload: FsCloseRequest | None = None,
+    ) -> FsTopicSummaryRead:
+        body = (payload or FsCloseRequest()).model_dump(mode="json", exclude_none=True)
+        data = self._json(
+            "POST", f"/projects/{project_id}/fs/topics/{slug}/close", json=body
+        )
+        return FsTopicSummaryRead.model_validate(data)
 
     def list_topics(
         self,

@@ -7,7 +7,7 @@ from server.api.background_tasks import bind_background_tasks
 from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent, TopicStatus
+from server.domain.models import Agent, Project, TopicStatus
 from server.domain.schemas import (
     TopicAdvanceRound,
     TopicCloseRequest,
@@ -21,6 +21,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
+from server.services import fs_source_service as fs_svc
 from server.services import notification_service, topic_service
 from server.services import permissions as perm
 from server.services.errors import ForbiddenError
@@ -71,17 +72,54 @@ def list_topics(
 ) -> list[TopicSummaryRead]:
     resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
     perm.ensure_project_access(agent, resolved_project_id)
-    topics, total = topic_service.list_topics(
-        db,
-        resolved_project_id,
-        status=topic_status,
-        creator_agent_id=creator_agent_id,
-        q=q,
-        page=page,
-        page_size=page_size,
-        include_archived=include_archived,
-        viewer_agent_id=agent.id,
-    )
+    # fs plane 合并：map/ 文件夹里的话题实时并入列表；slug 冲突时 FS 优先
+    # （文件夹是事实源，DB 行只是旧副本）。过滤条件与 DB 侧对齐。
+    fs_topics: list[TopicSummaryRead] = []
+    project = db.get(Project, resolved_project_id)
+    if project is not None:
+        fs_topics = fs_svc.fs_topics_as_summaries(db, project)
+        if topic_status is not None:
+            fs_topics = [t for t in fs_topics if t.status == topic_status]
+        if creator_agent_id is not None:
+            fs_topics = [t for t in fs_topics if t.creator_agent_id == creator_agent_id]
+        if q:
+            needle = q.lower()
+            fs_topics = [
+                t for t in fs_topics if needle in t.title.lower() or needle in t.slug.lower()
+            ]
+    if not fs_topics:
+        # 无 FS 话题：保持 SQL 分页 + DB total 的原路径。
+        topics, total = topic_service.list_topics(
+            db,
+            resolved_project_id,
+            status=topic_status,
+            creator_agent_id=creator_agent_id,
+            q=q,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+            viewer_agent_id=agent.id,
+        )
+    else:
+        # 有 FS 话题：DB 全量拉取后合并（FS 置顶 + slug 去重），
+        # 对合并视图统一分页——否则 FS 话题会在每一页重复出现，
+        # X-Total-Count 也会失真。
+        fs_slugs = {t.slug for t in fs_topics}
+        db_all, _ = topic_service.list_topics(
+            db,
+            resolved_project_id,
+            status=topic_status,
+            creator_agent_id=creator_agent_id,
+            q=q,
+            page=1,
+            page_size=None,
+            include_archived=include_archived,
+            viewer_agent_id=agent.id,
+        )
+        merged = fs_topics + [t for t in db_all if not (t.slug and t.slug in fs_slugs)]
+        total = len(merged)
+        start = (page - 1) * page_size
+        topics = merged[start : start + page_size]
     response.headers["X-Total-Count"] = str(total)
     return topics
 
@@ -92,6 +130,12 @@ def get_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicRead:
+    # fs plane：确定性 uuid5 命中 map/ 文件夹话题时直接返回解析结果。
+    hit = fs_svc.find_fs_topic_by_id(db, topic_id)
+    if hit is not None:
+        project, fs_topic = hit
+        perm.ensure_project_access(agent, project.id)
+        return fs_svc.fs_topic_as_detail(db, project, fs_topic)
     perm.ensure_topic_access(db, agent, topic_id)
     return topic_service.get_topic_detail(db, topic_id)
 

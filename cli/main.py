@@ -38,6 +38,7 @@ from cli.commands.audit import audit_app
 from cli.commands.docs import docs_app
 from cli.commands.experiment import experiment_app
 from cli.commands.feedback import feedback_app
+from cli.commands.fs import fs_app
 from cli.commands.host import host_app
 from cli.commands.notification import inbound_event_app, notification_app
 from cli.commands.persona import persona_app
@@ -80,6 +81,7 @@ app.add_typer(mention_app, name="mention")
 app.add_typer(todo_app, name="todo")
 app.add_typer(action_app, name="action")
 app.add_typer(feedback_app, name="feedback")
+app.add_typer(fs_app, name="fs")
 app.add_typer(docs_app, name="docs")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(sync_app, name="sync")
@@ -1397,4 +1399,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # ``python -m cli.main`` runs this file as ``__main__``; importing main
+    # from the canonical ``cli.main`` module keeps a single module instance so
+    # the global callback and command bodies share the same ``_cli_options``
+    # (otherwise ``--persona`` written to the ``__main__`` copy is lost and
+    # resolution falls back to default_persona).
+    from cli.main import main as _main
+
+    _main()

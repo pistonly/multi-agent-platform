@@ -11,10 +11,14 @@
 
 ## kind → 清理动作（处理完必须让该项从列表消失）
 
+**先判别话题类型**（FS 事实源 vs DB 话题）：`map fs list` 里能找到同 slug 文件夹，或 `map/topics/<slug>/` 目录存在 → **FS 话题**，走 `map fs` 命令；否则 DB 话题走 `map topic` 命令。
+
 | kind | 清理动作 | 下一步 Skill |
 |------|----------|--------------|
 | `mentions` | `map mention dismiss --id <uuid>` | 按内容选 |
-| `pending_topic_replies` | 回复该 thread（服务端重算后消失） | [topic-host](../../topic-host/SKILL.md) |
+| `pending_topic_replies`（DB 话题） | 回复该 thread（服务端重算后消失） | [topic-host](../../topic-host/SKILL.md) |
+| `pending_topic_replies`（FS 话题，reason=`fs_file_missing`） | 写本轮发言文件：`map fs comment --topic <slug> --file <md>`（即 `map/topics/<slug>/round<N>-<persona>.md`；文件存在即消失） | [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
+| `round_ack`（FS 话题，仅 host） | 参与者交齐文件后 `map fs advance-round --topic <slug>`（服务端校验写回 index.md） | [topic-host](../../topic-host/SKILL.md) |
 | `pending_advance_rounds` | `map topic advance-round --id <uuid>` | [topic-host](../../topic-host/SKILL.md) |
 | `pending_round_acks` | `map topic advance-round --id <uuid> --ack accept\|reject\|dismiss` | [topic-participant](../../topic-participant/SKILL.md) / [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
 | `pending_reviews` / `pending_result_reviews` / `pending_replies` | 完成评审 / `accept-result` / `reject-result` / 回复 | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
@@ -23,6 +27,13 @@
 | `my_open_topics`（且无动作） | 推进话题或 `map topic dismiss --id <uuid>`（与 UI ✕ 相同） | [topic-host](../../topic-host/SKILL.md) |
 | `action_items` | 完成工作后在来源话题跟评 / 请 host `topic resolve` 更新 | [topic-host](../../topic-host/SKILL.md) |
 | 未读通知 | `map notification read --id <uuid>` | 按通知类型 |
+
+### FS 话题速查（map/ 文件夹事实源）
+
+- 话题 = `map/topics/<slug>/` 文件夹；发言 = `round<N>-<persona>.md` 一个文件（每轮每人一个，默认 immutable）
+- 离线读写即协作：`map fs list / show / comment / work`（纯本地，不调 API）
+- 验证型写走 API：`map fs advance-round --topic <slug>` / `map fs close --topic <slug>`（服务端校验权限 + ack 后写回 index.md）
+- FS 话题的 topic_id 是 uuid5 派生，**不能**用于 `map topic comment --id`（DB 命令）
 
 ## persona Skill 路由
 

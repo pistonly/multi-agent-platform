@@ -85,6 +85,7 @@ EXPECTED_TOP_LEVEL_SUBAPPS = [
     "todo",
     "action",
     "feedback",
+    "fs",
     "docs",
 ]
 
@@ -114,6 +115,17 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "mark-stale",
     ],
     "feedback": ["submit", "list", "get", "update"],
+    "fs": [
+        "init",
+        "topic-create",
+        "comment",
+        "list",
+        "show",
+        "work",
+        "advance-round",
+        "close",
+        "migrate-from-docs",
+    ],
     "docs": ["error-codes"],
     "topic": [
         "create",
@@ -195,6 +207,7 @@ EXPECTED_SUBAPP_FILES = [
     "docs.py",
     "experiment.py",
     "feedback.py",
+    "fs.py",
     "host.py",
     "notification.py",
     "persona.py",

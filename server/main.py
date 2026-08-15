@@ -15,6 +15,7 @@ from server.api.router import (
     docs_router,
     experiments_router,
     feedback_router,
+    fs_router,
     notifications_router,
     status_router,
     topics_router,
@@ -128,6 +129,7 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
     app.include_router(webhooks_router, prefix=prefix)
     app.include_router(audit_router, prefix=prefix)
     app.include_router(feedback_router, prefix=prefix)
+    app.include_router(fs_router, prefix=prefix)
     app.include_router(action_items_router, prefix=prefix)
     app.include_router(docs_router, prefix=prefix)
 

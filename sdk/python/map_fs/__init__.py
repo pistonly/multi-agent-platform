@@ -1,0 +1,43 @@
+"""map_fs — map/ 文件夹事实源的共享解析层（server 与 cli 复用）。"""
+
+from map_fs.parser import (
+    DEFAULT_CONTENT_ROOT,
+    FsComment,
+    FsExperiment,
+    FsPlane,
+    FsTopic,
+    FsWorkItem,
+    comment_id_for_path,
+    derive_work,
+    make_excerpt,
+    parse_experiment_dir,
+    parse_front_matter,
+    parse_topic_dir,
+    scan_plane,
+    slugify,
+    topic_id_for_slug,
+    update_topic_index,
+    write_round_comment,
+    write_topic_index,
+)
+
+__all__ = [
+    "DEFAULT_CONTENT_ROOT",
+    "FsComment",
+    "FsExperiment",
+    "FsPlane",
+    "FsTopic",
+    "FsWorkItem",
+    "comment_id_for_path",
+    "derive_work",
+    "make_excerpt",
+    "parse_experiment_dir",
+    "parse_front_matter",
+    "parse_topic_dir",
+    "scan_plane",
+    "slugify",
+    "topic_id_for_slug",
+    "update_topic_index",
+    "write_round_comment",
+    "write_topic_index",
+]

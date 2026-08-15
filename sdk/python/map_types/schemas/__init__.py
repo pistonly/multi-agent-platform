@@ -96,6 +96,15 @@ from .feedback import (
     PlatformFeedbackRead,
     PlatformFeedbackUpdate,
 )
+from .fs import (
+    FsAdvanceRoundRequest,
+    FsCloseRequest,
+    FsCommentRead,
+    FsExperimentRead,
+    FsTopicDetailRead,
+    FsTopicSummaryRead,
+    FsWorkItemRead,
+)
 from .inbound_event import (
     InboundEventCreate,
     InboundEventRead,
@@ -288,6 +297,13 @@ __all__ = [
     "PlatformFeedbackCreate",
     "PlatformFeedbackUpdate",
     "PlatformFeedbackRead",
+    "FsAdvanceRoundRequest",
+    "FsCloseRequest",
+    "FsCommentRead",
+    "FsExperimentRead",
+    "FsTopicDetailRead",
+    "FsTopicSummaryRead",
+    "FsWorkItemRead",
     "AcceptanceType",
     "ActionItemCategory",
     "AgentRole",

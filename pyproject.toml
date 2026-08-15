@@ -82,7 +82,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = [".", "sdk/python"]
-include = ["server*", "cli*", "map_client*", "map_mcp*", "map_sdk*", "map_types*"]
+include = ["server*", "cli*", "map_client*", "map_fs*", "map_mcp*", "map_sdk*", "map_types*"]
 
 [tool.setuptools.package-data]
 "cli.skills" = ["**/*.md", "**/*.sh", "**/*.yaml"]

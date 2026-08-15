@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     debug: bool = False
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
+    # map/ 文件夹事实源的内容根目录名（相对 project.workspace_path）。
+    # fs plane（server/api/fs.py）实时解析该目录；改名走 MAP_CONTENT_ROOT。
+    content_root: str = "map"
+
     # f873c287 I1(c): tunable stale-open-topic threshold (minutes). CLI /
     # waker / API can override via ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES``
     # env var (e.g. ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES=5`` for

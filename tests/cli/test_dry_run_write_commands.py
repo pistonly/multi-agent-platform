@@ -42,6 +42,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "todo_app": ("todo",),
     "action_app": ("action",),
     "feedback_app": ("feedback",),
+    "fs_app": ("fs",),
     "audit_app": ("audit",),
     "docs_app": ("docs",),
     "e2e_app": ("e2e",),
@@ -85,6 +86,15 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("project", "export"),
     ("skill", "list"),
     ("skill", "install"),  # 只写本地文件（.cursor/skills/），不改 MAP 状态
+    # fs plane 离线命令：只写本地 map/ 文件夹（事实源本身），不走 API。
+    # advance-round / close 是验证型写（走 API），登记在 _WRITE_COMMANDS_2。
+    ("fs", "init"),
+    ("fs", "topic-create"),
+    ("fs", "comment"),
+    ("fs", "list"),
+    ("fs", "show"),
+    ("fs", "work"),
+    ("fs", "migrate-from-docs"),
     ("sync", "pull"),
     ("sync", "status"),
     ("sync", "topic"),

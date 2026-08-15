@@ -304,10 +304,13 @@ def list_topics(
     creator_agent_id: uuid.UUID | None = None,
     q: str | None = None,
     page: int = 1,
-    page_size: int = 100,
+    page_size: int | None = 100,
     include_archived: bool = False,
     viewer_agent_id: uuid.UUID | None = None,
 ) -> tuple[list[TopicSummaryRead], int]:
+    """列出话题。``page_size=None`` 表示不分页全量返回（仅供 fs plane
+    合并分页使用——API 层需对合并视图统一分页；调用方自行控制规模）。
+    """
     get_project(db, project_id)
     stmt = select(Topic).where(Topic.project_id == project_id, Topic.deleted_at.is_(None))
     if not include_archived:
@@ -320,10 +323,14 @@ def list_topics(
         pattern = f"%{q}%"
         stmt = stmt.where(Topic.title.ilike(pattern) | Topic.description.ilike(pattern))
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    page = max(1, page)
-    page_size = max(1, min(page_size, 100))
-    stmt = stmt.order_by(Topic.pinned.desc(), Topic.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    topics = list(db.scalars(stmt))
+    stmt = stmt.order_by(Topic.pinned.desc(), Topic.updated_at.desc())
+    if page_size is None:
+        topics = list(db.scalars(stmt))
+    else:
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        topics = list(db.scalars(stmt))
     return topic_summaries_for_topics(db, topics, viewer_agent_id=viewer_agent_id), total
 
 

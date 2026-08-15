@@ -110,6 +110,17 @@ map persona list
 map --persona host persona whoami
 map --persona host status                    # open_topics 快照 + status_md
 map --persona host project status revise --file ./docs/status-md-v10.md --note "同步叙事"
+
+# FS 事实源（map/topics/<slug>/ 文件夹，新话题默认路径）
+map fs list                                  # 离线列出文件夹话题
+map fs show --topic <slug>                   # 离线详情（index.md + 评论解析）
+map fs topic-create --slug <name> --title "..."          # 纯写文件，不调 API
+map fs comment --topic <slug> --file ./opinion.md        # 发言=写 round<N>-<persona>.md
+map --persona participant fs work            # 离线待办（文件存在性推导）；全局 --persona 同样透传到所有 fs 子命令
+map --persona host fs advance-round --topic <slug>       # 验证型写：校验 ack 后写回 index.md
+map --persona host fs close --topic <slug> --reason no_experiment_needed
+
+# DB 话题（存量）
 map --persona host topic list --status open
 map --persona host topic show --id <uuid>
 map --persona participant topic comment --id <uuid> --body "..."

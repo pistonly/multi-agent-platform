@@ -168,6 +168,12 @@ _FAST_GATE_MODULES = frozenset(
         # self-service bootstrap endpoint — POST /api/v1/bootstrap 无 admin token
         # 创建 project + 3 persona agents;~3s 全量,守住「原子性 + 409 冲突」契约。
         "test_bootstrap",
+        # fs plane — map/ 文件夹事实源（解析器 + API 合并 + 验证型写），
+        # 纯 tmp_path 文件系统 + TestClient，秒级，默认 gate 必须跑。
+        "test_fs_source",
+        # fs CLI persona 解析 — 全局 map --persona 透传到 fs 子命令，
+        # CliRunner 进程内跑，~100ms，守住「Agent 不需重复传 --persona」契约。
+        "test_fs_persona",
     }
 )
 
