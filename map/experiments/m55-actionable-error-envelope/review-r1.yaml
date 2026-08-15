@@ -1,0 +1,18 @@
+# M55 计划评审 r1（reviewer，2026-08-16）
+# 对象：map/experiments/m55-actionable-error-envelope/plan.md（84cccb2e-2a69-4339-9dfd-c3df1bf23d31）
+# 逐项对照代码核实：落点 file:line 均已现场验证，非仅凭计划文本
+
+reasonable_items:
+  - "E8 根因定位准确：project_service.py:285 确实只对 payload.plan.content_md 做 assert_plan_frontmatter_ok，而瘦身形态走 PlanInput(file_path=...)（sdk/python/map_types/schemas/plan.py:16，content_md=None）——门禁误伤路径与 M54 Round 0 踩坑记录一致，修复落点正确"
+  - "M55A 落点核实：server/main.py 现仅注册领域异常 handler（register_domain_exception_handlers），RequestValidationError 走 FastAPI 默认 422（裸 detail 数组、无 hint），全局 handler 是正确补法；『保留 detail 数组仅追加字段』的加法策略不会破坏 SDK 既有按 detail 解析的消费方"
+  - "M55C 语义合理且与既有测试无冲突：tests/test_plan_marker_service.py:120-133 用 acceptance: [] 作空列表断言（empties[0].field == 'acceptance'），dependencies 空列表放行不影响现有用例；『无依赖即显式空』消灭 - none 哨兵值，其余三字段维持非空的边界清晰"
+  - "M55E 与 M54C 冻结契约的关系处理正确：只加不改（--format json 分支 byte-for-byte 不动），新渲染进独立测试，冻结字面量护栏不受威胁；当前非 json 错误渲染（cli/main.py:812-830）已有 Hint: 行，扩展为 hint/docs_url/recovery_command 分行块是小步加法"
+  - "实现顺序依赖方向正确：语义层（B/C/D）→ handler（A，复用 B 的模板工具）→ CLI 渲染（E）→ Skill 条目（F）随 E 提交；7 条 acceptance 均可测试（pytest 覆盖 + 验收演示脚本），evidence_keys 与验收条目一一对应"
+
+unreasonable_items:
+  - "M55D 的兜底声明与代码现状不符，只改 server 会形成『无门禁空洞』：计划风险节称『瘦身形态由 CLI 侧本地 lint 预检兜底』，但 cli/commands/experiment.py:126 的预检条件是 `if not force_lint_bypass and plan_file is not None`——瘦身模式（--plan-file-path）当前完全跳过本地 lint。若 M55D 仅让 server 对瘦身形态放行，则缺 frontmatter 的计划 server 不校验、CLI 不校验，可直写 DB，违反『server 有硬校验、本地有预检』的既有分层（a764abf6 I1.(c) 注释自述的设计意图）。修订要求：(1) M55D 范围扩展到 CLI 预检——--plan-file-path 时本地读取文件做同样 lint（文件在 agent 本机、_read_text_file 可读），保持『本地门禁 + server 放行瘦身』配对，--force-lint-bypass 语义不变；(2) 验收第 4 条（E8 修复）补充该行为断言：瘦身模式 good.md 通过 + 坏 frontmatter 的瘦身计划仍被本地预检拦截 exit 2"
+
+# 非阻塞建议（供 host 修订时参考，不计入 unreasonable）：
+# - M55A 的最小 payload 示例建议按端点维护，首期可只做 POST /experiments，
+#   其余端点降级为通用缺失字段清单（与 PRD L59『近邻匹配为降级增强』同共识）
+# - M55B 模板片段控制在 ~15 行内：hint 会进 CLI stderr 与实验日志，过长反而淹没字段级缺失信息
