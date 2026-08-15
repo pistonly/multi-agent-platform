@@ -35,18 +35,18 @@ from map_types.enums import (  # noqa: E402
     TopicStatus,
 )
 
-from .agent import (
-    AgentCreate,
-    AgentCreateResponse,
-    AgentRead,
-    EscalationTargetRead,
-)
 from .a2a import (
     A2ATaskListRead,
     A2ATaskRead,
     AgentCardListRead,
     AgentCardRead,
     AgentCardSkillRead,
+)
+from .agent import (
+    AgentCreate,
+    AgentCreateResponse,
+    AgentRead,
+    EscalationTargetRead,
 )
 from .agent_work import (
     AgentWorkRead,
@@ -207,6 +207,11 @@ __all__ = [
     "BootstrapResponse",
     "TokenReissueRequest",
     "TokenReissueResponse",
+    "AgentCardSkillRead",
+    "AgentCardRead",
+    "AgentCardListRead",
+    "A2ATaskRead",
+    "A2ATaskListRead",
     "ProjectStatusRead",
     "ProjectStatusRevise",
     "ProjectStatusVersionRead",
