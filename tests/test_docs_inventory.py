@@ -58,11 +58,30 @@ def test_v07_v08_placeholders_exist(version: str) -> None:
     )
 
 
-def test_current_prd_v09_in_prd_root() -> None:
-    path = PRD / "v0.9.md"
-    assert path.is_file(), f"current draft should be at {path}"
-    body = path.read_text(encoding="utf-8")
-    assert "v0.9" in body, f"{path} should declare it's v0.9"
+def _current_prd_versions() -> list[str]:
+    """Parse ``docs/prd/README.md`` 现行草案 section → ['v0.10', 'v0.11', ...].
+
+    Version-agnostic on purpose: bumping the current draft should not
+    require editing these structural tests (see PRD v0.11 M50C).
+    """
+    import re
+
+    text = (PRD / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"^##\s*现行草案.*?(?=^##\s|\Z)", text, re.M | re.S)
+    assert match, f"{PRD / 'README.md'} must have a '## 现行草案' section"
+    return sorted(
+        {f"v{m}" for m in re.findall(r"\]\(\./v([\d.]+)\.md\)", match.group(0))}
+    )
+
+
+def test_current_prd_drafts_in_prd_root() -> None:
+    current = _current_prd_versions()
+    assert current, "prd/README.md 现行草案 section lists no versions"
+    for version in current:
+        path = PRD / f"{version}.md"
+        assert path.is_file(), f"current draft should be at {path}"
+        body = path.read_text(encoding="utf-8")
+        assert version in body, f"{path} should declare it's {version}"
 
 
 def test_prd_readme_is_entry_point() -> None:
@@ -70,10 +89,11 @@ def test_prd_readme_is_entry_point() -> None:
     path = PRD / "README.md"
     assert path.is_file(), f"PRD entry README missing: {path}"
     body = path.read_text(encoding="utf-8")
-    # Should list archived versions and point to current draft.
-    assert "[v0.9" in body or "./v0.9.md" in body, (
-        f"{path} should link to current v0.9 draft"
-    )
+    # Should link every current draft (relative ./vX.Y.md links).
+    for version in _current_prd_versions():
+        assert f"./{version}.md" in body, (
+            f"{path} should link to current draft {version}"
+        )
     assert "archive" in body, f"{path} should mention the archive subdirectory"
 
 
@@ -82,10 +102,14 @@ def test_top_level_docs_index_exists() -> None:
     path = DOCS / "INDEX.md"
     assert path.is_file(), f"top-level docs index missing: {path}"
     body = path.read_text(encoding="utf-8")
-    # Should reference current PRD + archive.
-    assert "prd/v0.9.md" in body or "PRD v0.9" in body, (
-        f"{path} should link to current PRD v0.9"
+    # Should delegate the version list to prd/README.md and link currents.
+    assert "prd/README.md" in body, (
+        f"{path} should link the PRD entry README (single source of truth)"
     )
+    for version in _current_prd_versions():
+        assert f"prd/{version}.md" in body, (
+            f"{path} should link current PRD {version}"
+        )
     assert "ARCHITECTURE" in body, f"{path} should reference architecture doc"
 
 

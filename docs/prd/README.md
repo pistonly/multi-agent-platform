@@ -1,7 +1,8 @@
 # 多 Agent 平台 — 产品需求文档（PRD）
 
-> 这是 MAP（Multi-Agent Platform）的 PRD 入口。当前正在编写的草案
-> 是 **v0.10**（Plan 模式 / ExperimentMode.direct）；历史版本归档在
+> 这是 MAP（Multi-Agent Platform）的 PRD 入口。当前主线草案是
+> **v0.10**（Plan 模式 / ExperimentMode.direct）；新增提案草案
+> **v0.11**（Agent 体验与生态互操作，待评审）；历史版本归档在
 > [`archive/`](./archive/)。
 
 ## 现行草案
@@ -9,6 +10,9 @@
 - **[v0.10 — Plan 模式 / ExperimentMode.direct 草案](./v0.10.md)**：当前主线，
   涵盖 direct 模式状态机、host 直接委派 participant 执行、phase owner 路由、
   CLI `--mode direct` 等。
+- **[v0.11 — Agent 体验与生态互操作 草案](./v0.11.md)**：提案（2026-08-15
+  项目评审产出），涵盖文档一致性修复（M50）、话题事实源收敛（M51）、
+  Skill 分发版本化与接入可靠性（M52）、A2A 映射（M53）。
 
 ## 历史归档（按时间倒序）
 

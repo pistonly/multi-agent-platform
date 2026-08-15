@@ -57,9 +57,9 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 
 ### PRD
 
-- [现行草案：v0.9（waker Phase 2 通知降噪）](docs/prd/v0.9.md)
-- [归档：v0.1 / v0.2 / v0.3 / v0.4 / v0.5 / v0.6](docs/prd/archive/)
-- [占位：v0.7 / v0.8（未单独成稿）](docs/prd/archive/v0.7.md)
+- [现行主线：v0.10（Plan 模式 / ExperimentMode.direct）](docs/prd/v0.10.md)
+- [提案草案：v0.11（Agent 体验与生态互操作）](docs/prd/v0.11.md)
+- 版本清单与历史归档以 [docs/prd/README.md](docs/prd/README.md) 为准
 
 ## 状态
 
@@ -73,9 +73,9 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 - **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 
-**当前主线**：v0.9 草案（waker Phase 2 通知降噪）。详见 [PRD v0.9](docs/prd/v0.9.md) 与 [status-md-v10.md](docs/status-md-v10.md)。
+**当前主线**：v0.10（Plan 模式 / ExperimentMode.direct），提案 v0.11（Agent 体验与生态互操作）评审中。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v10.md](docs/status-md-v10.md)。
 
-历史里程碑详见 PRD 归档：[v0.1–v0.6](docs/prd/archive/) · [占位 v0.7 / v0.8](docs/prd/archive/v0.7.md)。
+历史里程碑详见 [PRD 归档](docs/prd/README.md#历史归档按时间倒序)。
 
 **Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
 
@@ -115,17 +115,17 @@ map-server
 # 或: uvicorn server.main:app --reload
 
 # 注册首个 Admin（仅当系统中尚无 Agent 时可匿名调用）
-curl -X POST "http://localhost:8000/api/v1/agents?name=ops-admin&role=admin"
+curl -X POST "http://localhost:8001/api/v1/agents?name=ops-admin&role=admin"
 
 # 后续 Agent 须由 Admin 注册
 curl -H "Authorization: Bearer <admin-token>" \
-  -X POST "http://localhost:8000/api/v1/agents?name=agent-alpha&role=agent&project_key=<project-key>"
+  -X POST "http://localhost:8001/api/v1/agents?name=agent-alpha&role=agent&project_key=<project-key>"
 
 # 创建项目
 curl -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"demo","workspace_path":"/tmp/demo"}' \
-  http://localhost:8000/api/v1/projects
+  http://localhost:8001/api/v1/projects
 
 # 运行测试
 pytest
@@ -231,7 +231,7 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 
 ## Docker（API + Web）
 
-默认 `docker-compose.yml` 暴露 API `:8000`、Web `:3000`、MCP `:8080`。本仓包含 `docker-compose.override.yml`，用于本机端口冲突场景，会把 API 改为 `:8001`、MCP 改为 `:18081`；因此本仓 `.map/` bootstrap 示例使用 `http://localhost:8001`。
+默认 `docker-compose.yml` 暴露 API `:8000`、Web `:3000`、MCP `:8080`；本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把宿主端口改为 API `:8001`、MCP `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:8001`。
 
 ```bash
 docker compose up --build

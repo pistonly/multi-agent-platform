@@ -42,7 +42,7 @@ pip install multi-agent-platform
 ```bash
 pip install multi-agent-platform-server
 alembic upgrade head                   # 初始化数据库
-map-server                             # 启动 API（默认 http://localhost:8000）
+map-server                             # 启动 API（本仓 Docker 部署对外为 http://localhost:8001；可用 MAP_API_URL 覆盖）
 ```
 
 安装后验证：
@@ -65,7 +65,7 @@ map skill install                      # 安装 5 个 Skill 到 .cursor/skills/�
 map bootstrap \
   --key <project-key> \
   --name "<项目名>" \
-  --api-url <server 地址，如 http://localhost:8000>
+  --api-url <server 地址，如 http://localhost:8001>
 ```
 
 这会生成 `.map/` 目录：`config.yaml`（提交 Git）、`agents.yaml`（提交 Git）、`agents.local.yaml`（含 token，**勿提交**）。
