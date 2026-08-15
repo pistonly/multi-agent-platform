@@ -1,0 +1,10 @@
+reasonable_items:
+  - "M54A 方向正确：全局 --format 在 _cli_options 定义，子命令级下沉通过 typer context 继承，两种调用位置等价性进 compat 测试——直接解决评审话题已复现的 E1"
+  - "M54B 三分支设计完备：唯一前缀放行 / 多义列候选 / 无命中提示格式，且先做格式校验再查库，畸形输入不产生无效查询"
+  - "M54C JSON 走 map_types 序列化并与 REST 响应字段对齐，护栏测试防 CLI 输出与 schema 漂移，符合评审 R1「机器可读输出与 SDK schema 对齐」的意见"
+  - "验收第 4 条「仅凭 CLI 完成 list→短id→show→完整 uuid，全程无 SQLite/curl」可客观判定，与本话题 E1/E2 场景直接对应"
+  - "实现顺序 A→B→C 由低风险到高依赖，M54B 决策点（helper 泛化）与 PRD 风险表呼应"
+unreasonable_items:
+  - "建议1 短 id 匹配范围：list 需拉全量实验做前缀匹配，若实验量大有性能问题；实施时限定 page_size 或在 DB 层做前缀查询——非阻塞"
+  - "建议2 E8 纳入：本轮创建实测发现 --plan-file-path 瘦身模式被 frontmatter 门禁误伤（服务端只校验 content_md，file_path 形态被拒）。该 bug 属 M55 错误信封范畴但更接近独立缺陷，建议作为 E8 补进 v0.12 证据清单并在 M55 一并修复——非阻塞，host 决策"
+  - "建议3 experiment log 门禁：review 阶段无法写执行日志（422 state_machine_error），「创建失败重试须记 log」的纪律落点应在 Skill 层明确写「首次 running 后补记」——非阻塞"
