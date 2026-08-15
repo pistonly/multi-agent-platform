@@ -68,7 +68,8 @@ def run_bootstrap(
     if existing_project is not None:
         raise ConflictError(
             "project_key already exists; bootstrap cannot recover tokens "
-            "of an existing project. Pick a new project_key."
+            "of an existing project. Pick a new project_key, or recover the "
+            f"agents with `map auth reissue --key {project_key} --name <agent-name>`."
         )
 
     slug = _slug(project_key)
@@ -83,7 +84,8 @@ def run_bootstrap(
         if db.scalar(select(Agent).where(Agent.name == agent_name)) is not None:
             raise ConflictError(
                 f"Agent name '{agent_name}' already exists; bootstrap cannot "
-                "recover its token. Pick a new project_key."
+                "recover its token. Pick a new project_key, or recover it with "
+                f"`map auth reissue --key {project_key} --name {agent_name}`."
             )
 
     # 3. 创建 project（flush 拿 id，不 commit）

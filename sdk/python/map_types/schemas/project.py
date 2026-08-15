@@ -78,6 +78,31 @@ class BootstrapResponse(BaseModel):
     agents: list[BootstrapAgentResult]
 
 
+# --- Token reissue (self-service, M52C) ---
+
+
+class TokenReissueRequest(BaseModel):
+    """Body for ``POST /api/v1/bootstrap/reissue`` — reissue one agent token.
+
+    Trust model mirrors ``POST /bootstrap``: the ``project_key`` acts as
+    the self-service proof of project ownership (it is committed in
+    ``.map/config.yaml``). Reissuing immediately revokes the previous
+    token, so a lost ``.map/agents.local.yaml`` is recoverable.
+    """
+
+    project_key: str = Field(min_length=2, max_length=64)
+    agent_name: str = Field(min_length=1, max_length=255)
+
+
+class TokenReissueResponse(BaseModel):
+    agent_id: uuid.UUID
+    agent_name: str
+    project_key: str
+    api_token: str
+    previous_token_revoked: bool = True
+    reissued_at: datetime
+
+
 class ProjectStatusRead(BaseModel):
     project: ProjectRead
     experiment_counts_by_phase: dict[str, int]

@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict
 from cli.commands.action import action_app
 from cli.commands.agent import agent_app
 from cli.commands.audit import audit_app
+from cli.commands.auth import auth_app
 from cli.commands.docs import docs_app
 from cli.commands.experiment import experiment_app
 from cli.commands.feedback import feedback_app
@@ -87,6 +88,7 @@ app.add_typer(e2e_app, name="e2e")
 app.add_typer(sync_app, name="sync")
 app.add_typer(skill_app, name="skill")
 app.add_typer(host_app, name="host")
+app.add_typer(auth_app, name="auth")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
@@ -1019,12 +1021,21 @@ def map_bootstrap(
         typer.echo("Reused existing MAP project.")
     if result.skipped_agent_names:
         typer.echo(
-            "Skipped existing agents (tokens not recoverable): "
+            "Skipped existing agents (tokens not recoverable via bootstrap): "
             + ", ".join(result.skipped_agent_names),
             err=True,
         )
-        typer.echo("Keep your existing .map/agents.local.yaml or delete agents on MAP before re-bootstrap.")
+        typer.echo(
+            "Recover them with `map auth reissue --key "
+            f"{result.config.project_key} --name <agent-name>`, or keep your "
+            "existing .map/agents.local.yaml."
+        )
     typer.echo("Personas: " + ", ".join(result.config.tokens.keys()))
+    typer.echo(
+        "Backup tip: tokens are shown once — copy .map/agents.local.yaml to a "
+        "safe place. If lost, recover with `map auth reissue --key "
+        f"{result.config.project_key} --name <agent-name>`."
+    )
     typer.echo("Try: map --persona host status")
 
 

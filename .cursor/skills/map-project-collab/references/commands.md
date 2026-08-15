@@ -2,6 +2,20 @@
 
 > 本文档从 [map-project-collab SKILL.md](../SKILL.md) 提取的命令大全。需要执行具体操作时按节查阅，日常协作不需要通读。文件引用模式（`--file-path` 等）见 [file-reference.md](file-reference.md)。
 
+## `topic --id` 统一路由（M51）
+
+`map topic show / comment / advance-round / close` 的 `--id` 接受三种形式：
+
+- **DB uuid** → 平台 API 话题（uuid 格式时 DB 优先，404 后本地反查 FS uuid5）
+- **FS uuid5 id** → `map/topics/<slug>/` 文件夹话题（由 CLI 路由层解析）
+- **slug** → FS 优先（`map/topics/<slug>/` 存在即 FS），未命中按 DB slug 匹配
+
+同名冲突或想显式指定时加 `--storage fs | db`。FS 话题的 comment 为纯本地写（`round<N>-<persona>.md`，不支持 `--parent` / `--file-path`）。
+
+其余 topic 子命令（resolve / rollback-round / reopen / dismiss / read / archive / migrate）仍按 DB uuid 操作。
+
+**`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；验证型写 `advance-round` / `close` 日常直接用 `map topic --id <slug>` 等价调用。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
+
 ## 项目状态与话题清单
 
 ```bash
@@ -59,7 +73,7 @@ map --persona participant topic comment --id <topic-uuid> --file ./comment.md
 # 文件引用模式（推荐）：见 file-reference.md
 map --persona participant topic comment \
   --id <topic-uuid> \
-  --file-path docs/topics/<slug>/round1-participant.md \
+  --file-path map/topics/<slug>/round1-participant.md \
   --excerpt "一句话摘要"
 ```
 
@@ -72,7 +86,7 @@ map experiment create --title "..." --plan-file ./plan.md --topic-id <topic-uuid
 # 创建并直接提交评审
 map experiment create --title "..." --plan-file ./plan.md --submit-for-review
 # 文件引用模式：只存计划路径
-map experiment create --title "..." --plan-file-path docs/experiments/<slug>-plan.md --topic-id <topic-uuid>
+map experiment create --title "..." --plan-file-path map/experiments/<slug>/plan.md --topic-id <topic-uuid>
 ```
 
 ## 实验生命周期（host）
@@ -83,7 +97,7 @@ map experiment approve --id <exp-uuid>
 map experiment start --id <exp-uuid>
 map experiment pre-complete --id <exp-uuid> --metadata ./evidence.yaml
 map experiment complete --id <exp-uuid> --summary "..." --file ./log.md --metadata ./evidence.yaml
-map experiment complete --id <exp-uuid> --summary "..." --log-file-path docs/experiments/<slug>-log.md  # 文件引用模式
+map experiment complete --id <exp-uuid> --summary "..." --log-file-path map/experiments/<slug>/log.md  # 文件引用模式
 map experiment logs --id <exp-uuid>
 map experiment log --id <exp-uuid> --summary "..." --file ./log.md
 map experiment status --id <exp-uuid>

@@ -24,10 +24,10 @@ map --persona host topic comment --id <topic-uuid> --body "回复内容" --paren
 map --persona host topic comment --id <topic-uuid> --file ./reply.md --parent <comment-uuid>
 
 # 瘦身模式（推荐，长回复 / Round Summary）：平台只存路径+摘要
-# 路径约定：docs/topics/<slug>/round<N>-host.md
+# 路径约定：map/topics/<slug>/round<N>-host.md
 map --persona host topic comment \
   --id <topic-uuid> \
-  --file-path docs/topics/<slug>/round1-host.md \
+  --file-path map/topics/<slug>/round1-host.md \
   --excerpt "一句话摘要（列表/通知用）" \
   --parent <comment-uuid>
 ```
@@ -46,7 +46,7 @@ map --persona host topic comment \
   --id <topic-uuid> \
   --file ./summary.md \
   --round-summary
-# 瘦身模式同理：--file-path docs/topics/<slug>/round<N>-summary-host.md --excerpt "..."
+# 瘦身模式同理：--file-path map/topics/<slug>/round<N>-summary-host.md --excerpt "..."
 
 # participant ack 收齐后推进轮次（24h 无人 ack = silence=consent）
 map --persona host topic advance-round \
@@ -82,7 +82,7 @@ map --persona host experiment create \
 # 瘦身模式：只存计划文件路径
 map --persona host experiment create \
   --title "..." \
-  --plan-file-path docs/experiments/<slug>-plan.md \
+  --plan-file-path map/experiments/<slug>/plan.md \
   --topic-id <topic-uuid>
 
 # 实验生命周期移交给 experiment-host Skill

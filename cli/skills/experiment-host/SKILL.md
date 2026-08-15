@@ -57,16 +57,16 @@ map --persona host experiment lock release --id <exp-uuid>
 
 ## running 收尾（瘦身模式）
 
-`complete` 支持瘦身模式：只存日志文件路径（约定 `docs/experiments/<slug>-log.md`），日志内容不进数据库：
+`complete` 支持瘦身模式：只存日志文件路径（约定 `map/experiments/<slug>/log.md`），日志内容不进数据库：
 
 ```bash
 map --persona host experiment complete \
   --id <exp-uuid> \
   --summary "..." \
-  --log-file-path docs/experiments/<slug>-log.md
+  --log-file-path map/experiments/<slug>/log.md
 ```
 
-同理创建实验时可用 `--plan-file-path docs/experiments/<slug>-plan.md` 只存计划路径（详见 [map-project-collab file-reference](../map-project-collab/references/file-reference.md)）。完整收尾顺序（pre-complete / evidence metadata / release）见 [lifecycle-transitions.md](references/lifecycle-transitions.md)。
+同理创建实验时可用 `--plan-file-path map/experiments/<slug>/plan.md` 只存计划路径（详见 [map-project-collab file-reference](../map-project-collab/references/file-reference.md)）。完整收尾顺序（pre-complete / evidence metadata / release）见 [lifecycle-transitions.md](references/lifecycle-transitions.md)。
 
 ## Host 编排模式（直接调用 reviewer）
 

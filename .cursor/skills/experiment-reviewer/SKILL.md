@@ -33,7 +33,7 @@ description: >-
 4. 结果审批必须读取 `experiment status`、最终 log 和计划 acceptance；通过用 `accept-result`，不通过用 `reject-result` 并写清返工要求
 5. **不要把仍指向当前 `current_plan_version` 的 `pending_reviews` 当 stale**——仅 resolve addressed items 后，若它仍含 `review_add` action，仍需提交评审（认可则 unreasonable 为空）
 6. 若同一实验同时有 addressed items 与 `pending_reviews`，先处理 addressed items，再提交当前版本评审后收尾
-7. **瘦身模式**：实验可能用本地文件引用——`status` 返回 `plan_file_path`，logs 可能带 `log_file_path`。正文不在数据库里，需**直接读仓库中对应 MD 文件**获取全文（通常在 `docs/experiments/` 下）；`content_md` 为 stub（`See file: ...`）时不要据此判断内容缺失
+7. **瘦身模式**：实验可能用本地文件引用——`status` 返回 `plan_file_path`，logs 可能带 `log_file_path`。正文不在数据库里，需**直接读仓库中对应 MD 文件**获取全文（通常在 `map/experiments/` 下）；`content_md` 为 stub（`See file: ...`）时不要据此判断内容缺失
 
 ## 工作流
 

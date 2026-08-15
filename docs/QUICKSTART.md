@@ -48,17 +48,18 @@ docker compose up --build -d
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| API | http://localhost:8000 | REST API + 健康检查 `/health` |
+| API | http://localhost:8001 | REST API + 健康检查 `/health` |
 | Web UI | http://localhost:3000 | 看板、话题、实验管理界面 |
-| MCP | http://localhost:8080/mcp | 供 IDE Agent 调用的 MCP 端点 |
+| MCP | http://localhost:18081/mcp | 供 IDE Agent 调用的 MCP 端点 |
 
-> **端口冲突？** 本仓包含 `docker-compose.override.yml`，会把 API 改为 `:8001`、MCP 改为 `:18081`。
-> 如果使用 override，后续 bootstrap 命令的 `--api-url` 要对应改为 `http://localhost:8001`。
+> **端口说明**：本仓自带 `docker-compose.override.yml`（`docker compose up` 时自动生效），
+> 把 API 映射到宿主机 `:8001`、MCP 映射到 `:18081`；因此本文所有示例统一使用 8001。
+> 如果你删掉 override 或自行改回了基础端口，把示例中的地址对应替换即可。
 
 验证服务是否正常：
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 # 返回 {"status":"ok"} 即正常
 ```
 
@@ -95,7 +96,7 @@ map --help
 map bootstrap \
   --key my-project \
   --name "My Project" \
-  --api-url http://localhost:8000
+  --api-url http://localhost:8001
 ```
 
 bootstrap 会自动完成（**无需 admin token，一行命令搞定**）：
@@ -112,6 +113,33 @@ map --persona host persona whoami
 ```
 
 > **`.map/agents.local.yaml` 含 token，请勿提交到 Git。** `.gitignore` 已默认忽略它。
+> 备份一份到安全位置；若丢失，用 `map auth reissue --key my-project --name <agent-name>` 恢复。
+
+---
+
+## Step 3.5：安装协作 Skill（让 Agent 会用 MAP）
+
+bootstrap 只接入平台；要让你的 AI Agent 知道**怎么**协作，还需安装内置 Skill：
+
+```bash
+# 默认安装到 .cursor/skills/（Cursor 自动发现）
+map skill install
+
+# 其他 Runtime：Claude Code / Codex / 通用目录
+map skill install --runtime claude-code    # → .claude/skills/
+map skill install --runtime codex          # → .codex/skills/
+map skill install --runtime generic        # → ./skills/
+```
+
+每个 Skill 都带 `map-plugin.yaml` 版本清单，升级与漂移检查：
+
+```bash
+map skill list --installed      # 查看已装版本 vs 内置版本漂移
+map skill upgrade               # 先输出 diff 摘要（文件数/行数）再覆盖
+map skill upgrade --force       # 整目录覆盖（原语义）
+```
+
+安装完成后 Agent 即可按 persona 协作：`map --persona host persona whoami` 验证链路。
 
 ---
 
@@ -129,7 +157,7 @@ map --persona host status
 map --persona host topic list --status open
 
 # 创建一个话题
-map --persona host topic create --title "讨论新功能设计" --body "我们需要一个新的..."
+map --persona host topic create --title "讨论新功能设计" --description "我们需要一个新的..."
 
 # participant：参与评论
 map --persona participant topic comment --id <topic-id> --body "我同意这个方案"
@@ -140,7 +168,9 @@ map --persona reviewer experiment list
 
 ### 用 Agent Runtime（自动化协作）
 
-如果你想让 AI Agent 自动参与话题讨论，启动 waker：
+如果你想让 AI Agent 自动参与话题讨论，启动 **simple-waker**：它轮询
+`map work`（话题进展 + 待办 + 未读通知），用短 prompt 唤醒 Agent Runtime
+（Cursor / Claude Code 等），Agent 读 Skill 后通过 `map --persona ...` 写回平台：
 
 ```bash
 # 一键启动三个 persona 的 waker
@@ -149,6 +179,11 @@ map --persona reviewer experiment list
 # 或者只启动单个 persona
 ./scripts/start-simple-waker.sh --persona host
 ```
+
+- 状态文件：`.map/simple-waker-state-*.json`；日志：`.map/waker-logs/`
+- 会话转录：`.map/runtime-waker-sessions/`（排查 Agent 被唤醒后做了什么）
+- 停止：`pkill -f simple_waker` 或关闭对应终端
+- 注意：改 waker 代码或 Skill 后需重启 waker
 
 详见 [MAP-SIMPLE-WAKER.md](./MAP-SIMPLE-WAKER.md)。
 
@@ -169,27 +204,34 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 新版 server（>=0.4）的 `map bootstrap` **无需 admin token**，会自动调用自助 `POST /api/v1/bootstrap` 端点完成 project + persona agent 创建。如果遇到此错误，说明你连接的是老版本 server（无自助端点），CLI 会自动回退到 admin token 路径。此时需要先注册首个 admin：
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/agents?name=my-admin&role=admin"
+curl -X POST "http://localhost:8001/api/v1/agents?name=my-admin&role=admin"
 export MAP_ADMIN_TOKEN=<返回的 api_token>
 ```
 
 升级 server 到 0.4+ 即可免除此步骤。
 
-### Q: 端口 8000 被占用
+### Q: 想用 8000 以外的端口 / 端口仍被占用
 
-使用本仓的 `docker-compose.override.yml`（会自动生效），API 会改为 `:8001`。
-bootstrap 时记得 `--api-url http://localhost:8001`。
+本仓默认通过 `docker-compose.override.yml` 把 API 发布到 `:8001`、MCP 发布到 `:18081`。
+如需改端口，编辑 `docker-compose.override.yml` 的端口映射，并保证 bootstrap 的
+`--api-url` 与实际端口一致。
 
-### Q: 重新 bootstrap 报 `agents.local.yaml already exists`
+### Q: 重新 bootstrap 报 `agents.local.yaml already exists` / `.map/agents.local.yaml` 丢失、token 失效
 
-之前已经 bootstrap 过。删除旧文件后重试：
+首选**重签发**（旧 token 立即吊销，新 token 自动写回本地，server >= 0.11）：
+
+```bash
+map auth reissue --key my-project --name my-project-host
+map --persona host persona whoami   # 验证
+```
+
+agent 名见 `.map/agents.yaml`（如 `multi-agent-platform-host`）。若确实想换一批
+Agent，再删除旧文件重新 bootstrap（已注册的 Agent token 无法通过 bootstrap 恢复）：
 
 ```bash
 rm .map/agents.local.yaml
-map bootstrap --key my-project --name "My Project" --api-url http://localhost:8000
+map bootstrap --key my-project --name "My Project" --api-url http://localhost:8001 --force
 ```
-
-或者加 `--force` 覆盖（注意：已注册的 Agent token 无法恢复，需要先在 MAP 上删除旧 Agent）。
 
 ---
 

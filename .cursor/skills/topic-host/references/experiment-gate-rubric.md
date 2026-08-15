@@ -124,7 +124,7 @@ map --persona host topic advance-round --id <uuid> --waive-ack --waive-reason "�
 ## topic resolve payload 示例
 
 ```yaml
-decision: "采用方案 A：Skill 驱动 + runtime-waker 唤醒"
+decision: "采用方案 A：Skill 驱动 + simple-waker 唤醒"
 rationale: "讨论已收敛（默认两轮）；bridge 路径已停用"
 rejected_options: "继续依赖 host bridge 自动编排"
 open_questions: "action_items 是否需要独立 wake event"

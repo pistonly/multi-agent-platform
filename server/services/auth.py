@@ -64,3 +64,50 @@ def get_agent_by_token(db: Session, token: str) -> Agent | None:
         if verify_token(token, agent.api_token_hash):
             return agent
     return None
+
+
+def reissue_agent_token(
+    db: Session,
+    *,
+    project_key: str,
+    agent_name: str,
+) -> tuple[Agent, str]:
+    """Reissue an agent's API token, revoking the previous one (M52C).
+
+    Self-service recovery path for a lost ``.map/agents.local.yaml``:
+    the ``project_key`` is the proof of project ownership (same trust
+    boundary as ``POST /bootstrap``). The old token becomes invalid
+    immediately because the stored hash is replaced atomically.
+
+    Raises ``NotFoundError`` (mapped to 404) when the project key or the
+    agent name within that project does not exist — the 404 deliberately
+    does not reveal which part was wrong.
+    """
+    from sqlalchemy import select as _select
+
+    from server.domain.models import Project
+    from server.services.errors import NotFoundError
+
+    project = db.scalar(_select(Project).where(Project.project_key == project_key))
+    if project is None:
+        raise NotFoundError(
+            f"project_key '{project_key}' not found. "
+            "Check .map/config.yaml project_key, or bootstrap with a new key."
+        )
+
+    agent = db.scalar(
+        _select(Agent).where(Agent.name == agent_name, Agent.project_id == project.id)
+    )
+    if agent is None:
+        raise NotFoundError(
+            f"agent '{agent_name}' not found in project '{project_key}'. "
+            "Check the agent_name in .map/agents.yaml "
+            "(e.g. multi-agent-platform-host)."
+        )
+
+    token = secrets.token_urlsafe(32)
+    agent.api_token_hash = hash_token(token)
+    agent.api_token_prefix = token_prefix(token)
+    db.commit()
+    db.refresh(agent)
+    return agent, token

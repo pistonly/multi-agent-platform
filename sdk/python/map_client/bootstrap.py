@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 import yaml
-from map_types import AgentCreateResponse, BootstrapResponse
+from map_types import AgentCreateResponse, BootstrapResponse, TokenReissueResponse
 
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError, raise_for_status
@@ -48,6 +48,20 @@ class BootstrapResult:
     config: ProjectMapConfig
     created_project: bool
     skipped_agent_names: list[str]
+
+
+@dataclass(frozen=True)
+class ReissueResult:
+    """Outcome of ``map auth reissue`` (M52C)."""
+
+    persona_key: str | None
+    agent_name: str
+    agent_id: str
+    api_url: str
+    local_path: Path
+    # True when the previous token (if any) was unknown to the caller —
+    # the server revoked it either way.
+    wrote_back: bool = True
 
 
 def _slug(value: str) -> str:
@@ -134,6 +148,151 @@ def _public_bootstrap(
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
+def _public_reissue(
+    api_url: str,
+    *,
+    project_key: str,
+    agent_name: str,
+    transport: Any = None,
+) -> TokenReissueResponse | None:
+    """Call the self-service ``POST /api/v1/bootstrap/reissue`` endpoint.
+
+    Returns the parsed ``TokenReissueResponse`` on success, or ``None``
+    when the endpoint is missing (server < v0.11). Other errors (404
+    unknown project/agent, 422, 5xx) raise ``MAPHTTPError``.
+    """
+    url = f"{api_url.rstrip('/')}/api/v1/bootstrap/reissue"
+    try:
+        client = httpx.Client(transport=transport, timeout=30.0)
+    except Exception:
+        return None
+    try:
+        resp = client.post(
+            url, json={"project_key": project_key, "agent_name": agent_name}
+        )
+    except Exception:
+        return None
+    finally:
+        client.close()
+    if resp.status_code == 404:
+        # Unknown project/agent is also 404 — distinguish by error body.
+        # A missing route returns FastAPI's default {"detail": "Not Found"}
+        # (exact literal); a real NotFoundError carries a richer domain
+        # message (e.g. "project_key 'x' not found. ...").
+        detail = ""
+        try:
+            payload = resp.json()
+            detail = str(payload.get("detail", "")) if isinstance(payload, dict) else ""
+        except Exception:
+            pass
+        if detail.strip().lower() in ("", "not found"):
+            return None
+    if resp.status_code >= 400:
+        detail = resp.text
+        error_code: str | None = None
+        hint: str | None = None
+        retryable: bool | None = None
+        if resp.content:
+            try:
+                payload = resp.json()
+                if isinstance(payload, dict) and "detail" in payload:
+                    detail = str(payload["detail"])
+                if isinstance(payload, dict):
+                    error_code = payload.get("error_code")
+                    hint = payload.get("hint")
+                    retryable = payload.get("retryable")
+            except Exception:
+                pass
+        raise_for_status(
+            resp.status_code,
+            detail,
+            error_code=error_code if isinstance(error_code, str) else None,
+            hint=hint if isinstance(hint, str) else None,
+            retryable=retryable if isinstance(retryable, bool) else None,
+        )
+    return TokenReissueResponse.model_validate(resp.json())
+
+
+def reissue_map_token(
+    *,
+    agent_name: str,
+    project_key: str | None = None,
+    project_root: Path | None = None,
+    api_url: str | None = None,
+    transport: Any = None,
+) -> ReissueResult:
+    """Reissue one agent token and write it back to ``.map/agents.local.yaml``.
+
+    Resolution order for the arguments: explicit args → ``.map/config.yaml``
+    → ``MAP_API_URL``. Raises ``ValueError`` when ``.map/`` is not
+    initialized (bootstrap first) or the server predates the reissue
+    endpoint.
+    """
+    root = (project_root or Path.cwd()).resolve()
+    map_dir = root / MAP_DIR_NAME
+    config_path = map_dir / CONFIG_FILE
+    local_path = map_dir / AGENTS_LOCAL_FILE
+
+    config: dict[str, Any] = {}
+    if config_path.is_file():
+        config = _read_yaml(config_path) or {}
+
+    resolved_key = project_key or config.get("project_key")
+    if not resolved_key:
+        raise ValueError(
+            f"project_key not found: pass --key or initialize {config_path} "
+            "with `map bootstrap` first."
+        )
+    resolved_api_url = (
+        (api_url or config.get("api_url") or os.environ.get("MAP_API_URL") or "http://localhost:8000").rstrip("/")
+    )
+
+    # Locate the persona (if any) that maps to this agent_name — for the
+    # write-back key. Custom agents without a persona entry still get a
+    # local token entry keyed by the agent name.
+    persona_key: str | None = None
+    agents_path = map_dir / AGENTS_FILE
+    if agents_path.is_file():
+        agents_data = _read_yaml(agents_path) or {}
+        for key, spec in (agents_data.get("personas") or {}).items():
+            if isinstance(spec, dict) and spec.get("agent_name") == agent_name:
+                persona_key = str(key)
+                break
+
+    resp = _public_reissue(
+        resolved_api_url,
+        project_key=resolved_key,
+        agent_name=agent_name,
+        transport=transport,
+    )
+    if resp is None:
+        raise ValueError(
+            "server does not support token reissue (needs MAP server >= v0.11). "
+            "Ask the admin to rotate the token, or bootstrap with a new project_key."
+        )
+
+    local: dict[str, Any] = {"personas": {}}
+    if local_path.is_file():
+        loaded = _read_yaml(local_path)
+        if isinstance(loaded, dict) and isinstance(loaded.get("personas"), dict):
+            local = loaded
+    write_key = persona_key or agent_name
+    local.setdefault("personas", {})[write_key] = {
+        "token": resp.api_token,
+        "agent_id": str(resp.agent_id),
+        "agent_name": resp.agent_name,
+    }
+    _write_yaml(local_path, local)
+
+    return ReissueResult(
+        persona_key=persona_key,
+        agent_name=resp.agent_name,
+        agent_id=str(resp.agent_id),
+        api_url=resolved_api_url,
+        local_path=local_path,
+    )
 
 
 def _register_agent(
@@ -234,7 +393,9 @@ def bootstrap_project_map(
     if local_path.is_file() and not force:
         raise ValueError(
             f"{local_path} already exists. Remove it or pass --force "
-            "(existing agent tokens cannot be recovered if re-registered)."
+            "(re-registering does not recover existing tokens; use "
+            f"`map auth reissue --key {project_key} --name <agent-name>` "
+            "to recover them)."
         )
 
     resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:8000").rstrip("/")

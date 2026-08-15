@@ -22,12 +22,12 @@ map --persona participant topic comment \
   --parent <comment-uuid>
 ```
 
-瘦身模式（推荐）：内容写本地 MD，平台只存路径+摘要，路径约定 `docs/topics/<slug>/round<N>-participant.md`：
+瘦身模式（推荐）：内容写本地 MD，平台只存路径+摘要，路径约定 `map/topics/<slug>/round<N>-participant.md`：
 
 ```bash
 map --persona participant topic comment \
   --id <topic-uuid> \
-  --file-path docs/topics/<slug>/round1-participant.md \
+  --file-path map/topics/<slug>/round1-participant.md \
   --excerpt "一句话摘要（列表/通知用）" \
   --parent <comment-uuid>
 ```

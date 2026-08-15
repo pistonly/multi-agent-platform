@@ -11,14 +11,13 @@
 
 ## kind → 清理动作（处理完必须让该项从列表消失）
 
-**先判别话题类型**（FS 事实源 vs DB 话题）：`map fs list` 里能找到同 slug 文件夹，或 `map/topics/<slug>/` 目录存在 → **FS 话题**，走 `map fs` 命令；否则 DB 话题走 `map topic` 命令。
+话题命令统一入口 `map topic`：`--id` 接受 DB uuid、FS uuid5 id 或 slug（uuid → DB 优先、404 后本地反查 FS；slug → FS 优先、未命中查 DB slug；同名冲突时 `--storage fs|db` 显式指定）。无需先判别话题类型。
 
 | kind | 清理动作 | 下一步 Skill |
 |------|----------|--------------|
 | `mentions` | `map mention dismiss --id <uuid>` | 按内容选 |
-| `pending_topic_replies`（DB 话题） | 回复该 thread（服务端重算后消失） | [topic-host](../../topic-host/SKILL.md) |
-| `pending_topic_replies`（FS 话题，reason=`fs_file_missing`） | 写本轮发言文件：`map fs comment --topic <slug> --file <md>`（即 `map/topics/<slug>/round<N>-<persona>.md`；文件存在即消失） | [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
-| `round_ack`（FS 话题，仅 host） | 参与者交齐文件后 `map fs advance-round --topic <slug>`（服务端校验写回 index.md） | [topic-host](../../topic-host/SKILL.md) |
+| `pending_topic_replies`（DB 或 FS 话题，FS 侧 reason=`fs_file_missing`） | 回复该 thread（DB：服务端重算后消失）；或写本轮发言文件：`map topic comment --id <slug|uuid> --file <md>`（FS 话题即写 `map/topics/<slug>/round<N>-<persona>.md`，文件存在即消失） | [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
+| `round_ack`（FS 话题，仅 host） | 参与者交齐文件后 `map topic advance-round --id <slug>`（服务端校验写回 index.md） | [topic-host](../../topic-host/SKILL.md) |
 | `pending_advance_rounds` | `map topic advance-round --id <uuid>` | [topic-host](../../topic-host/SKILL.md) |
 | `pending_round_acks` | `map topic advance-round --id <uuid> --ack accept\|reject\|dismiss` | [topic-participant](../../topic-participant/SKILL.md) / [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
 | `pending_reviews` / `pending_result_reviews` / `pending_replies` | 完成评审 / `accept-result` / `reject-result` / 回复 | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
@@ -31,9 +30,9 @@
 ### FS 话题速查（map/ 文件夹事实源）
 
 - 话题 = `map/topics/<slug>/` 文件夹；发言 = `round<N>-<persona>.md` 一个文件（每轮每人一个，默认 immutable）
-- 离线读写即协作：`map fs list / show / comment / work`（纯本地，不调 API）
-- 验证型写走 API：`map fs advance-round --topic <slug>` / `map fs close --topic <slug>`（服务端校验权限 + ack 后写回 index.md）
-- FS 话题的 topic_id 是 uuid5 派生，**不能**用于 `map topic comment --id`（DB 命令）
+- 离线读写即协作：`map fs list / show / comment / work`（纯本地，不调 API；advanced 入口，日常用 `map topic --id <slug>` 即可）
+- 验证型写走 API：`map topic advance-round --id <slug>` / `map topic close --id <slug>`（服务端校验权限 + ack 后写回 index.md）
+- FS 话题的 topic_id 是 uuid5 派生，可直接用于 `map topic show/comment/advance-round/close --id`（CLI 路由层解析）
 
 ## persona Skill 路由
 

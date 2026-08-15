@@ -150,3 +150,106 @@ def test_bootstrap_atomic_on_agent_name_collision(client, admin_headers):
         headers=admin_headers,
     )
     assert lookup.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# M52C — POST /api/v1/bootstrap/reissue（自助 token 重签发）
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_once(client, key: str = "reissue-demo") -> dict:
+    resp = client.post(
+        "/api/v1/bootstrap",
+        json={
+            "project_key": key,
+            "project_name": "Reissue Demo",
+            "workspace_path": f"/tmp/{key}",
+        },
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+def test_reissue_rotates_token_and_revokes_old(client):
+    """reissue 返回新 token；旧 token 立即 401，新 token 可用。"""
+    body = _bootstrap_once(client)
+    host = next(a for a in body["agents"] if a["persona"] == "host")
+    old_token = host["api_token"]
+
+    resp = client.post(
+        "/api/v1/bootstrap/reissue",
+        json={
+            "project_key": "reissue-demo",
+            "agent_name": host["agent_name"],
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_id"] == host["agent_id"]
+    assert data["agent_name"] == host["agent_name"]
+    assert data["previous_token_revoked"] is True
+    new_token = data["api_token"]
+    assert new_token and new_token != old_token
+
+    # 旧 token 失效
+    old_me = client.get(
+        "/api/v1/agents/me", headers={"Authorization": f"Bearer {old_token}"}
+    )
+    assert old_me.status_code == 401
+
+    # 新 token 可用，且身份不变
+    new_me = client.get(
+        "/api/v1/agents/me", headers={"Authorization": f"Bearer {new_token}"}
+    )
+    assert new_me.status_code == 200
+    assert new_me.json()["id"] == host["agent_id"]
+
+
+def test_reissue_unknown_project_returns_404(client):
+    _bootstrap_once(client)
+    resp = client.post(
+        "/api/v1/bootstrap/reissue",
+        json={"project_key": "no-such-key", "agent_name": "whatever-host"},
+    )
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+def test_reissue_unknown_agent_returns_404(client):
+    _bootstrap_once(client)
+    resp = client.post(
+        "/api/v1/bootstrap/reissue",
+        json={"project_key": "reissue-demo", "agent_name": "ghost-agent"},
+    )
+    assert resp.status_code == 404
+
+
+def test_reissue_agent_from_other_project_returns_404(client):
+    """同名 agent 属于其他 project → 404（不泄露存在性）。"""
+    _bootstrap_once(client, key="reissue-a")
+    body_b = _bootstrap_once(client, key="reissue-b-2")  # 不同 slug 避免名字冲突
+    other_host = next(a for a in body_b["agents"] if a["persona"] == "host")
+
+    resp = client.post(
+        "/api/v1/bootstrap/reissue",
+        json={
+            "project_key": "reissue-a",
+            "agent_name": other_host["agent_name"],
+        },
+    )
+    assert resp.status_code == 404
+
+
+def test_bootstrap_409_mentions_reissue_command(client):
+    """冲突提示必须包含 `map auth reissue` 恢复命令（M52C）。"""
+    _bootstrap_once(client, key="hint-demo")
+    resp = client.post(
+        "/api/v1/bootstrap",
+        json={
+            "project_key": "hint-demo",
+            "project_name": "Again",
+            "workspace_path": "/tmp/hint2",
+        },
+    )
+    assert resp.status_code == 409
+    assert "map auth reissue" in resp.json()["detail"]
