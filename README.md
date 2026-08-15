@@ -57,8 +57,8 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 
 ### PRD
 
-- [现行主线：v0.10（Plan 模式 / ExperimentMode.direct）](docs/prd/v0.10.md)
-- [提案草案：v0.11（Agent 体验与生态互操作）](docs/prd/v0.11.md)
+- [现行主线：v0.11（Agent 体验与生态互操作）](docs/prd/v0.11.md)
+- [提案草案：v0.12（Agent 人机工程）](docs/prd/v0.12.md)
 - 版本清单与历史归档以 [docs/prd/README.md](docs/prd/README.md) 为准
 
 ## 状态
@@ -73,7 +73,7 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 - **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 
-**当前主线**：v0.10（Plan 模式 / ExperimentMode.direct），提案 v0.11（Agent 体验与生态互操作）评审中。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v10.md](docs/status-md-v10.md)。
+**当前主线**：v0.11（Agent 体验与生态互操作，M50–M53 已完成），提案 v0.12（Agent 人机工程）评审中。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v10.md](docs/status-md-v10.md)。
 
 历史里程碑详见 [PRD 归档](docs/prd/README.md#历史归档按时间倒序)。
 

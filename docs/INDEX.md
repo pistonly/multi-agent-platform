@@ -7,7 +7,7 @@
 | 文档 | 用途 | 谁该读 |
 |------|------|--------|
 | [Quick Start 指南](QUICKSTART.md) | 新用户一键上手（Docker + Admin + bootstrap） | **新用户必读** |
-| [PRD 入口](prd/README.md) | 现行主线 v0.10 + 提案 v0.11（版本清单以此为准） | 产品 / 全员 |
+| [PRD 入口](prd/README.md) | 现行主线 v0.11 + 提案 v0.12（版本清单以此为准） | 产品 / 全员 |
 | [架构设计](ARCHITECTURE.md) | 系统架构 + 数据模型 + 模块边界 | 工程师 |
 | [CLI 指南](CLI.md) | `map` CLI 命令参考 | 工程师 / Agent |
 | [SDK 指南](SDK.md) | Python SDK 用法 | Agent 开发者 |
@@ -16,8 +16,8 @@
 
 ## PRD 历史归档
 
-`docs/prd/` 是 PRD 的根。现行主线草案在 [v0.10](prd/v0.10.md)，提案草案在
-[v0.11](prd/v0.11.md)；完整版本清单与历史归档以
+`docs/prd/` 是 PRD 的根。现行主线草案在 [v0.11](prd/v0.11.md)，提案草案在
+[v0.12](prd/v0.12.md)；完整版本清单与历史归档以
 [`docs/prd/README.md`](prd/README.md) 为单一真相源，本索引不再复制版本表。
 
 ## 按主题分类
