@@ -200,6 +200,11 @@ _FAST_GATE_MODULES = frozenset(
         # → get 完整 uuid 链路），~300ms 全量；守住「唯一命中解析 /
         # 无命中与歧义 exit 2 列候选 / 完整 UUID 直通不走 list」契约。
         "test_cli_shortid",
+        # PRD v0.12 M54C — JSON 输出契约（E3 修复）：信封结构 /
+        # map_types payload 往返 / stdout 纯净 / 退出码。冻结字面量
+        # stub transport（非 model_dump 自产自销），~300ms 全量；
+        # 守住「data 字段名与 REST 一致 + 文档↔map_types 漂移 pin」契约。
+        "test_cli_json_schema",
         # PRD v0.11 M53 — A2A 只读投影（Agent Card + Task 状态映射），
         # TestClient + bootstrap fixture，~2s；守住「卡片字段最小对 +
         # 鉴权 403/404 + 映射表与文档同源」契约。

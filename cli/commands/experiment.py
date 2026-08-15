@@ -301,12 +301,14 @@ def experiment_pre_complete(
 
     def _action(client: MAPClient):
         exp = client.get_experiment(_rid(client, experiment_id))
+        # v0.12 M54C (plan.md L31): drop the nested ``ok`` — the outer
+        # envelope carries it (docs/CLI-JSON-SCHEMA.md); a data-level
+        # ``ok`` collided with the envelope contract.
         return {
             "experiment_id": str(exp.id),
             "phase": exp.phase,
             "current_plan_version": exp.current_plan_version,
             "evidence_keys": sorted(str(key) for key in metadata) if isinstance(metadata, dict) else [],
-            "ok": True,
         }
 
     _run(_action)
@@ -537,7 +539,7 @@ def experiment_status(
     ),
 ) -> None:
     """Show one experiment's phase, actions, blocked_on, and (per-actor) capabilities."""
-    from cli.main import _persona_compare_view, _run  # lazy: avoid cycle
+    from cli.main import _cli_options, _persona_compare_view, _run  # lazy: avoid cycle
     if persona_compare:
         _run(
             lambda c: _persona_compare_view(
@@ -556,6 +558,12 @@ def experiment_status(
 
     def _action(client: MAPClient):
         result = client.get_experiment(_rid(client, experiment_id))
+        if _cli_options.get("format") == "json":
+            # v0.12 M54C (E3/E4, plan.md L31): pure-JSON stdout. The
+            # human hints below duplicated data.actions / data.blocked_on /
+            # data.phase_owner and broke ``jq`` on the first line. Schema
+            # contract: docs/CLI-JSON-SCHEMA.md (payload = ExperimentDetailRead).
+            return result
         typer.echo(f"actions: {list(result.actions)}")
         typer.echo(f"blocked_on: {result.blocked_on}")
         typer.echo(f"phase_owner: {getattr(result, 'phase_owner', 'host')}")
