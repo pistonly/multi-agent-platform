@@ -29,6 +29,7 @@ from map_types.schemas import (
     ReviewCreate,
 )
 
+from cli.shortid import resolve_ref
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
 experiment_app = typer.Typer(help="Experiment commands", rich_markup_mode=None)
@@ -38,6 +39,36 @@ plan_app = typer.Typer(help="Plan commands")
 experiment_app.add_typer(lock_app, name="lock")
 experiment_app.add_typer(review_app, name="review")
 experiment_app.add_typer(plan_app, name="plan")
+
+_ID_HELP = "Experiment UUID or >=8-hex-digit prefix (v0.12 M54B)."
+
+
+def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
+    """Resolve a ``--id`` value (full UUID or short prefix) to the UUID.
+
+    Short prefixes (>= 8 hex digits) hit the DB layer via
+    ``list_experiments_page(id_prefix=...)`` — ``CAST(id AS CHAR) LIKE
+    '<prefix>%'`` (plan v2 r1) — including archived experiments so
+    ``show``/``archive`` resolve them too.
+    """
+
+    def matcher(prefix: str) -> list[tuple[uuid.UUID, str]]:
+        from cli.main import _resolve_project  # lazy: avoid cycle
+
+        project_id = _resolve_project(client, None, None)
+        items, _total = client.list_experiments_page(
+            project_id, id_prefix=prefix, page_size=50, include_archived=True
+        )
+        return [(e.id, e.title or "") for e in items]
+
+    return resolve_ref(raw, kind="experiment", matcher=matcher)
+
+
+def _require_id(raw: str | None) -> str:
+    if raw is None:
+        typer.echo("Error: --id is required", err=True)
+        raise typer.Exit(2)
+    return raw
 
 
 @experiment_app.command("create")
@@ -194,20 +225,21 @@ def experiment_list(
 
 
 @experiment_app.command("submit-review")
-def experiment_submit_review(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+def experiment_submit_review(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
+) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.submit_for_review(experiment_id), experiment_id=experiment_id)
+    _run(lambda c: c.submit_for_review(_rid(c, experiment_id)), experiment_id=experiment_id)
 
 
 @experiment_app.command("approve")
-def experiment_approve(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+def experiment_approve(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.approve_experiment(experiment_id), experiment_id=experiment_id)
+    _run(lambda c: c.approve_experiment(_rid(c, experiment_id)), experiment_id=experiment_id)
 
 
 @experiment_app.command("start")
 def experiment_start(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     executor: str | None = typer.Option(
         None,
         "--executor",
@@ -235,14 +267,14 @@ def experiment_start(
         if executor is not None:
             pid = _resolve_project(c, None, None)
             executor_agent_id = _resolve_executor_agent_id(c, pid, executor)
-        return c.start_experiment(experiment_id, executor_agent_id=executor_agent_id)
+        return c.start_experiment(_rid(c, experiment_id), executor_agent_id=executor_agent_id)
 
     _run(action, experiment_id=experiment_id)
 
 
 @experiment_app.command("pre-complete")
 def experiment_pre_complete(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     metadata_file: Path | None = typer.Option(
         None,
         "--metadata",
@@ -268,7 +300,7 @@ def experiment_pre_complete(
         raise typer.Exit(2)
 
     def _action(client: MAPClient):
-        exp = client.get_experiment(experiment_id)
+        exp = client.get_experiment(_rid(client, experiment_id))
         return {
             "experiment_id": str(exp.id),
             "phase": exp.phase,
@@ -282,7 +314,7 @@ def experiment_pre_complete(
 
 @experiment_app.command("complete")
 def experiment_complete(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     summary: str = typer.Option(..., "--summary"),
     log_file: Path | None = typer.Option(
         None,
@@ -342,12 +374,12 @@ def experiment_complete(
         metadata=metadata,
         log_file_path=log_file_path,
     )
-    _run(lambda c: c.complete_experiment(experiment_id, payload), experiment_id=experiment_id)
+    _run(lambda c: c.complete_experiment(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @experiment_app.command("accept-result")
 def experiment_accept_result(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     summary: str = typer.Option(..., "--summary"),
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
@@ -385,12 +417,12 @@ def experiment_accept_result(
         metadata=metadata,
         verdict_file=verdict_file,
     )
-    _run(lambda c: c.accept_experiment_result(experiment_id, payload), experiment_id=experiment_id)
+    _run(lambda c: c.accept_experiment_result(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @experiment_app.command("reject-result")
 def experiment_reject_result(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     summary: str = typer.Option(..., "--summary"),
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
@@ -428,12 +460,12 @@ def experiment_reject_result(
         metadata=metadata,
         verdict_file=verdict_file,
     )
-    _run(lambda c: c.reject_experiment_result(experiment_id, payload), experiment_id=experiment_id)
+    _run(lambda c: c.reject_experiment_result(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @experiment_app.command("log")
 def experiment_log(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     summary: str = typer.Option(..., "--summary"),
     log_file: Path = typer.Option(..., "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
@@ -472,18 +504,18 @@ def experiment_log(
         metadata=metadata,
         force_skip_similarity=force_skip_similarity,
     )
-    _run(lambda c: c.create_log(experiment_id, payload), experiment_id=experiment_id)
+    _run(lambda c: c.create_log(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @experiment_app.command("logs")
-def experiment_logs(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+def experiment_logs(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.list_logs(experiment_id), experiment_id=experiment_id)
+    _run(lambda c: c.list_logs(_rid(c, experiment_id)), experiment_id=experiment_id)
 
 
 @experiment_app.command("status")
 def experiment_status(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     persona_compare: bool = typer.Option(
         False,
         "--persona-compare",
@@ -510,7 +542,7 @@ def experiment_status(
         _run(
             lambda c: _persona_compare_view(
                 c,
-                experiment_id,
+                _rid(c, experiment_id),
                 personas=(
                     [p.strip() for p in compare_personas.split(",") if p.strip()]
                     if compare_personas
@@ -523,7 +555,7 @@ def experiment_status(
         return
 
     def _action(client: MAPClient):
-        result = client.get_experiment(experiment_id)
+        result = client.get_experiment(_rid(client, experiment_id))
         typer.echo(f"actions: {list(result.actions)}")
         typer.echo(f"blocked_on: {result.blocked_on}")
         typer.echo(f"phase_owner: {getattr(result, 'phase_owner', 'host')}")
@@ -568,12 +600,12 @@ def experiment_status(
 
 @experiment_app.command("show")
 def experiment_show(
-    experiment_id: uuid.UUID | None = typer.Option(None, "--id", help="Experiment UUID."),
+    experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
 ) -> None:
-    """Show one experiment (including archived) by UUID."""
-    from cli.main import _require_option_uuid, _run  # lazy: avoid cycle
-    experiment_id = _require_option_uuid(experiment_id)
-    _run(lambda c: c.get_experiment(experiment_id), experiment_id=experiment_id)
+    """Show one experiment (including archived) by UUID or short prefix."""
+    from cli.main import _run  # lazy: avoid cycle
+    raw = _require_id(experiment_id)
+    _run(lambda c: c.get_experiment(_rid(c, raw)), experiment_id=raw)
 
 
 @experiment_app.command(
@@ -581,7 +613,7 @@ def experiment_show(
     epilog="Use --undo or --unarchive to restore an archived experiment.",
 )
 def experiment_archive(
-    experiment_id: uuid.UUID | None = typer.Option(None, "--id", help="Experiment UUID."),
+    experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
     undo: bool = typer.Option(
         False,
         "--undo",
@@ -610,19 +642,20 @@ def experiment_archive(
         map --persona host experiment archive --id <uuid> --undo
         map --persona host experiment archive --id <uuid> --unarchive
     """
-    from cli.main import _require_option_uuid, _run  # lazy: avoid cycle
-    experiment_id = _require_option_uuid(experiment_id)
+    from cli.main import _run  # lazy: avoid cycle
+    raw = _require_id(experiment_id)
     from map_types.schemas import ExperimentUpdate
 
     payload = ExperimentUpdate(archived=not (undo or unarchive))
     object_kind = "experiment"
 
     def action(c: MAPClient):
+        rid = _rid(c, raw)
         try:
-            return c.update_experiment(experiment_id, payload)
+            return c.update_experiment(rid, payload)
         except MAPNotFoundError as exc:
             typer.echo(
-                f"Error: {object_kind} {experiment_id} not found",
+                f"Error: {object_kind} {rid} not found",
                 err=True,
             )
             raise typer.Exit(1) from exc
@@ -632,36 +665,36 @@ def experiment_archive(
 
 @lock_app.command("acquire")
 def experiment_lock_acquire(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     ttl: int = typer.Option(1800, "--ttl", min=1, help="Lock TTL in seconds."),
 ) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.acquire_experiment_lock(experiment_id, ttl_seconds=ttl), experiment_id=experiment_id)
+    _run(lambda c: c.acquire_experiment_lock(_rid(c, experiment_id), ttl_seconds=ttl), experiment_id=experiment_id)
 
 
 @lock_app.command("release")
-def experiment_lock_release(experiment_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+def experiment_lock_release(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.release_experiment_lock(experiment_id), experiment_id=experiment_id)
+    _run(lambda c: c.release_experiment_lock(_rid(c, experiment_id)), experiment_id=experiment_id)
 
 
 @lock_app.command("force-release")
 def experiment_lock_force_release(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     reason: str = typer.Option(..., "--reason"),
     actor: str | None = typer.Option(None, "--actor"),
 ) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.force_release_experiment_lock(experiment_id, reason=reason, actor=actor), experiment_id=experiment_id)
+    _run(lambda c: c.force_release_experiment_lock(_rid(c, experiment_id), reason=reason, actor=actor), experiment_id=experiment_id)
 
 
 @lock_app.command("skip")
 def experiment_lock_skip(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     next_attempt_at: str = typer.Option(..., "--next-attempt-at"),
 ) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.record_experiment_lock_skip(experiment_id, next_attempt_at=next_attempt_at), experiment_id=experiment_id)
+    _run(lambda c: c.record_experiment_lock_skip(_rid(c, experiment_id), next_attempt_at=next_attempt_at), experiment_id=experiment_id)
 
 
 @lock_app.command("scan-stalled")
@@ -674,18 +707,18 @@ def experiment_lock_scan_stalled() -> None:
 
 @review_app.command("add")
 def review_add(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     review_file: Path = typer.Option(..., "--review"),
 ) -> None:
     from cli.main import _read_text_file, _run  # lazy: avoid cycle
     raw = yaml.safe_load(_read_text_file(review_file, kind="review"))
     payload = ReviewCreate.model_validate(raw)
-    _run(lambda c: c.create_review(experiment_id, payload), experiment_id=experiment_id)
+    _run(lambda c: c.create_review(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @plan_app.command("revise")
 def plan_revise(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     plan_file: Path = typer.Option(..., "--plan-file"),
     note: str | None = typer.Option(None, "--note"),
     addressed_item: list[uuid.UUID] = typer.Option(
@@ -700,7 +733,7 @@ def plan_revise(
         change_note=note,
         addressed_item_ids=list(addressed_item),
     )
-    _run(lambda c: c.revise_plan(experiment_id, payload), experiment_id=experiment_id)
+    _run(lambda c: c.revise_plan(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @plan_app.command("validate")
@@ -762,7 +795,7 @@ def plan_validate(
 
 @review_app.command("list")
 def review_list(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     # N=2 过渡期默认 true (experiment 18f1d8f6 I1(c))；N=2 release 后切到 False。
     # 见 plan 当前_plan_version 的 history 默认展示策略。
     include_archived: bool = typer.Option(
@@ -779,21 +812,21 @@ def review_list(
     from cli.main import _run  # lazy: avoid cycle
     def action(c: MAPClient):
         return c.list_reviews(
-            experiment_id,
+            _rid(c, experiment_id),
             include_archived=include_archived,
             plan_version=plan_version,
         )
 
-    _run(action)
+    _run(action, experiment_id=experiment_id)
 
 
 @review_app.command("withdraw")
 def review_withdraw(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     review_id: uuid.UUID = typer.Option(..., "--review-id"),
 ) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.withdraw_review(experiment_id, review_id))
+    _run(lambda c: c.withdraw_review(_rid(c, experiment_id), review_id), experiment_id=experiment_id)
 
 
 @review_app.command("resolve-item")
@@ -821,7 +854,7 @@ def review_resolve_item(
 
 @experiment_app.command("comment")
 def experiment_comment(
-    experiment_id: uuid.UUID = typer.Option(..., "--id"),
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     anchor_type: str = typer.Option(..., "--anchor-type"),
     anchor_id: uuid.UUID = typer.Option(..., "--anchor-id"),
     body: str | None = typer.Option(None, "--body"),
@@ -846,4 +879,4 @@ def experiment_comment(
         parent_id=parent,
         body=content,
     )
-    _run(lambda c: c.create_comment(experiment_id, payload))
+    _run(lambda c: c.create_comment(_rid(c, experiment_id), payload), experiment_id=experiment_id)

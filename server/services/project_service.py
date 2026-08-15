@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from map_types.schemas import TopicSummaryRead
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -363,11 +363,23 @@ def list_experiments(
     page: int = 1,
     page_size: int = 100,
     include_archived: bool = False,
+    id_prefix: str | None = None,
 ) -> tuple[list[Experiment], int]:
+    """List experiments with optional filters.
+
+    v0.12 M54B (E2 / plan-v2 r1): ``id_prefix`` resolves a short UUID
+    prefix (>= 8 hex chars) at the DB layer — ``CAST(id AS CHAR) LIKE
+    '<prefix>%'`` — so callers never pull the full table to match a
+    prefix. Callers that cannot query the DB should fall back to a
+    bounded in-memory scan over one page and say so.
+    """
     get_project(db, project_id)
     stmt = select(Experiment).where(
         Experiment.project_id == project_id, Experiment.deleted_at.is_(None)
     )
+    if id_prefix:
+        prefix = id_prefix.strip().lower().replace("-", "")
+        stmt = stmt.where(func.cast(Experiment.id, String).like(f"{prefix}%"))
     if not include_archived:
         stmt = stmt.where(Experiment.archived_at.is_(None))
     if phase is not None:

@@ -112,6 +112,10 @@ def list_experiments(
     limit: int | None = Query(default=None, ge=1, le=100),
     page_size: int | None = Query(default=None, ge=1, le=100),
     include_archived: bool = Query(default=False),
+    # v0.12 M54B (E2): short-id prefix resolution at the DB layer —
+    # ``CAST(id AS CHAR) LIKE '<prefix>%'``. 8..32 hex chars; a full
+    # 36-char UUID should just hit GET /experiments/{id}.
+    id_prefix: str | None = Query(default=None, min_length=8, max_length=32, pattern=r"^[0-9a-fA-F]+$"),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ExperimentSummaryRead]:
@@ -141,6 +145,7 @@ def list_experiments(
         page=page,
         page_size=effective_page_size,
         include_archived=include_archived,
+        id_prefix=id_prefix,
     )
     response.headers["X-Total-Count"] = str(total)
     return [ExperimentSummaryRead.model_validate(e) for e in experiments]

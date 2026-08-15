@@ -454,7 +454,13 @@ class MAPClient:
         page: int = 1,
         page_size: int = 100,
         include_archived: bool = False,
+        id_prefix: str | None = None,
     ) -> tuple[list[ExperimentSummaryRead], int]:
+        """List experiments (one page).
+
+        v0.12 M54B (E2): ``id_prefix`` (8..32 hex chars) resolves a short
+        UUID prefix server-side via ``CAST(id AS CHAR) LIKE '<prefix>%'``.
+        """
         params: dict[str, Any] = {
             "page": page,
             "page_size": page_size,
@@ -466,6 +472,8 @@ class MAPClient:
             params["creator_agent_id"] = str(creator_agent_id)
         if q:
             params["q"] = q
+        if id_prefix:
+            params["id_prefix"] = id_prefix.strip().lower().replace("-", "")
         response = self._request("GET", f"/projects/{project_id}/experiments", params=params)
         data = response.json()
         return [ExperimentSummaryRead.model_validate(item) for item in data], self._total_count(response)

@@ -64,6 +64,7 @@ from cli.persona_compare import (  # noqa: F401
     _persona_compare_view,
     _write_cross_persona_call_audit,
 )
+from cli.shortid import normalize_uuid_like
 from cli.subcommand_format import make_group_cls
 
 # v0.12 M54A: root group class injects a subcommand-level ``--format``
@@ -662,7 +663,7 @@ def _run(
     action,
     *,
     detect_deprecated: bool = False,
-    experiment_id: uuid.UUID | None = None,
+    experiment_id: uuid.UUID | str | None = None,
     output_format: str | None = None,
     admin: bool = False,
     table_renderer=None,
@@ -678,6 +679,12 @@ def _run(
             ``/agents/me/escalation-target`` endpoint on STATE_MACHINE.*
             errors to surface the chosen escalation contact (Tier 1
             override → Tier 2 caller → Tier 2 same-role → Tier 2 admin).
+            Since v0.12 M54B command layers pass the raw ``--id`` string
+            (possibly a short prefix); a full UUID string is normalized
+            offline here, while a short prefix is left as ``None`` (the
+            escalation lookup needs a concrete experiment, and the
+            command's own action already resolved the prefix via
+            ``cli.shortid``).
         output_format: ``"table"`` / ``"yaml"`` / ``"json"``. When None,
             falls back to the global ``--format`` option. List commands
             (``table_renderer`` is not None) default to ``"table"`` when
@@ -687,6 +694,8 @@ def _run(
             and returns a string for ``"table"`` format output. When
             provided, this command is treated as a list command.
     """
+    if experiment_id is not None and not isinstance(experiment_id, uuid.UUID):
+        experiment_id = normalize_uuid_like(experiment_id)
     if output_format is None:
         output_format = _cli_options.get("format", "yaml")
 
