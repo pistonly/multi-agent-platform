@@ -421,6 +421,8 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("topic", "archive"),
     ("topic", "read"),
     ("topic", "mark-seen"),
+    # M51D：DB 话题 → map/ 文件夹单向迁移（写本地文件 + archive DB 记录）
+    ("topic", "migrate"),
     # experiment
     ("experiment", "create"),
     ("experiment", "submit-review"),
@@ -462,6 +464,8 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     # fs plane 验证型写（走 API，服务端写回 index.md）
     ("fs", "advance-round"),
     ("fs", "close"),
+    # M52C：token 自助轮换（服务端改写 agent.api_token_hash，旧 token 立即失效）
+    ("auth", "reissue"),
 }
 
 _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {

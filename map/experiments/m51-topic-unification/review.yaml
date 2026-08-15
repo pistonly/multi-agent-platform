@@ -1,0 +1,7 @@
+reasonable_items:
+  - "目标清晰可执行：map topic 统一入口的四类 --id（db-uuid / fs-uuid / slug / --storage 覆盖）路由规则定义完整，验收标准均可观测"
+  - "方案裁剪论证充分：服务端 /fs/topics 投影实时扫描文件系统，uuid5→slug 本地反查等效满足 --id <fs-uuid> 验收，避免注册表双时机同步漂移"
+  - "migrate 次序安全：FS 完整落盘（index + 全部 round 文件）后才调 archive API，失败中止不产生半迁移；复用 archived_at 语义零 schema 变更"
+  - "风险对策具体：uuid 路径行为不变（先 DB API 后本地反查）+ CLI 快照回归兜底；comment 路由 FS 的纯本地写与现有 map fs comment 语义一致且 wake.md 保留说明"
+  - "实现顺序合理：路由核心先行并配套测试，文档收敛与 ARCHITECTURE v2 收尾，依赖关系明确（M50D/M50E 已完成）"
+unreasonable_items: []

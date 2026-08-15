@@ -1,0 +1,12 @@
+api_health: ok
+pytest_summary:
+  total: 397
+  passed: 395
+  failed: 0
+  skipped: 2
+  notes: "快速门控全量；含新增 test_topic_routing/test_topic_migrate 与 fs/cli 回归"
+acceptance:
+  - "slug 路由实测: map topic show --id fs-refactor-review → FS 话题 1ba6ab09"
+  - "FS uuid5 路由实测: map topic show --id 1ba6ab09-... → 同一话题"
+  - "DB uuid 路由实测: map topic show --id 19e0d9cc-... → DB 话题，行为不变"
+  - "migrate 实测: topic migrate --id 19e0d9cc --slug host-orchestration-test --dry-run → 落盘+archive 计划正确"

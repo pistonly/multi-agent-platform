@@ -33,6 +33,125 @@ topic_app = typer.Typer(help="Topic commands", rich_markup_mode=None)
 mention_app = typer.Typer(help="Mention todo commands")
 todo_app = typer.Typer(help="Todo partition clear routing (explicit_only buckets)")
 
+_STORAGE_HELP = (
+    "Route --id explicitly: 'fs' (map/ folder topic) or 'db' (platform DB). "
+    "Default auto-routing: uuid -> DB first, then FS uuid5; slug -> FS first, then DB slug."
+)
+
+
+# ---------------------------------------------------------------------------
+# M51：--id 路由层（DB 话题 vs FS 事实源话题统一入口）
+# ---------------------------------------------------------------------------
+
+
+def _looks_like_uuid(ref: str) -> bool:
+    try:
+        uuid.UUID(ref)
+    except ValueError:
+        return False
+    return True
+
+
+def _fs_workspace_and_root() -> tuple[Path, str]:
+    from cli.commands.fs import _content_root_name, _workspace
+
+    workspace = _workspace()
+    return workspace, _content_root_name(workspace)
+
+
+def _fs_slug_by_uuid(ref: str) -> str | None:
+    """uuid5 id → slug 本地反查（scan_plane 实时解析，零 API）。"""
+    from map_fs import scan_plane
+
+    try:
+        ref_uuid = uuid.UUID(ref)
+    except ValueError:
+        return None
+    workspace, root = _fs_workspace_and_root()
+    for t in scan_plane(workspace, root).topics:
+        if t.id == ref_uuid:
+            return t.slug
+    return None
+
+
+def _db_uuid_by_slug(c: MAPClient, slug: str) -> uuid.UUID | None:
+    from cli.main import _resolve_project
+
+    pid = _resolve_project(c, None, None)
+    for t in c.list_topics(pid, page_size=100):
+        if t.slug == slug:
+            return t.id
+    return None
+
+
+def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str, str | uuid.UUID]:
+    """解析 --id 为 ('db', uuid) 或 ('fs', slug)。
+
+    自动路由：uuid → DB API 优先（404 后本地反查 FS uuid5）；
+    slug → FS 优先（map/topics/<slug>/ 存在即 FS），否则 DB slug 匹配。
+    --storage fs|db 显式覆盖，不命中即报错。
+    """
+    from map_client.exceptions import MAPNotFoundError
+
+    if storage not in (None, "fs", "db"):
+        typer.echo(f"Error: --storage must be 'fs' or 'db', got '{storage}'", err=True)
+        raise typer.Exit(2)
+
+    is_uuid = _looks_like_uuid(ref)
+    ref_uuid = uuid.UUID(ref) if is_uuid else None
+
+    def db_hit() -> uuid.UUID | None:
+        if ref_uuid is None:
+            return _db_uuid_by_slug(c, ref)
+        try:
+            c.get_topic(ref_uuid)
+        except MAPNotFoundError:
+            return None
+        return ref_uuid
+
+    def fs_hit() -> str | None:
+        if ref_uuid is not None:
+            return _fs_slug_by_uuid(ref)
+        from map_fs import parse_topic_dir
+
+        workspace, root = _fs_workspace_and_root()
+        t = parse_topic_dir(workspace / root / "topics" / ref, workspace)
+        return t.slug if t is not None else None
+
+    if storage == "fs":
+        slug = fs_hit()
+        if slug is not None:
+            return ("fs", slug)
+        typer.echo(f"Error: fs topic not found: {ref} (see `map fs list`)", err=True)
+        raise typer.Exit(1)
+    if storage == "db":
+        tid = db_hit()
+        if tid is not None:
+            return ("db", tid)
+        typer.echo(f"Error: DB topic not found: {ref} (see `map topic list`)", err=True)
+        raise typer.Exit(1)
+    if is_uuid:
+        tid = db_hit()
+        if tid is not None:
+            return ("db", tid)
+        slug = fs_hit()
+        if slug is not None:
+            return ("fs", slug)
+        typer.echo(f"Error: topic not found (DB API and map/ folders): {ref}", err=True)
+        raise typer.Exit(1)
+    slug = fs_hit()
+    if slug is not None:
+        return ("fs", slug)
+    tid = db_hit()
+    if tid is not None:
+        return ("db", tid)
+    typer.echo(
+        f"Error: topic not found: {ref} (no map/topics/{ref}/ folder and no DB slug "
+        "match; see `map fs list` / `map topic list`)",
+        err=True,
+    )
+    raise typer.Exit(1)
+
 
 # ---------------------------------------------------------------------------
 # topic_app
@@ -130,10 +249,19 @@ def topic_list(
 
 
 @topic_app.command("show")
-def topic_show(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    from cli.main import _run
+def topic_show(
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+) -> None:
+    from cli.main import _resolve_project, _run
 
-    _run(lambda c: c.get_topic(topic_id))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            return c.get_fs_topic(_resolve_project(c, None, None), target)
+        return c.get_topic(target)
+
+    _run(action)
 
 
 @topic_app.command("progress")
@@ -157,7 +285,8 @@ def topic_resolve(
 
 @topic_app.command("advance-round")
 def topic_advance_round(
-    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     increment_summary: bool = typer.Option(
         True,
         "--increment-summary/--no-increment-summary",
@@ -189,7 +318,7 @@ def topic_advance_round(
         help="Reason for waiving the ack requirement (required when --waive-ack is set).",
     ),
 ) -> None:
-    from cli.main import _run
+    from cli.main import _resolve_project, _run
 
     acknowledged_by: list[uuid.UUID] = []
     if ack_ids:
@@ -202,7 +331,29 @@ def topic_advance_round(
         waive_ack=waive_ack,
         waive_reason=waive_reason,
     )
-    _run(lambda c: c.advance_topic_round(topic_id, payload))
+
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            if ack_ids or ack:
+                typer.echo(
+                    "Error: --ack / --ack-ids are DB-topic options; FS topics advance when "
+                    "round files are present or with --waive-ack (see `map fs advance-round`).",
+                    err=True,
+                )
+                raise typer.Exit(2)
+            from map_types.schemas.fs import FsAdvanceRoundRequest
+
+            return c.fs_advance_round(
+                _resolve_project(c, None, None),
+                target,
+                FsAdvanceRoundRequest(
+                    waive_ack=waive_ack, waive_reason=waive_reason, mark_ready=mark_ready
+                ),
+            )
+        return c.advance_topic_round(target, payload)
+
+    _run(action)
 
 
 @topic_app.command("rollback-round")
@@ -217,7 +368,8 @@ def topic_rollback_round(
 
 @topic_app.command("comment")
 def topic_comment(
-    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     body: str | None = typer.Option(None, "--body"),
     body_file: Path | None = typer.Option(None, "--file"),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
@@ -250,19 +402,98 @@ def topic_comment(
         typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
     content = body if body is not None else (_read_text_file(body_file, kind="comment") if body_file else None)
-    payload = TopicCommentCreate(
-        body=content,
-        parent_id=parent,
-        is_round_summary=round_summary,
-        file_path=file_path,
-        excerpt=excerpt,
-    )
-    _run(lambda c: c.create_topic_comment(topic_id, payload))
+
+    # M51：comment 的 FS 路由本地优先（发言 = 纯本地写 round 文件，无需 API）。
+    # slug → map/topics/<slug>/ 存在即 FS；uuid → 本地 uuid5 反查命中即 FS
+    # （uuid5 命名空间与 DB uuid4 碰撞可忽略）；否则走 DB API。
+    def _fs_comment_target() -> str | None:
+        if _looks_like_uuid(topic_id):
+            return _fs_slug_by_uuid(topic_id)
+        from map_fs import parse_topic_dir
+
+        workspace, root = _fs_workspace_and_root()
+        t = parse_topic_dir(workspace / root / "topics" / topic_id, workspace)
+        return t.slug if t is not None else None
+
+    if storage == "fs":
+        target = _fs_comment_target()
+        if target is None:
+            typer.echo(f"Error: fs topic not found: {topic_id} (see `map fs list`)", err=True)
+            raise typer.Exit(1)
+        _write_fs_comment(target, content, parent, round_summary, file_path)
+        return
+    if storage is None and (slug := _fs_comment_target()) is not None:
+        _write_fs_comment(slug, content, parent, round_summary, file_path)
+        return
+
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":  # pragma: no cover - 本地优先分支已拦截；兜底保持一致
+            _write_fs_comment(target, content, parent, round_summary, file_path, exit_after=True)
+            raise typer.Exit(0)
+        payload = TopicCommentCreate(
+            body=content,
+            parent_id=parent,
+            is_round_summary=round_summary,
+            file_path=file_path,
+            excerpt=excerpt,
+        )
+        return c.create_topic_comment(target, payload)
+
+    _run(action)
+
+
+def _write_fs_comment(
+    slug: str,
+    content: str | None,
+    parent: uuid.UUID | None,
+    round_summary: bool,
+    file_path: str | None,
+    *,
+    exit_after: bool = False,
+) -> None:
+    """FS 话题发言 = 写 round<N>-<persona>.md（纯本地，与 map fs comment 同语义）。"""
+    if content is None:
+        typer.echo(
+            "Error: fs topics need --body / --file (content is stored in the round "
+            "file); --file-path is a DB-topic reference-only option.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if parent is not None:
+        typer.echo(
+            "Error: --parent is a DB-topic option; FS threading uses in-file "
+            "section references (see file-reference.md).",
+            err=True,
+        )
+        raise typer.Exit(2)
+    from map_fs import write_round_comment
+
+    from cli.commands.fs import _content_root_name, _current_round, _persona, _workspace
+
+    workspace = _workspace()
+    try:
+        path = write_round_comment(
+            workspace,
+            slug,
+            round_number=_current_round(workspace, slug),
+            persona=_persona(None),
+            body=content,
+            is_round_summary=round_summary,
+            content_root=_content_root_name(workspace),
+        )
+    except FileExistsError as err:
+        typer.echo(f"Error: {err} (use `map fs comment --force` to overwrite)", err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {path} (fs topic: {slug})")
+    if exit_after:
+        raise typer.Exit(0)
 
 
 @topic_app.command("close")
 def topic_close(
-    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     reason: str | None = typer.Option(
         None,
         "--reason",
@@ -274,9 +505,21 @@ def topic_close(
         help="Longer explanation for why the topic is being closed.",
     ),
 ) -> None:
-    from cli.main import _run
+    from cli.main import _resolve_project, _run
 
-    _run(lambda c: c.close_topic(topic_id, close_reason=reason, close_note=note))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            from map_types.schemas.fs import FsCloseRequest
+
+            return c.fs_close_topic(
+                _resolve_project(c, None, None),
+                target,
+                FsCloseRequest(close_reason=reason, close_note=note),
+            )
+        return c.close_topic(target, close_reason=reason, close_note=note)
+
+    _run(action)
 
 
 @topic_app.command("reopen")
@@ -354,6 +597,168 @@ def topic_archive(
             raise typer.Exit(1) from exc
 
     _run(action)
+
+
+def _plan_db_to_fs_migration(topic: Any, workspace: Path) -> dict[str, Any]:
+    """DB TopicRead → FS 写入计划（纯函数，便于测试）。
+
+    轮次启发式：round summary 评论界定轮次（summary 归属其所在轮），
+    其后的评论进入下一轮；index 轮号不低于 topic.discussion_round。
+    同人同轮的多条 DB 评论合并进一个 round<N>-<persona>.md（--- 分隔）。
+    """
+    import yaml
+
+    def persona_of(agent_name: str | None) -> str:
+        if not agent_name:
+            return "host"
+        cfg = workspace / ".map" / "agents.yaml"
+        if cfg.is_file():
+            try:
+                data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError:
+                data = {}
+            personas = data.get("personas") if isinstance(data, dict) else None
+            if isinstance(personas, dict):
+                for key, meta in personas.items():
+                    if isinstance(meta, dict) and meta.get("agent_name") == agent_name:
+                        return str(key)
+        return agent_name
+
+    def flatten(nodes: Any, out: list[Any]) -> list[Any]:
+        for n in nodes or []:
+            out.append(n)
+            flatten(getattr(n, "children", None), out)
+        return out
+
+    groups: dict[tuple[int, str], dict[str, Any]] = {}
+    order: list[tuple[int, str]] = []
+
+    def bucket(rn: int, persona: str) -> dict[str, Any]:
+        key = (rn, persona)
+        g = groups.get(key)
+        if g is None:
+            g = groups[key] = {"bodies": [], "summary": False, "all_system": True}
+            order.append(key)
+        return g
+
+    round_number = 1
+    seen: set[str] = set()
+    for cm in sorted(flatten(topic.comments, []), key=lambda x: (x.created_at, x.comment_seq)):
+        persona = persona_of(cm.author_name)
+        seen.add(persona)
+        g = bucket(round_number, persona)
+        body = (cm.body or cm.excerpt or "").strip()
+        if cm.file_path:
+            body = f"*content: {cm.file_path}*\n\n{body}" if body else f"*content: {cm.file_path}*"
+        if body:
+            g["bodies"].append(body)
+        if cm.is_round_summary:
+            g["summary"] = True
+            round_number += 1
+        if str(enum_value(cm.kind)) != "system":
+            g["all_system"] = False
+
+    decision = getattr(topic, "decision", None)
+    if decision is not None:
+        try:
+            dump = yaml.safe_dump(decision.model_dump(mode="json"), allow_unicode=True, sort_keys=False)
+        except Exception:
+            dump = str(decision)
+        bucket(round_number, persona_of(getattr(topic, "creator_name", None)))["bodies"].append(
+            f"## Decision\n\n```yaml\n{dump}```"
+        )
+
+    files: list[tuple[int, str, str, str, bool]] = []
+    max_round = 0
+    for rn, persona in order:
+        g = groups[(rn, persona)]
+        files.append(
+            (
+                rn,
+                persona,
+                "\n\n---\n\n".join(g["bodies"]) or "*(no content)*",
+                "system" if g["all_system"] else "user",
+                g["summary"],
+            )
+        )
+        max_round = max(max_round, rn)
+    dr = str(enum_value(topic.discussion_round))
+    if dr.startswith("round") and dr[5:].isdigit():
+        max_round = max(max_round, int(dr[5:]))
+    creator_persona = persona_of(getattr(topic, "creator_name", None))
+    return {
+        "index": {
+            "title": topic.title,
+            "creator": creator_persona,
+            "description": topic.description or "",
+            "status": "closed" if str(enum_value(topic.status)) == "closed" else "open",
+            "round_": max_round or 1,
+            "participants": sorted(seen | {creator_persona}),
+        },
+        "files": files,
+    }
+
+
+@topic_app.command("migrate")
+def topic_migrate(
+    topic_id: uuid.UUID = typer.Option(..., "--id", help="DB topic UUID to migrate."),
+    slug: str = typer.Option(..., "--slug", help="Target folder name: map/topics/<slug>/"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="List planned writes without touching files or the DB."
+    ),
+) -> None:
+    """Migrate a DB topic to the map/ folder source of truth (one-way, M51).
+
+    FS 完整落盘（index.md + 全部 round 文件）成功后才 archive DB 记录
+    （列表默认隐藏，show 仍可见）；中途失败不产生半迁移。
+    """
+    from cli.main import _run
+
+    _run(lambda c: _execute_db_to_fs_migration(c, topic_id, slug, dry_run=dry_run))
+
+
+def _execute_db_to_fs_migration(
+    c: MAPClient, topic_id: uuid.UUID, slug: str, *, dry_run: bool = False
+) -> Any:
+    from map_fs import write_round_comment, write_topic_index
+    from map_types.schemas import TopicUpdate
+
+    workspace, root = _fs_workspace_and_root()
+    target_dir = workspace / root / "topics" / slug
+    if target_dir.exists():
+        typer.echo(f"Error: target already exists: {target_dir} (pick another --slug)", err=True)
+        raise typer.Exit(1)
+
+    topic = c.get_topic(topic_id)
+    plan = _plan_db_to_fs_migration(topic, workspace)
+    if dry_run:
+        idx = plan["index"]
+        typer.echo(
+            f"[dry-run] write {target_dir / 'index.md'} "
+            f"(status={idx['status']}, round={idx['round_']}, participants={','.join(idx['participants'])})"
+        )
+        for rn, persona, _body, _kind, summary in plan["files"]:
+            suffix = " (round summary)" if summary else ""
+            typer.echo(f"[dry-run] write {target_dir / f'round{rn}-{persona}.md'}{suffix}")
+        typer.echo(f"[dry-run] archive DB topic {topic_id} (archived=true)")
+        return None
+    index_path = write_topic_index(workspace, slug, content_root=root, **plan["index"])
+    typer.echo(f"Wrote {index_path}")
+    for rn, persona, body, kind, summary in plan["files"]:
+        path = write_round_comment(
+            workspace,
+            slug,
+            round_number=rn,
+            persona=persona,
+            body=body,
+            kind=kind,
+            is_round_summary=summary,
+            content_root=root,
+        )
+        typer.echo(f"Wrote {path}")
+    updated = c.update_topic(topic_id, TopicUpdate(archived=True))
+    typer.echo(f"Archived DB topic {topic_id} (hidden from list; show still works)")
+    return updated
 
 
 # ---------------------------------------------------------------------------
