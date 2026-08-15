@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from server.__version__ import __version__
 from server.api.router import (
+    a2a_router,
     action_items_router,
     agents_router,
     audit_router,
@@ -132,6 +133,7 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
     app.include_router(fs_router, prefix=prefix)
     app.include_router(action_items_router, prefix=prefix)
     app.include_router(docs_router, prefix=prefix)
+    app.include_router(a2a_router, prefix=prefix)
 
     register_domain_exception_handlers(app)
 

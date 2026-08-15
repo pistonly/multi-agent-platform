@@ -7,7 +7,7 @@
 | 文档 | 用途 | 谁该读 |
 |------|------|--------|
 | [Quick Start 指南](QUICKSTART.md) | 新用户一键上手（Docker + Admin + bootstrap） | **新用户必读** |
-| [PRD v0.9 草案](prd/v0.9.md) | 产品需求 v0.9（waker Phase 2 通知降噪） | 产品 / 全员 |
+| [PRD 入口](prd/README.md) | 现行主线 v0.10 + 提案 v0.11（版本清单以此为准） | 产品 / 全员 |
 | [架构设计](ARCHITECTURE.md) | 系统架构 + 数据模型 + 模块边界 | 工程师 |
 | [CLI 指南](CLI.md) | `map` CLI 命令参考 | 工程师 / Agent |
 | [SDK 指南](SDK.md) | Python SDK 用法 | Agent 开发者 |
@@ -16,19 +16,9 @@
 
 ## PRD 历史归档
 
-`docs/prd/` 是 PRD 的根；现行草案在 `docs/prd/v0.9.md`，历史版本在
-`docs/prd/archive/`。详见 [`docs/prd/README.md`](prd/README.md)。
-
-| 版本 | 主题 |
-|------|------|
-| [v0.9](prd/v0.9.md) | waker Phase 2 通知降噪（现行） |
-| [v0.7 / v0.8](prd/archive/v0.7.md) | 占位文档（未单独成稿） |
-| [v0.6](prd/archive/v0.6.md) | 列表归档、独立列表页、通知 SSE |
-| [v0.5](prd/archive/v0.5.md) | 主持待办、topic-host Skill |
-| [v0.4](prd/archive/v0.4.md) | 站内收件箱、@提及、计划 diff |
-| [v0.3](prd/archive/v0.3.md) | 话题独立、UI 写闭环 |
-| [v0.2](prd/archive/v0.2.md) | 角色与项目边界 |
-| [v0.1](prd/archive/v0.1.md) | 基线（实验生命周期、评审、评论、日志） |
+`docs/prd/` 是 PRD 的根。现行主线草案在 [v0.10](prd/v0.10.md)，提案草案在
+[v0.11](prd/v0.11.md)；完整版本清单与历史归档以
+[`docs/prd/README.md`](prd/README.md) 为单一真相源，本索引不再复制版本表。
 
 ## 按主题分类
 
@@ -46,6 +36,7 @@
 - [CLI.md](CLI.md) — `map` CLI 命令
 - [SDK.md](SDK.md) — Python SDK
 - [MCP.md](MCP.md) — MCP Server
+- [A2A-MAPPING.md](A2A-MAPPING.md) — A2A 互操作映射（M53，实验性）
 - [MAP-EVIDENCE-METADATA.md](MAP-EVIDENCE-METADATA.md) — 证据元数据契约
 - [MAP-ERROR-CODES.md](MAP-ERROR-CODES.md) — 错误码清单
 

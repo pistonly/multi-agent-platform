@@ -41,6 +41,13 @@ from .agent import (
     AgentRead,
     EscalationTargetRead,
 )
+from .a2a import (
+    A2ATaskListRead,
+    A2ATaskRead,
+    AgentCardListRead,
+    AgentCardRead,
+    AgentCardSkillRead,
+)
 from .agent_work import (
     AgentWorkRead,
     AgentWorkSummaryRead,
@@ -131,6 +138,8 @@ from .project import (
     ProjectStatusRevise,
     ProjectStatusVersionRead,
     ProjectUpdate,
+    TokenReissueRequest,
+    TokenReissueResponse,
 )
 from .review import (
     ReviewCreate,
@@ -196,6 +205,8 @@ __all__ = [
     "BootstrapRequest",
     "BootstrapAgentResult",
     "BootstrapResponse",
+    "TokenReissueRequest",
+    "TokenReissueResponse",
     "ProjectStatusRead",
     "ProjectStatusRevise",
     "ProjectStatusVersionRead",

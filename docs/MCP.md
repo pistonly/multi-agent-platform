@@ -1,6 +1,6 @@
 # MCP Server
 
-> **本仓库（multi-agent-platform）协作请用 [`.map/` persona + `map` CLI](../AGENTS.md)**，勿再配置 Cursor MCP 的 `map-agent` / `map-admin`。下文面向**其他接入 MAP 的项目**或历史验证场景；MCP 在本仓库侧计划停用。
+> **本仓库（multi-agent-platform）协作请用 [`.map/` persona + `map` CLI](../AGENTS.md)**，勿再配置 Cursor MCP 的 `map-agent` / `map-admin`。**外部项目接入 MAP 可任选 MCP 或 CLI**（SDK 同源，能力等价）；下文面向外部项目接入或历史验证场景，MCP 在本仓库侧计划停用。A2A 生态互操作（只读 Agent Card / Task 投影）见 [A2A-MAPPING.md](./A2A-MAPPING.md)。
 
 MAP 提供 **Model Context Protocol (MCP)** 支持，让 Cursor、Claude Desktop 等 IDE 内的 Agent 可以直接调用平台能力，无需手写 HTTP 请求。
 
@@ -33,14 +33,14 @@ pip install -e ".[dev]"
 2. 已注册 Agent 并配置 Token：
 
 ```bash
-export MAP_API_URL=http://localhost:8000
+export MAP_API_URL=http://localhost:8001
 export MAP_TOKEN=<your-agent-token>
 ```
 
 或使用 `~/.map/config.yaml`（与 CLI/SDK 相同）：
 
 ```yaml
-api_url: http://localhost:8000
+api_url: http://localhost:8001
 token: <your-agent-token>
 ```
 
@@ -62,7 +62,7 @@ map-mcp
     "map": {
       "command": "map-mcp",
       "env": {
-        "MAP_API_URL": "http://localhost:8000",
+        "MAP_API_URL": "http://localhost:8001",
         "MAP_TOKEN": "<your-agent-token>"
       }
     }
@@ -70,7 +70,7 @@ map-mcp
 }
 ```
 
-若 API 跑在 Docker 里，只需把 `MAP_API_URL` 设为 `http://localhost:8000`（stdio MCP 仍在本机运行）。
+若 API 跑在本仓 Docker 里（override 把宿主端口映射为 `:8001`），把 `MAP_API_URL` 设为 `http://localhost:8001`（stdio MCP 仍在本机运行）；自定义部署可用 `MAP_API_URL` 覆盖。
 
 ---
 
@@ -97,7 +97,7 @@ map-mcp --transport streamable-http
 
 ```bash
 docker compose up -d api
-curl -X POST "http://localhost:8000/api/v1/agents?name=my-agent"
+curl -X POST "http://localhost:8001/api/v1/agents?name=my-agent"
 # 复制返回的 api_token
 ```
 
@@ -115,11 +115,13 @@ docker compose up --build
 
 服务端口：
 
-| 服务 | 地址 |
-|------|------|
-| API | http://localhost:8000 |
-| Web | http://localhost:3000 |
-| MCP | http://localhost:8080/mcp |
+| 服务 | 标准部署（docker-compose.yml） | 本仓库 override（docker-compose.override.yml） |
+|------|------|------|
+| API | http://localhost:8001 | http://localhost:8001 |
+| Web | http://localhost:3000 | http://localhost:3000 |
+| MCP | http://localhost:8080/mcp | http://localhost:18081/mcp（宿主 8080 被占用时的备用映射） |
+
+> 与 [QUICKSTART](./QUICKSTART.md) 服务地址表一致：本仓库 override 把 MCP 映射到 `:18081`，其余示例统一使用 8001/3000。
 
 ### Cursor 配置（HTTP）
 
@@ -158,7 +160,7 @@ Docker 部署时 `MAP_TOKEN` **可选**；不设置时每次 tool 调用必须�
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MAP_API_URL` | `http://localhost:8000` | MAP REST API 地址 |
+| `MAP_API_URL` | `http://localhost:8001` | MAP REST API 地址（可用环境变量覆盖） |
 | `MAP_TOKEN` | — | 可选；省略时每次 tool 调用须传 `token` 参数 |
 | `MAP_PROJECT_KEY` | — | 可选；CLI 未指定 `--project-key` 时的默认项目 |
 | `MAP_MCP_TRANSPORT` | `stdio` | `stdio` / `streamable-http` / `sse` |

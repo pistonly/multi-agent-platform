@@ -1,0 +1,10 @@
+reasonable_items:
+  - "定位清晰：只做只读导出投影，不做 transport 与跨组织发现，与 PRD §7.1 一致"
+  - "卡片只输出 A2A 稳定核心字段（name/description/skills/capabilities），映射表标注协议版本基线，与实验性定位一致"
+  - "Skill 元数据取服务端打包内置的 cli/skills/*/map-plugin.yaml（与 M52 同源），不依赖用户 workspace 运行时状态"
+  - "Task 投影复用 agent_work_service 聚合、仅做状态字段映射，不复制业务逻辑"
+  - "验收标准可验证：每条 acceptance 对应具体端点、文档或测试断言"
+unreasonable_items:
+  - "建议1 鉴权边界：agent-card 端点沿用项目内 Bearer token 鉴权，404 与 403 行为写测试钉住；不在本实验内放开匿名读——非阻塞，实施时落实"
+  - "建议2 skills 列表粒度：persona → Skill 是多对多，卡片输出 id + name 最小对，不展开文件级细节——非阻塞"
+  - "建议3 映射表一致性：Task 投影状态枚举从与 docs/A2A-MAPPING.md 同源的常量模块导入，护栏测试防文档与端点漂移——非阻塞，实施时落实"

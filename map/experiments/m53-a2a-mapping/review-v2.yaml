@@ -1,0 +1,4 @@
+reasonable_items:
+  - "plan v2 已逐条落实 3 条非阻塞建议（鉴权边界测试钉住 / skills id+name 最小对 / 映射表与投影同源常量 server/domain/a2a_mapping.py），落实方式与建议一致"
+  - "计划修订边界清晰：未扩大范围，仍为只读导出投影"
+unreasonable_items: []
