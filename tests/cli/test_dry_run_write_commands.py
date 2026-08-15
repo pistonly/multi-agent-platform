@@ -49,6 +49,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "sync_app": ("sync",),
     "skill_app": ("skill",),
     "host_app": ("host",),
+    "auth_app": ("auth",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -86,6 +87,8 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("project", "export"),
     ("skill", "list"),
     ("skill", "install"),  # 只写本地文件（.cursor/skills/），不改 MAP 状态
+    # M52A：upgrade 同 install，仅覆写本地 Skill 目录（可 diff 摘要预览）
+    ("skill", "upgrade"),
     # fs plane 离线命令：只写本地 map/ 文件夹（事实源本身），不走 API。
     # advance-round / close 是验证型写（走 API），登记在 _WRITE_COMMANDS_2。
     ("fs", "init"),

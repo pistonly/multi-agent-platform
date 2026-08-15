@@ -155,6 +155,9 @@ _FAST_GATE_MODULES = frozenset(
         # 纯文件系统 glob,~10ms 全量;默认 pytest 守住「PRD 不能逃出
         # docs/prd/」契约。
         "test_docs_inventory",
+        # PRD v0.11 M50 — 文档内容一致性守卫（参数/端口/现行版本/Skill 路径）
+        # 纯文件读取与正则,~50ms 全量;默认 pytest 守住文档漂移护栏。
+        "test_docs_consistency",
         # cli-ux follow-up (1f9c9a50) PR1 — --schema flag + error schema 提示守卫
         # subprocess 跑 CLI,~150ms 全量;默认 pytest 守住「schema 发现」契约。
         "test_cli_schema_discovery",
@@ -174,6 +177,24 @@ _FAST_GATE_MODULES = frozenset(
         # fs CLI persona 解析 — 全局 map --persona 透传到 fs 子命令，
         # CliRunner 进程内跑，~100ms，守住「Agent 不需重复传 --persona」契约。
         "test_fs_persona",
+        # PRD v0.11 M52 — Skill 分发可靠性（map-plugin.yaml 版本化 +
+        # --runtime 多目标 + upgrade diff 摘要），CliRunner 进程内跑，
+        # ~200ms 全量；守住「无静默跳过 + 版本漂移可见」契约。
+        "test_skill_versioning",
+        # PRD v0.11 M52C — map auth reissue SDK 回写路径，
+        # httpx.MockTransport 纯内存单测，~50ms；守住裸 404 友好降级
+        # 与 agents.local.yaml 精确 persona 回写契约。
+        "test_auth_reissue",
+        # PRD v0.11 M51 — map topic --id 统一路由（DB/FS）+ migrate
+        # 单向迁移。stub client + tmp workspace 纯本地，~200ms；
+        # 守住「uuid DB 优先 / slug FS 优先 / --storage 覆盖」与
+        # 「FS 完整落盘后才 archive」契约。
+        "test_topic_routing",
+        "test_topic_migrate",
+        # PRD v0.11 M53 — A2A 只读投影（Agent Card + Task 状态映射），
+        # TestClient + bootstrap fixture，~2s；守住「卡片字段最小对 +
+        # 鉴权 403/404 + 映射表与文档同源」契约。
+        "test_a2a",
     }
 )
 
