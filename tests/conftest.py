@@ -191,6 +191,10 @@ _FAST_GATE_MODULES = frozenset(
         # 「FS 完整落盘后才 archive」契约。
         "test_topic_routing",
         "test_topic_migrate",
+        # PRD v0.12 M54A — 子命令级 --format 注入（E1 修复）。
+        # CliRunner 进程内跑 + transport stub，~200ms 全量；守住
+        # 「子命令位/全局位等价 + 嵌套子组可达 + 子命令级覆盖全局」契约。
+        "test_cli_subcommand_format",
         # PRD v0.11 M53 — A2A 只读投影（Agent Card + Task 状态映射），
         # TestClient + bootstrap fixture，~2s；守住「卡片字段最小对 +
         # 鉴权 403/404 + 映射表与文档同源」契约。

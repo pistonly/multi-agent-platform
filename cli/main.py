@@ -64,8 +64,18 @@ from cli.persona_compare import (  # noqa: F401
     _persona_compare_view,
     _write_cross_persona_call_audit,
 )
+from cli.subcommand_format import make_group_cls
 
-app = typer.Typer(name="map", help="Multi-Agent Platform CLI", rich_markup_mode=None)
+# v0.12 M54A: root group class injects a subcommand-level ``--format``
+# option into every leaf command (E1). The lambda defers resolution of
+# ``_apply_sub_format`` (defined further down, next to the other format
+# helpers) — it is only called inside command callbacks at parse time.
+app = typer.Typer(
+    name="map",
+    help="Multi-Agent Platform CLI",
+    rich_markup_mode=None,
+    cls=make_group_cls(lambda raw: _apply_sub_format(raw)),
+)
 # Sub-apps live in cli/commands/*; imported here only to register via
 # add_typer. Command bodies lazy-import helpers from this module to
 # break ``cli.main ↔ cli.commands.*`` cycles.
@@ -213,6 +223,63 @@ def _apply_n2_hard_cutover(
         return "json", "n2-release-cutover", []
 
     return current_format, current_source, warnings
+
+
+def _apply_sub_format(raw: str | None) -> None:
+    """v0.12 M54A: resolve a subcommand-level ``--format`` value.
+
+    Invoked from the leaf-command callback wrapper (cli/subcommand_format.py),
+    i.e. AFTER the global callback already resolved the global flag / env
+    var — so an explicit subcommand value simply wins. Mirrors the global
+    path (legacy alias handling, validation, N=2 hard cutover) so both
+    spellings stay equivalent: ``map experiment list --format json`` and
+    ``map --format json experiment list``.
+    """
+    if raw is None:
+        return
+    resolved = raw.strip().lower()
+    if resolved == "legacy":
+        typer.echo(
+            "Warning: --format legacy is deprecated; "
+            "use 'yaml' explicitly. The 'legacy' alias will be removed in N=2.",
+            err=True,
+        )
+        resolved = "yaml"
+    if resolved not in ("yaml", "json", "table"):
+        typer.echo(
+            f"Error: unknown --format {resolved!r}; expected 'table', 'yaml', 'json', or 'legacy'.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    prev = _cli_options.get("format")
+    prev_source = _cli_options.get("format_source", "default")
+    if prev is not None and prev != resolved:
+        if prev_source == "explicit --format":
+            typer.echo(
+                f"Warning: subcommand --format={resolved} overrides "
+                f"global --format={prev}",
+                err=True,
+            )
+        elif prev_source == "explicit --json":
+            typer.echo(
+                f"Warning: subcommand --format={resolved} overrides global --json",
+                err=True,
+            )
+        elif prev_source == "MAP_CLI_FORMAT env":
+            typer.echo(
+                f"Warning: subcommand --format={resolved} overrides "
+                f"MAP_CLI_FORMAT={prev}",
+                err=True,
+            )
+    resolved, source, n2_warnings = _apply_n2_hard_cutover(
+        current_format=resolved,
+        current_source="explicit --format",
+        project_root=_cli_options.get("project_root"),
+    )
+    for warning in n2_warnings:
+        typer.echo(warning, err=True)
+    _cli_options["format"] = resolved
+    _cli_options["format_source"] = f"{source} (subcommand)"
 
 
 @app.callback()
