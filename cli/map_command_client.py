@@ -428,6 +428,7 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("experiment", "submit-review"),
     ("experiment", "approve"),
     ("experiment", "start"),
+    ("experiment", "cancel"),
     ("experiment", "complete"),
     ("experiment", "log"),
     ("experiment", "comment"),

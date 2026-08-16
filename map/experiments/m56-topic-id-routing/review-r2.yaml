@@ -1,0 +1,12 @@
+# M56 计划评审 r2（reviewer，2026-08-16）
+# 对象：plan v2（7c4d2990-dfbd-4d95-9f3c-6521a813d4e3）
+# 复核 r1 两项 unreasonable 的修订落实情况
+
+reasonable_items:
+  - "unreasonable #1 已解决：演示脚本删除 topic read --id b3b383a1 短 id 用法，改为完整 uuid 占位并加 fs 话题 read no-op 示例；风险节补「本实验不改 topic 族短 id 支持（遵循 M54 决策）」及误用时的错误引导说明，口径与 M54 PRD 风险表一致"
+  - "unreasonable #2 已解决：M56D 落点删除 docs/commands.md 引用，改为 docstring 自明 + 文档不强加说明，计划不再引用不存在的文件"
+  - "三条非阻塞建议均已被 v2 采纳且落实位置正确：M56E help 断言分组细化（跳过 create/list/progress，三态组 10 命令 / DB-only 组 migrate+archive）；M56B resolve fs 提示点明 close_reason 承担 decision 角色（与 sdk/python/map_types/schemas/fs.py:79 字段相符）；_fs_target_notice 统一模板说明补入 M56B 落点列"
+  - "开放问题三项维持 r1 立场：archive 归 DB-only 组（补遗处理）与 log 瘦身延后 v0.13 的边界判断合理；exit 2 的选择符合 typer 用法错误惯例（reviewer 认可，无需改 exit 1）"
+  - "v2 的 frontmatter（title / acceptance 五条 / evidence_keys 三条 / dependencies 两条）齐备且与正文一致，acceptance 每条均可测试；实现顺序 A+B → C → D → E → 实测的依赖方向无环"
+
+unreasonable_items: []

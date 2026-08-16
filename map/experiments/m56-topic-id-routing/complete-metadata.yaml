@@ -1,0 +1,16 @@
+pytest_summary:
+  m56_module: "tests/test_topic_routing.py 33 passed (15 旧 + 18 新 M56 用例)"
+  fast_gate: "473 passed, 2 skipped, 1131 deselected"
+  slow_experiment_domain: "test_experiments + test_state_machine + test_direct_mode + test_m55_error_envelope: 36 passed"
+  lint: "ruff check server/ tests/ cli/: All checks passed"
+smoke:
+  fs_noop: "topic dismiss/read --id v012-ergonomics-review → No-op + exit 0"
+  fs_rejected: "topic resolve/rollback-round/reopen --id v012-ergonomics-review → exit 2 + 可执行提示"
+  db_uuid: "topic read/dismiss --id 19e0d9cc-…（8001 实弹）→ 200"
+  cancel_idempotency: "experiment cancel 已 cancelled 实验 → 422 terminal phase（新代码临时实例验证）；未知 id → 404"
+acceptance:
+  - "六命令三形态路由（DB UUID / FS uuid5 / slug + --storage）"
+  - "fs 降级二分（通知投影类 no-op / 状态变迁类 exit 2）"
+  - "migrate / archive DB-only help 标注"
+  - "experiment cancel CLI 封装 + 状态机拒绝透传 + 写命令白名单登记"
+  - "help 一致性 + 18 新测试 + fast-gate 全量回归"

@@ -285,6 +285,17 @@ def experiment_start(
     _run(action, experiment_id=experiment_id)
 
 
+@experiment_app.command("cancel")
+def experiment_cancel(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
+    """Cancel an experiment (creator only; running/review phases → cancelled).
+
+    State-machine rejections (already cancelled, done, draft misuse) pass
+    through unchanged — the server stays the single source of truth.
+    """
+    from cli.main import _run  # lazy: avoid cycle
+    _run(lambda c: c.cancel_experiment(_rid(c, experiment_id)), experiment_id=experiment_id)
+
+
 @experiment_app.command("pre-complete")
 def experiment_pre_complete(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),

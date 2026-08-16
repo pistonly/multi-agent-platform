@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from map_client.client import MAPClient
@@ -154,6 +154,49 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
 
 
 # ---------------------------------------------------------------------------
+# M56：六命令接入三态路由后，对 fs 目标的降级行为（二分：通知投影类 / 状态变迁类）
+# ---------------------------------------------------------------------------
+
+_FS_TRANSITION_HINTS: dict[str, str] = {
+    "resolve": (
+        "record the decision via close instead: "
+        "`map topic close --id <slug> --reason <code> --note <decision>` "
+        "(close_reason carries the decision)"
+    ),
+    "rollback-round": (
+        "FS rounds are file facts — remove/rename the round<N>-<persona>.md "
+        "files under map/topics/<slug>/ directly (see file-reference.md)"
+    ),
+    "reopen": (
+        "FS topic status lives in map/topics/<slug>/index.md — edit the "
+        "status field directly"
+    ),
+}
+
+
+def _fs_transition_rejected(command: str, slug: str) -> NoReturn:
+    """状态变迁类命令对 fs 目标统一拒绝：无 fs 等价 API，静默 no-op 会让 agent
+    误以为状态变迁已发生（M56B）。"""
+    typer.echo(
+        f"Error: `topic {command}` targets DB topics only; '{slug}' is an FS "
+        f"(map/) topic — {_FS_TRANSITION_HINTS[command]}",
+        err=True,
+    )
+    raise typer.Exit(2)
+
+
+def _fs_projection_noop(command: str, slug: str) -> NoReturn:
+    """通知投影类命令对 fs 目标统一 no-op 提示：fs 话题无 DB todos 投影动作，
+    pending 项靠写 round 文件清理，不静默（M56B）。"""
+    typer.echo(
+        f"No-op: FS topic '{slug}' has no DB todos projection; `topic {command}` "
+        "only affects DB topics. FS pending items (e.g. fs_file_missing) clear "
+        "by writing round files (see `map fs work`)."
+    )
+    raise typer.Exit(0)
+
+
+# ---------------------------------------------------------------------------
 # topic_app
 # ---------------------------------------------------------------------------
 
@@ -274,13 +317,22 @@ def topic_progress() -> None:
 
 @topic_app.command("resolve")
 def topic_resolve(
-    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     resolve_file: Path = typer.Option(..., "--file"),
 ) -> None:
+    """Resolve a topic (DB topics only; FS targets are rejected with a close hint)."""
     from cli.main import _load_topic_resolve_payload, _run
 
     payload = _load_topic_resolve_payload(resolve_file)
-    _run(lambda c: c.resolve_topic(topic_id, payload))
+
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            _fs_transition_rejected("resolve", target)
+        return c.resolve_topic(target, payload)
+
+    _run(action)
 
 
 @topic_app.command("advance-round")
@@ -358,12 +410,19 @@ def topic_advance_round(
 
 @topic_app.command("rollback-round")
 def topic_rollback_round(
-    topic_id: uuid.UUID = typer.Option(..., "--id"),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
-    """Roll the discussion round back by one step (roundN → roundN-1, or ready → roundN)."""
+    """Roll the discussion round back by one step (DB topics only; FS rounds are file facts)."""
     from cli.main import _run
 
-    _run(lambda c: c.rollback_topic_round(topic_id))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            _fs_transition_rejected("rollback-round", target)
+        return c.rollback_topic_round(target)
+
+    _run(action)
 
 
 @topic_app.command("comment")
@@ -523,34 +582,83 @@ def topic_close(
 
 
 @topic_app.command("reopen")
-def topic_reopen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
+def topic_reopen(
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+) -> None:
+    """Reopen a closed topic (DB topics only; FS status lives in index.md)."""
     from cli.main import _run
 
-    _run(lambda c: c.reopen_topic(topic_id))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            _fs_transition_rejected("reopen", target)
+        return c.reopen_topic(target)
+
+    _run(action)
 
 
 @topic_app.command("dismiss")
-def topic_dismiss(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    """Hide an open topic from host todos until new activity (same as Web UI ✕)."""
+def topic_dismiss(
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+) -> None:
+    """Hide an open topic from host todos until new activity (same as Web UI ✕).
+
+    DB topics only; FS targets are a no-op with a notice (FS pending items
+    clear by writing round files).
+    """
     from cli.main import _run
 
-    _run(lambda c: c.dismiss_topic(topic_id))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            _fs_projection_noop("dismiss", target)
+        return c.dismiss_topic(target)
+
+    _run(action)
 
 
 @topic_app.command("read")
-def topic_read(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling."""
+def topic_read(
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+) -> None:
+    """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling.
+
+    DB topics only; FS targets are a no-op with a notice (FS pending items
+    clear by writing round files).
+    """
     from cli.main import _run
 
-    _run(lambda c: c.mark_topic_read(topic_id))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            _fs_projection_noop("read", target)
+        return c.mark_topic_read(target)
+
+    _run(action)
 
 
 @topic_app.command("mark-seen")
-def topic_mark_seen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
-    """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations."""
+def topic_mark_seen(
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+) -> None:
+    """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations.
+
+    DB topics only; FS targets are a no-op with a notice (FS pending items
+    clear by writing round files).
+    """
     from cli.main import _run
 
-    _run(lambda c: c.mark_topic_read(topic_id))
+    def action(c: MAPClient):
+        kind, target = _resolve_topic_ref(c, topic_id, storage)
+        if kind == "fs":
+            _fs_projection_noop("mark-seen", target)
+        return c.mark_topic_read(target)
+
+    _run(action)
 
 
 @topic_app.command(
@@ -558,7 +666,11 @@ def topic_mark_seen(topic_id: uuid.UUID = typer.Option(..., "--id")) -> None:
     epilog="Use --undo or --unarchive to restore an archived topic.",
 )
 def topic_archive(
-    topic_id: uuid.UUID | None = typer.Option(None, "--id", help="Topic UUID."),
+    topic_id: uuid.UUID | None = typer.Option(
+        None,
+        "--id",
+        help="Topic UUID (DB only: archived is a DB-record flag; FS topics have no archive concept).",
+    ),
     undo: bool = typer.Option(
         False,
         "--undo",

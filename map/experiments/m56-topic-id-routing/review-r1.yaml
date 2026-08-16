@@ -1,0 +1,24 @@
+# M56 计划评审 r1（reviewer，2026-08-16）
+# 对象：map/experiments/m56-topic-id-routing/plan.md（c5a7aa35-da75-4e3c-b03e-a69f1d537782）
+# 逐项对照代码核实：落点 file:line 均已现场验证，非仅凭计划文本
+
+reasonable_items:
+  - "六命令现状定位准确：cli/commands/topic.py 中 resolve:277 / rollback-round:361 / reopen:526 / dismiss:533 / read:541 / mark-seen:549 确实均为 topic_id: uuid.UUID 纯 DB 参数，与既有三态路由四命令（show:253 / advance-round:288 / comment:371 / close:495）不一致，E7 收敛对象与落点无误"
+  - "fs 目标降级二分设计成立：SDK fs 端点仅有 fs_work / fs_advance_round / fs_close_topic（sdk/python/map_client/client.py:491-501），不存在 fs_resolve / fs_rollback / fs_reopen——状态变迁类命令对 fs 目标无 API 可调，「静默 no-op 会让 agent 误以为收敛已发生」的判断正确；通知投影类（dismiss / read / mark-seen 是 DB todos 投影操作）fs no-op 无害。二分规则比 PRD「按需降级」的含糊表述更可测，是对 PRD 的合理具体化"
+  - "archive 补遗处置方向正确：archive:561 走 PATCH archived=true，纯 DB 记录语义；FS 话题无归档概念（map/topics/ 文件夹即事实源），归入 DB-only 标注组与 migrate 同理，不引入新领域概念。验收例外清单扩为「除 migrate / archive」自洽"
+  - "experiment log 瘦身不并入的边界判断正确：ExperimentLogCreate（sdk/python/map_types/schemas/experiment.py:270）确无 file_path 字段，需 server schema + DB 列 + 校验三处改动，与「CLI 路由收口」主题正交，延后 v0.13 合理；M55 移交项仅并入 cancel 的取舍干净"
+  - "cancel 封装可行性已核实：SDK cancel_experiment（client.py:504）存在，server 端点在 M55 wire 事故处置中实测走通（1db109ca 取消成功留审计），纯 CLI 加法风险低；「不吞状态机报错」延续 M55E 错误信封透传原则"
+  - "log-r0 踩坑记录合规：瘦身 422 根因归因（8001 旧进程未含 aaf3470 修复，E8 原始 bug 在旧进程复现）与处置（不动线上 server、全量形态创建、重启后自然生效）符合 M54/M55 先例；错误信封三行渲染在本次失败中已实际生效，M55 交付的旁证"
+
+unreasonable_items:
+  - "验收演示脚本含必然失败的命令：『map --persona host topic read --id b3b383a1』——b3b383a1 是 8 位短 id，topic 族不支持短 id 解析（M54 已决并写入 PRD 风险表：短 id 仅 experiment 族），_looks_like_uuid 判定后走 slug 分支必然报 topic not found。修订要求：演示脚本该行改为完整 DB uuid 或 slug；并在 plan 风险节补一句「本实验不改 topic 族短 id 支持（遵循 M54 决策）」，说明误用短 id 时 slug 分支 not found 错误提示已含修复引导（M54 交付），无需改码"
+  - "M56D 文档落点引用不存在的文件：docs/commands.md 不存在（docs/ 实际为 CLI.md / cli-schemas.md 等，CLI.md 仅 211/217 两节涉及离线 topics/topic 查询，无命令逐一清单）。修订要求：落点描述改为『若 CLI.md 需补 cancel 用法则同步，否则仅 docstring 自明』或直接删除文档项，计划不得引用不存在的文件"
+
+# 非阻塞建议（供 host 修订时参考，不计入 unreasonable）：
+# - help 一致性断言的实现注意分组：无 --id 的命令（create / list / progress）跳过，
+#   断言分两组——三态组（show / comment / advance-round / close + 新增六命令，共 10）内
+#   文案一致；DB-only 组（migrate / archive）内文案一致
+# - resolve 的 fs 提示文案建议点明 FsCloseRequest.close_reason 承担 decision 角色
+#   （fs.py:79 有 close_reason / close_note 字段），让 agent 知道决策内容往哪放
+# - dismiss / read / mark-seen 的 no-op 提示建议同一辅助函数生成（plan 的 _fs_target_notice），
+#   三个命令文案模板共享，避免漂移

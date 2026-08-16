@@ -29,6 +29,7 @@ from server.api.router import (
 )
 from server.config import get_settings
 from server.db.session import init_db
+from server.domain.state_machine import StateMachineError
 from server.services.errors import (
     BadRequestError,
     ConflictError,
@@ -54,6 +55,10 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
         ConflictError: status.HTTP_409_CONFLICT,
         BadRequestError: status.HTTP_400_BAD_REQUEST,
         StateTransitionError: status.HTTP_422_UNPROCESSABLE_ENTITY,
+        # M56：裸 StateMachineError（domain 层 validate_phase_transition 抛出，
+        # cancel / submit-review / approve / start 等直接调用）此前无映射 → 500；
+        # 与 StateTransitionError 同样按 422 状态机拒绝处理（无 error_code 装饰）。
+        StateMachineError: status.HTTP_422_UNPROCESSABLE_ENTITY,
     }
 
     def make_handler(code: int):

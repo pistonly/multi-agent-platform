@@ -218,6 +218,29 @@ def test_project_status_with_experiments(client, auth_headers, project):
     assert body["status_version"] == 1
 
 
+def test_cancel_twice_returns_422_not_500(client, auth_headers, project):
+    """M56 wire 发现：裸 StateMachineError 此前无异常 handler 映射 → 双重 cancel 500。
+
+    状态机拒绝必须以 422 语义返回（terminal phase），不得伪装成服务器内部错误。
+    """
+    create = client.post(
+        f"/api/v1/projects/{project['id']}/experiments",
+        headers=auth_headers,
+        json={
+            "title": "双重取消实验",
+            "plan": {"content_md": make_valid_plan(body="x")},
+            "submit_for_review": True,
+        },
+    )
+    assert create.status_code == 201
+    exp_id = create.json()["id"]
+    first = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=auth_headers)
+    assert first.status_code == 200
+    second = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=auth_headers)
+    assert second.status_code == 422
+    assert "terminal phase" in second.json()["detail"]
+
+
 def test_project_status_excludes_archived_experiments(client, auth_headers, project):
     create = client.post(
         f"/api/v1/projects/{project['id']}/experiments",

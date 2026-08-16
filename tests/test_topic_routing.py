@@ -1,10 +1,14 @@
-"""Unit tests for PRD v0.11 M51A/B — map topic --id 统一路由层。
+"""Unit tests for PRD v0.11 M51A/B + v0.12 M56 — map topic --id 统一路由层。
 
 Covers:
     - ``_resolve_topic_ref``：uuid → DB 优先 / FS uuid5 反查；slug → FS 优先 /
       DB slug 匹配；--storage fs|db 显式覆盖与非法值。
     - ``map topic comment`` 的 FS 本地优先路由（slug 与 fs-uuid 均写
       round<N>-<persona>.md，全程离线、零 API）。
+    - M56：resolve / rollback-round / reopen / dismiss / read / mark-seen 六命令
+      接入三态路由——fs 目标降级（通知投影类 no-op exit 0 / 状态变迁类
+      exit 2 + 可执行提示）、DB 分支 SDK 调用参数、--id help 文本分组一致，
+      以及 ``experiment cancel`` CLI 封装（成功 + 状态机拒绝透传）。
 
 All tests run in-process via CliRunner (no network, no subprocess).
 """
@@ -231,3 +235,276 @@ class TestCommentFsRouting:
         second = runner.invoke(topic_app, ["comment", "--id", "im", "--body", "second"])
         assert second.exit_code == 1
         assert "--force" in second.output or "already exists" in second.output
+
+
+# ---------------------------------------------------------------------------
+# M56：六命令接入三态路由 — fs 目标降级 / DB 分支 / help 一致性 / cancel 封装
+# ---------------------------------------------------------------------------
+
+_TRI_STATE_COMMANDS = {
+    "show",
+    "resolve",
+    "advance-round",
+    "rollback-round",
+    "comment",
+    "close",
+    "reopen",
+    "dismiss",
+    "read",
+    "mark-seen",
+}
+_DB_ONLY_COMMANDS = {"migrate", "archive"}
+
+
+class _RecordingStub(_StubClient):
+    """六命令 DB 分支的最小 client 面：记录 SDK 调用参数。
+
+    返回值用纯字符串 dict（_run 的 yaml 渲染不认 SimpleNamespace / 裸 UUID）。
+    """
+
+    def __init__(self, db_topics: list[SimpleNamespace] | None = None) -> None:
+        super().__init__(db_topics)
+        self.calls: list[tuple[str, uuid.UUID]] = []
+
+    def resolve_topic(self, topic_id, payload):
+        self.calls.append(("resolve_topic", topic_id))
+        return {"id": str(topic_id), "status": "resolved"}
+
+    def rollback_topic_round(self, topic_id):
+        self.calls.append(("rollback_topic_round", topic_id))
+        return {"id": str(topic_id), "discussion_round": "round1"}
+
+    def reopen_topic(self, topic_id):
+        self.calls.append(("reopen_topic", topic_id))
+        return {"id": str(topic_id), "status": "open"}
+
+    def dismiss_topic(self, topic_id):
+        self.calls.append(("dismiss_topic", topic_id))
+        return {"id": str(topic_id)}
+
+    def mark_topic_read(self, topic_id):
+        self.calls.append(("mark_topic_read", topic_id))
+        return {"id": str(topic_id)}
+
+    def cancel_experiment(self, experiment_id):
+        self.calls.append(("cancel_experiment", experiment_id))
+        return {"id": str(experiment_id), "phase": "cancelled"}
+
+
+def _patch_client(monkeypatch: pytest.MonkeyPatch, client: _RecordingStub) -> None:
+    import cli.main as cli_main
+
+    def _fake_ctx():
+        class _CM:
+            def __enter__(self_inner):
+                return client
+
+            def __exit__(self_inner, *args):
+                return False
+
+        return _CM()
+
+    monkeypatch.setattr(cli_main, "_client_ctx", _fake_ctx)
+
+
+class TestSixCommandFsDegradation:
+    """slug 直接命中 fs 话题：通知投影类 no-op（exit 0）/ 状态变迁类拒绝（exit 2）。
+
+    _run 在进 action 前会构建 client，故测试也挂 stub；stub 的 calls 恒为空
+    反证 fs 路由纯本地（slug 命中 map/topics/ 后零 API 调用）。
+    """
+
+    @pytest.fixture()
+    def api_stub(self, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> _RecordingStub:
+        client = _RecordingStub()
+        _patch_client(monkeypatch, client)
+        return client
+
+    def test_dismiss_fs_noop(self, workspace: Path, api_stub: _RecordingStub) -> None:
+        _make_fs_topic(workspace, "fs-dismiss")
+        result = runner.invoke(topic_app, ["dismiss", "--id", "fs-dismiss"])
+        assert result.exit_code == 0, result.output
+        assert "No-op" in result.output
+        assert "fs-dismiss" in result.output
+        assert "round files" in result.output
+        assert api_stub.calls == []
+
+    def test_read_fs_noop(self, workspace: Path, api_stub: _RecordingStub) -> None:
+        _make_fs_topic(workspace, "fs-read")
+        result = runner.invoke(topic_app, ["read", "--id", "fs-read"])
+        assert result.exit_code == 0, result.output
+        assert "No-op" in result.output
+        assert api_stub.calls == []
+
+    def test_mark_seen_fs_noop(self, workspace: Path, api_stub: _RecordingStub) -> None:
+        _make_fs_topic(workspace, "fs-seen")
+        result = runner.invoke(topic_app, ["mark-seen", "--id", "fs-seen"])
+        assert result.exit_code == 0, result.output
+        assert "No-op" in result.output
+        assert api_stub.calls == []
+
+    def test_resolve_fs_rejected_with_close_hint(
+        self, workspace: Path, api_stub: _RecordingStub
+    ) -> None:
+        _make_fs_topic(workspace, "fs-resolve")
+        resolve_file = workspace / "decision.md"
+        resolve_file.write_text("decision text", encoding="utf-8")
+        result = runner.invoke(
+            topic_app, ["resolve", "--id", "fs-resolve", "--file", str(resolve_file)]
+        )
+        assert result.exit_code == 2, result.output
+        assert "targets DB topics only" in result.output
+        assert "map topic close" in result.output
+        assert "close_reason" in result.output
+        assert api_stub.calls == []
+
+    def test_rollback_round_fs_rejected(self, workspace: Path, api_stub: _RecordingStub) -> None:
+        _make_fs_topic(workspace, "fs-roll")
+        result = runner.invoke(topic_app, ["rollback-round", "--id", "fs-roll"])
+        assert result.exit_code == 2, result.output
+        assert "targets DB topics only" in result.output
+        assert "round<N>-<persona>.md" in result.output
+        assert api_stub.calls == []
+
+    def test_reopen_fs_rejected_with_index_hint(
+        self, workspace: Path, api_stub: _RecordingStub
+    ) -> None:
+        _make_fs_topic(workspace, "fs-reopen")
+        result = runner.invoke(topic_app, ["reopen", "--id", "fs-reopen"])
+        assert result.exit_code == 2, result.output
+        assert "targets DB topics only" in result.output
+        assert "index.md" in result.output
+        assert api_stub.calls == []
+
+    def test_storage_fs_forces_degradation_even_for_db_slug(
+        self, workspace: Path, api_stub: _RecordingStub
+    ) -> None:
+        # --storage fs 显式覆盖：即使 slug 在 DB 也存在，也按 fs 处理（fs 分支 no-op）
+        _make_fs_topic(workspace, "clash2")
+        result = runner.invoke(topic_app, ["dismiss", "--id", "clash2", "--storage", "fs"])
+        assert result.exit_code == 0, result.output
+        assert "No-op" in result.output
+        assert api_stub.calls == []
+
+
+class TestSixCommandDbBranch:
+    """DB uuid 路由到 DB 分支：SDK 方法收到解析后的 uuid。"""
+
+    @pytest.fixture()
+    def db_env(self, workspace: Path, monkeypatch: pytest.MonkeyPatch):
+        db = _db_topic("db-target")
+        client = _RecordingStub([db])
+        _patch_client(monkeypatch, client)
+        return db, client
+
+    def test_resolve_db_uuid(self, db_env, workspace: Path) -> None:
+        db, client = db_env
+        resolve_file = workspace / "decision.md"
+        resolve_file.write_text("decision text", encoding="utf-8")
+        result = runner.invoke(
+            topic_app, ["resolve", "--id", str(db.id), "--file", str(resolve_file)]
+        )
+        assert result.exit_code == 0, result.output
+        assert client.calls == [("resolve_topic", db.id)]
+
+    def test_rollback_round_db_uuid(self, db_env) -> None:
+        db, client = db_env
+        result = runner.invoke(topic_app, ["rollback-round", "--id", str(db.id)])
+        assert result.exit_code == 0, result.output
+        assert client.calls == [("rollback_topic_round", db.id)]
+
+    def test_reopen_db_uuid(self, db_env) -> None:
+        db, client = db_env
+        result = runner.invoke(topic_app, ["reopen", "--id", str(db.id)])
+        assert result.exit_code == 0, result.output
+        assert client.calls == [("reopen_topic", db.id)]
+
+    def test_dismiss_db_uuid(self, db_env) -> None:
+        db, client = db_env
+        result = runner.invoke(topic_app, ["dismiss", "--id", str(db.id)])
+        assert result.exit_code == 0, result.output
+        assert client.calls == [("dismiss_topic", db.id)]
+
+    def test_read_and_mark_seen_share_sdk_call(self, db_env) -> None:
+        db, client = db_env
+        r1 = runner.invoke(topic_app, ["read", "--id", str(db.id)])
+        assert r1.exit_code == 0, r1.output
+        r2 = runner.invoke(topic_app, ["mark-seen", "--id", str(db.id)])
+        assert r2.exit_code == 0, r2.output
+        assert client.calls == [
+            ("mark_topic_read", db.id),
+            ("mark_topic_read", db.id),
+        ]
+
+    def test_db_slug_routes_to_db_branch(self, db_env, workspace: Path) -> None:
+        # workspace 里没有同名 fs 文件夹 → slug 落到 DB slug 匹配
+        db, client = db_env
+        result = runner.invoke(topic_app, ["dismiss", "--id", "db-target"])
+        assert result.exit_code == 0, result.output
+        assert client.calls == [("dismiss_topic", db.id)]
+
+
+class TestIdHelpConsistency:
+    """M56C：--id help 文本分组一致（三态组 10 命令同文案；DB-only 组带标注）。"""
+
+    def test_tri_state_id_help_identical(self) -> None:
+        expected = "Topic UUID (DB), FS uuid5 id, or slug."
+        for name in sorted(_TRI_STATE_COMMANDS):
+            result = runner.invoke(topic_app, [name, "--help"])
+            assert result.exit_code == 0, name
+            assert expected in result.output, f"{name}: --id help 文案漂移"
+
+    def test_db_only_id_help_annotated(self) -> None:
+        for name in sorted(_DB_ONLY_COMMANDS):
+            result = runner.invoke(topic_app, [name, "--help"])
+            assert result.exit_code == 0, name
+            assert "DB" in result.output, f"{name}: DB-only 标注缺失"
+
+    def test_topic_command_groups_are_closed(self) -> None:
+        # 无 --id 的命令固定为 create/list/progress；其余必须在两个分组内，
+        # 防止未来新增命令悄悄游离在分组断言之外
+        from cli.commands.topic import topic_app
+
+        no_id = {"create", "list", "progress"}
+        for info in topic_app.registered_commands:
+            if info.name in no_id:
+                continue
+            assert info.name in _TRI_STATE_COMMANDS | _DB_ONLY_COMMANDS, info.name
+
+
+class TestExperimentCancelCli:
+    """M56D：experiment cancel 封装（成功 + 状态机拒绝透传）。"""
+
+    def test_cancel_success(self, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from cli.commands.experiment import experiment_app
+
+        exp_id = uuid.uuid4()
+        client = _RecordingStub()
+        _patch_client(monkeypatch, client)
+        result = runner.invoke(experiment_app, ["cancel", "--id", str(exp_id)])
+        assert result.exit_code == 0, result.output
+        assert client.calls == [("cancel_experiment", exp_id)]
+        assert "cancelled" in result.output
+
+    def test_cancel_state_machine_rejection_passthrough(
+        self, workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from map_client.exceptions import MAPHTTPError
+
+        from cli.commands.experiment import experiment_app
+
+        class _Rejecting(_RecordingStub):
+            def cancel_experiment(self, experiment_id):
+                raise MAPHTTPError(
+                    422,
+                    "Experiment is not in a cancellable phase",
+                    error_code="STATE_MACHINE_EXPERIMENT_CANCEL_MISUSE",
+                    hint="cancel is only allowed in running/review phases",
+                )
+
+        client = _Rejecting()
+        _patch_client(monkeypatch, client)
+        result = runner.invoke(experiment_app, ["cancel", "--id", str(uuid.uuid4())])
+        assert result.exit_code == 1, result.output
+        assert "STATE_MACHINE_EXPERIMENT_CANCEL_MISUSE" in result.output
+        assert "cancel is only allowed" in result.output
