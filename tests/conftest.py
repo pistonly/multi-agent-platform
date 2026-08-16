@@ -215,6 +215,12 @@ _FAST_GATE_MODULES = frozenset(
         # TestClient + bootstrap fixture，~2s；守住「卡片字段最小对 +
         # 鉴权 403/404 + 映射表与文档同源」契约。
         "test_a2a",
+        # PRD v0.13 M57 — 实验日志瘦身形态（file_path）：stub 落库 +
+        # file_path 透出 + 相似度显式跳过标注 + summary 精确一致提示 +
+        # evidence 双形态一致性 + force_skip no-op + CLI 互斥。
+        # API 级走 TestClient fixture、CLI 级走 stub transport，~2s 全量；
+        # 守住「瘦身不静默：跳过必标注、提示不阻塞、审计零副作用」契约。
+        "test_m57_log_slim_form",
     }
 )
 

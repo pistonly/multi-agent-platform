@@ -56,7 +56,20 @@ def append_log(
     experiment_id: uuid.UUID,
     author: Agent,
     payload: ExperimentLogCreate,
-) -> tuple[ExperimentLog, EvidenceValidationResult, SimilarityValidationResult, bool]:
+) -> tuple[
+    ExperimentLog,
+    EvidenceValidationResult,
+    SimilarityValidationResult,
+    bool,
+    str | None,
+]:
+    """Append a log row and run both soft validators (M57 slim form aware).
+
+    Returns ``(log, evidence_validation, similarity, force_skip_applied,
+    summary_repeat_hint)``. ``summary_repeat_hint`` is a non-blocking
+    anti-abuse hint fired only for the slim form (see below); ``None``
+    for the full content_md form.
+    """
     experiment = get_experiment(db, experiment_id)
     _validate_log_phase(experiment.phase)
     next_index = db.scalar(
@@ -64,27 +77,62 @@ def append_log(
             ExperimentLog.experiment_id == experiment_id
         )
     )
+    # v0.13 M57 slim form: the log MD lives at ``payload.file_path``. The
+    # experiment_logs.content_md column stays NOT NULL, so the slim form
+    # stores a stub (``See file: <path>``) and the path on the row.
+    if payload.content_md is not None:
+        stored_content: str = payload.content_md
+    else:
+        # Validator (ExperimentLogCreate._require_content_or_path)
+        # guarantees exactly one of the two is set.
+        assert payload.file_path is not None
+        stored_content = f"See file: {payload.file_path}"
     log = ExperimentLog(
         experiment_id=experiment_id,
         author_agent_id=author.id,
         summary=payload.summary,
-        content_md=payload.content_md,
+        content_md=stored_content,
+        file_path=payload.file_path,
         metadata_json=payload.metadata,
         log_index=next_index or 1,
     )
+    # Evidence validation is metadata-driven (plan frontmatter keys vs
+    # payload.metadata) — identical for both forms, no slim branch (r1
+    # review 73a24940 confirmed the original "local check" premise wrong).
     plan_md = _load_current_plan_md(db, experiment_id)
     validation = validate_log_evidence(plan_md=plan_md, metadata=payload.metadata)
-    # Compute similarity BEFORE flushing the new log so the comparison
-    # sees the prior log, not the log we're about to save (which would
-    # trivially score 1.0 against itself).
-    similarity = validate_log_similarity(
-        db,
-        experiment_id=experiment_id,
-        content_md=payload.content_md,
-    )
+    summary_repeat_hint: str | None = None
+    if payload.file_path is not None:
+        # v0.13 M57: slim form skips the content-based similarity check —
+        # stub-vs-stub / stub-vs-full-body comparisons only produce noise
+        # (r1 review 9277e044). The skip is explicit, never silent.
+        similarity = SimilarityValidationResult(skipped_reason="slim form")
+        # Anti-abuse in exchange for the skipped check: an exact summary
+        # repeat (== not similarity) of the prior log is the cheap signal
+        # left. Hint, not warning — never blocks, carries both summaries
+        # so the agent can judge for itself.
+        prior = get_latest_log(db, experiment_id)
+        if prior is not None and prior.summary == payload.summary:
+            summary_repeat_hint = (
+                f"summary identical to prior log #{prior.log_index} "
+                f"({prior.summary!r}); confirm the repeat is intentional "
+                "or revise the summary"
+            )
+    else:
+        # Compute similarity BEFORE flushing the new log so the comparison
+        # sees the prior log, not the log we're about to save (which would
+        # trivially score 1.0 against itself).
+        similarity = validate_log_similarity(
+            db,
+            experiment_id=experiment_id,
+            content_md=stored_content,
+        )
     db.add(log)
     db.flush()
     force_skip_applied = False
+    # Slim form: ``similarity.warnings`` is always empty (check skipped),
+    # so ``force_skip_similarity`` is a no-op by construction — no audit
+    # row, no response side effects (plan M57D, r1 review).
     if similarity.warnings and payload.force_skip_similarity:
         warning = similarity.warnings[0]
         audit_service.log_force_skip_no_commit(
@@ -99,7 +147,7 @@ def append_log(
             embedding_model=warning.model,
         )
         force_skip_applied = True
-    return log, validation, similarity, force_skip_applied
+    return log, validation, similarity, force_skip_applied, summary_repeat_hint
 
 
 def create_log(
@@ -112,13 +160,14 @@ def create_log(
     EvidenceValidationResult,
     SimilarityValidationResult,
     bool,
+    str | None,
 ]:
-    log, validation, similarity, force_skip_applied = append_log(
+    log, validation, similarity, force_skip_applied, summary_repeat_hint = append_log(
         db, experiment_id, author, payload
     )
     db.commit()
     db.refresh(log)
-    return log, validation, similarity, force_skip_applied
+    return log, validation, similarity, force_skip_applied, summary_repeat_hint
 
 
 def list_logs(

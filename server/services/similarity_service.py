@@ -50,6 +50,12 @@ class SimilarityValidationResult:
     warnings: list[SimilarityWarning] = field(default_factory=list)
     threshold: float = SIMILARITY_THRESHOLD
     model: str = SIMILARITY_MODEL_ID
+    # v0.13 M57 slim form: set to ``"slim form"`` when the content-based
+    # check was intentionally skipped (``ExperimentLogCreate.file_path``
+    # form — stub-vs-stub / stub-vs-full comparisons are meaningless).
+    # Callers surface this explicitly instead of silently treating the
+    # empty warning list as "checked and clean".
+    skipped_reason: str | None = None
 
     @property
     def valid(self) -> bool:

@@ -493,7 +493,20 @@ def experiment_reject_result(
 def experiment_log(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     summary: str = typer.Option(..., "--summary"),
-    log_file: Path = typer.Option(..., "--file"),
+    log_file: Path | None = typer.Option(
+        None,
+        "--file",
+        help="Log MD file to read and send as content_md (existing behavior).",
+    ),
+    log_file_path: str | None = typer.Option(
+        None,
+        "--log-file-path",
+        help=(
+            "MAP slimming (v0.13 M57): local path to the log MD file, sent "
+            "as-is without reading; the server stores a stub plus this "
+            "path on the log row. Mutually exclusive with --file."
+        ),
+    ),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
     force_skip_similarity: bool = typer.Option(
         False,
@@ -502,7 +515,8 @@ def experiment_log(
             "b72d0542 I1.b(2)(e): acknowledge the soft content-similarity "
             "warning when the new log body is >= 70%% similar to a prior "
             "log. The warning is suppressed in stdout and a "
-            "``log.force_skip`` audit row is written instead."
+            "``log.force_skip`` audit row is written instead. No-op with "
+            "--log-file-path (the slim form skips the check entirely)."
         ),
     ),
 ) -> None:
@@ -521,15 +535,34 @@ def experiment_log(
     ``[WARN] similarity: HIGH_CONTENT_SIMILARITY score=X >= threshold=Y``
     line is emitted on stderr. Pass ``--force-skip-similarity`` to
     suppress the warning and instead write a ``log.force_skip`` audit row.
+
+    v0.13 M57 slim form: ``--log-file-path`` sends only the local path
+    (no file round trip). The server stores a stub in content_md, skips
+    the content-similarity check (stdout carries ``similarity_skipped:
+    slim form``), and fires a non-blocking ``summary_repeat_hint`` when
+    the summary exactly repeats the prior log's summary. Evidence
+    validation is metadata-driven and behaves identically in both forms.
     """
     from cli.main import _read_text_file, _read_yaml_file, _run  # lazy: avoid cycle
+    if log_file is not None and log_file_path is not None:
+        typer.echo("Error: use only one of --file or --log-file-path", err=True)
+        raise typer.Exit(2)
     metadata = _read_yaml_file(metadata_file)
-    payload = ExperimentLogCreate(
-        summary=summary,
-        content_md=_read_text_file(log_file, kind="log"),
-        metadata=metadata,
-        force_skip_similarity=force_skip_similarity,
-    )
+    if log_file is not None:
+        payload = ExperimentLogCreate(
+            summary=summary,
+            content_md=_read_text_file(log_file, kind="log"),
+            metadata=metadata,
+            force_skip_similarity=force_skip_similarity,
+        )
+    else:
+        # Slim form: no similarity warning can fire (check skipped), so
+        # --force-skip-similarity is not sent — no-op by protocol (M57D).
+        payload = ExperimentLogCreate(
+            summary=summary,
+            file_path=log_file_path,
+            metadata=metadata,
+        )
     _run(lambda c: c.create_log(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 

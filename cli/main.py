@@ -740,6 +740,12 @@ def _run(
             similarity_warning = getattr(result, "similarity_warning", None)
             if similarity_warning is not None:
                 _emit_similarity_warning(similarity_warning)
+            # v0.13 M57 slim form: non-blocking anti-abuse hint — the slim
+            # form skips the content check, so an exact summary repeat of
+            # the prior log is surfaced instead (hint, never a warning).
+            summary_repeat_hint = getattr(result, "summary_repeat_hint", None)
+            if summary_repeat_hint:
+                typer.echo(f"[HINT] summary repeat: {summary_repeat_hint}", err=True)
             if detect_deprecated:
                 _emit_deprecation_warnings(_to_yamlable(result))
             if output_format == "table" and table_renderer is not None:

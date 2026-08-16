@@ -152,13 +152,26 @@ class ExperimentLockStalledScanRead(BaseModel):
 
 class ExperimentLogCreate(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
-    content_md: str = Field(min_length=1)
+    # MAP slimming (v0.13 M57): when file_path is set, the log MD lives at
+    # this local path and ``content_md`` may be omitted. The server stores a
+    # stub (``See file: <path>``) in experiment_logs.content_md and the
+    # file_path on the row. Evidence validation is metadata-driven and thus
+    # identical for both forms; the content-based similarity check is skipped
+    # for the slim form (marked ``similarity_skipped: slim form``).
+    content_md: str | None = Field(default=None, min_length=1)
+    file_path: str | None = None
     metadata: dict | None = None
     # b72d0542 I1.b(2)(e): when the similarity check would emit a warning,
     # callers can set this to True to acknowledge and skip the soft
     # warning. Server writes a ``log.force_skip`` audit row when the
     # warning was actually suppressed (no-op when no warning fired).
     force_skip_similarity: bool = False
+
+    @model_validator(mode="after")
+    def _require_content_or_path(self) -> "ExperimentLogCreate":
+        if not self.content_md and not self.file_path:
+            raise ValueError("Either content_md or file_path must be provided")
+        return self
 
 
 class ExperimentLogRead(ORMModel):
@@ -167,6 +180,7 @@ class ExperimentLogRead(ORMModel):
     author_agent_id: uuid.UUID
     summary: str
     content_md: str
+    file_path: str | None = None
     metadata_json: dict | None
     created_at: datetime
 
@@ -219,6 +233,14 @@ class LogCreateResponse(BaseModel):
     validation: EvidenceValidationSchema
     similarity_warning: "SimilarityWarningSchema | None" = None
     force_skip: bool = False
+    # v0.13 M57 slim form (``file_path`` payload): the content-based
+    # similarity check is skipped — ``similarity_skipped`` carries the
+    # reason (``"slim form"``) instead of a silent empty warning list, and
+    # ``summary_repeat_hint`` fires a non-blocking anti-abuse hint when
+    # the summary exactly repeats the prior log's summary. Both are None
+    # for the full ``content_md`` form.
+    similarity_skipped: str | None = None
+    summary_repeat_hint: str | None = None
 
 
 # --- b72d0542 I1.b — Result submission 4-段 template validation ---

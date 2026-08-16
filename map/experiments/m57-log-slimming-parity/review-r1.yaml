@@ -1,0 +1,24 @@
+# M57 计划评审 r1（reviewer，2026-08-16）
+# 对象：map/experiments/m57-log-slimming-parity/plan.md（fe07db62-f3ac-46d6-85ad-c972010e596e，plan v1）
+# 逐项对照代码核实：落点 file:line 均已现场验证，非仅凭计划文本
+
+reasonable_items:
+  - "双形态模式选择正确：PlanInput（plan.py:18-22 content_md|file_path 二选一 validator）与 ExperimentComplete（experiment.py:282-294 log_file_path 双形态）两个先例真实存在，ExperimentLogCreate（experiment.py:153-161）当前确为 content_md 必填无 file_path；照抄既有 validator 文案模式使三处 schema 行为一致，符合 v0.13 设计原则 1（对称性）"
+  - "DB 行级 file_path 列（对齐 TopicComment.file_path models.py:357）是正确选择而非复用 Experiment 行：complete 的 log_file_path 是单值覆盖语义（experiment 行），log 是追加型多行（ExperimentLog 行，models.py:535-548 无 file_path 列已核），两者并存不冲突；stub 保 content_md NOT NULL 兼容存量读取，风险面收敛"
+  - "CLI 落点与互斥设计成立：experiment_log（cli/commands/experiment.py:492-507）现状 --file 必填，--id 已是 str + _ID_HELP（M54B 短 id 已落地），验收第 3 条『复用 _rid 不回退』措辞准确（保持既有行为即可，无新增工作）；互斥设计（同传 exit 2、--file 语义不变）零 breaking，与 create 的 --plan-file/--plan-file-path 互斥模式（:110-115）完全对齐"
+  - "调研表『log 无 frontmatter 硬门禁』结论正确：plan_marker_service 硬校验仅挂 create_experiment（project_service.py:290）与 plan_revise（plan_service.py:121），append_log 路径不涉及；瘦身形态无需复刻 M55D 的 server 门禁跳过，plan 对风险面的这个判断成立"
+  - "summary 字段真实存在（ExperimentLogCreate.summary min_length=1 max_length=1024，experiment.py:154），开放问题 1 的折中讨论有事实基础；开放问题 2 倾向不加 excerpt 的立场合理（summary 已承担列表摘要职能）"
+  - "本次实验创建本身完成了一项遗留 wire 验证：8001 重启后 slim 形态（--plan-file-path）过 M55D server 门禁 201（此前 8001 跑 M55 前旧代码报 422），M56 收尾遗留运维项『重启验证 E8』闭环，实验创建路径即实证"
+
+unreasonable_items:
+  - "M57D 的 evidence 处置设计依据错误：append_log（log_service.py:76）的 evidence 校验是 validate_log_evidence(plan_md=plan_md, metadata=payload.metadata)——基于结构化 metadata dict 与 plan frontmatter evidence_keys 的对照，与 content_md 完全无关。瘦身形态下 metadata 照常随请求发送，evidence 校验完全不受瘦身影响。修订要求：M57D 删除『CLI 本地读文件执行同款 evidence 检查』子项（不存在的问题）；验收第 4 条 evidence 部分改为『瘦身与全量形态的 evidence 校验行为一致（同一 metadata 驱动），测试锁定一致性』；调研表第 4 行（append_log 依赖 content_md 做两项软校验）修正为『相似度基于 content_md（受瘦身影响），evidence 基于 metadata（不受影响）』"
+  - "相似度处置应选『直接跳过 + 显式标注』而非 plan 倾向的 summary 级：validate_log_similarity（similarity_service.py:94-119）语义是『新 log content_md vs 最近一条 prior log content_md』。summary 级比较的误报面更大——同一实验多轮日志 summary 天然高度相似（同主题、同格式，如『完成 X 子项+测试』），70% 阈值下 summary 级几乎必然常触发，软警告贬值成噪音；而 stub 之间的比较（路径不同不相似、路径相同 100%）中『路径相同』恰是合法的覆盖写场景，也是误报。防滥用担忧（用瘦身规避相似度检查）的正确对策是审计而非误报性警告：file_path 形态下仅当 summary 与 prior log 的 summary 完全一致（精确匹配，非相似度）时提示。修订要求：M57D 相似度子项改为『file_path 形态跳过 content_md 相似度，validation 中标注 similarity_skipped: slim form；summary 精确匹配 prior log summary 时输出提示（非警告）』；风险节『相似度被瘦身绕过』行的对策同步替换"
+
+# 非阻塞建议（供 host 修订时参考，不计入 unreasonable）：
+# - 瘦身形态下 --force-skip-similarity 选项行为需定义：无相似度警告可跳，建议该形态下
+#   静默 no-op（不发请求字段或 server 忽略），避免 agent 困惑；M57E 加一条断言
+# - ExperimentLogRead（experiment.py:164-171）是 ORMModel（from_attributes），加 file_path
+#   字段后注意 DB 列名映射（metadata_json 先例：schema 字段名与列名不一致时需 alias）；
+#   file_path 列名与字段名一致则无额外工作，建议 M57B 提交时用 detail 读路径测试当场验证
+# - Alembic 新迁移文件保持 ruff 格式干净（M59 将把 alembic 纳入 lint 范围，别加深清理负担）
+# - 开放问题 1 按上述修订后自然消解（跳过方案为定案）；开放问题 2 reviewer 同意不加 excerpt

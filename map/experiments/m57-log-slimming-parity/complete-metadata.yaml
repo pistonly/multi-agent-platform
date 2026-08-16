@@ -1,0 +1,6 @@
+# M57 experiment complete metadata（CLI 本地证据检查标准键）
+acceptance: "5/5 达成 — schema 双形态 / DB 行级 file_path 列+迁移045 / CLI 互斥 / 软校验处置（相似度跳过标注+summary精确提示+force_skip no-op）/ 测试全绿"
+pytest_summary: "fast-gate 全量 483 passed, 2 skipped, 0 failed；新增 tests/test_m57_log_slim_form.py 10/10"
+alembic_current: "045 (044 -> 045 已执行，PRAGMA 验证 experiment_logs.file_path 列存在)"
+alembic_revision: "045_log_file_path"
+smoke: "CLI 实测：--log-file-path 瘦身形态追加成功（响应 similarity_skipped: slim form、file_path 透出）；--file 同传互斥 exit 2；GET /logs 读路径 file_path 全透出"

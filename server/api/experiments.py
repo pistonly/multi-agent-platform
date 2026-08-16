@@ -646,8 +646,8 @@ def create_log(
     agent: Agent = Depends(get_current_agent),
 ) -> LogCreateResponse:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    log, validation, similarity, force_skip_applied = log_service.create_log(
-        db, experiment_id, agent, payload
+    log, validation, similarity, force_skip_applied, summary_repeat_hint = (
+        log_service.create_log(db, experiment_id, agent, payload)
     )
     validation_schema = EvidenceValidationSchema(
         warnings=[
@@ -683,6 +683,10 @@ def create_log(
         validation=validation_schema,
         similarity_warning=similarity_warning,
         force_skip=force_skip_applied,
+        # v0.13 M57 slim form: explicit skip marker + anti-abuse hint
+        # (None for the full content_md form).
+        similarity_skipped=similarity.skipped_reason,
+        summary_repeat_hint=summary_repeat_hint,
     )
 
 

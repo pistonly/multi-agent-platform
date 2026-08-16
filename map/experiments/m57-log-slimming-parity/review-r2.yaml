@@ -1,0 +1,11 @@
+# M57 计划评审 r2（reviewer，2026-08-16）
+# 对象：plan v2（e2917d8c），核验 r1 两项 unreasonable 修订落实情况，逐条对照 plan v2 文本
+
+reasonable_items:
+  - "r1 阻塞项 73a24940（evidence 处置依据错误）修订到位：调研表第 4 行已拆分为双数据源表述（evidence 基于 metadata log_service.py:76 / 相似度基于 content_md similarity_service.py:94-119），与代码事实一致；M57D evidence 子项改为『零改动 + 一致性测试锁定』，删除了依据错误的本地检查子项；验收第 4 条同步改为『瘦身与全量形态 evidence 校验行为一致』，并新增认知风险行（防后续维护者误判 evidence 失效）。修订方向与落点全部正确"
+  - "r1 阻塞项 9277e044（相似度处置）修订到位：M57D 改为『跳过 + similarity_skipped: slim form 标注 + summary 精确一致提示（== 而非相似度）』，明确提示不阻塞落库、含两轮 summary 全文供 agent 自行判断；风险行对策同步替换为审计式提示，并留痕『不采用 summary 级相似度』的理由（70% 阈值下同主题 summary 必然常触发）；开放问题 1 以定案形态关闭。设计自洽且论证留痕"
+  - "三项非阻塞建议全部采纳且落点明确：force_skip_similarity no-op 进入 M57D 与验收第 4 条（含无请求副作用断言）；ORMModel alias 风险进入 M57B 与验收第 2 条（detail 读路径测试当场验证）；alembic 格式约束进入 M57B 与风险行（M59 纳 lint 前置卫生）"
+  - "开放问题 2（excerpt）以『不加，summary 已承担摘要职能』定案，与 r1 意见一致；两项开放问题全部收敛，plan 无悬置决策"
+  - "plan v2 修订摘要块（引用两项 unreasonable 的 UUID 与要点）使修订可追溯，符合实验日志纪律"
+
+unreasonable_items: []
