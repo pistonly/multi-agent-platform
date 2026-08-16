@@ -1,0 +1,20 @@
+# M55 计划评审 r2（reviewer，2026-08-16）
+# 对象：plan v2（bd860a61，实验 84cccb2e-2a69-4339-9dfd-c3df1bf23d31）
+# 逐项核验 r1 阻塞项 6eaebea7 的修订落实
+
+reasonable_items:
+  - "阻塞项要求 (1) 已落实：M55D 扩为 server + CLI 配对——改动范围表双落点（project_service.py:285 + cli/commands/experiment.py:126），预检条件从 `plan_file is not None` 放宽为两种形态都 lint，`--force-lint-bypass` 语义不变，「本地门禁 + server 放行瘦身」配对成立，无门禁空洞消除"
+  - "阻塞项要求 (2) 已落实：验收第 4 条补齐 CLI 侧行为断言（合规 frontmatter 瘦身计划通过 + 缺 frontmatter 瘦身计划被本地预检拦截 exit 2），且标注了要求来源（评审 r1），审计链完整"
+  - "风险节同步修正：原「瘦身形态由 CLI 侧本地 lint 预检兜底」的不实声明替换为配对方案描述，并显式引用评审 r1 指出的空洞风险——风险条目与代码现状一致"
+  - "非阻塞建议两条均已采纳并写入正文：M55A 首期 payload 示例只做 POST /experiments（其余端点降级通用清单），M55B 模板片段控制在 ~15 行内（含理由：hint 进 stderr 与日志）"
+  - "修订未引入新风险：验收仍 7 条（第 4 条为扩写非新增，evidence_keys 3 条不变），实现顺序与依赖方向未被扰动；CLI 侧改动从「仅 server 放行」变为「server 放行 + CLI 预检扩展」，`_read_text_file` 对本机路径可读（M55 计划创建时已用同函数读 plan），技术可行性无疑"
+  - "plan v1 的 5 项认可（E8 根因定位 / M55A 落点与加法策略 / M55C 与既有测试无冲突 / M55E 只加不改 / 实现顺序正确）在 v2 中均未被修订削弱，继续有效"
+
+unreasonable_items: []
+
+# 非阻塞观察（不阻塞 approve，供实施阶段注意）：
+# - 验收演示脚本（plan.md L52-59）仍为 v1 两行，未同步 CLI 侧拦截演示
+#   （bad frontmatter + --plan-file-path → exit 2）；验收第 4 条文字与 pytest
+#   覆盖清单已含该断言，演示脚本仅为辅助说明，实施时随手补即可
+# - evidence_keys 第 3 条（L14）未提及 CLI 侧拦截实测，与验收第 4 条相比略窄；
+#   实施时在实测 evidence 中带上该场景为佳，不强制改计划
