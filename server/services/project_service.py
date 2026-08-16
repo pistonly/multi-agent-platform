@@ -280,9 +280,15 @@ def create_experiment(
     # a764abf6 I1.(a): enforce plan frontmatter lint at create time
     # so missing required fields fail with STATE_MACHINE_PLAN_MARKER_MISSING
     # instead of writing a plan that will be rejected at revision.
+    # v0.12 M55D (E8): the slim form (PlanInput(file_path=...)) carries no
+    # content_md — the server has no local file to lint. Skipping the
+    # content check there is not a gate hole: the CLI runs the same lint
+    # locally on the file before sending, and plan_revise (which always
+    # has full content) re-enforces it.
     from server.services.plan_marker_service import assert_plan_frontmatter_ok
 
-    assert_plan_frontmatter_ok(payload.plan.content_md)
+    if payload.plan.content_md is not None:
+        assert_plan_frontmatter_ok(payload.plan.content_md)
     if payload.topic_id is not None:
         topic = db.get(Topic, payload.topic_id)
         if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
@@ -319,6 +325,7 @@ def create_experiment(
     # ``phase_service.submit_for_review``).
     from server.services.phase_owner_resolver import owner_for
 
+    plan_fs_path = payload.plan_file_path or payload.plan.file_path
     experiment = Experiment(
         project_id=project_id,
         creator_agent_id=creator_agent_id,
@@ -329,15 +336,25 @@ def create_experiment(
         current_plan_version=1,
         topic_id=payload.topic_id,
         phase_owner=owner_for(phase, mode=experiment_mode).value,
-        plan_file_path=payload.plan_file_path,
+        plan_file_path=plan_fs_path,
     )
     db.add(experiment)
     db.flush()
 
+    # v0.12 M55D (E8): slim form has no content_md — plan_versions.content_md
+    # is NOT NULL, so store a self-describing stub per the ExperimentCreate
+    # contract ("plan.content_md may be a stub"); the real plan MD lives at
+    # plan_fs_path and plan_revise (always full content) creates real v2+.
+    plan_content = payload.plan.content_md
+    if plan_content is None:
+        plan_content = (
+            f"<!-- slim create: plan content lives in {plan_fs_path} "
+            "(revise with full content_md to store it server-side) -->"
+        )
     plan = PlanVersion(
         experiment_id=experiment.id,
         version=1,
-        content_md=payload.plan.content_md,
+        content_md=plan_content,
         author_agent_id=creator_agent_id,
         change_note=payload.plan.change_note or "初始版本",
     )
@@ -346,8 +363,17 @@ def create_experiment(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        # v0.12 M55A: only the per-topic unique index maps to the
+        # topic-conflict message; any other constraint failure must report
+        # what actually broke (a NOT NULL on an unrelated column used to
+        # surface as "Topic already has an active experiment").
+        orig = str(getattr(exc, "orig", exc))
+        if "uq_experiment_one_active_per_topic" in orig:
+            raise ConflictError(
+                "Topic already has an active experiment; complete or cancel it first"
+            ) from exc
         raise ConflictError(
-            "Topic already has an active experiment; complete or cancel it first"
+            f"Experiment insert violated a database constraint: {orig}"
         ) from exc
     db.refresh(experiment)
     return experiment
@@ -457,12 +483,18 @@ def get_experiment_detail(
         title=experiment.title,
         description=experiment.description,
         phase=experiment.phase,
+        mode=experiment.mode,
         current_plan_version=experiment.current_plan_version,
         topic_id=experiment.topic_id,
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
         archived_at=experiment.archived_at,
         current_plan=current_plan,
+        # v0.12 M55D: slim experiments carry the plan/log on the FS —
+        # model_validate picks these up on the summary path; the manual
+        # constructor here must pass them explicitly (wire showed None).
+        plan_file_path=experiment.plan_file_path,
+        log_file_path=experiment.log_file_path,
         plan_version_count=plan_version_count,
         open_unreasonable_count=count_open_unreasonable_for_experiment(db, experiment.id),
         review_count=review_count,

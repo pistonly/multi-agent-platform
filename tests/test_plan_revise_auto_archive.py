@@ -295,7 +295,11 @@ def test_plan_revise_no_archive_when_content_unchanged(db_session):
         current_plan_version=1,
     )
     _make_plan_version(
-        db_session, experiment_id=exp.id, author_id=creator.id, version=1, content="same plan"
+        db_session,
+        experiment_id=exp.id,
+        author_id=creator.id,
+        version=1,
+        content=make_valid_plan(body="same plan"),
     )
 
     reviewer = _make_agent(db_session, project_id=project.id, name="reviewer")

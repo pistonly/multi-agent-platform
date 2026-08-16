@@ -205,6 +205,12 @@ _FAST_GATE_MODULES = frozenset(
         # stub transport（非 model_dump 自产自销），~300ms 全量；
         # 守住「data 字段名与 REST 一致 + 文档↔map_types 漂移 pin」契约。
         "test_cli_json_schema",
+        # PRD v0.12 M55 — 错误信封可执行化（E3/E4/E6/E8）：422 hint
+        # 结构 / frontmatter 模板片段 / dependencies 空列表 / E8 瘦身
+        # 门禁（server 放行 + CLI 预检配对）/ CLI hint 渲染与 JSON
+        # 信封不变。API 级走 TestClient fixture、CLI 级走 stub
+        # transport，~1s 全量；守住「错误响应即修复指令」契约。
+        "test_m55_error_envelope",
         # PRD v0.11 M53 — A2A 只读投影（Agent Card + Task 状态映射），
         # TestClient + bootstrap fixture，~2s；守住「卡片字段最小对 +
         # 鉴权 403/404 + 映射表与文档同源」契约。

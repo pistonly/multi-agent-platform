@@ -797,6 +797,7 @@ def _emit_maphttp_error(
     error_code = getattr(exc, "error_code", None)
     hint = getattr(exc, "hint", None)
     retryable = getattr(exc, "retryable", None)
+    docs_url = getattr(exc, "docs_url", None)
     recovery_command = hint  # hints are already actionable commands
 
     if output_format == "json":
@@ -812,8 +813,16 @@ def _emit_maphttp_error(
     suffix = ""
     if error_code:
         suffix += f" [error_code={error_code}]"
+    # v0.12 M55E: render the structured envelope fields as separate human
+    # readable lines (Hint / Docs / Recover). Multi-line hints (e.g. the
+    # M55B frontmatter template) flow through verbatim. Recover mirrors
+    # hint by design, so it is only printed when it carries extra info.
     if hint:
         suffix += f"\nHint: {hint}"
+    if docs_url:
+        suffix += f"\nDocs: {docs_url}"
+    if recovery_command and recovery_command != hint:
+        suffix += f"\nRecover: {recovery_command}"
     # I1(c): STATE_MACHINE.* errors get an Escalation: line so the user
     # knows who to ping. Only fetch escalation when the error is a
     # state-machine refusal (other error families don't apply the

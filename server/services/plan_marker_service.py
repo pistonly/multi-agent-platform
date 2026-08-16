@@ -18,7 +18,8 @@ The 4 required frontmatter fields (markdown fenced ``---`` YAML block):
 * ``title`` — non-empty string
 * ``acceptance`` — non-empty list or non-empty string
 * ``evidence_keys`` — non-empty list or non-empty string
-* ``dependencies`` — non-empty list or non-empty string
+* ``dependencies`` — list (empty list ``[]`` means "no dependencies",
+  v0.12 M55C) or non-empty string
 """
 
 from __future__ import annotations
@@ -68,6 +69,28 @@ _FRONT_MATTER_RE = re.compile(
     r"\A\s*---\s*\n(?P<body>.*?)\n---\s*(?:\n|\Z)",
     re.DOTALL,
 )
+
+
+def _frontmatter_template_hint(missing: tuple[str, ...] | list[str] = ()) -> str:
+    """v0.12 M55B (E3/E4): copy-pasteable frontmatter template snippet.
+
+    The hint is consumed by agents (CLI stderr / experiment logs), so it
+    stays a compact fenced block (~15 lines max, review r2) — enough to
+    copy verbatim, short enough not to drown the field-level diagnostics.
+    """
+    suffix = f" (missing: {', '.join(missing)})" if missing else ""
+    return (
+        f"Plan must begin with a YAML frontmatter block{suffix}. "
+        "Copy this template and fill it in:\n"
+        "---\n"
+        'title: "实验标题"\n'
+        "acceptance:\n"
+        '  - "可验证的验收标准（每条一句）"\n'
+        "evidence_keys:\n"
+        '  - "pytest_summary"\n'
+        "dependencies: []  # 无依赖写 []（v0.12 起）；有依赖列实验 UUID\n"
+        "---"
+    )
 
 
 def _extract_frontmatter(content_md: str | None) -> tuple[str | None, dict[str, object]]:
@@ -142,6 +165,20 @@ def _collect_warnings(parsed: dict[str, object] | None) -> tuple[
                 warnings.append(
                     PlanMarkerWarning(code="PLAN_MARKER_MISSING_FIELD", field=name)
                 )
+        elif name == "dependencies":
+            # v0.12 M55C (E6): explicit empty list means "no dependencies".
+            # A list of any length is present; only a missing/None/blank/
+            # non-list-non-string value warns. Kills the "- none" sentinel.
+            if _is_nonempty_list(value) or _is_nonempty_string(value) or (
+                isinstance(value, list) and not value
+            ):
+                fields_present.append(name)
+            else:
+                warnings.append(
+                    PlanMarkerWarning(
+                        code="PLAN_MARKER_EMPTY_LIST", field=name
+                    )
+                )
         else:
             if _is_nonempty_list(value) or _is_nonempty_string(value):
                 fields_present.append(name)
@@ -194,19 +231,13 @@ def assert_plan_frontmatter_ok(content_md: str | None) -> PlanMarkerValidationRe
         raise StateTransitionError(
             "Plan frontmatter is missing",
             error_code="STATE_MACHINE_PLAN_MARKER_MISSING",
-            hint=(
-                "Plan must begin with a YAML frontmatter block containing "
-                f"{', '.join(REQUIRED_PLAN_FIELDS)}"
-            ),
+            hint=_frontmatter_template_hint(list(REQUIRED_PLAN_FIELDS)),
         )
     if not parsed:
         raise StateTransitionError(
             "Plan frontmatter could not be parsed as a YAML mapping",
             error_code="STATE_MACHINE_PLAN_MARKER_MISSING",
-            hint=(
-                "Frontmatter must be a YAML mapping with required fields: "
-                f"{', '.join(REQUIRED_PLAN_FIELDS)}"
-            ),
+            hint=_frontmatter_template_hint(),
         )
 
     warnings, fields_present = _collect_warnings(parsed)
@@ -221,11 +252,7 @@ def assert_plan_frontmatter_ok(content_md: str | None) -> PlanMarkerValidationRe
         raise StateTransitionError(
             f"Plan frontmatter is missing required fields: {detail}",
             error_code="STATE_MACHINE_PLAN_MARKER_MISSING",
-            hint=(
-                "Required frontmatter fields: "
-                f"{', '.join(REQUIRED_PLAN_FIELDS)} "
-                f"(missing: {detail})"
-            ),
+            hint=_frontmatter_template_hint(missing),
         )
 
     return PlanMarkerValidationResult(

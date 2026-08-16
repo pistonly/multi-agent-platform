@@ -1,0 +1,20 @@
+# M55 completion evidence（对应 plan evidence_keys 三条）
+pytest_summary:
+  total: 580
+  passed: 578
+  failed: 0
+  skipped: 2
+  notes: >-
+    新增 tests/test_m55_error_envelope.py 16/16 全绿；快速门控 455 passed /
+    2 skipped（基线 437 无回归）；实验域全量（含 slow）109 passed；
+    ruff check server/ cli/ tests/ sdk/ 清零。
+smoke:
+  api_health: ok
+  notes: >-
+    wire 验证：E8 瘦身 create --plan-file-path 201 + stub v1 +
+    plan_file_path 回读；坏计划 --force-lint-bypass 422 且 stderr 渲染
+    完整 frontmatter 模板 hint；旧代码 server 对照复现 E8 原始 422。
+acceptance: >-
+  M55A-F 六子项全部达成（详见 result.md acceptance 逐条对照）：
+  422 handler / frontmatter 模板 hint / dependencies 空列表 / E8 双侧
+  配对门禁 / CLI hint 渲染 + JSON 契约不变 / Skill 日志纪律。

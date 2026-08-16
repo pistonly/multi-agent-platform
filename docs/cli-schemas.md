@@ -105,7 +105,7 @@ smoke:
 - `title`：实验标题
 - `acceptance`：验收清单（list of strings）
 - `evidence_keys`：验收证据路径（list of strings）
-- `dependencies`：前置实验 / 约束（list of strings）
+- `dependencies`：前置实验 / 约束（list of strings）；**v0.12 起无依赖写 `dependencies: []`**（显式空列表合法，不再需要 `- none` 哨兵值；其余三个字段仍要求非空）
 
 **示例**：
 
@@ -117,8 +117,7 @@ acceptance:
   - 全程 fast-gate 绿
 evidence_keys:
   - tests/test_cli_schema_discovery.py
-dependencies:
-  - 实验 c9281d86 已 done
+dependencies: []
 ---
 ```
 

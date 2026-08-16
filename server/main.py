@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -89,6 +91,64 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
         app.add_exception_handler(exc_type, make_handler(code))
 
 
+def register_request_validation_handler(app: FastAPI) -> None:
+    """v0.12 M55A (E3/E4): make FastAPI 422s actionable.
+
+    Keeps the default ``detail`` array byte-compatible (SDK/CLI consumers
+    parse it) and appends the same envelope fields a ``StateTransitionError``
+    surfaces — ``error_code`` / ``hint`` / ``retryable`` — so clients route
+    on one shape. The hint names the missing fields and, for endpoints in
+    ``_ENDPOINT_PAYLOAD_EXAMPLES``, embeds a minimal working payload the
+    agent can copy. Other endpoints degrade to the field list (review r2
+    scope agreement).
+    """
+    # v0.12 M55A: routes like POST /api/v1/projects/{uuid}/experiments
+    # carry a path variable, so keys are matched by (method, path suffix).
+    _ENDPOINT_PAYLOAD_EXAMPLES: dict[tuple[str, str], str] = {
+        ("POST", "/experiments"): (
+            '{"title": "M55-demo", "plan": {"content_md": "---\\ntitle: \\"实验标题\\"\\n'
+            'acceptance:\\n  - \\"...\\"\\nevidence_keys:\\n  - \\"pytest_summary\\"\\n'
+            'dependencies: []\\n---\\n..."}, "submit_for_review": true}'
+        ),
+    }
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        errors = exc.errors()
+        missing = sorted(
+            {
+                ".".join(str(part) for part in err.get("loc", ())[1:])
+                for err in errors
+                if err.get("type") in ("missing", "missing_argument")
+            }
+        )
+        hint_parts: list[str] = []
+        if missing:
+            hint_parts.append(f"missing fields: {', '.join(missing)}")
+        example = next(
+            (
+                ex
+                for (method, suffix), ex in _ENDPOINT_PAYLOAD_EXAMPLES.items()
+                if request.method == method and request.url.path.endswith(suffix)
+            ),
+            None,
+        )
+        if example is not None:
+            hint_parts.append(
+                f"minimal payload for {request.method} {request.url.path}: {example}"
+            )
+        content: dict[str, object] = {
+            "detail": jsonable_encoder(errors),
+            "error_code": "request_validation_error",
+            "retryable": False,
+        }
+        if hint_parts:
+            content["hint"] = "; ".join(hint_parts)
+        return JSONResponse(status_code=422, content=content)
+
+
 def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
     """Build the ASGI app.
 
@@ -136,6 +196,7 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
     app.include_router(a2a_router, prefix=prefix)
 
     register_domain_exception_handlers(app)
+    register_request_validation_handler(app)
 
     @app.get("/health")
     def health() -> dict[str, str]:

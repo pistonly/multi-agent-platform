@@ -44,8 +44,10 @@ def make_valid_plan(
                 assert body["plans"][0]["content_md"] == plan_md  # 完整回环
         acceptance: 实验验收标准列表;默认 ``["acceptance-1"]``。
         evidence_keys: 证据键列表;默认 ``["pytest_summary"]``。
-        dependencies: 依赖项 ID 列表;默认 ``["none"]``(plan_marker_service 拒绝
-            空列表 ``PLAN_MARKER_EMPTY_LIST``,需要一个非空占位符)。
+        dependencies: 依赖项 ID 列表;默认 ``["none"]``。传 ``[]`` 序列化为
+            ``dependencies: []``——v0.12 M55C 起显式空列表合法(表示无依赖)。
+            注意 ``acceptance`` / ``evidence_keys`` 仍要求非空,传 ``[]``
+            用于构造非法 plan 场景。
 
     Returns:
         含 ``---\\n...\\n---\\n<body>\\n`` 的完整 markdown。
@@ -54,15 +56,19 @@ def make_valid_plan(
     ev = list(evidence_keys) if evidence_keys is not None else ["pytest_summary"]
     dep = list(dependencies) if dependencies is not None else ["none"]
 
+    def _list_field(key: str, items: list[str]) -> list[str]:
+        # v0.12 M55C: an explicit empty list must round-trip as `key: []`
+        # (bare `key:` parses to None and fails the gate as MISSING_FIELD).
+        if not items:
+            return [f"{key}: []"]
+        return [f"{key}:"] + [f"  - {i}" for i in items]
+
     lines = [
         "---",
         f"title: {title}",
-        "acceptance:",
-        *[f"  - {a}" for a in acc],
-        "evidence_keys:",
-        *[f"  - {e}" for e in ev],
-        "dependencies:",
-        *[f"  - {d}" for d in dep],
+        *_list_field("acceptance", acc),
+        *_list_field("evidence_keys", ev),
+        *_list_field("dependencies", dep),
         "---",
         body,
     ]

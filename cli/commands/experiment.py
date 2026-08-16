@@ -123,10 +123,20 @@ def experiment_create(
     # has its own hard validator (``assert_plan_frontmatter_ok``), but a
     # local gate saves a round trip and gives a clearer error message
     # when the author simply forgot the YAML block.
-    if not force_lint_bypass and plan_file is not None:
+    # v0.12 M55D (E8): lint BOTH forms — slim (--plan-file-path) too.
+    # Since M55D the server skips content_md validation for the slim
+    # form (it has no local file), so this local pre-check is the front
+    # gate for slim plans; without it a frontmatter-less plan would
+    # reach the DB unchecked (review r1's "no-gate hole").
+    if not force_lint_bypass:
         from server.services.plan_marker_service import validate_plan_frontmatter
 
-        result = validate_plan_frontmatter(content)
+        lint_content = (
+            content
+            if plan_file is not None
+            else _read_text_file(Path(plan_file_path), kind="plan")
+        )
+        result = validate_plan_frontmatter(lint_content)
         missing_fields = [
             w.field for w in result.warnings if w.code == "PLAN_MARKER_MISSING_FIELD"
         ]
@@ -135,9 +145,12 @@ def experiment_create(
             for w in result.warnings
         ):
             keys = ", ".join(sorted(set(missing_fields))) if missing_fields else "(no frontmatter)"
+            lint_target = (
+                plan_file if plan_file is not None else plan_file_path
+            )
             typer.echo(
                 f"Error: plan frontmatter lint failed ({keys}). "
-                f"Run `map experiment plan validate --plan-file {plan_file}` "
+                f"Run `map experiment plan validate --plan-file {lint_target}` "
                 f"for details, or re-run with --force-lint-bypass to skip the local check.",
                 err=True,
             )
