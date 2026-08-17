@@ -80,6 +80,7 @@ class Scenario:
     new_session: bool = False
     model: str | None = None
     topic_id: str | None = None
+    topic_slug: str | None = None
     experiment_id: str | None = None
 
 
@@ -166,6 +167,9 @@ class E2EDriver:
             if str(row.get("title") or "") == self.scenario.topic_title:
                 tid = str(row.get("id") or "") or None
                 if tid:
+                    slug = str(row.get("slug") or "") or None
+                    if slug:
+                        self.scenario.topic_slug = slug
                     return tid
         return None
 
@@ -204,6 +208,8 @@ class E2EDriver:
         lines = [f"subject: {self.scenario.subject}", f"topic_title: {self.scenario.topic_title}"]
         if self.scenario.topic_id:
             lines.append(f"topic_id: {self.scenario.topic_id}")
+        if self.scenario.topic_slug:
+            lines.append(f"topic_slug: {self.scenario.topic_slug}")
         if self.scenario.experiment_id:
             lines.append(f"experiment_id: {self.scenario.experiment_id}")
         return "\n".join(lines)
@@ -213,28 +219,31 @@ class E2EDriver:
             f"{self._ctx()}\n\n"
             "Task: open a new discussion topic on the subject above, using the "
             "exact topic_title above. Use the topic-host Skill and "
-            "`map --persona host topic create ...`. After creating, confirm "
-            "the topic_id in your E2E summary line."
+            "`map --persona host fs topic-create --title \"<topic_title>\" "
+            "--slug <kebab-case-slug> --participants host,participant`. "
+            "After creating, confirm the topic_id in your E2E summary line."
         )
 
     def _prompt_participant_comment(self, round_label: str) -> str:
         return (
             f"{self._ctx()}\n\n"
             f"Task: this is {round_label} of the discussion. Read the topic "
-            "thread with `map --persona participant topic show --id <topic_id>`, "
+            "thread with `map --persona participant fs show --topic <topic_slug>`, "
             "then post a substantive comment that advances the discussion "
-            "(question, counterpoint, or supporting evidence). Use the "
-            "topic-participant Skill."
+            "(question, counterpoint, or supporting evidence) with "
+            "`map --persona participant fs comment --topic <topic_slug> "
+            "--body \"...\"`. Use the topic-participant Skill."
         )
 
     def _prompt_host_reply(self, round_label: str) -> str:
         return (
             f"{self._ctx()}\n\n"
             f"Task: this is {round_label} of the discussion. Read the latest "
-            "participant comment with `map --persona host topic show --id "
-            "<topic_id>`, then reply in-thread (use `--parent <comment_id>` on "
-            "`map topic comment`) to advance the discussion. Use the topic-host "
-            "Skill."
+            "participant comment with `map --persona host fs show --topic "
+            "<topic_slug>`, then reply with `map --persona host fs comment "
+            "--topic <topic_slug> --body \"...\"` (threading is carried by "
+            "section references inside the file, not --parent). Use the "
+            "topic-host Skill."
         )
 
     def _prompt_host_decide_experiment(self) -> str:
@@ -278,7 +287,10 @@ class E2EDriver:
         return (
             f"{self._ctx()}\n\n"
             "Task: the reviewer has reviewed your plan. Decide the next step:\n"
-            "  - If approved: start the experiment with "
+            "  - If the review is acceptable: first approve the experiment "
+            "with `map --persona host experiment approve --id "
+            "<experiment_id>` (review submission does not auto-approve), then "
+            "start the experiment with "
             "`map --persona host experiment start --id <experiment_id>`, then "
             f"write a brief execution log to {self.scenario.log_file} "
             "(1-2 paragraphs describing what was 'run' — this is a demo, so a "
@@ -310,9 +322,9 @@ class E2EDriver:
             f"{self._ctx()}\n\n"
             "Task: the experiment has been verified and accepted. Decide "
             "whether to close the topic or keep it open for further work.\n"
-            "  - To close: use the topic-host Skill's closure command (e.g. "
-            "`map --persona host topic close --id <topic_id>` or "
-            "`map --persona host topic resolve --id <topic_id> --file <resolution.yaml>`).\n"
+            "  - To close: `map --persona host fs close --topic <topic_slug> "
+            "--note \"<conclusion and action items>\"` (the close_note carries "
+            "the resolution).\n"
             "  - To keep open: post a summary comment and stop.\n\n"
             "For this demo, prefer closing the topic to wrap up the lifecycle; "
             "but make the judgment yourself."
@@ -363,11 +375,14 @@ class E2EDriver:
             "reviewer-review-plan", "reviewer",
             self._prompt_reviewer_review_plan(),
         )
+        # Review submission clears pending reviews but does NOT auto-approve:
+        # the host must explicitly `experiment approve` (review_service.
+        # assert_approve_eligibility) before the phase moves to 'approved'.
         phase = self.experiment_phase()
-        if phase != "approved":
+        if phase != "review":
             self._end(
-                f"experiment phase={phase!r} after review (expected 'approved'); "
-                "demo ends here"
+                f"experiment phase={phase!r} after review (expected 'review' — "
+                "host approval still pending); demo ends here"
             )
             return
 

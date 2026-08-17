@@ -106,7 +106,7 @@ class MapCommandClient:
         limit: int = 50,
         category: str | None = "wakeable",
     ) -> list[dict[str, Any]]:
-        args = ["notification", "list", "--unread-only", "--limit", str(limit)]
+        args = ["notification", "list", "--unread-only", "--limit", str(limit), "--format", "yaml"]
         if category is not None:
             args.extend(["--category", category])
         data = self._run(args, retryable=True)
@@ -139,6 +139,8 @@ class MapCommandClient:
                     str(page),
                     "--page-size",
                     str(page_size),
+                    "--format",
+                    "yaml",
                 ],
                 retryable=True,
             )
@@ -227,7 +229,7 @@ class MapCommandClient:
     ) -> list[dict[str, Any]]:
         """List experiments (read-only). Used by the E2E driver to discover
         experiment_id from topic_id; not used by waker."""
-        args = ["experiment", "list", "--page-size", str(page_size)]
+        args = ["experiment", "list", "--page-size", str(page_size), "--format", "yaml"]
         if phase:
             args.extend(["--phase", phase])
         data = self._run(args, retryable=True)
@@ -237,7 +239,10 @@ class MapCommandClient:
         return self._run(["experiment", "submit-review", "--id", experiment_id])
 
     def experiment_reviews_list(self, experiment_id: str) -> list[dict[str, Any]]:
-        data = self._run(["experiment", "review", "list", "--id", experiment_id], retryable=True)
+        data = self._run(
+            ["experiment", "review", "list", "--id", experiment_id, "--format", "yaml"],
+            retryable=True,
+        )
         return list(data or [])
 
     def plan_revise(

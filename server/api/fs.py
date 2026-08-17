@@ -125,7 +125,11 @@ def fs_advance_round(
         target_id=summary.id,
         project_id=project.id,
         summary=f"[fs] 推进话题轮次至 {summary.discussion_round}",
-        event="topic.advance_round",
+        # v0.13 M58：事件名对齐 WAKEABLE_NOTIFICATION_EVENTS 白名单的
+        # ``topic.round_advanced``（与 DB 路径 topic_lifecycle_service 一致），
+        # 否则 FS 轮次推进永远不产生 wakeable 通知，participant 唤醒链路断裂。
+        # action 保持审计动作名不变。
+        event="topic.round_advanced",
         event_payload={
             "topic_slug": summary.slug,
             "discussion_round": summary.discussion_round,

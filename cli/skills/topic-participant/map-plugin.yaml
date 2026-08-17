@@ -1,9 +1,9 @@
-# MAP Skill 分发清单（v0.11 M52A）
+# MAP Skill 分发清单（v0.13 M58A）
 # - version: 语义化版本，`map skill list --installed` / `map skill upgrade` 依据
 # - requires: 所需 map CLI 最低版本（MAJOR.MINOR）
 # - runtime_targets: 声明支持的 `map skill install --runtime` 目标
-version: 0.11.0
-requires: 0.11
+version: 0.13.0
+requires: 0.12
 runtime_targets:
   - cursor
   - claude-code

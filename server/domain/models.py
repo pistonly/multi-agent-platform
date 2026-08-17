@@ -209,7 +209,14 @@ class Experiment(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    topic_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("topics.id"), nullable=True, index=True)
+    # M58 (experiment-side three-state routing): ``topic_id`` may reference
+    # either a DB ``topics`` row or an FS-plane topic id (uuid5 derived from
+    # the ``map/`` folder, no DB row). The ForeignKey is retired — migration
+    # 046 drops ``fk_experiments_topic_id``; existence / ownership gates live
+    # in ``project_service.create_experiment`` (DB lookup first, FS resolver
+    # second). No ORM relationship is kept on this column (verified unused
+    # across server/ and tests/ — only MagicMock stubs ever touched it).
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     project: Mapped["Project"] = relationship(back_populates="experiments")
     creator: Mapped["Agent"] = relationship(back_populates="created_experiments", foreign_keys=[creator_agent_id])
     # --- executor delegation (migration 042) -------------------------------
@@ -226,7 +233,8 @@ class Experiment(Base):
     executor: Mapped["Agent | None"] = relationship(
         back_populates="executed_experiments", foreign_keys=[executor_agent_id]
     )
-    topic: Mapped["Topic | None"] = relationship(back_populates="experiments")
+    # M58: no ``topic`` relationship — ``topic_id`` may reference FS-plane
+    # uuid5 ids with no ``topics`` row (see column comment above).
     # MAP slimming: file paths for plan and log MD files. When present,
     # PlanVersion.content_md / ExperimentLog.content_md store stubs.
     plan_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -331,7 +339,8 @@ class Topic(Base):
     comments: Mapped[list["TopicComment"]] = relationship(
         back_populates="topic", order_by="TopicComment.created_at"
     )
-    experiments: Mapped[list["Experiment"]] = relationship(back_populates="topic")
+    # M58: no ``experiments`` relationship — Experiment.topic_id may hold
+    # FS-plane uuid5 ids with no row here (see Experiment.topic_id comment).
     decision: Mapped["TopicDecision | None"] = relationship(back_populates="topic", uselist=False)
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dismissed_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(

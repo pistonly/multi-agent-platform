@@ -33,6 +33,7 @@ from server.domain.schemas import (
     TopicDecisionRead,
 )
 from server.domain.state_machine import TERMINAL_PHASES
+from server.services import fs_source_service as fs_svc
 from server.services import project_status_service as status_doc_service
 from server.services import topic_service
 
@@ -249,6 +250,17 @@ def create_experiment_warnings(
     if topic_id is not None:
         topic = db.get(Topic, topic_id)
         if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
+            # M58: the id may reference an FS-plane topic (uuid5, no DB row) —
+            # route through the M56 FS resolver before treating it as unknown.
+            hit = fs_svc.find_fs_topic_by_id(db, topic_id)
+            if hit is None:
+                return []
+            fs_project, fs_topic = hit
+            if fs_project.id != project_id:
+                return []
+            # FsTopic.round is a plain string ("roundN" / "ready").
+            if fs_topic.round != TopicDiscussionRound.ready.value:
+                return ["topic_not_ready_for_experiment"]
             return []
         if topic.discussion_round != TopicDiscussionRound.ready:
             return ["topic_not_ready_for_experiment"]
@@ -291,13 +303,33 @@ def create_experiment(
         assert_plan_frontmatter_ok(payload.plan.content_md)
     if payload.topic_id is not None:
         topic = db.get(Topic, payload.topic_id)
-        if topic is None or topic.deleted_at is not None or topic.project_id != project_id:
-            raise NotFoundError("Topic not found")
-        if topic.status != TopicStatus.open:
-            raise ConflictError("Cannot create experiment on a closed topic")
-        creator = db.get(Agent, creator_agent_id)
-        if topic.creator_agent_id != creator_agent_id and (creator is None or creator.role != AgentRole.admin):
-            raise ForbiddenError("Only the topic host can create an experiment from this topic")
+        if topic is not None:
+            if topic.deleted_at is not None or topic.project_id != project_id:
+                raise NotFoundError("Topic not found")
+            if topic.status != TopicStatus.open:
+                raise ConflictError("Cannot create experiment on a closed topic")
+            creator = db.get(Agent, creator_agent_id)
+            if topic.creator_agent_id != creator_agent_id and (creator is None or creator.role != AgentRole.admin):
+                raise ForbiddenError("Only the topic host can create an experiment from this topic")
+        else:
+            # M58: the id may reference an FS-plane topic (uuid5, no DB row).
+            # Validate against the parsed FS index instead. FsTopic fields
+            # are plain strings; ``creator`` is a persona short name, so the
+            # host gate aligns on the caller's persona, not an agent uuid.
+            hit = fs_svc.find_fs_topic_by_id(db, payload.topic_id)
+            if hit is None:
+                raise NotFoundError("Topic not found")
+            fs_project, fs_topic = hit
+            if fs_project.id != project_id:
+                raise NotFoundError("Topic not found")
+            if fs_topic.status != TopicStatus.open.value:
+                raise ConflictError("Cannot create experiment on a closed topic")
+            creator = db.get(Agent, creator_agent_id)
+            if creator is None or (
+                fs_svc.persona_short_name(creator) != fs_topic.creator
+                and creator.role != AgentRole.admin
+            ):
+                raise ForbiddenError("Only the topic host can create an experiment from this topic")
         active = db.scalar(
             select(Experiment).where(
                 Experiment.topic_id == payload.topic_id,

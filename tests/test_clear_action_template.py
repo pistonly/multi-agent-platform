@@ -29,7 +29,7 @@ pytestmark = pytest.mark.slow
 
 
 def test_render_clear_action_comment_template_is_deterministic():
-    """The 'comment' clear_action maps to ``map topic comment --reply-to``."""
+    """The 'comment' clear_action maps to ``map fs comment`` (v0.13 M58 FS-only)."""
     item = {
         "kind": "pending_topic_reply",
         "clear_action": "comment",
@@ -39,8 +39,8 @@ def test_render_clear_action_comment_template_is_deterministic():
     }
     rendered = render_clear_action_template(item)
     expected = (
-        "map topic comment --topic 11111111-1111-1111-1111-111111111111 "
-        "--reply-to 22222222-2222-2222-2222-222222222222"
+        "map fs comment --topic 11111111-1111-1111-1111-111111111111 "
+        "--file <your-round-speech.md>"
     )
     assert rendered == expected
     # Determinism: rendering twice yields byte-identical output (no timestamps).
@@ -48,7 +48,7 @@ def test_render_clear_action_comment_template_is_deterministic():
 
 
 def test_render_clear_action_ack_template_is_deterministic():
-    """The 'ack' clear_action maps to ``map topic advance-round --ack accept``."""
+    """The 'ack' clear_action maps to the FS speech-file hint (no ack verb since v0.13 M58)."""
     item = {
         "kind": "round_ack",
         "clear_action": "ack",
@@ -57,7 +57,8 @@ def test_render_clear_action_ack_template_is_deterministic():
     }
     rendered = render_clear_action_template(item)
     assert rendered == (
-        "map topic advance-round --topic 33333333-3333-3333-3333-333333333333 --ack accept"
+        "map fs comment --topic 33333333-3333-3333-3333-333333333333 "
+        "--file <your-round-speech.md>  # speech file = your ack (v0.13 M58)"
     )
 
 

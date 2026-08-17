@@ -1,35 +1,49 @@
-"""T3: comment_seq cursor read API and obligation preservation."""
+"""T3: comment_seq cursor read API and obligation preservation.
+
+v0.13 M58: topics/comments fixtures are DB-direct inserts (write endpoints
+retired); comments go through the service layer so mention handling and
+comment_seq allocation stay intact.
+"""
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from sqlalchemy import select
+
+from server.domain.models import Agent
+from tests._db_topic_factory import db_add_comment, db_create_topic
 
 pytestmark = pytest.mark.slow
 
 
-def _create_topic(client, headers, project, **overrides):
-    payload = {"title": "cursor-topic", "description": "d"}
-    payload.update(overrides)
-    resp = client.post(f"/api/v1/projects/{project['id']}/topics", headers=headers, json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+def _host(db):
+    return db.scalar(select(Agent).where(Agent.name == "test-agent"))
+
+
+def _reviewer(db):
+    return db.scalar(select(Agent).where(Agent.name == "reviewer-agent"))
+
+
+def _create_topic(db, project, **overrides):
+    overrides.setdefault("title", "cursor-topic")
+    overrides.setdefault("description", "d")
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=_host(db).id,
+        **overrides,
+    )
 
 
 def test_topic_read_advances_cursor_and_clears_unread_progress(
-    client, auth_headers, project, reviewer
+    client, db_session, auth_headers, project, reviewer
 ):
-    topic = _create_topic(client, auth_headers, project, title="read-cursor")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host opens"},
-    )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "reviewer says hi"},
-    )
+    topic = _create_topic(db_session, project, title="read-cursor")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host opens")
+    db_add_comment(db_session, topic_id=topic.id, author=_reviewer(db_session), body="reviewer says hi")
 
     reviewer_headers = reviewer["headers"]
     progress_before = client.get(
@@ -53,15 +67,11 @@ def test_topic_read_advances_cursor_and_clears_unread_progress(
     assert progress_after["total"] == 0
 
 
-def test_topic_read_does_not_clear_mention_obligation(client, auth_headers, reviewer, project):
+def test_topic_read_does_not_clear_mention_obligation(client, db_session, auth_headers, reviewer, project):
     """Cursor read must not dismiss mention obligation (T3-2)."""
-    topic = _create_topic(client, auth_headers, project, title="read-mention")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent please review"},
-    )
+    topic = _create_topic(db_session, project, title="read-mention")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="@reviewer-agent please review")
 
     reviewer_headers = reviewer["headers"]
     todos_before = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
@@ -86,17 +96,11 @@ def test_topic_read_does_not_clear_mention_obligation(client, auth_headers, revi
     assert len(mention_work) == 1
 
 
-def test_comment_seq_strictly_monotonic_per_topic(client, auth_headers, project):
-    topic = _create_topic(client, auth_headers, project, title="seq-mono")
-    tid = topic["id"]
+def test_comment_seq_strictly_monotonic_per_topic(client, db_session, auth_headers, project):
+    topic = _create_topic(db_session, project, title="seq-mono")
     seqs = []
     for i in range(3):
-        resp = client.post(
-            f"/api/v1/topics/{tid}/comments",
-            headers=auth_headers,
-            json={"body": f"comment {i}"},
-        )
-        assert resp.status_code == 201, resp.text
-        seqs.append(resp.json()["comment_seq"])
+        comment = db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body=f"comment {i}")
+        seqs.append(comment.comment_seq)
     assert seqs == sorted(seqs)
     assert len(set(seqs)) == 3

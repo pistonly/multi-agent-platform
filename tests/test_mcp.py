@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from map_client.testing import MAPTestClientTransport
 from map_mcp.server import build_server
@@ -192,25 +194,34 @@ async def test_mcp_agent_can_revise_project_status(map_client, project):
 
 @pytest.mark.asyncio
 async def test_mcp_topic_flow(map_client):
+    """v0.13 M58: MCP topic write tools transparently surface the SDK 410
+    (topic_write_retired + FS guidance hint). The 410 fires before any
+    existence check, so an arbitrary UUID suffices for the id-scoped tools.
+    """
     mcp = build_server(map_client)
-    _, topic = await mcp.call_tool("create_topic", {"title": "MCP 话题", "description": "讨论"})
-    assert topic["status"] == "open"
-    topic_id = topic["id"]
+    topic_id = str(uuid.uuid4())
 
-    _, comment = await mcp.call_tool(
-        "create_topic_comment", {"topic_id": topic_id, "body": "一条讨论"}
-    )
-    assert comment["body"] == "一条讨论"
-
-    _, detail = await mcp.call_tool("get_topic", {"topic_id": topic_id})
-    assert detail["comment_count"] == 1
-    assert detail["comments"][0]["body"] == "一条讨论"
-
-    _, closed = await mcp.call_tool("close_topic", {"topic_id": topic_id})
-    assert closed["status"] == "closed"
-
-    _, opened = await mcp.call_tool("reopen_topic", {"topic_id": topic_id})
-    assert opened["status"] == "open"
+    cases = [
+        (
+            "create_topic",
+            {"title": "MCP 话题", "description": "讨论"},
+            "map fs topic-create",
+        ),
+        (
+            "create_topic_comment",
+            {"topic_id": topic_id, "body": "一条讨论"},
+            "map fs comment",
+        ),
+        ("close_topic", {"topic_id": topic_id}, "map fs close"),
+        ("reopen_topic", {"topic_id": topic_id}, "index.md"),
+    ]
+    for tool, args, hint_fragment in cases:
+        with pytest.raises(ToolError) as exc:
+            await mcp.call_tool(tool, args)
+        msg = str(exc.value)
+        assert "HTTP 410" in msg, (tool, msg)
+        assert "topic_write_retired" in msg, (tool, msg)
+        assert hint_fragment in msg, (tool, msg)
 
 
 @pytest.mark.asyncio

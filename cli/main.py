@@ -584,8 +584,12 @@ def _emit_similarity_warning(similarity_warning: Any) -> None:
 
 
 _CLEAR_ACTION_TEMPLATES: dict[str, str] = {
-    "comment": "map topic comment --topic {topic_id} --reply-to {source_comment_id}",
-    "ack": "map topic advance-round --topic {topic_id} --ack accept",
+    # v0.13 M58: topic write paths are FS-only. The DB-era hints
+    # ("--reply-to" thread reply / "advance-round --ack accept") pointed at
+    # retired commands; both obligations are now cleared by writing the
+    # agent's own round speech file via ``map fs comment``.
+    "comment": "map fs comment --topic {topic_id} --file <your-round-speech.md>",
+    "ack": "map fs comment --topic {topic_id} --file <your-round-speech.md>  # speech file = your ack (v0.13 M58)",
     "dismiss": "map mention dismiss --id {mention_id}",
     "read": "Read latest comments on topic '{topic_title}'",
 }

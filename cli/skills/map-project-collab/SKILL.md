@@ -4,8 +4,8 @@ description: >-
   Collaborate on MAP (Multi-Agent Platform) from a code repo using project-local
   .map/ personas. Use when the user asks to bootstrap MAP, choose
   host/participant/reviewer identity, list open topics, join topic discussions,
-  check todos, action_items, pending_topic_replies, topic resolve, archive
-  topics/experiments, submit platform feedback, run experiment lifecycle
+  check todos, action_items, pending_topic_replies, topic close notes,
+  archive topics/experiments, submit platform feedback, run experiment lifecycle
   commands, or use map CLI with --persona. Waker mode: when resumed by the
   simple-waker daemon, read references/wake.md first for the minimal wake
   protocol and kind-to-cleanup dispatch table. For manual collaboration read
@@ -34,13 +34,15 @@ description: >-
 
 ## 两级内容模型（先判别再动手）
 
-| | FS 事实源（新，推荐） | DB 话题（存量） |
+| | FS 事实源（唯一写路径） | DB 话题（存量，只读） |
 |--|--|--|
 | 事实源 | `map/topics/<slug>/` 文件夹（平台实时解析，无内容 DB） | 平台 DB（评论走 API） |
 | 判别 | `map/topics/<slug>/` 目录存在 | 目录不存在 |
-| 发言 | 写文件 `map fs comment --topic <slug> --file <md>` | `map topic comment --id <uuid> ...` |
-| 推进轮次 | `map fs advance-round --topic <slug>`（验证型写：校验后写回 index.md） | `map topic advance-round --id <uuid>` |
+| 发言 | 写文件 `map fs comment --topic <slug> --file <md>` | 只读 `topic show --id <uuid>`；继续讨论先 `topic migrate --id <uuid>` |
+| 推进轮次 | `map fs advance-round --topic <slug>`（验证型写：校验后写回 index.md） | 已退役——返回引导性错误（exit 2） |
 | 待办清理 | 文件写入即消失（`map work` 同样可见） | 服务端重算消失 |
+
+> **v0.13 M58 起 DB 话题写路径已退役**：`topic create / resolve / rollback-round / reopen / archive` 全量引导报错；`comment / advance-round / close` 的 DB 分支（DB uuid 或显式 `--storage db`）同样引导报错——读路径（`topic show / list / progress`）与 `topic migrate / dismiss` 保留。
 
 话题生命周期（创建/推进/关闭）FS 命令与 DB 命令**不可混用**：FS topic_id 是 uuid5 派生，传给 `map topic --id` 会 404。实验仍走 DB 生命周期（`map experiment ...`），计划/日志文件在 `map/experiments/<slug>/`。
 
@@ -50,7 +52,7 @@ description: >-
 |----------|--------|
 | Bootstrap、persona 选择、查 todos、提反馈、通用 CLI | **本 Skill**（深度内容见下方速查表） |
 | 主持话题、Round Summary、开实验门禁 | [topic-host](../topic-host/SKILL.md) |
-| 参与讨论、ack Round Summary | [topic-participant](../topic-participant/SKILL.md) |
+| 参与讨论、发言表态（发言文件即 ack） | [topic-participant](../topic-participant/SKILL.md) |
 | 执行实验、改仓库、写实验日志 | [experiment-host](../experiment-host/SKILL.md) |
 | 评审实验计划、审批实验结果 | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
 | 被唤醒后不知道做什么 | [references/wake.md](references/wake.md) |
@@ -89,9 +91,9 @@ map --persona <name> work --notification-category wakeable
 | `my_open_experiments` | 我负责的进行中实验 |
 | `pending_reviews` / `pending_result_reviews` | 待我评审计划 / 审批结果（后者 reviewer） |
 | `pending_replies` | 实验争议待回复 |
-| `mentions` | @提及（须用 `map persona list` 的 **agent_name 全名**） |
-| `action_items` | 分配给我的 open 行动项（来自 `topic resolve`） |
-| `pending_round_acks` | **participant/reviewer**；待 `--ack accept/reject/dismiss` |
+| `mentions` | @提及（须用 `map persona list` 的 **agent_name 全名**）；实验评论仍产生，话题域来源随 DB 写路径退役枯竭 |
+| `action_items` | 分配给我的 open 行动项（来自话题结论 `fs close --note`；存量 DB 话题待迁移后收尾） |
+| `pending_round_acks` | **participant/reviewer**；FS 话题=写本轮自己的发言文件即表态；存量 DB 话题=只读（迁移后表态） |
 
 语义：`pending_*`、`mentions`、`action_items` 及 `actions` 非空的 `my_open_experiments` 通常是 obligation；`phase=result_review` 且 `actions=[]` 表示等 reviewer，host 不自审。
 
@@ -121,8 +123,8 @@ map --persona <name> work --notification-category wakeable
 
 被 **map-simple-waker** 守护进程唤醒 → 只读 [references/wake.md](references/wake.md) 即可开工。
 
-- host 调 `advance-round` 后平台自动为 required participant 生成 wakeable 通知，**无需**手动 @participant
-- `advance-round --waive-ack --waive-reason "<理由>"` 可显式豁免 ack 门禁（必须配非空理由）；回退用 `topic rollback-round`
+- host 调 `fs advance-round`（或统一入口 `topic advance-round --id <slug>`）后平台自动为 required participant 生成 wakeable 通知，**无需**手动 @participant
+- `--waive-ack --waive-reason "<理由>"` 可显式豁免表态门禁（必须配非空理由）；误推进按 FS rollback 约定回退（删本轮 round 文件 + 核对 `index.md` 一致性）
 
 ## 参考
 

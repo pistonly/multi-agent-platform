@@ -270,29 +270,36 @@ def test_a3_three_way_audit_join(client, admin_headers, project, agent_token, db
     # Add a second agent (the "creator") so the waker receives the fan-out
     # notification. enqueue_from_event excludes the actor.
     _, creator_token = _make_agent(client, admin_headers, project, "agent-a3-creator")
-    creator_headers = {"Authorization": f"Bearer {creator_token}"}
 
-    topic_res = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=creator_headers,
-        json={"title": "A3 join topic", "description": "round 1"},
-    )
-    assert topic_res.status_code == 201, topic_res.text
-    topic = topic_res.json()
+    # v0.13 M58: topic write endpoints retired (410). The A3 contract under
+    # test is the three-way audit JOIN (notification ↔ inbound_event ↔
+    # sessions jsonl), so the topic + fan-out notification are inserted as
+    # direct DB rows instead of driving the retired POST /topics path.
+    waker_me = client.get("/api/v1/agents/me", headers=waker_headers).json()
+    from server.domain.models import Agent
 
-    notif_res = client.get("/api/v1/agents/me/notifications", headers=waker_headers)
-    assert notif_res.status_code == 200
-    items = notif_res.json()["items"]
-    target = next(
-        (
-            n
-            for n in items
-            if n.get("target_type") == "topic" and n.get("target_id") == topic["id"]
-        ),
-        None,
+    creator = db_session.query(Agent).filter(Agent.name == "agent-a3-creator").one()
+    from tests._db_topic_factory import db_create_topic
+
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=creator.id,
+        title="A3 join topic",
+        description="round 1",
     )
-    assert target is not None, f"no notification for new topic; got {items}"
-    notification_id = target["id"]
+    notification = Notification(
+        recipient_agent_id=uuid.UUID(waker_me["id"]),
+        project_id=uuid.UUID(project["id"]),
+        event="topic.created",
+        summary="agent-a3-creator opened topic 'A3 join topic'",
+        target_type="topic",
+        target_id=topic.id,
+        group_key=f"topic.created:{topic.id}:{waker_me['id']}",
+    )
+    db_session.add(notification)
+    db_session.commit()
+    notification_id = str(notification.id)
 
     fingerprint = f"host:pending_topic_replies:{notification_id}"
     status = _post_inbound(

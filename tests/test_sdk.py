@@ -118,54 +118,67 @@ def test_sdk_http_error(map_client: MAPClient, admin_headers, client: TestClient
     assert exc.value.status_code == 403
 
 
-def test_sdk_topic_flow(map_client: MAPClient, project: dict):
+def test_sdk_topic_write_methods_return_410(
+    map_client: MAPClient, db_session, project: dict
+):
+    """v0.13 M58: 话题域 SDK 写方法全链 410（含 body 序列化路径仍可达 server）。"""
     from server.domain.schemas import TopicCommentCreate, TopicCreate
 
-    topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="SDK 话题"))
-    assert topic.status.value == "open"
-    assert topic.discussion_round == "round1"
-    assert topic.round_summary_count == 0
+    from tests._db_topic_factory import db_create_topic
 
-    comment = map_client.create_topic_comment(topic.id, TopicCommentCreate(body="一条评论"))
-    assert comment.body == "一条评论"
-
-    advanced = map_client.advance_topic_round(topic.id)
-    assert advanced.discussion_round == "round2"
-    assert advanced.round_summary_count == 1
-
-    detail = map_client.get_topic(topic.id)
-    assert detail.comment_count == 1
-    assert detail.discussion_round == "round2"
-    assert detail.comments[0].body == "一条评论"
-
-    closed = map_client.close_topic(topic.id)
-    assert closed.status.value == "closed"
-
-    reopened = map_client.reopen_topic(topic.id)
-    assert reopened.status.value == "open"
-
-
-def test_sdk_topic_comment_reply(map_client: MAPClient, project: dict):
-    """Regression: create_topic_comment with parent_id (UUID) must serialize the request body."""
-    from server.domain.schemas import TopicCommentCreate, TopicCreate
-
-    topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="回复话题"))
-    parent = map_client.create_topic_comment(topic.id, TopicCommentCreate(body="顶层"))
-    reply = map_client.create_topic_comment(
-        topic.id, TopicCommentCreate(body="回复", parent_id=parent.id)
+    me = map_client.get_me()
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=me.id,
+        title="SDK 退役话题",
     )
-    assert reply.parent_comment_id == parent.id
 
-    detail = map_client.get_topic(topic.id)
-    assert detail.comment_count == 2
-    assert detail.comments[0].children  # reply nested under its parent
+    def expect_410(fn, label: str) -> None:
+        with pytest.raises(MAPHTTPError) as exc:
+            fn()
+        assert exc.value.status_code == 410, (label, exc.value)
+        assert "topic_write_retired" in str(exc.value), (label, exc.value)
+
+    expect_410(
+        lambda: map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="SDK 话题")),
+        "create_topic",
+    )
+    expect_410(
+        lambda: map_client.create_topic_comment(topic.id, TopicCommentCreate(body="一条评论")),
+        "create_topic_comment",
+    )
+    expect_410(
+        lambda: map_client.create_topic_comment(
+            topic.id, TopicCommentCreate(body="回复", parent_id=uuid.uuid4())
+        ),
+        "create_topic_comment(parent_id)",
+    )
+    expect_410(lambda: map_client.advance_topic_round(topic.id), "advance_topic_round")
+    expect_410(lambda: map_client.close_topic(topic.id), "close_topic")
+    expect_410(lambda: map_client.reopen_topic(topic.id), "reopen_topic")
+    expect_410(
+        lambda: map_client.resolve_topic(topic.id, TopicResolve(decision="d")),
+        "resolve_topic",
+    )
 
 
-def test_sdk_experiment_with_topic_id(map_client: MAPClient, project: dict):
-    """Regression: create_experiment with topic_id (UUID) must serialize the request body."""
-    from server.domain.schemas import ExperimentCreate, PlanInput, TopicCreate
+def test_sdk_experiment_with_topic_id(map_client: MAPClient, db_session, project: dict):
+    """Regression: create_experiment with topic_id (UUID) must serialize the request body.
 
-    topic = map_client.create_topic(uuid.UUID(project["id"]), TopicCreate(title="实验源话题"))
+    v0.13 M58: 话题由 DB 直插创建（话题写端点已退役，实验域不受影响）。
+    """
+    from server.domain.schemas import ExperimentCreate, PlanInput
+
+    from tests._db_topic_factory import db_create_topic
+
+    me = map_client.get_me()
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=me.id,
+        title="实验源话题",
+    )
     experiment = map_client.create_experiment(
         uuid.UUID(project["id"]),
         ExperimentCreate(title="带话题的实验", plan=PlanInput(content_md=make_valid_plan(body="p")), topic_id=topic.id),
@@ -267,31 +280,37 @@ def test_sdk_list_experiments_page(map_client: MAPClient, project: dict):
 
 
 def test_sdk_action_item_wake_fields_round_trip(
-    map_client: MAPClient, project: dict
+    map_client: MAPClient, db_session, project: dict
 ):
     """I7: ``list_project_action_items`` round-trips the wake tracking fields
     added in I1/I4 (plan §7) so the CLI ``action list`` output and any SDK
     consumer can read them without going through the audit log.
 
-    Drives: create topic → resolve with action_item → ``list_project_action_items``
-    → assert each wake field is present and parseable.
+    v0.13 M58: 话题 + decision/action_item 由 DB 直插创建（读路径消费者断言保留）。
     """
     from map_types.enums import TopicActionItemStatus
 
-    from server.domain.schemas import TopicCreate
+    from tests._db_topic_factory import db_create_topic, db_resolve_with_action_items
 
     project_id = uuid.UUID(project["id"])
     me = map_client.get_me()
-    topic = map_client.create_topic(project_id, TopicCreate(title="wake schema round-trip"))
-    decision = map_client.resolve_topic(
-        topic.id,
-        TopicResolve(
-            decision="schema round-trip",
-            action_items=[TopicActionItemCreate(title="wake schema", owner_agent_id=me.id)],
-        ),
+    topic = db_create_topic(
+        db_session,
+        project_id=project_id,
+        creator_agent_id=me.id,
+        title="wake schema round-trip",
     )
+    rows = db_resolve_with_action_items(
+        db_session,
+        topic,
+        author=me,
+        decision="schema round-trip",
+        action_items=[{"title": "wake schema", "owner_agent_id": me.id}],
+    )
+    item_id = rows[0].id
+
     items = map_client.list_project_action_items(project_id, status=TopicActionItemStatus.open)
-    matched = [i for i in items if i.id == decision.action_items[0].id]
+    matched = [i for i in items if i.id == item_id]
     assert len(matched) == 1, f"expected action_item in listing, got {items}"
     item = matched[0]
     for field in ("wake_count", "first_open_at", "last_woken_at", "stale_at"):
@@ -306,23 +325,31 @@ def test_sdk_action_item_wake_fields_round_trip(
 
 
 def test_sdk_action_item_mark_wake_sent_round_trip(
-    map_client: MAPClient, project: dict
+    map_client: MAPClient, db_session, project: dict
 ):
     """I7: the I4 ``mark_wake_sent`` SDK method round-trips the wake_count
-    bump + last_woken_at stamp back through ``TopicActionItemRead``."""
-    from server.domain.schemas import TopicCreate
+    bump + last_woken_at stamp back through ``TopicActionItemRead``.
+
+    v0.13 M58: 话题 + decision/action_item 由 DB 直插创建（读路径消费者断言保留）。
+    """
+    from tests._db_topic_factory import db_create_topic, db_resolve_with_action_items
 
     project_id = uuid.UUID(project["id"])
     me = map_client.get_me()
-    topic = map_client.create_topic(project_id, TopicCreate(title="mark-wake-sent round-trip"))
-    decision = map_client.resolve_topic(
-        topic.id,
-        TopicResolve(
-            decision="mark-wake-sent round-trip",
-            action_items=[TopicActionItemCreate(title="wake", owner_agent_id=me.id)],
-        ),
+    topic = db_create_topic(
+        db_session,
+        project_id=project_id,
+        creator_agent_id=me.id,
+        title="mark-wake-sent round-trip",
     )
-    item_id = decision.action_items[0].id
+    rows = db_resolve_with_action_items(
+        db_session,
+        topic,
+        author=me,
+        decision="mark-wake-sent round-trip",
+        action_items=[{"title": "wake", "owner_agent_id": me.id}],
+    )
+    item_id = rows[0].id
     bumped = map_client.mark_wake_sent(item_id)
     assert bumped.wake_count == 1
     assert bumped.last_woken_at is not None

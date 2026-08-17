@@ -31,30 +31,30 @@ import uuid
 from map_types.enums import NotificationCategory
 from sqlalchemy import select
 
-from server.domain.models import Notification
+from server.domain.models import Agent, Notification
+from tests._db_topic_factory import db_create_topic, db_resolve_with_action_items
 
 
-def _create_topic(client, headers, project):
-    resp = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=headers,
-        json={"title": "wake notification test"},
+def _create_topic(db, project, creator_agent_id):
+    """DB-direct topic insert (v0.13 M58: POST /topics retired)."""
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=uuid.UUID(str(creator_agent_id)),
+        title="wake notification test",
+        description=None,
     )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
-def _resolve_with_action_item(client, headers, topic_id, owner_agent_id):
-    resp = client.post(
-        f"/api/v1/topics/{topic_id}/resolve",
-        headers=headers,
-        json={
-            "decision": "test wake notification",
-            "action_items": [{"title": "notify me", "owner_agent_id": owner_agent_id}],
-        },
+def _resolve_with_action_item(db, topic, owner_agent_id):
+    author = db.scalar(select(Agent).where(Agent.name == "admin-agent"))
+    rows = db_resolve_with_action_items(
+        db,
+        topic,
+        author=author,
+        action_items=[{"title": "notify me", "owner_agent_id": owner_agent_id}],
     )
-    assert resp.status_code == 200, resp.text
-    return resp.json()["action_items"][0]
+    return {"id": str(rows[0].id)}
 
 
 def _owner_id_from_auth(client, auth_headers):
@@ -95,8 +95,8 @@ def test_mark_wake_sent_notifies_owner(
 ):
     owner_id = _owner_id_from_auth(client, auth_headers)
     admin_id = _admin_id_from_headers(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     resp = client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -119,8 +119,9 @@ def test_mark_wake_sent_notification_is_wakeable(
     client, db_session, auth_headers, admin_headers, project
 ):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    admin_id = _admin_id_from_headers(client, admin_headers)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -137,15 +138,16 @@ def test_mark_wake_sent_notification_is_wakeable(
     payload = wake_rows[0].payload_json or {}
     assert payload.get("wake_count") == 1
     assert payload.get("action_item_id") == item["id"]
-    assert payload.get("topic_id") == topic["id"]
+    assert payload.get("topic_id") == str(topic.id)
 
 
 def test_repeated_wakes_increment_wake_count_in_payload(
     client, db_session, auth_headers, admin_headers, project
 ):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    admin_id = _admin_id_from_headers(client, admin_headers)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     for _ in range(3):
         resp = client.post(
@@ -178,8 +180,8 @@ def test_mark_stale_notifies_admin(
 ):
     owner_id = _owner_id_from_auth(client, auth_headers)
     admin_id = _admin_id_from_headers(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     # Wake first so the stale invariant ("last_woken_at required") passes.
     client.post(
@@ -204,8 +206,8 @@ def test_mark_stale_notification_is_wakeable(
 ):
     owner_id = _owner_id_from_auth(client, auth_headers)
     admin_id = _admin_id_from_headers(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -222,7 +224,7 @@ def test_mark_stale_notification_is_wakeable(
     assert stale_rows[0].category == NotificationCategory.wakeable
     payload = stale_rows[0].payload_json or {}
     assert payload.get("action_item_id") == item["id"]
-    assert payload.get("topic_id") == topic["id"]
+    assert payload.get("topic_id") == str(topic.id)
     assert payload.get("wake_count") == 1
     assert payload.get("stale_at") is not None
 
@@ -253,10 +255,10 @@ def test_creator_does_not_receive_stale_notification(
     """
     owner_id = _owner_id_from_auth(client, auth_headers)
     admin_id = _admin_id_from_headers(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    assert topic["creator_agent_id"] == admin_id  # admin created the topic
+    topic = _create_topic(db_session, project, admin_id)
+    assert str(topic.creator_agent_id) == admin_id  # admin created the topic
 
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
     client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
         headers=admin_headers,
@@ -287,8 +289,9 @@ def test_owner_receives_wake_but_not_stale_notification(
     (the stale path is admin-only — the owner already had 4 chances to
     respond and the diagnostic goes to admin as the stable收口)."""
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    admin_id = _admin_id_from_headers(client, admin_headers)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -316,8 +319,8 @@ def test_stale_idempotent_does_not_duplicate_notification(
 ):
     owner_id = _owner_id_from_auth(client, auth_headers)
     admin_id = _admin_id_from_headers(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, admin_id)
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -405,10 +408,8 @@ def test_non_admin_creator_does_not_receive_stale_notification(
     assert other_owner_resp.status_code == 201
     other_owner_id = uuid.UUID(other_owner_resp.json()["id"])
 
-    topic = _create_topic(client, auth_headers, project)  # auth = creator
-    item = _resolve_with_action_item(
-        client, admin_headers, topic["id"], str(other_owner_id)
-    )
+    topic = _create_topic(db_session, project, creator_id)  # auth = creator
+    item = _resolve_with_action_item(db_session, topic, str(other_owner_id))
 
     client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",

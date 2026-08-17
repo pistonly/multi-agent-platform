@@ -1,77 +1,31 @@
+"""v0.13 M58: topic-comment notification production tests were removed — the
+DB comment write endpoint is retired (410), so the comment→notification
+route has no production caller left. Consumers (waker notification bucket,
+Web notifications page) are covered elsewhere. What stays here are the
+experiment-domain creation warnings, whose topic fixtures are now DB-direct
+inserts.
+"""
+
+import uuid
+
+from sqlalchemy import select
+
+from server.domain.models import Agent
+from tests._db_topic_factory import db_create_topic
 from tests._frontmatter import make_valid_plan
 
 
-def test_topic_comment_notifies_host_and_broadcasts(
-    client, auth_headers, reviewer, project, agent_token, admin_headers
-):
-    participant_headers = reviewer["headers"]
-
-    third = client.post(
-        "/api/v1/agents",
-        headers=admin_headers,
-        json={"name": "third-agent", "role": "agent", "project_key": project["project_key"]},
-    )
-    assert third.status_code == 201
-    third_headers = {"Authorization": f"Bearer {third.json()['api_token']}"}
-
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "通知测试话题"},
-    ).json()
-
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=participant_headers,
-        json={"body": "participant 顶层评论"},
-    ).json()
-
-    host_notifs = client.get("/api/v1/agents/me/notifications", headers=auth_headers).json()
-    host_topic_notifs = [
-        n for n in host_notifs["items"] if n["event"] == "topic.comment.created"
-    ]
-    assert len(host_topic_notifs) == 1
-    assert host_topic_notifs[0]["summary"] == "【主持】话题新评论待回复"
-    assert host_topic_notifs[0]["payload_json"]["host_directed"] is True
-
-    participant_notifs = client.get(
-        "/api/v1/agents/me/notifications", headers=participant_headers
-    ).json()
-    participant_topic_notifs = [
-        n for n in participant_notifs["items"] if n["event"] == "topic.comment.created"
-    ]
-    assert len(participant_topic_notifs) == 0
-
-    third_notifs = client.get("/api/v1/agents/me/notifications", headers=third_headers).json()
-    broadcast = [n for n in third_notifs["items"] if n["event"] == "topic.comment.created"]
-    assert len(broadcast) == 1
-    assert broadcast[0]["summary"] == "话题新评论"
-    assert "host_directed" not in (broadcast[0].get("payload_json") or {})
+def _host(db):
+    return db.scalar(select(Agent).where(Agent.name == "test-agent"))
 
 
-def test_host_own_comment_no_self_notification(client, auth_headers, project):
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "自评论话题"},
-    ).json()
-
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=auth_headers,
-        json={"body": "主持自己评论"},
-    )
-
-    host_notifs = client.get("/api/v1/agents/me/notifications", headers=auth_headers).json()
-    topic_events = [n for n in host_notifs["items"] if n["event"] == "topic.comment.created"]
-    assert len(topic_events) == 0
-
-
-def test_create_experiment_no_topic_id_warning(client, auth_headers, project):
-    client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "open 话题"},
+def test_create_experiment_no_topic_id_warning(client, db_session, auth_headers, project):
+    db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=_host(db_session).id,
+        title="open 话题",
+        description=None,
     )
 
     exp = client.post(
@@ -82,12 +36,14 @@ def test_create_experiment_no_topic_id_warning(client, auth_headers, project):
     assert exp["warnings"] == ["no_topic_id"]
 
 
-def test_create_experiment_with_not_ready_topic_id_warning(client, auth_headers, project):
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "绑定话题"},
-    ).json()
+def test_create_experiment_with_not_ready_topic_id_warning(client, db_session, auth_headers, project):
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=_host(db_session).id,
+        title="绑定话题",
+        description=None,
+    )
 
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
@@ -95,7 +51,7 @@ def test_create_experiment_with_not_ready_topic_id_warning(client, auth_headers,
         json={
             "title": "有话题实验",
             "plan": {"content_md": make_valid_plan(body="p")},
-            "topic_id": topic["id"],
+            "topic_id": str(topic.id),
         },
     ).json()
     assert exp["warnings"] == ["topic_not_ready_for_experiment"]

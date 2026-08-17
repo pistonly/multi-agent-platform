@@ -2,9 +2,11 @@
 
 Three sub-apps that share the "topic work items" domain:
 
-* ``map topic ...`` — topic lifecycle (create / list / show / progress /
-  resolve / advance-round / comment / close / reopen / dismiss / read /
-  mark-seen / archive). The big one.
+* ``map topic ...`` — topic reads & FS-routed writes (list / show / progress /
+  comment / advance-round / close / dismiss / read / mark-seen / migrate).
+  v0.13 M58: DB write paths retired — create / resolve / rollback-round /
+  reopen / archive (and the DB branches of comment / advance-round / close)
+  reject with guidance instead of writing the platform DB.
 * ``map mention ...`` — personal @mention todos (dismiss / list /
   dismiss-all / reconcile-stale stub).
 * ``map todo ...`` — explicit_only todo partition clear router
@@ -21,21 +23,24 @@ from typing import Any, NoReturn
 
 import typer
 from map_client.client import MAPClient
-from map_types.schemas import (
-    TopicAdvanceRound,
-    TopicCommentCreate,
-    TopicUpdate,
-)
 
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
-topic_app = typer.Typer(help="Topic commands", rich_markup_mode=None)
+topic_app = typer.Typer(
+    help=(
+        "Topic commands (v0.13 M58: FS-only writes). Reads (show/list/progress) and "
+        "migrate/dismiss stay DB-id based; write commands route FS targets to file writes "
+        "and reject retired DB paths with guidance."
+    ),
+    rich_markup_mode=None,
+)
 mention_app = typer.Typer(help="Mention todo commands")
 todo_app = typer.Typer(help="Todo partition clear routing (explicit_only buckets)")
 
 _STORAGE_HELP = (
     "Route --id explicitly: 'fs' (map/ folder topic) or 'db' (platform DB). "
-    "Default auto-routing: uuid -> DB first, then FS uuid5; slug -> FS first, then DB slug."
+    "Default auto-routing: uuid -> DB first, then FS uuid5; slug -> FS first, then DB slug. "
+    "v0.13 M58: explicit 'db' on write commands is rejected with guidance (DB write paths retired)."
 )
 
 
@@ -196,6 +201,72 @@ def _fs_projection_noop(command: str, slug: str) -> NoReturn:
     raise typer.Exit(0)
 
 
+# v0.13 M58：DB 话题写路径整体退役。退役面 = create / resolve / rollback-round /
+# reopen / archive 五命令全量 + comment / advance-round / close 三命令的 DB 分支
+#（含显式 --storage db）。读路径（show/list/progress）与 dismiss/read/mark-seen/
+# migrate 不受影响。一律引导性错误（exit 2），不静默成功。
+_DB_WRITE_RETIRED_HINTS: dict[str, str] = {
+    "create": (
+        "create FS topics instead: "
+        "`map fs topic-create --title ... --slug <name> --participants <a,b>`"
+    ),
+    "resolve": (
+        "decisions are carried by the FS close note: "
+        "`map fs close --topic <slug> --reason <code> --note <decision>`; "
+        "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
+    ),
+    "advance-round": (
+        "FS topics advance via `map fs advance-round --topic <slug>` "
+        "(or `map topic advance-round --id <slug>`); "
+        "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
+    ),
+    "rollback-round": (
+        "FS rounds are file facts — remove the round<N>-*.md files and fix "
+        "index.md round/participants consistency (see file-reference.md); "
+        "legacy DB topic: `map topic migrate` first"
+    ),
+    "comment": (
+        "comment FS topics via `map fs comment --topic <slug> --file <md>` "
+        "(or `map topic comment --id <slug>`); "
+        "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
+    ),
+    "close": (
+        "close FS topics via `map fs close --topic <slug> --reason <code> --note ...` "
+        "(or `map topic close --id <slug>`); "
+        "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
+    ),
+    "reopen": (
+        "FS topic status lives in map/topics/<slug>/index.md — edit `status` "
+        "directly and note the reason in the close note or a new speech; "
+        "legacy DB topic: `map topic migrate` first"
+    ),
+    "archive": (
+        "FS archiving is a file move: "
+        "mv map/topics/<slug>/ map/archive/topics/ ; legacy DB topics stay "
+        "readable via `topic show` (archive flag no longer maintained)"
+    ),
+    "archive-undo": (
+        "restore a FS-archived topic by moving the folder back: "
+        "mv map/archive/topics/<slug>/ map/topics/"
+    ),
+}
+
+
+def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
+    """DB 话题写路径退役统一拒绝（v0.13 M58）。
+
+    与 ``_fs_transition_rejected``（M56B，FS 目标跑状态变迁命令）互为镜像：
+    这里拒绝的是 DB 侧写调用。引导性错误，exit 2，不静默成功。
+    """
+    where = f" for '{target}'" if target else ""
+    typer.echo(
+        f"Error: `topic {command}` DB write path retired in v0.13 M58{where} — "
+        f"{_DB_WRITE_RETIRED_HINTS[command]}",
+        err=True,
+    )
+    raise typer.Exit(2)
+
+
 # ---------------------------------------------------------------------------
 # topic_app
 # ---------------------------------------------------------------------------
@@ -213,17 +284,9 @@ def topic_create(
         help="Human-readable identifier for file path convention (e.g. 'map-slimming').",
     ),
 ) -> None:
-    from map_types.schemas import TopicCreate
-
-    from cli.main import _resolve_project, _run
-
-    payload = TopicCreate(title=title, description=description, slug=slug)
-
-    def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
-        return c.create_topic(pid, payload)
-
-    _run(action)
+    """(Retired v0.13 M58) DB topic creation is gone; topics are created as map/ folders."""
+    _ = (title, project, project_key, description, slug)  # accepted for clear errors
+    _db_write_retired("create")
 
 
 def _render_topic_table(topics: Any) -> str:
@@ -321,16 +384,18 @@ def topic_resolve(
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     resolve_file: Path = typer.Option(..., "--file"),
 ) -> None:
-    """Resolve a topic (DB topics only; FS targets are rejected with a close hint)."""
+    """(Retired v0.13 M58) DB resolve is gone; decisions ride the FS close note."""
+
     from cli.main import _load_topic_resolve_payload, _run
 
     payload = _load_topic_resolve_payload(resolve_file)
+    _ = payload  # validated then discarded; the retired hint explains the path
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":
             _fs_transition_rejected("resolve", target)
-        return c.resolve_topic(target, payload)
+        _db_write_retired("resolve", str(target))
 
     _run(action)
 
@@ -342,17 +407,17 @@ def topic_advance_round(
     increment_summary: bool = typer.Option(
         True,
         "--increment-summary/--no-increment-summary",
-        help="Increment round_summary_count before advancing.",
+        help="(DB-only, retired v0.13 M58) Increment round_summary_count before advancing.",
     ),
     ack_ids: str | None = typer.Option(
         None,
         "--ack-ids",
-        help="Host: comma-separated participant agent UUIDs already acknowledged.",
+        help="(DB-only, retired v0.13 M58) Host: comma-separated participant agent UUIDs already acknowledged.",
     ),
     ack: str | None = typer.Option(
         None,
         "--ack",
-        help="Participant: accept, reject, or dismiss acknowledgement for the current round.",
+        help="(DB-only, retired v0.13 M58) Participant: accept, reject, or dismiss acknowledgement for the current round.",
     ),
     mark_ready: bool = typer.Option(
         False,
@@ -372,25 +437,19 @@ def topic_advance_round(
 ) -> None:
     from cli.main import _resolve_project, _run
 
-    acknowledged_by: list[uuid.UUID] = []
     if ack_ids:
-        acknowledged_by = [uuid.UUID(item.strip()) for item in ack_ids.split(",") if item.strip()]
-    payload = TopicAdvanceRound(
-        increment_summary=increment_summary,
-        acknowledged_by=acknowledged_by,
-        ack=ack,  # type: ignore[arg-type]
-        mark_ready=mark_ready,
-        waive_ack=waive_ack,
-        waive_reason=waive_reason,
-    )
+        # --ack-ids is only meaningful for the retired DB path; still parse to
+        # give a precise error instead of a generic usage failure.
+        [uuid.UUID(item.strip()) for item in ack_ids.split(",") if item.strip()]
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":
             if ack_ids or ack:
                 typer.echo(
-                    "Error: --ack / --ack-ids are DB-topic options; FS topics advance when "
-                    "round files are present or with --waive-ack (see `map fs advance-round`).",
+                    "Error: --ack / --ack-ids are DB-topic options (retired v0.13 M58); "
+                    "FS topics advance when round files are present or with --waive-ack "
+                    "(see `map fs advance-round`).",
                     err=True,
                 )
                 raise typer.Exit(2)
@@ -403,7 +462,7 @@ def topic_advance_round(
                     waive_ack=waive_ack, waive_reason=waive_reason, mark_ready=mark_ready
                 ),
             )
-        return c.advance_topic_round(target, payload)
+        _db_write_retired("advance-round", str(target))
 
     _run(action)
 
@@ -413,14 +472,14 @@ def topic_rollback_round(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
-    """Roll the discussion round back by one step (DB topics only; FS rounds are file facts)."""
+    """(Retired v0.13 M58) DB rollback is gone; FS rounds are file facts (edit files)."""
     from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":
             _fs_transition_rejected("rollback-round", target)
-        return c.rollback_topic_round(target)
+        _db_write_retired("rollback-round", str(target))
 
     _run(action)
 
@@ -490,14 +549,7 @@ def topic_comment(
         if kind == "fs":  # pragma: no cover - 本地优先分支已拦截；兜底保持一致
             _write_fs_comment(target, content, parent, round_summary, file_path, exit_after=True)
             raise typer.Exit(0)
-        payload = TopicCommentCreate(
-            body=content,
-            parent_id=parent,
-            is_round_summary=round_summary,
-            file_path=file_path,
-            excerpt=excerpt,
-        )
-        return c.create_topic_comment(target, payload)
+        _db_write_retired("comment", str(target))
 
     _run(action)
 
@@ -576,7 +628,7 @@ def topic_close(
                 target,
                 FsCloseRequest(close_reason=reason, close_note=note),
             )
-        return c.close_topic(target, close_reason=reason, close_note=note)
+        _db_write_retired("close", str(target))
 
     _run(action)
 
@@ -586,14 +638,14 @@ def topic_reopen(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
-    """Reopen a closed topic (DB topics only; FS status lives in index.md)."""
+    """(Retired v0.13 M58) DB reopen is gone; FS status lives in index.md."""
     from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":
             _fs_transition_rejected("reopen", target)
-        return c.reopen_topic(target)
+        _db_write_retired("reopen", str(target))
 
     _run(action)
 
@@ -663,7 +715,7 @@ def topic_mark_seen(
 
 @topic_app.command(
     "archive",
-    epilog="Use --undo or --unarchive to restore an archived topic.",
+    epilog="(Retired v0.13 M58) FS archiving = moving map/topics/<slug>/ to map/archive/topics/.",
 )
 def topic_archive(
     topic_id: uuid.UUID | None = typer.Option(
@@ -682,33 +734,13 @@ def topic_archive(
         help="Alias of --undo: unarchive instead of archive.",
     ),
 ) -> None:
-    """Archive (or unarchive) a topic.
+    """(Retired v0.13 M58) DB archive flag is gone; FS archiving is a file move.
 
-    Thin wrapper around ``PATCH /topics/{id}`` with ``archived=true`` (or
-    ``false`` when ``--undo``/``--unarchive`` is set). Archive hides the
-    topic from ``topic list`` by default but ``topic show`` still returns
-    it including ``archived_at``. Archive is reversible — re-run with
-    ``--undo`` to restore.
+    Legacy DB topics stay readable via ``topic show``; the archived flag is no
+    longer maintained from the CLI. FS topics archive by moving the folder to
+    ``map/archive/topics/``.
     """
-    from map_client.exceptions import MAPNotFoundError
-
-    from cli.main import _require_option_uuid, _run
-
-    topic_id = _require_option_uuid(topic_id)
-    payload = TopicUpdate(archived=not (undo or unarchive))
-    object_kind = "topic"
-
-    def action(c: MAPClient):
-        try:
-            return c.update_topic(topic_id, payload)
-        except MAPNotFoundError as exc:
-            typer.echo(
-                f"Error: {object_kind} {topic_id} not found",
-                err=True,
-            )
-            raise typer.Exit(1) from exc
-
-    _run(action)
+    _db_write_retired("archive-undo" if (undo or unarchive) else "archive")
 
 
 def _plan_db_to_fs_migration(topic: Any, workspace: Path) -> dict[str, Any]:

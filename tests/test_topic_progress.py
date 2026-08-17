@@ -1,65 +1,62 @@
-"""Tests for topic progress API."""
+"""Tests for topic progress API.
+
+v0.13 M58: topics/comments fixtures are DB-direct inserts (write endpoints
+retired); comments go through the service layer so round-ack semantics hold.
+"""
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from sqlalchemy import select
+
+from server.domain.models import Agent
+from tests._db_topic_factory import db_add_comment, db_create_topic
 
 pytestmark = pytest.mark.slow
 
 
-def _create_topic(client, headers, project, **overrides):
-    payload = {"title": "progress-topic", "description": "d"}
-    payload.update(overrides)
-    resp = client.post(f"/api/v1/projects/{project['id']}/topics", headers=headers, json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+def _host(db):
+    return db.scalar(select(Agent).where(Agent.name == "test-agent"))
 
 
-def test_topic_progress_empty_when_last_comment_is_mine(client, auth_headers, project):
-    topic = _create_topic(client, auth_headers, project, title="progress-a")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host opens"},
+def _reviewer(db):
+    return db.scalar(select(Agent).where(Agent.name == "reviewer-agent"))
+
+
+def _create_topic(db, project, **overrides):
+    overrides.setdefault("title", "progress-topic")
+    overrides.setdefault("description", "d")
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=_host(db).id,
+        **overrides,
     )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host again last"},
-    )
+
+
+def test_topic_progress_empty_when_last_comment_is_mine(client, db_session, auth_headers, project):
+    topic = _create_topic(db_session, project, title="progress-a")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host opens")
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host again last")
     progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()
     assert progress["total"] == 0
     assert progress["items"] == []
 
 
-def test_topic_progress_returns_comments_after_cursor(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="progress-b")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host opens"},
-    )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "reviewer reply"},
-    )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host follow-up"},
-    )
+def test_topic_progress_returns_comments_after_cursor(client, db_session, auth_headers, project, reviewer):
+    topic = _create_topic(db_session, project, title="progress-b")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host opens")
+    db_add_comment(db_session, topic_id=topic.id, author=_reviewer(db_session), body="reviewer reply")
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host follow-up")
     client.post(
         f"/api/v1/agents/me/topics/{tid}/read",
         headers=auth_headers,
     )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "reviewer newest"},
-    )
+    db_add_comment(db_session, topic_id=topic.id, author=_reviewer(db_session), body="reviewer newest")
 
     host_progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()
     assert host_progress["total"] == 1
@@ -84,14 +81,9 @@ def test_topic_progress_returns_comments_after_cursor(client, auth_headers, proj
     assert reviewer_after_read["total"] == 0
 
 
-def test_topic_progress_empty_when_never_participated(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="progress-c")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "only host so far"},
-    )
+def test_topic_progress_empty_when_never_participated(client, db_session, auth_headers, project, reviewer):
+    topic = _create_topic(db_session, project, title="progress-c")
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="only host so far")
 
     progress = client.get("/api/v1/agents/me/topic-progress", headers=reviewer["headers"]).json()
     assert progress["total"] == 0

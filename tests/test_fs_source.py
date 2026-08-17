@@ -14,6 +14,10 @@ from map_fs import (
     write_round_comment,
     write_topic_index,
 )
+from sqlalchemy import select
+
+from server.domain.models import Agent, Project, Topic, TopicStatus
+from tests._frontmatter import make_valid_plan
 
 # ---------------------------------------------------------------------------
 # 解析器（纯函数）
@@ -326,18 +330,29 @@ def test_fs_write_allows_bootstrap_persona_agent(
 
 
 def test_fs_merge_pagination_stable_across_pages(
-    client, admin_headers: dict, tmp_path: Path
+    client, admin_headers: dict, tmp_path: Path, db_session
 ) -> None:
-    """回归：合并视图统一分页——FS 话题不逐页重复，X-Total-Count 为合并总数。"""
+    """回归：合并视图统一分页——FS 话题不逐页重复，X-Total-Count 为合并总数。
+
+    M58 后 DB 话题写端点已退役（410），DB 话题改经 ORM 直插播种，
+    维持原本「DB + FS 合并分页稳定性」的验证意图。
+    """
     project = _create_project(client, admin_headers, tmp_path)
     pid = project["id"]
+    db_project = db_session.get(Project, uuid.UUID(pid))
+    admin = db_session.scalar(select(Agent).where(Agent.role == "admin"))
     for i in range(3):
-        resp = client.post(
-            f"/api/v1/projects/{pid}/topics",
-            headers=admin_headers,
-            json={"title": f"DB Topic {i}", "slug": f"db-topic-{i}"},
+        db_session.add(
+            Topic(
+                project_id=db_project.id,
+                creator_agent_id=admin.id,
+                title=f"DB Topic {i}",
+                slug=f"db-topic-{i}",
+                description="pagination seed",
+                status=TopicStatus.open,
+            )
         )
-        assert resp.status_code == 201
+    db_session.commit()
     write_topic_index(tmp_path, "fs-page", title="FS Page Topic", creator="host")
 
     pages = []
@@ -487,3 +502,55 @@ def test_empty_workspace_yields_empty_plane(client, admin_headers: dict, tmp_pat
     response = client.get(f"/api/v1/projects/{project['id']}/fs/topics", headers=admin_headers)
     assert response.status_code == 200
     assert response.json() == []
+
+
+# ---------------------------------------------------------------------------
+# M58 回归：experiment create 的 topic_id 三态路由（DB uuid / FS uuid5）
+# ---------------------------------------------------------------------------
+
+
+def test_experiment_create_on_fs_topic(
+    client, admin_headers: dict, tmp_path: Path
+) -> None:
+    """FS 话题（uuid5 id，无 DB 行）可挂实验；同话题活跃实验仍互斥；未知 id 404。"""
+    project = _create_project(client, admin_headers, tmp_path)
+    pid = project["id"]
+    write_topic_index(tmp_path, "fs-exp", title="FS Experiment Topic", creator="admin-agent")
+    fs_topic_id = topic_id_for_slug("fs-exp")
+
+    response = client.post(
+        f"/api/v1/projects/{pid}/experiments",
+        headers=admin_headers,
+        json={
+            "title": "M58 fs-topic experiment",
+            "topic_id": str(fs_topic_id),
+            "plan": {"content_md": make_valid_plan(body="## fs plan")},
+        },
+    )
+    assert response.status_code in (200, 201)
+    body = response.json()
+    assert body["topic_id"] == str(fs_topic_id)
+
+    # 同一 FS 话题上的第二个活跃实验 → 409
+    dup = client.post(
+        f"/api/v1/projects/{pid}/experiments",
+        headers=admin_headers,
+        json={
+            "title": "dup on same fs topic",
+            "topic_id": str(fs_topic_id),
+            "plan": {"content_md": make_valid_plan(body="## fs plan 2")},
+        },
+    )
+    assert dup.status_code == 409
+
+    # 未知 uuid（既非 DB 也非 FS）→ 404
+    ghost = client.post(
+        f"/api/v1/projects/{pid}/experiments",
+        headers=admin_headers,
+        json={
+            "title": "ghost topic",
+            "topic_id": str(uuid.uuid4()),
+            "plan": {"content_md": make_valid_plan(body="## ghost")},
+        },
+    )
+    assert ghost.status_code == 404

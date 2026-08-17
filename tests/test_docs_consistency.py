@@ -80,20 +80,29 @@ class TestQuickstartMatchesCli:
     """M50A：QUICKSTART 示例参数与 CLI 定义一致。"""
 
     def test_topic_create_uses_description_not_body(self) -> None:
+        """M50A + v0.13 M58：QUICKSTART 话题创建演示必须走 fs topic-create。"""
         text = _read(REPO_ROOT / "docs" / "QUICKSTART.md")
-        topic_create_lines = [
+        fs_create_lines = [
             line.strip()
             for line in text.splitlines()
-            if "topic create" in line
+            if "fs topic-create" in line
         ]
-        assert topic_create_lines, "QUICKSTART should demonstrate topic create"
-        for line in topic_create_lines:
+        assert fs_create_lines, "QUICKSTART should demonstrate fs topic-create"
+        for line in fs_create_lines:
             assert "--body" not in line, (
-                f"`topic create` has no --body param (use --description): {line}"
+                f"`fs topic-create` has no --body param (use --title/--slug/--participants): {line}"
             )
-            assert "--description" in line, (
-                f"`topic create` example missing --description: {line}"
+            assert "--title" in line and "--slug" in line, (
+                f"`fs topic-create` example missing --title/--slug: {line}"
             )
+        retired = [
+            line.strip()
+            for line in text.splitlines()
+            if re.search(r"map[^\n]*\btopic create\b", line)
+        ]
+        assert not retired, (
+            f"QUICKSTART must not demonstrate retired DB `topic create` (v0.13 M58): {retired}"
+        )
 
     def test_bootstrap_api_url_uses_default_port(self) -> None:
         text = _read(REPO_ROOT / "docs" / "QUICKSTART.md")

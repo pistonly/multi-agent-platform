@@ -1,0 +1,9 @@
+reasonable_items:
+  - "目标与范围清晰：v2 在 v1 6×4=24 cell 骨架上叠加 'post-R8/R9 ack refresh' 维度，与 R1-R7 交付链对齐，cite round7-participant.md §1/§2/§3 + round5-participant.md §2"
+  - "验收可观测：6 条 acceptance + 6 条 evidence_keys 全部对应可粘贴的产物（log.md / checklist.md / work output / experiment show 字段），单一通过判定客观可重复执行"
+  - "负面断言覆盖关键 persona 边界：5 条 negative assertion（host-only create / reviewer-only approve / executor-only log / reviewer-only accept-result / archived 后 409）守住 CLI 主链路权限门"
+  - "三类共同一致性断言（6 条）覆盖 fs show / experiment show / phase / log.md / result_decision / archive 后 phase 六个共享视图"
+  - "失败信号 + rollback + deliverables 闭环明确；产物路径与 v1 隔离（map/experiments/e2e-lifecycle-smoke-v2/）避免混淆"
+  - "与 v1 (c839507f) 并存关系透明：v2 不强制 v1 withdraw，明确 'reviewer 可对 v1/v2 独立 approve/reject'，给 reviewer 决策空间"
+  - "复用 R1-R9 交付链：frontmatter 第 7 条 acceptance '复用既有 R1-R9 交付链，不再重复造轮子'，避免重复讨论内容"
+unreasonable_items: []

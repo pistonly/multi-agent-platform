@@ -5,46 +5,66 @@ implicit in the 372-test suite passing locally.
 """
 
 import contextlib
+import uuid
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.slow
 from fastapi.testclient import TestClient
 
+from server.domain.models import Agent, Topic
+from tests._db_topic_factory import db_create_topic, db_resolve_with_action_items
 from tests._frontmatter import make_valid_plan
 
 # ---------- helpers ----------------------------------------------------------
 
-def _create_topic(client: TestClient, headers: dict, project: dict, **overrides) -> dict:
-    payload = {"title": "A2 cascade test topic", "description": "tests for cascade + audit"}
-    payload.update(overrides)
-    resp = client.post(f"/api/v1/projects/{project['id']}/topics", headers=headers, json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+# v0.13 M58: topic write endpoints retired (410). Topics and decisions are
+# direct-insert fixtures (consumer-side setup); what these tests assert is the
+# experiment-domain cascade (accept-result → action_item done + dual audit),
+# which stays DB-backed per the experiment-domain non-goal.
+
+def _host(db: Session) -> Agent:
+    return db.scalar(select(Agent).where(Agent.name == "test-agent"))
+
+
+def _admin(db: Session) -> Agent:
+    return db.scalar(select(Agent).where(Agent.name == "admin-agent"))
+
+
+def _create_topic(db: Session, project: dict, **overrides) -> Topic:
+    overrides.setdefault("title", "A2 cascade test topic")
+    overrides.setdefault("description", "tests for cascade + audit")
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=_host(db).id,
+        **overrides,
+    )
 
 
 def _resolve_with_linked_item(
-    client: TestClient,
-    headers: dict,
-    topic_id: str,
+    db: Session,
+    topic: Topic,
     *,
     title: str,
     owner_agent_id: str | None,
     linked_experiment_id: str | None,
-) -> str:
-    payload = {
-        "decision": "d",
-        "action_items": [
+) -> uuid.UUID:
+    rows = db_resolve_with_action_items(
+        db,
+        topic,
+        author=_host(db),
+        action_items=[
             {
                 "title": title,
                 "owner_agent_id": owner_agent_id,
                 "linked_experiment_id": linked_experiment_id,
             }
         ],
-    }
-    resp = client.post(f"/api/v1/topics/{topic_id}/resolve", headers=headers, json=payload)
-    assert resp.status_code == 200, resp.text
-    return resp.json()["action_items"][0]["id"]
+    )
+    return rows[0].id
 
 
 def _create_and_approve_experiment(
@@ -109,13 +129,13 @@ def _run_experiment_to_done(
 # ---------- A2-1: linked action_item -> done ---------------------------------
 
 def test_a2_1_cascade_done_on_accept_result(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-1: linked action_item flips to done when experiment is accepted."""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-1 cascade target",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=exp_id,
@@ -128,21 +148,21 @@ def test_a2_1_cascade_done_on_accept_result(
         headers=auth_headers,
         params={"status": "done"},
     )
-    assert any(item["id"] == item_id for item in after.json())
+    assert any(item["id"] == str(item_id) for item in after.json())
 
 
 # ---------- A2-2: 同事务原子性回滚 --------------------------------------------
 
 def test_a2_2_atomic_rollback_on_audit_failure(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict, monkeypatch: pytest.MonkeyPatch,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict, monkeypatch: pytest.MonkeyPatch,
 ):
     """A2-2: 模拟 audit 写第 2 条时抛 RuntimeError，验证整笔回滚（phase 不变 + item 仍 open + 双事件都没写）。"""
     from server.services import audit_service
 
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-2 atomic target",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=exp_id,
@@ -163,8 +183,10 @@ def test_a2_2_atomic_rollback_on_audit_failure(
     assert completed.status_code == 200
     assert completed.json()["phase"] == "result_review"
 
-    # 注入故障：_log_no_commit 第二次调用时抛 RuntimeError
-    original = audit_service._log_no_commit
+    # 注入故障：log_no_commit 第二次调用时抛 RuntimeError
+    # （audit_service 内部 wrapper 均调用 log_no_commit；_log_no_commit 只是
+    # 遗留别名，patch 新名字才能拦住 cascade 双事件写入）
+    original = audit_service.log_no_commit
     call_count = {"n": 0}
 
     def faulty_log(db, **kwargs):
@@ -173,10 +195,7 @@ def test_a2_2_atomic_rollback_on_audit_failure(
             raise RuntimeError("simulated audit failure mid-cascade")
         return original(db, **kwargs)
 
-    monkeypatch.setattr(audit_service, "_log_no_commit", faulty_log)
-    # phase_service 也 import 了 audit_service 名字 → patch 两边
-    from server.services import phase_service
-    monkeypatch.setattr(phase_service.audit_service, "_log_no_commit", faulty_log)
+    monkeypatch.setattr(audit_service, "log_no_commit", faulty_log)
 
     # TestClient 默认会再抛 server exception — 用 contextlib.suppress 吞 RuntimeError，验证 state
     with contextlib.suppress(RuntimeError):  # 预期：故障注入导致 service 层抛 RuntimeError，FastAPI 转 500
@@ -187,45 +206,34 @@ def test_a2_2_atomic_rollback_on_audit_failure(
         )
 
     # 关键验证：DB 真实持久化状态。conftest 的 db_session 与 FastAPI 共用同一个 session，
-    # 强制 rollback 共享 session（模拟生产代码 db.commit() 失败 → SQLAlchemy 自动 rollback）
-    # 然后用 fresh session 直接查 DB。
-    import uuid as _uuid
-
-    # 通过 dependency override 拿到共享 session（同一对象）并 rollback
-    from server.api.deps import get_db
-    from server.db.session import SessionLocal as test_session_local
+    # 直接 rollback 共享 session（模拟生产代码 db.commit() 失败 → SQLAlchemy 自动 rollback），
+    # 然后 expire 使后续读取走 DB。
     from server.domain.models import AuditLog, Experiment, TopicActionItem
-    shared_session_gen = client.app.dependency_overrides[get_db]()
-    shared_session = next(shared_session_gen)
-    shared_session.rollback()
-    with contextlib.suppress(Exception):
-        shared_session_gen.close()
 
-    fresh_db = test_session_local()
-    try:
-        # 实验 phase 仍 result_review（未到 done）
-        persisted_exp = fresh_db.get(Experiment, _uuid.UUID(exp_id))
-        assert persisted_exp.phase.value == "result_review", (
-            f"实验 phase 应仍 result_review，实际 {persisted_exp.phase.value}"
-        )
-        # action_item 仍 open
-        persisted_item = fresh_db.get(TopicActionItem, _uuid.UUID(item_id))
-        assert persisted_item.status.value == "open", (
-            f"action_item 应仍 open，实际 {persisted_item.status.value}"
-        )
-        # 双事件 audit 都没写
-        item_audits = fresh_db.query(AuditLog).filter(
-            AuditLog.target_type == "topic_action_item",
-            AuditLog.target_id == _uuid.UUID(item_id),
-        ).all()
-        assert not any(a.action == "action_item.completed" for a in item_audits)
-        exp_audits = fresh_db.query(AuditLog).filter(
-            AuditLog.target_type == "experiment",
-            AuditLog.target_id == _uuid.UUID(exp_id),
-        ).all()
-        assert not any(a.action == "experiment.completed" for a in exp_audits)
-    finally:
-        fresh_db.close()
+    db_session.rollback()
+    db_session.expire_all()
+
+    # 实验 phase 仍 result_review（未到 done）
+    persisted_exp = db_session.get(Experiment, uuid.UUID(exp_id))
+    assert persisted_exp.phase.value == "result_review", (
+        f"实验 phase 应仍 result_review，实际 {persisted_exp.phase.value}"
+    )
+    # action_item 仍 open
+    persisted_item = db_session.get(TopicActionItem, item_id)
+    assert persisted_item.status.value == "open", (
+        f"action_item 应仍 open，实际 {persisted_item.status.value}"
+    )
+    # 双事件 audit 都没写
+    item_audits = db_session.query(AuditLog).filter(
+        AuditLog.target_type == "topic_action_item",
+        AuditLog.target_id == item_id,
+    ).all()
+    assert not any(a.action == "action_item.completed" for a in item_audits)
+    exp_audits = db_session.query(AuditLog).filter(
+        AuditLog.target_type == "experiment",
+        AuditLog.target_id == uuid.UUID(exp_id),
+    ).all()
+    assert not any(a.action == "experiment.completed" for a in exp_audits)
 
     # action_item 仍 open
     listing = client.get(
@@ -233,13 +241,13 @@ def test_a2_2_atomic_rollback_on_audit_failure(
         headers=auth_headers,
         params={"status": "open"},
     )
-    assert any(item["id"] == item_id for item in listing.json())
+    assert any(item["id"] == str(item_id) for item in listing.json())
 
     # 双事件 audit 都没写
     item_audit = client.get(
         "/api/v1/audit",
         headers=auth_headers,
-        params={"target_type": "topic_action_item", "target_id": item_id},
+        params={"target_type": "topic_action_item", "target_id": str(item_id)},
     )
     assert not any(log["action"] == "action_item.completed" for log in item_audit.json())
     exp_audit = client.get(
@@ -253,13 +261,13 @@ def test_a2_2_atomic_rollback_on_audit_failure(
 
 
 def test_a2_3_action_item_completed_payload_has_triggered_by(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-3: cascade-emitted audit event has triggered_by, prev_status, new_status."""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-3 payload check",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=exp_id,
@@ -270,7 +278,7 @@ def test_a2_3_action_item_completed_payload_has_triggered_by(
     audit = client.get(
         "/api/v1/audit",
         headers=auth_headers,
-        params={"target_type": "topic_action_item", "target_id": item_id},
+        params={"target_type": "topic_action_item", "target_id": str(item_id)},
     )
     completed = [log for log in audit.json() if log["action"] == "action_item.completed"]
     assert len(completed) == 1
@@ -283,13 +291,13 @@ def test_a2_3_action_item_completed_payload_has_triggered_by(
 # ---------- A2-4 + A2-5: experiment.completed payload + triggered_by 反查 -----
 
 def test_a2_4_5_experiment_completed_payload_and_causal_lookup(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-4 + A2-5: 主事件 payload 含 cascaded_action_items；triggered_by 反查精准."""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-4 cascade #1",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=exp_id,
@@ -307,7 +315,7 @@ def test_a2_4_5_experiment_completed_payload_and_causal_lookup(
     assert len(completed_events) == 1
     cascaded = completed_events[0]["payload_json"]["cascaded_action_items"]
     assert len(cascaded) == 1
-    assert cascaded[0]["action_item_id"] == item_id
+    assert cascaded[0]["action_item_id"] == str(item_id)
     assert cascaded[0]["prev_status"] == "open"
     assert cascaded[0]["new_status"] == "done"
 
@@ -315,7 +323,7 @@ def test_a2_4_5_experiment_completed_payload_and_causal_lookup(
     item_audit = client.get(
         "/api/v1/audit",
         headers=auth_headers,
-        params={"target_type": "topic_action_item", "target_id": item_id},
+        params={"target_type": "topic_action_item", "target_id": str(item_id)},
     )
     triggered = [
         log for log in item_audit.json()
@@ -328,13 +336,13 @@ def test_a2_4_5_experiment_completed_payload_and_causal_lookup(
 # ---------- A2-6: 未设 linked_experiment_id 不联动 -----------------------------
 
 def test_a2_6_unlinked_item_not_cascaded(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-6: 没有 linked_experiment_id 的 item，实验 done 后仍 open。"""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-6 no link",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=None,
@@ -347,12 +355,12 @@ def test_a2_6_unlinked_item_not_cascaded(
         headers=auth_headers,
         params={"status": "open"},
     )
-    assert any(item["id"] == item_id for item in listing.json())
+    assert any(item["id"] == str(item_id) for item in listing.json())
 
     audit = client.get(
         "/api/v1/audit",
         headers=auth_headers,
-        params={"target_type": "topic_action_item", "target_id": item_id},
+        params={"target_type": "topic_action_item", "target_id": str(item_id)},
     )
     assert not any(
         log["action"] == "action_item.completed" for log in audit.json()
@@ -362,23 +370,23 @@ def test_a2_6_unlinked_item_not_cascaded(
 # ---------- A2-7: 多 item 联动完整 ---------------------------------------------
 
 def test_a2_7_multiple_items_cascade(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-7: 一个实验关联 3 个 open item，全部 done + 主事件 payload 长度=3。"""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
 
-    payload = {
-        "decision": "d",
-        "action_items": [
+    rows = db_resolve_with_action_items(
+        db_session,
+        topic,
+        author=_host(db_session),
+        action_items=[
             {"title": "A2-7 multi #1", "owner_agent_id": reviewer["id"], "linked_experiment_id": exp_id},
             {"title": "A2-7 multi #2", "owner_agent_id": reviewer["id"], "linked_experiment_id": exp_id},
             {"title": "A2-7 multi #3", "owner_agent_id": reviewer["id"], "linked_experiment_id": exp_id},
         ],
-    }
-    resp = client.post(f"/api/v1/topics/{topic['id']}/resolve", headers=auth_headers, json=payload)
-    assert resp.status_code == 200
-    item_ids = [it["id"] for it in resp.json()["action_items"]]
+    )
+    item_ids = [str(row.id) for row in rows]
 
     _run_experiment_to_done(client, auth_headers, reviewer["headers"], exp_id)
 
@@ -407,13 +415,13 @@ def test_a2_7_multiple_items_cascade(
 # ---------- A2-8: 已关闭 item 不重复联动 -------------------------------------
 
 def test_a2_8_already_closed_not_recascaded(
-    client: TestClient, auth_headers: dict, admin_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, admin_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-8: 手工 complete 后，实验 accept 不再重复联动该 item。"""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-8 pre-close",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=exp_id,
@@ -428,7 +436,7 @@ def test_a2_8_already_closed_not_recascaded(
     audit = client.get(
         "/api/v1/audit",
         headers=auth_headers,
-        params={"target_type": "topic_action_item", "target_id": item_id},
+        params={"target_type": "topic_action_item", "target_id": str(item_id)},
     )
     completed = [log for log in audit.json() if log["action"] == "action_item.completed"]
     # 1 条 from manual, 0 from cascade
@@ -439,7 +447,7 @@ def test_a2_8_already_closed_not_recascaded(
 # ---------- A2-10: 跨 project link 拒绝 ---------------------------------------
 
 def test_a2_10_link_cross_project_rejected(
-    client: TestClient, auth_headers: dict, admin_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, admin_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-10: 跨 project 的 link 返回 409。
 
@@ -454,18 +462,20 @@ def test_a2_10_link_cross_project_rejected(
     ).json()
 
     # 在 project_a 创建并 done 一个实验；在 project_b 创建 action_item
-    _create_topic(client, auth_headers, project)
+    _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(client, auth_headers, reviewer["headers"], project, title="A2-10 cross exp")
     _run_experiment_to_done(client, auth_headers, reviewer["headers"], exp_id)
 
-    # 在 project_b 直接创建一个 topic + item（用 admin_headers）
-    topic_b = client.post(
-        f"/api/v1/projects/{project_b['id']}/topics",
-        headers=admin_headers,
-        json={"title": "A2-10 cross topic B"},
-    ).json()
+    # 在 project_b 直接创建一个 topic + item（admin agent 作为 creator/author）
+    topic_b = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project_b["id"]),
+        creator_agent_id=_admin(db_session).id,
+        title="A2-10 cross topic B",
+        description=None,
+    )
     item_id = _resolve_with_linked_item(
-        client, admin_headers, topic_b["id"],
+        db_session, topic_b,
         title="A2-10 cross item",
         owner_agent_id=None,
         linked_experiment_id=None,
@@ -484,16 +494,16 @@ def test_a2_10_link_cross_project_rejected(
 # ---------- A2-11: link 补登已 done 实验 -------------------------------------
 
 def test_a2_11_link_done_experiment_succeeds(
-    client: TestClient, auth_headers: dict, admin_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, admin_headers: dict, reviewer: dict, project: dict,
 ):
     """A2-11: 关联已 done 实验成功；不会触发 cascade（因为实验已是终态）。"""
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(
         client, auth_headers, reviewer["headers"], project, title="A2-11 already done"
     )
     _run_experiment_to_done(client, auth_headers, reviewer["headers"], exp_id)
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-11 retroactive link",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=None,
@@ -537,7 +547,7 @@ def test_a2_11_link_done_experiment_succeeds(
 # 消费者能区分"等 reviewer 审批"（result_review）与"host 自身待办"。
 
 def test_a2_13_action_item_exposes_linked_experiment_phase_across_transitions(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """linked_experiment_phase 跟随实验阶段变化；result_review 时 item 仍 open。
 
@@ -546,16 +556,18 @@ def test_a2_13_action_item_exposes_linked_experiment_phase_across_transitions(
     - GET /agents/me/todos             (todo_service 批量预取)
     - GET /topics/{id}                 (topic_decision_read 批量预取)
     """
-    topic = _create_topic(client, auth_headers, project)
+    topic = _create_topic(db_session, project)
     exp_id = _create_and_approve_experiment(
         client, auth_headers, reviewer["headers"], project, title="A2-13 phase-sync exp"
     )
     item_id = _resolve_with_linked_item(
-        client, auth_headers, topic["id"],
+        db_session, topic,
         title="A2-13 phase-sync item",
         owner_agent_id=reviewer["id"],
         linked_experiment_id=exp_id,
     )
+    item_id_str = str(item_id)
+    topic_id_str = str(topic.id)
 
     def _list_item():
         resp = client.get(
@@ -564,25 +576,25 @@ def test_a2_13_action_item_exposes_linked_experiment_phase_across_transitions(
             params={"status": "open"},
         )
         assert resp.status_code == 200, resp.text
-        items = [it for it in resp.json() if it["id"] == item_id]
-        assert items, f"item {item_id} not in open action-items list"
+        items = [it for it in resp.json() if it["id"] == item_id_str]
+        assert items, f"item {item_id_str} not in open action-items list"
         return items[0]
 
     def _todo_item():
         # reviewer 是 owner，用 reviewer 的 headers 读 todos
         resp = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"])
         assert resp.status_code == 200, resp.text
-        items = [it for it in resp.json().get("action_items") or [] if it["id"] == item_id]
-        assert items, f"item {item_id} not in todos action_items"
+        items = [it for it in resp.json().get("action_items") or [] if it["id"] == item_id_str]
+        assert items, f"item {item_id_str} not in todos action_items"
         return items[0]
 
     def _topic_item():
-        resp = client.get(f"/api/v1/topics/{topic['id']}", headers=auth_headers)
+        resp = client.get(f"/api/v1/topics/{topic_id_str}", headers=auth_headers)
         assert resp.status_code == 200, resp.text
         decisions = resp.json().get("decision") or {}
         items = decisions.get("action_items") or []
-        matched = [it for it in items if it["id"] == item_id]
-        assert matched, f"item {item_id} not in topic decision action_items"
+        matched = [it for it in items if it["id"] == item_id_str]
+        assert matched, f"item {item_id_str} not in topic decision action_items"
         return matched[0]
 
     # approved 阶段：item open, phase=approved
@@ -630,24 +642,27 @@ def test_a2_13_action_item_exposes_linked_experiment_phase_across_transitions(
         headers=auth_headers,
         params={"status": "done"},
     )
-    done_items = [it for it in done_resp.json() if it["id"] == item_id]
+    done_items = [it for it in done_resp.json() if it["id"] == item_id_str]
     assert done_items, "item should be done after accept-result"
     assert done_items[0]["linked_experiment_phase"] == "done"
 
 
 def test_a2_13_unlinked_action_item_has_null_phase(
-    client: TestClient, auth_headers: dict, reviewer: dict, project: dict,
+    client: TestClient, db_session, auth_headers: dict, reviewer: dict, project: dict,
 ):
     """无 linked_experiment 的 action_item：linked_experiment_phase 为 None。"""
-    topic = _create_topic(client, auth_headers, project)
-    payload = {
-        "decision": "d",
-        "action_items": [
-            {"title": "A2-13 unlinked", "owner_agent_id": reviewer["id"]},
-        ],
-    }
-    resp = client.post(f"/api/v1/topics/{topic['id']}/resolve", headers=auth_headers, json=payload)
-    assert resp.status_code == 200, resp.text
-    item = resp.json()["action_items"][0]
+    topic = _create_topic(db_session, project)
+    rows = db_resolve_with_action_items(
+        db_session,
+        topic,
+        author=_host(db_session),
+        action_items=[{"title": "A2-13 unlinked", "owner_agent_id": reviewer["id"]}],
+    )
+    item_id = rows[0].id
+    listing = client.get(
+        f"/api/v1/projects/{project['id']}/action-items",
+        headers=auth_headers,
+    )
+    item = next(it for it in listing.json() if it["id"] == str(item_id))
     assert item["linked_experiment_id"] is None
     assert item["linked_experiment_phase"] is None

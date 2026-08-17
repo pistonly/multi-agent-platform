@@ -388,7 +388,9 @@ class TestSixCommandFsDegradation:
 
 
 class TestSixCommandDbBranch:
-    """DB uuid 路由到 DB 分支：SDK 方法收到解析后的 uuid。"""
+    """DB uuid 路由到 DB 分支。v0.13 M58 退役 DB 写分支：resolve / rollback-round /
+    reopen 一律引导性拒绝（exit 2，不触达 SDK）；dismiss / read / mark-seen 为
+    通知投影命令保留 DB 路由。"""
 
     @pytest.fixture()
     def db_env(self, workspace: Path, monkeypatch: pytest.MonkeyPatch):
@@ -397,27 +399,35 @@ class TestSixCommandDbBranch:
         _patch_client(monkeypatch, client)
         return db, client
 
-    def test_resolve_db_uuid(self, db_env, workspace: Path) -> None:
+    def test_resolve_db_uuid_guidance_rejection(self, db_env, workspace: Path) -> None:
         db, client = db_env
         resolve_file = workspace / "decision.md"
         resolve_file.write_text("decision text", encoding="utf-8")
         result = runner.invoke(
             topic_app, ["resolve", "--id", str(db.id), "--file", str(resolve_file)]
         )
-        assert result.exit_code == 0, result.output
-        assert client.calls == [("resolve_topic", db.id)]
+        assert result.exit_code == 2, result.output
+        assert "DB write path retired" in result.output
+        assert "`map fs close`" in result.output
+        assert "topic migrate" in result.output
+        assert client.calls == []
 
-    def test_rollback_round_db_uuid(self, db_env) -> None:
+    def test_rollback_round_db_uuid_guidance_rejection(self, db_env) -> None:
         db, client = db_env
         result = runner.invoke(topic_app, ["rollback-round", "--id", str(db.id)])
-        assert result.exit_code == 0, result.output
-        assert client.calls == [("rollback_topic_round", db.id)]
+        assert result.exit_code == 2, result.output
+        assert "DB write path retired" in result.output
+        assert "round<N>-*.md" in result.output
+        assert "index.md" in result.output
+        assert client.calls == []
 
-    def test_reopen_db_uuid(self, db_env) -> None:
+    def test_reopen_db_uuid_guidance_rejection(self, db_env) -> None:
         db, client = db_env
         result = runner.invoke(topic_app, ["reopen", "--id", str(db.id)])
-        assert result.exit_code == 0, result.output
-        assert client.calls == [("reopen_topic", db.id)]
+        assert result.exit_code == 2, result.output
+        assert "DB write path retired" in result.output
+        assert "index.md" in result.output
+        assert client.calls == []
 
     def test_dismiss_db_uuid(self, db_env) -> None:
         db, client = db_env

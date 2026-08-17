@@ -2,14 +2,36 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
-from server.domain.models import Topic
+from map_types.enums import TopicStatus
+from server.domain.models import Agent, Topic
+from tests._db_topic_factory import db_add_comment, db_create_topic
 from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
 
-def test_todos_aggregation(client, auth_headers, reviewer, project):
+def _make_topic(db, project, *, creator=None, **overrides):
+    if creator is None:
+        creator = db.scalar(select(Agent).where(Agent.name == "test-agent"))
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=creator.id,
+        **overrides,
+    )
+
+
+def _host(db):
+    return db.scalar(select(Agent).where(Agent.name == "test-agent"))
+
+
+def _reviewer_row(db):
+    return db.scalar(select(Agent).where(Agent.name == "reviewer-agent"))
+
+
+def test_todos_aggregation(client, db_session, auth_headers, reviewer, project):
     # 发起人创建实验并提交评审
     exp = client.post(
         f"/api/v1/projects/{project['id']}/experiments",
@@ -80,13 +102,9 @@ def test_todos_aggregation(client, auth_headers, reviewer, project):
     assert pending_v2["current_plan_version"] == 2
 
     # 发起者创建话题 → 出现在 my_open_topics
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "待办话题"},
-    ).json()
+    topic = _make_topic(db_session, project, title="待办话题")
     agent_todos3 = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
-    assert any(t["id"] == topic["id"] for t in agent_todos3["my_open_topics"])
+    assert any(t["id"] == str(topic.id) for t in agent_todos3["my_open_topics"])
 
 
 def test_pending_result_reviews(client, auth_headers, reviewer, project):
@@ -218,64 +236,53 @@ def test_archived_experiments_are_excluded_from_my_open_experiments(
     assert not any(e["id"] == exp["id"] for e in after["my_open_experiments"])
 
 
-def test_dismiss_topic_hides_from_my_open_topics(client, auth_headers, project):
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "Dismiss 一下"},
-    ).json()
+def test_dismiss_topic_hides_from_my_open_topics(client, db_session, auth_headers, project):
+    topic = _make_topic(db_session, project, title="Dismiss 一下")
 
     # Sanity: it's there before dismiss.
     todos_before = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
-    assert any(t["id"] == topic["id"] for t in todos_before["my_open_topics"])
+    assert any(t["id"] == str(topic.id) for t in todos_before["my_open_topics"])
 
     resp = client.post(
-        f"/api/v1/topics/{topic['id']}/dismiss", headers=auth_headers
+        f"/api/v1/topics/{topic.id}/dismiss", headers=auth_headers
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["dismissed_at"] is not None
 
     todos_after = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
-    assert not any(t["id"] == topic["id"] for t in todos_after["my_open_topics"])
+    assert not any(t["id"] == str(topic.id) for t in todos_after["my_open_topics"])
 
     # Idempotent
     resp2 = client.post(
-        f"/api/v1/topics/{topic['id']}/dismiss", headers=auth_headers
+        f"/api/v1/topics/{topic.id}/dismiss", headers=auth_headers
     )
     assert resp2.status_code == 200
     assert resp2.json()["dismissed_at"] == body["dismissed_at"]
 
 
 def test_new_topic_comment_resurrects_dismissed_topic(
-    client, auth_headers, reviewer, project
+    client, db_session, auth_headers, reviewer, project
 ):
     """A new comment on a dismissed topic bumps updated_at past dismissed_at,
     so the topic re-surfaces in the host's todos."""
     host_headers = auth_headers
-    participant_headers = reviewer["headers"]
 
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=host_headers,
-        json={"title": "Resurrect 测试"},
-    ).json()
+    topic = _make_topic(db_session, project, title="Resurrect 测试")
     client.post(
-        f"/api/v1/topics/{topic['id']}/dismiss", headers=host_headers
+        f"/api/v1/topics/{topic.id}/dismiss", headers=host_headers
     )
 
     hidden = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
-    assert not any(t["id"] == topic["id"] for t in hidden["my_open_topics"])
+    assert not any(t["id"] == str(topic.id) for t in hidden["my_open_topics"])
 
     # New activity (any participant's comment) bumps topic.updated_at.
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=participant_headers,
-        json={"body": "有新动静了"},
+    db_add_comment(
+        db_session, topic_id=topic.id, author=_reviewer_row(db_session), body="有新动静了"
     )
 
     resurface = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
-    matching = [t for t in resurface["my_open_topics"] if t["id"] == topic["id"]]
+    matching = [t for t in resurface["my_open_topics"] if t["id"] == str(topic.id)]
     assert len(matching) == 1
     assert matching[0]["dismissed_at"] is not None  # still flagged, but visible
 
@@ -283,19 +290,15 @@ def test_new_topic_comment_resurrects_dismissed_topic(
 def test_stale_open_topics_surface_after_threshold(
     client, auth_headers, project, db_session
 ):
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "久未推进的话题"},
-    ).json()
+    topic = _make_topic(db_session, project, title="久未推进的话题")
     stale_at = datetime.now(timezone.utc) - timedelta(minutes=31)
-    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row = db_session.get(Topic, topic.id)
     row.updated_at = stale_at
     db_session.commit()
 
     todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
 
-    stale = [t for t in todos["stale_open_topics"] if t["topic_id"] == topic["id"]]
+    stale = [t for t in todos["stale_open_topics"] if t["topic_id"] == str(topic.id)]
     assert len(stale) == 1
     assert stale[0]["topic_title"] == "久未推进的话题"
     assert stale[0]["stale_since"] is not None
@@ -311,16 +314,11 @@ def test_stale_open_topics_threshold_is_parameterized(
     test.
     """
     # Tight window (1 minute): 5-min-old topic is stale.
-    topic_tight = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "tight window"},
-    ).json()
-    row = db_session.get(Topic, uuid.UUID(topic_tight["id"]))
+    topic_tight = _make_topic(db_session, project, title="tight window")
+    row = db_session.get(Topic, topic_tight.id)
     row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     db_session.commit()
 
-    from server.domain.models import Agent
     from server.services.todo_service import list_stale_open_topics
 
     agent_obj = db_session.get(Agent, row.creator_agent_id)
@@ -328,14 +326,14 @@ def test_stale_open_topics_threshold_is_parameterized(
     stale_tight = list_stale_open_topics(
         db_session, agent_obj, threshold_minutes=1
     )
-    assert any(str(t.topic_id) == topic_tight["id"] for t in stale_tight)
+    assert any(t.topic_id == topic_tight.id for t in stale_tight)
 
     # Generous window (60 minutes): same 5-min-old topic is NOT stale.
     db_session.expire_all()
     stale_loose = list_stale_open_topics(
         db_session, agent_obj, threshold_minutes=60
     )
-    assert not any(str(t.topic_id) == topic_tight["id"] for t in stale_loose)
+    assert not any(t.topic_id == topic_tight.id for t in stale_loose)
 
 
 def test_stale_open_topics_threshold_via_settings_env(
@@ -352,61 +350,49 @@ def test_stale_open_topics_threshold_via_settings_env(
     monkeypatch.setenv("MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES", "1")
     get_settings.cache_clear()
     try:
-        topic = client.post(
-            f"/api/v1/projects/{project['id']}/topics",
-            headers=auth_headers,
-            json={"title": "settings env 派生话题"},
-        ).json()
-        row = db_session.get(Topic, uuid.UUID(topic["id"]))
+        topic = _make_topic(db_session, project, title="settings env 派生话题")
+        row = db_session.get(Topic, topic.id)
         row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
         db_session.commit()
 
         todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
-        assert any(t["topic_id"] == topic["id"] for t in todos["stale_open_topics"])
+        assert any(t["topic_id"] == str(topic.id) for t in todos["stale_open_topics"])
     finally:
         # Reset the cache so other tests aren't pinned to the 1-minute override.
         get_settings.cache_clear()
 
 
 def test_stale_open_topics_respects_dismiss_and_stronger_obligations(
-    client, auth_headers, reviewer, project, db_session
+    client, db_session, auth_headers, reviewer, project
 ):
     host_headers = auth_headers
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=host_headers,
-        json={"title": "待回复优先"},
-    ).json()
+    topic = _make_topic(db_session, project, title="待回复优先")
     stale_at = datetime.now(timezone.utc) - timedelta(minutes=31)
-    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row = db_session.get(Topic, topic.id)
     row.updated_at = stale_at
     db_session.commit()
 
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=reviewer["headers"],
-        json={"body": "先回复这个"},
+    db_add_comment(
+        db_session, topic_id=topic.id, author=_reviewer_row(db_session), body="先回复这个"
     )
-    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row = db_session.get(Topic, topic.id)
     row.updated_at = stale_at
     db_session.commit()
 
     with_reply = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
-    assert any(p["topic_id"] == topic["id"] for p in with_reply["pending_topic_replies"])
-    assert not any(t["topic_id"] == topic["id"] for t in with_reply["stale_open_topics"])
+    assert any(p["topic_id"] == str(topic.id) for p in with_reply["pending_topic_replies"])
+    assert not any(t["topic_id"] == str(topic.id) for t in with_reply["stale_open_topics"])
 
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=host_headers,
-        json={"body": "已回复"},
+    db_add_comment(
+        db_session, topic_id=topic.id, author=_host(db_session), body="已回复"
     )
-    row = db_session.get(Topic, uuid.UUID(topic["id"]))
+    row = db_session.get(Topic, topic.id)
     row.updated_at = stale_at
     db_session.commit()
 
-    client.post(f"/api/v1/topics/{topic['id']}/dismiss", headers=host_headers)
+    client.post(f"/api/v1/topics/{topic.id}/dismiss", headers=host_headers)
     dismissed = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
-    assert not any(t["topic_id"] == topic["id"] for t in dismissed["stale_open_topics"])
+    assert not any(t["topic_id"] == str(topic.id) for t in dismissed["stale_open_topics"])
 
 
 def test_pending_plan_revisions_three_states(client, auth_headers, reviewer, project):
@@ -475,112 +461,107 @@ def test_pending_plan_revisions_three_states(client, auth_headers, reviewer, pro
 
 
 def test_dismiss_topic_forbidden_for_non_creator(
-    client, auth_headers, reviewer, project
+    client, db_session, auth_headers, reviewer, project
 ):
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "非 host 不能 dismiss"},
-    ).json()
+    topic = _make_topic(db_session, project, title="非 host 不能 dismiss")
     resp = client.post(
-        f"/api/v1/topics/{topic['id']}/dismiss",
+        f"/api/v1/topics/{topic.id}/dismiss",
         headers=reviewer["headers"],
     )
     assert resp.status_code == 404
 
 
-def test_pending_topic_replies(client, auth_headers, reviewer, project):
+def test_pending_topic_replies(client, db_session, auth_headers, reviewer, project):
     host_headers = auth_headers
-    participant_headers = reviewer["headers"]
 
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=host_headers,
-        json={"title": "主持待回复测试"},
-    ).json()
+    topic = _make_topic(db_session, project, title="主持待回复测试")
 
-    top = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=participant_headers,
-        json={"body": "顶层评论需要主持回复"},
-    ).json()
+    top = db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_reviewer_row(db_session),
+        body="顶层评论需要主持回复",
+    )
 
     todos = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
     assert len(todos["pending_topic_replies"]) == 1
     pending = todos["pending_topic_replies"][0]
-    assert pending["topic_id"] == topic["id"]
-    assert pending["comment_id"] == top["id"]
-    assert pending["thread_root_id"] == top["id"]
+    assert pending["topic_id"] == str(topic.id)
+    assert pending["comment_id"] == str(top.id)
+    assert pending["thread_root_id"] == str(top.id)
     assert pending["topic_title"] == "主持待回复测试"
 
-    child = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=participant_headers,
-        json={"body": "子评论也需要回复", "parent_id": top["id"]},
-    ).json()
+    child = db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_reviewer_row(db_session),
+        body="子评论也需要回复",
+        parent_id=top.id,
+    )
 
     todos2 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
     assert len(todos2["pending_topic_replies"]) == 2
-    child_pending = next(p for p in todos2["pending_topic_replies"] if p["comment_id"] == child["id"])
-    assert child_pending["thread_root_id"] == top["id"]
+    child_pending = next(
+        p for p in todos2["pending_topic_replies"] if p["comment_id"] == str(child.id)
+    )
+    assert child_pending["thread_root_id"] == str(top.id)
 
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=host_headers,
-        json={"body": "主持回复整 thread", "parent_id": top["id"]},
+    db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_host(db_session),
+        body="主持回复整 thread",
+        parent_id=top.id,
     )
 
     todos3 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
     assert todos3["pending_topic_replies"] == []
 
-    client.post(f"/api/v1/topics/{topic['id']}/close", headers=host_headers)
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=participant_headers,
-        json={"body": "关闭后不应出现"},
+    # 关闭话题后 participant 评论不再产生 host 待回复（close 写路径已退役，直插状态）
+    row = db_session.get(Topic, topic.id)
+    row.status = TopicStatus.closed
+    db_session.commit()
+    db_add_comment(
+        db_session, topic_id=topic.id, author=_reviewer_row(db_session), body="关闭后不应出现"
     )
-    client.post(f"/api/v1/topics/{topic['id']}/reopen", headers=host_headers)
+    todos_closed = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
+    assert not any(
+        p["topic_id"] == str(topic.id) for p in todos_closed["pending_topic_replies"]
+    )
 
-    other_topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=participant_headers,
-        json={"title": "他人主持话题"},
-    ).json()
-    client.post(
-        f"/api/v1/topics/{other_topic['id']}/comments",
-        headers=host_headers,
-        json={"body": "主持在他人话题评论"},
+    other_topic = _make_topic(
+        db_session, project, creator=_reviewer_row(db_session), title="他人主持话题"
+    )
+    db_add_comment(
+        db_session, topic_id=other_topic.id, author=_host(db_session), body="主持在他人话题评论"
     )
     todos4 = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
-    assert not any(p["topic_id"] == other_topic["id"] for p in todos4["pending_topic_replies"])
+    assert not any(
+        p["topic_id"] == str(other_topic.id) for p in todos4["pending_topic_replies"]
+    )
 
 
 def test_pending_topic_replies_host_opens_participant_replies_in_thread(
-    client, auth_headers, reviewer, project
+    client, db_session, auth_headers, reviewer, project
 ):
     """Host opening comment must not satisfy reply obligation for later participant replies."""
     host_headers = auth_headers
-    participant_headers = reviewer["headers"]
 
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=host_headers,
-        json={"title": "主持开场后楼中楼待回复"},
-    ).json()
-    opening = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=host_headers,
-        json={"body": "host Round 1 开场"},
-    ).json()
-    participant_reply = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=participant_headers,
-        json={"body": "participant 跟评", "parent_id": opening["id"]},
-    ).json()
+    topic = _make_topic(db_session, project, title="主持开场后楼中楼待回复")
+    opening = db_add_comment(
+        db_session, topic_id=topic.id, author=_host(db_session), body="host Round 1 开场"
+    )
+    participant_reply = db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_reviewer_row(db_session),
+        body="participant 跟评",
+        parent_id=opening.id,
+    )
 
     todos = client.get("/api/v1/agents/me/todos", headers=host_headers).json()
     assert len(todos["pending_topic_replies"]) == 1
-    assert todos["pending_topic_replies"][0]["comment_id"] == participant_reply["id"]
+    assert todos["pending_topic_replies"][0]["comment_id"] == str(participant_reply.id)
 
     progress = client.get("/api/v1/agents/me/topic-progress", headers=host_headers).json()
     assert progress["total"] == 1
@@ -632,18 +613,11 @@ def test_list_experiments_filter_search_pagination(client, auth_headers, project
     assert paged.headers["X-Total-Count"] == "3"
 
 
-def test_list_topics_search_pagination(client, auth_headers, project):
+def test_list_topics_search_pagination(client, db_session, auth_headers, project):
     for i in range(3):
-        client.post(
-            f"/api/v1/projects/{project['id']}/topics",
-            headers=auth_headers,
-            json={"title": f"话题 {i}"},
-        )
+        _make_topic(db_session, project, title=f"话题 {i}")
 
-    closed = client.post(
-        f"/api/v1/projects/{project['id']}/topics", headers=auth_headers, json={"title": "要关闭的"}
-    ).json()
-    client.post(f"/api/v1/topics/{closed['id']}/close", headers=auth_headers)
+    _make_topic(db_session, project, title="要关闭的", status=TopicStatus.closed)
 
     open_list = client.get(
         f"/api/v1/projects/{project['id']}/topics?status=open", headers=auth_headers
@@ -662,35 +636,27 @@ def test_list_topics_search_pagination(client, auth_headers, project):
     assert paged.headers["X-Total-Count"] == "4"
 
 
-def test_no_write_on_repeated_todos(client, auth_headers, reviewer, project, db_session):
+def test_no_write_on_repeated_todos(client, db_session, auth_headers, reviewer, project):
     """Repeated GET /todos must not UPDATE mentions (T1 A/E)."""
-    import uuid
-
-    from sqlalchemy import select
-
     from server.domain.models import Mention
 
     reviewer_headers = reviewer["headers"]
     reviewer_id = uuid.UUID(reviewer["id"])
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "Read idempotent", "description": "d"},
-    ).json()
-    root = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent ping"},
-    ).json()
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=reviewer_headers,
-        json={"body": "replied", "parent_id": root["id"]},
+    topic = _make_topic(db_session, project, title="Read idempotent", description="d")
+    root = db_add_comment(
+        db_session, topic_id=topic.id, author=_host(db_session), body="@reviewer-agent ping"
+    )
+    db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_reviewer_row(db_session),
+        body="replied",
+        parent_id=root.id,
     )
     mention = db_session.scalar(
         select(Mention).where(
             Mention.mentioned_agent_id == reviewer_id,
-            Mention.source_id == uuid.UUID(root["id"]),
+            Mention.source_id == root.id,
         )
     )
     assert mention is not None
@@ -704,45 +670,41 @@ def test_no_write_on_repeated_todos(client, auth_headers, reviewer, project, db_
     assert mention.dismissed_at is None
 
 
-def test_mention_dismiss_on_comment_write_path(client, auth_headers, reviewer, project, db_session):
+def test_mention_dismiss_on_comment_write_path(client, db_session, auth_headers, reviewer, project):
     """Posting a comment dismisses stale mentions on the write path (T1 B)."""
-    import uuid
-
-    from sqlalchemy import select
-
     from server.domain.models import Mention
 
     reviewer_headers = reviewer["headers"]
     reviewer_id = uuid.UUID(reviewer["id"])
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "Write dismiss", "description": "d"},
-    ).json()
-    root = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent legacy open row"},
-    ).json()
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=reviewer_headers,
-        json={"body": "first reply", "parent_id": root["id"]},
+    topic = _make_topic(db_session, project, title="Write dismiss", description="d")
+    root = db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_host(db_session),
+        body="@reviewer-agent legacy open row",
+    )
+    db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_reviewer_row(db_session),
+        body="first reply",
+        parent_id=root.id,
     )
     mention = db_session.scalar(
         select(Mention).where(
             Mention.mentioned_agent_id == reviewer_id,
-            Mention.source_id == uuid.UUID(root["id"]),
+            Mention.source_id == root.id,
         )
     )
     assert mention is not None
     mention.dismissed_at = None
     db_session.commit()
 
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=reviewer_headers,
-        json={"body": "nudge write-path dismiss"},
+    db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=_reviewer_row(db_session),
+        body="nudge write-path dismiss",
     )
     db_session.refresh(mention)
     assert mention.dismissed_at is not None

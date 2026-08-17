@@ -12,9 +12,11 @@
 
 同名冲突或想显式指定时加 `--storage fs | db`。FS 话题的 comment 为纯本地写（`round<N>-<persona>.md`，不支持 `--parent` / `--file-path`）。
 
-其余 topic 子命令（resolve / rollback-round / reopen / dismiss / read / archive / migrate）仍按 DB uuid 操作。
+其余 topic 子命令：`dismiss / read / mark-seen / migrate` 保留（按 DB uuid；migrate 是存量话题唯一续命路径）；`create / resolve / rollback-round / reopen / archive` 已退役（v0.13 M58 起，见下节）。
 
 **`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；验证型写 `advance-round` / `close` 日常直接用 `map topic --id <slug>` 等价调用。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
+
+> **v0.13 M58 起 DB 话题写路径退役**：`topic create / resolve / rollback-round / reopen / archive` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2，文案指向 fs 等价命令或 `topic migrate`）；读路径（show / list / progress）与 dismiss / migrate 不受影响。
 
 ## 项目状态与话题清单
 
@@ -36,48 +38,45 @@ map --persona host project status revise --file docs/status-md-v10.md --note "�
 
 **`topic progress`** 语义：平台从 `topic_work_items_for_agent` 计算 per-agent 待办投影为 `topic-progress`，每项含 `work_items[]`（`kind` + `priority: obligation | contextual`）；与 `map todos` 话题分区同源（同一 idempotency_key）。host 用此发现待回复 thread；participant/reviewer 用此发现 Round 新内容。
 
-## 话题（host）
+## 话题（host，FS 单轨）
 
 ```bash
-map topic create --title "..." --description "..."
-# --slug <name>：指定文件引用模式的路径 slug（默认从标题生成）
-# 若有关联实验，需等实验 done/cancelled 后再关；--reason / --note 可选
-map topic close --id <topic-uuid> --reason no_experiment_needed --note "..."
-map topic reopen --id <topic-uuid>   # reopen 清除 close_reason / close_note
-# 轮次回退：roundN → roundN-1，或 ready → round{count}；round1 不可回退（409）
-map topic rollback-round --id <topic-uuid>
+# 创建：离线写 map/topics/<slug>/ + index.md（不调 API）
+map fs topic-create --title "..." --slug <name> --participants participant,reviewer
+# --description 可选；--participants 白名单内 persona 才收到 FS 待办
+
+# 关闭（验证型写：服务端校验后写回 index.md status=closed）
+map topic close --id <slug> --reason no_experiment_needed --note "结论（decision / rationale / action_items 见 topic-host）"
+# 等价 advanced 入口：map fs close --topic <slug> --reason ... --note ...
 ```
 
-话题已 `resolve` 且创建 linked experiment 后，`close` 表示"已解决或明确不做"；实验处于 `draft`/`review`/`approved`/`running`/`result_review` 时**不要**关闭源话题，等待期间 `topic dismiss` 降噪。
+话题关闭前若有 linked experiment，需等实验 done/cancelled；实验处于 `draft`/`review`/`approved`/`running`/`result_review` 时**不要**关闭源话题，等待期间 `topic dismiss` 降噪。
 
-**归档**（列表默认隐藏，`show` 仍可见）：
+**无 fs 等价物操作的约定**（原 DB 命令退役后按此执行，细节见 [topic-host](../../topic-host/SKILL.md)）：
+
+| 原 DB 命令 | FS 约定 |
+|-----------|---------|
+| `topic rollback-round` | 删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性 |
+| `topic reopen` | 手改 `index.md` 的 `status` 并在 close note 或新发言中说明原因 |
+| `topic resolve` | 由 `fs close --note` 承载 decision / rationale / action_items |
+| `topic archive` | 移动 `map/topics/<slug>/` 目录到 `map/archive/topics/`（或项目约定的归档位置） |
+
+**存量 DB 话题处置**：读（`topic show --id <uuid>`）永久保留；继续讨论先迁移：
 
 ```bash
-map --persona host topic archive --id <topic-uuid>
-map --persona host topic archive --id <topic-uuid> --undo
-```
-
-**沉淀结论**（开实验前通常先做；payload 示例见 [topic-host](../../topic-host/SKILL.md)）：
-
-```bash
-map --persona host topic resolve --id <topic-uuid> --file ./resolve.yaml
-map --persona host project decisions --project-key <key>
+map --persona host topic migrate --id <topic-uuid> --slug <name> --dry-run   # 先看计划写入
+map --persona host topic migrate --id <topic-uuid> --slug <name>             # FS 落盘成功后归档 DB 记录
 ```
 
 ## 参与讨论（participant / host）
 
 ```bash
-map --persona participant topic comment --id <topic-uuid> --body "评论内容（Markdown）"
-# 长评论用文件，避免 shell quoting
-map --persona participant topic comment --id <topic-uuid> --file ./comment.md
-# 文件引用模式（推荐）：见 file-reference.md
-map --persona participant topic comment \
-  --id <topic-uuid> \
-  --file-path map/topics/<slug>/round1-participant.md \
-  --excerpt "一句话摘要"
+map --persona participant fs comment --topic <slug> --body "短评（Markdown）"
+# 长内容用文件（即写 map/topics/<slug>/round<N>-participant.md，推荐）
+map --persona participant fs comment --topic <slug> --file ./my-opinion.md
 ```
 
-回复楼中楼：加 `--parent <comment-uuid>`
+统一入口等价：`map topic comment --id <slug> --body "..."`（slug 自动路由 FS，纯本地写）。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。
 
 ## 实验创建（仅 host）
 
@@ -148,6 +147,6 @@ map notification read --id <notification-uuid>
 map notification read-all
 ```
 
-行动项负责人在完成工作后，应在来源话题跟评、开关联实验，或请 host 通过 `topic resolve` 更新 action_items（CLI 无单独 close 命令）。
+行动项负责人在完成工作后，应在来源话题写发言、开关联实验，或请 host 在话题结论中更新 action_items（FS 话题由 `fs close --note` 承载；CLI 无单独 close 命令）。
 
-@ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。
+@ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。该机制保留于实验评论域（comment 走 API）；FS 话题发言（纯本地写）中的 `@` 仅是视觉提示，不产生 mention 待办。

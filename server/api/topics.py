@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
-from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.db.session import get_db
 from server.domain.models import Agent, Project, TopicStatus
@@ -22,11 +21,41 @@ from server.domain.schemas import (
     TopicUpdate,
 )
 from server.services import fs_source_service as fs_svc
-from server.services import notification_service, topic_service
+from server.services import topic_service
 from server.services import permissions as perm
-from server.services.errors import ForbiddenError
 
 topics_router = APIRouter(tags=["topics"], dependencies=[Depends(bind_background_tasks)])
+
+# v0.13 M58：DB 话题写路径整体退役（410 Gone）。CLI 侧已引导性拒绝（exit 2），
+# 此为直连 API 消费者的第二道门。退役面 = POST create/close/reopen/advance-round/
+# rollback-round/resolve/comments + DELETE；PATCH 仅保留 archived 子字段
+# （topic migrate 收尾归档依赖），title/description/pinned 编辑一并 410。
+# 读路径（GET*）与 POST dismiss 保留。
+_RETIRED_WRITE_HINTS: dict[str, str] = {
+    "create": "create FS topics via `map fs topic-create --title ... --slug <name>` (map/ folder is the source of truth)",
+    "close": "close FS topics via `map fs close --topic <slug> --reason <code> --note ...`",
+    "reopen": "FS topic status lives in map/topics/<slug>/index.md — edit `status` directly and note the reason",
+    "advance-round": "advance FS topics via `map fs advance-round --topic <slug>` (wakeable event included)",
+    "rollback-round": "FS rounds are file facts — remove round<N>-*.md files and fix index.md round/participants",
+    "resolve": "decisions ride the FS close note: `map fs close --topic <slug> --note <decision>`",
+    "comment": "comment FS topics via `map fs comment --topic <slug> --file <md>` (pure local write)",
+    "delete": "archive FS topics by moving map/topics/<slug>/ to map/archive/topics/; legacy DB topics stay readable",
+    "patch": "only `archived` is maintained (topic migrate finalization); edit title/description/pinned in index.md instead",
+}
+
+
+def _write_retired_410(command: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error": "topic_write_retired",
+            "message": (
+                f"DB write path for topic `{command}` retired in v0.13 M58 "
+                "(topic writes are FS-only)"
+            ),
+            "hint": _RETIRED_WRITE_HINTS[command],
+        },
+    )
 
 
 @topics_router.post(
@@ -40,21 +69,8 @@ def create_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    resolved_project_id = perm.resolve_project_id_for_agent(agent, project_id)
-    perm.ensure_project_access(agent, resolved_project_id)
-    topic = topic_service.create_topic(db, resolved_project_id, agent.id, payload)
-    emit(
-        db,
-        agent,
-        action="topic.created",
-        target_type="topic",
-        target_id=topic.id,
-        project_id=resolved_project_id,
-        summary=f"创建话题「{topic.title}」",
-        event="topic.created",
-        event_payload={"id": str(topic.id), "title": topic.title},
-    )
-    return topic_service.topic_summary(db, topic)
+    """(Retired v0.13 M58) DB topic creation is gone — 410 with guidance."""
+    raise _write_retired_410("create")
 
 
 @topics_router.get("/projects/{project_id}/topics", response_model=list[TopicSummaryRead])
@@ -147,15 +163,15 @@ def update_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
+    # v0.13 M58：PATCH 仅保留 archived 子字段（topic migrate 收尾归档依赖）；
+    # title / description / pinned 编辑一律 410 引导到 index.md。
+    changed_fields = payload.model_dump(exclude_unset=True)
+    if set(changed_fields) - {"archived"}:
+        raise _write_retired_410("patch")
     # Archive/undo is a project-level operation: any project member may archive
     # or restore a topic (docs/CLI.md archive spec — mirrors the experiment side
-    # which uses ``ensure_experiment_access``). Other field edits (title /
-    # description / pinned) remain host/admin-only.
-    changed_fields = payload.model_dump(exclude_unset=True)
-    if set(changed_fields) <= {"archived"}:
-        perm.ensure_topic_access(db, agent, topic_id)
-    else:
-        perm.ensure_topic_host_or_admin(db, agent, topic_id)
+    # which uses ``ensure_experiment_access``).
+    perm.ensure_topic_access(db, agent, topic_id)
     topic = topic_service.update_topic(db, topic_id, payload)
     return topic_service.topic_summary(db, topic)
 
@@ -166,8 +182,8 @@ def delete_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> None:
-    perm.ensure_topic_host_or_admin(db, agent, topic_id)
-    topic_service.soft_delete_topic(db, topic_id)
+    """(Retired v0.13 M58) DB delete is gone — 410 with guidance."""
+    raise _write_retired_410("delete")
 
 
 @topics_router.post("/topics/{topic_id}/close", response_model=TopicSummaryRead)
@@ -177,26 +193,8 @@ def close_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    perm.ensure_topic_host_or_admin(db, agent, topic_id)
-    body = payload or TopicCloseRequest()
-    topic = topic_service.set_topic_status(
-        db, topic_id, TopicStatus.closed,
-        close_reason=body.close_reason,
-        close_note=body.close_note,
-    )
-    # Phase 2 D2: kind-directed SSE so the waker can map to ``topic_lifecycle``.
-    notification_service.emit_kind(
-        db,
-        project_id=topic.project_id,
-        actor_id=agent.id,
-        personas=["host", "participant"],
-        event="topic.lifecycle.closed",
-        summary=f"话题已关闭「{topic.title}」",
-        target_type="topic",
-        target_id=topic.id,
-        payload={"topic_id": str(topic.id), "title": topic.title, "status": "closed"},
-    )
-    return topic_service.topic_summary(db, topic)
+    """(Retired v0.13 M58) DB close is gone — decisions ride the FS close note."""
+    raise _write_retired_410("close")
 
 
 @topics_router.post("/topics/{topic_id}/dismiss", response_model=TopicSummaryRead)
@@ -221,22 +219,8 @@ def reopen_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    perm.ensure_topic_host_or_admin(db, agent, topic_id)
-    topic = topic_service.set_topic_status(db, topic_id, TopicStatus.open)
-    # Phase 2 D2: kind-directed SSE for reopen so the waker can map to
-    # ``topic_lifecycle`` and resume the participant wake loop.
-    notification_service.emit_kind(
-        db,
-        project_id=topic.project_id,
-        actor_id=agent.id,
-        personas=["host", "participant"],
-        event="topic.lifecycle.reopened",
-        summary=f"话题已重开「{topic.title}」",
-        target_type="topic",
-        target_id=topic.id,
-        payload={"topic_id": str(topic.id), "title": topic.title, "status": "open"},
-    )
-    return topic_service.topic_summary(db, topic)
+    """(Retired v0.13 M58) DB reopen is gone — edit `status` in index.md."""
+    raise _write_retired_410("reopen")
 
 
 @topics_router.post("/topics/{topic_id}/advance-round", response_model=TopicSummaryRead)
@@ -246,41 +230,8 @@ def advance_topic_round(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    topic = perm.ensure_topic_access(db, agent, topic_id)
-    body = payload or TopicAdvanceRound()
-
-    if body.ack is not None:
-        topic = topic_service.record_participant_round_ack(db, topic_id, agent, body.ack)
-        return topic_service.topic_summary(db, topic)
-
-    if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
-        raise ForbiddenError("Only the topic host or admin can advance the discussion round")
-    topic = topic_service.advance_topic_round(
-        db,
-        topic_id,
-        increment_summary=body.increment_summary,
-        acknowledged_by=body.acknowledged_by,
-        mark_ready=body.mark_ready,
-        waive_ack=body.waive_ack,
-        waive_reason=body.waive_reason,
-    )
-    emit(
-        db,
-        agent,
-        action="topic.advance_round",
-        target_type="topic",
-        target_id=topic.id,
-        project_id=topic.project_id,
-        summary=f"推进话题轮次至 {topic.discussion_round}",
-        event="topic.advance_round",
-        event_payload={
-            "topic_id": str(topic.id),
-            "discussion_round": topic.discussion_round,
-            "round_summary_count": topic.round_summary_count,
-            "waived_ack": body.waive_ack,
-        },
-    )
-    return topic_service.topic_summary(db, topic)
+    """(Retired v0.13 M58) DB round advance is gone — use `map fs advance-round`."""
+    raise _write_retired_410("advance-round")
 
 
 @topics_router.post("/topics/{topic_id}/rollback-round", response_model=TopicSummaryRead)
@@ -289,26 +240,8 @@ def rollback_topic_round(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    topic = perm.ensure_topic_access(db, agent, topic_id)
-    if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
-        raise ForbiddenError("Only the topic host or admin can rollback the discussion round")
-    topic = topic_service.rollback_topic_round(db, topic_id)
-    emit(
-        db,
-        agent,
-        action="topic.rollback_round",
-        target_type="topic",
-        target_id=topic.id,
-        project_id=topic.project_id,
-        summary=f"回退话题轮次至 {topic.discussion_round}",
-        event="topic.rollback_round",
-        event_payload={
-            "topic_id": str(topic.id),
-            "discussion_round": topic.discussion_round,
-            "round_summary_count": topic.round_summary_count,
-        },
-    )
-    return topic_service.topic_summary(db, topic)
+    """(Retired v0.13 M58) DB rollback is gone — FS rounds are file facts."""
+    raise _write_retired_410("rollback-round")
 
 
 @topics_router.post("/topics/{topic_id}/resolve", response_model=TopicDecisionRead)
@@ -318,22 +251,8 @@ def resolve_topic(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicDecisionRead:
-    topic = perm.ensure_topic_access(db, agent, topic_id)
-    if topic.creator_agent_id != agent.id and not perm.is_admin(agent):
-        raise ForbiddenError("Only the topic host or admin can resolve the topic")
-    decision = topic_service.resolve_topic(db, topic_id, agent, payload)
-    emit(
-        db,
-        agent,
-        action="topic.resolved",
-        target_type="topic",
-        target_id=topic.id,
-        project_id=topic.project_id,
-        summary=f"沉淀话题结论「{topic.title}」",
-        event="topic.resolved",
-        event_payload={"topic_id": str(topic.id), "decision_id": str(decision.id)},
-    )
-    return topic_service.topic_decision_read(db, decision)
+    """(Retired v0.13 M58) DB resolve is gone — decisions ride the FS close note."""
+    raise _write_retired_410("resolve")
 
 
 @topics_router.post(
@@ -347,30 +266,8 @@ def create_topic_comment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicCommentRead:
-    topic = perm.ensure_topic_access(db, agent, topic_id)
-    comment, unresolved = topic_service.create_topic_comment(db, topic_id, agent, payload)
-    event_payload = {"topic_id": str(topic_id), "comment_id": str(comment.id)}
-    emit(
-        db,
-        agent,
-        action="topic.comment.created",
-        target_type="topic_comment",
-        target_id=comment.id,
-        project_id=topic.project_id,
-        summary="话题新评论",
-        event="topic.comment.created",
-        event_payload=event_payload,
-        notify=False,
-    )
-    notification_service.notify_topic_comment_created(
-        db,
-        project_id=topic.project_id,
-        actor_id=agent.id,
-        creator_agent_id=topic.creator_agent_id,
-        target_id=comment.id,
-        payload=event_payload,
-    )
-    return topic_service.topic_comment_read(db, comment, unresolved_mentions=unresolved)
+    """(Retired v0.13 M58) DB comments are gone — use `map fs comment`."""
+    raise _write_retired_410("comment")
 
 
 @topics_router.get("/topics/{topic_id}/comments")

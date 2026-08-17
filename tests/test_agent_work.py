@@ -1,33 +1,45 @@
-"""Tests for GET /agents/me/work unified snapshot."""
+"""Tests for GET /agents/me/work unified snapshot.
+
+v0.13 M58: topics/comments fixtures are DB-direct inserts (write endpoints
+retired); comments go through the service layer so round-ack semantics hold.
+"""
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from sqlalchemy import select
+
+from server.domain.models import Agent
+from tests._db_topic_factory import db_add_comment, db_create_topic
 
 pytestmark = pytest.mark.slow
 
 
-def _create_topic(client, headers, project, **overrides):
-    payload = {"title": "work-topic", "description": "d"}
-    payload.update(overrides)
-    resp = client.post(f"/api/v1/projects/{project['id']}/topics", headers=headers, json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+def _host(db):
+    return db.scalar(select(Agent).where(Agent.name == "test-agent"))
 
 
-def test_agent_work_matches_split_endpoints(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="work-unified")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host opens"},
+def _reviewer(db):
+    return db.scalar(select(Agent).where(Agent.name == "reviewer-agent"))
+
+
+def _create_topic(db, project, **overrides):
+    overrides.setdefault("title", "work-topic")
+    overrides.setdefault("description", "d")
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=_host(db).id,
+        **overrides,
     )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "participant reply"},
-    )
+
+
+def test_agent_work_matches_split_endpoints(client, db_session, auth_headers, project, reviewer):
+    topic = _create_topic(db_session, project, title="work-unified")
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host opens")
+    db_add_comment(db_session, topic_id=topic.id, author=_reviewer(db_session), body="participant reply")
 
     work = client.get("/api/v1/agents/me/work", headers=auth_headers).json()
     todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
@@ -44,13 +56,9 @@ def test_agent_work_matches_split_endpoints(client, auth_headers, project, revie
     assert work["topic_progress"]["total"] == 1
 
 
-def test_agent_work_notification_category_wakeable_default(client, auth_headers, project):
-    topic = _create_topic(client, auth_headers, project, title="work-notif")
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=auth_headers,
-        json={"body": "ping"},
-    )
+def test_agent_work_notification_category_wakeable_default(client, db_session, auth_headers, project):
+    topic = _create_topic(db_session, project, title="work-notif")
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="ping")
 
     wakeable = client.get("/api/v1/agents/me/work", headers=auth_headers).json()
     all_notifs = client.get(
@@ -62,14 +70,9 @@ def test_agent_work_notification_category_wakeable_default(client, auth_headers,
     assert wakeable["notifications"]["total"] <= all_notifs["notifications"]["total"]
 
 
-def test_agent_work_empty_when_host_caught_up(client, auth_headers, project):
-    topic = _create_topic(client, auth_headers, project, title="work-caught-up")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "only me"},
-    )
+def test_agent_work_empty_when_host_caught_up(client, db_session, auth_headers, project):
+    topic = _create_topic(db_session, project, title="work-caught-up")
+    db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="only me")
 
     work = client.get("/api/v1/agents/me/work", headers=auth_headers).json()
     assert work["topic_progress"]["total"] == 0

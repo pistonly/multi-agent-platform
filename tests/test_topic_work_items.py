@@ -1,8 +1,23 @@
-"""Tests for unified topic work items."""
+"""Tests for unified topic work items (M58b-3: DB-direct fixtures).
+
+Every assertion here targets a retained consumer projection — todos ↔
+topic-progress ↔ notifications consistency — so fixtures are inserted via
+the DB factory instead of the retired HTTP write endpoints. Round-ack
+fixtures go through ``record_participant_round_ack`` (the same service
+function the retired advance-round endpoint called), which keeps the
+system-kind ack comment shape authentic.
+"""
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from sqlalchemy import select
+
+from server.domain.models import Agent, Mention
+from server.services import mention_service, topic_lifecycle_service
+from tests._db_topic_factory import db_add_comment, db_create_topic
 
 pytestmark = pytest.mark.slow
 
@@ -15,12 +30,21 @@ def _flatten_comments(nodes: list[dict]) -> list[dict]:
     return out
 
 
-def _create_topic(client, headers, project, **overrides):
-    payload = {"title": "work-items", "description": "d"}
-    payload.update(overrides)
-    resp = client.post(f"/api/v1/projects/{project['id']}/topics", headers=headers, json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+def _agents(db_session, reviewer):
+    host = db_session.scalar(select(Agent).where(Agent.name == "test-agent"))
+    rev = db_session.get(Agent, uuid.UUID(reviewer["id"]))
+    return host, rev
+
+
+def _topic(db_session, project, host, title):
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=host.id,
+        title=title,
+        description="d",
+    )
+    return topic
 
 
 def _obligation_work_items_by_kind(progress: dict, kind: str) -> list[dict]:
@@ -32,19 +56,14 @@ def _obligation_work_items_by_kind(progress: dict, kind: str) -> list[dict]:
     return items
 
 
-def test_todos_obligation_matches_work_items_projection(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="equiv")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host opens"},
-    )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "participant says hi"},
-    )
+def test_todos_obligation_matches_work_items_projection(
+    client, auth_headers, project, reviewer, db_session
+):
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "equiv")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=host, body="host opens")
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="participant says hi")
 
     todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
     progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()
@@ -57,21 +76,20 @@ def test_todos_obligation_matches_work_items_projection(client, auth_headers, pr
     assert obligation_replies[0]["idempotency_key"] == f"pending_topic_reply:{tid}:{reply_todos[0]['comment_id']}"
 
 
-def test_todos_round_ack_matches_work_items_projection(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="round-ack-equiv")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "participant round1"},
+def test_todos_round_ack_matches_work_items_projection(
+    client, auth_headers, project, reviewer, db_session
+):
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "round-ack-equiv")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="participant round1")
+    summary = db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=host,
+        body="## Round 1 Summary\n\n### 已共识\n- x\n",
     )
-    summary = client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
-    )
-    assert summary.status_code == 201, summary.text
-    summary_id = summary.json()["id"]
+    summary_id = str(summary.id)
 
     todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
     progress = client.get("/api/v1/agents/me/topic-progress", headers=reviewer["headers"]).json()
@@ -86,13 +104,14 @@ def test_todos_round_ack_matches_work_items_projection(client, auth_headers, pro
     assert round_ack_items[0]["idempotency_key"] == f"round_ack:{tid}:{summary_id}"
 
 
-def test_todos_mention_matches_work_items_projection(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="mention-equiv")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent 请看一下"},
+def test_todos_mention_matches_work_items_projection(
+    client, auth_headers, project, reviewer, db_session
+):
+    host, _rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "mention-equiv")
+    tid = str(topic.id)
+    db_add_comment(
+        db_session, topic_id=topic.id, author=host, body="@reviewer-agent 请看一下"
     )
 
     todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
@@ -106,19 +125,13 @@ def test_todos_mention_matches_work_items_projection(client, auth_headers, proje
     assert mention_items[0]["idempotency_key"] == f"mention:{topic_mentions[0]['id']}"
 
 
-def test_obligation_and_contextual_work_items_same_topic(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="combo-items")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host opens"},
-    )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "participant first"},
-    )
+def test_obligation_and_contextual_work_items_same_topic(
+    client, auth_headers, project, reviewer, db_session
+):
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "combo-items")
+    db_add_comment(db_session, topic_id=topic.id, author=host, body="host opens")
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="participant first")
 
     todos = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
     progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()
@@ -133,27 +146,20 @@ def test_obligation_and_contextual_work_items_same_topic(client, auth_headers, p
 
 
 def test_system_ack_comment_skips_unread_change_work_item(
-    client, auth_headers, project, reviewer
+    client, auth_headers, project, reviewer, db_session
 ):
     """Ack comments are kind=system and must not create unread_change noise."""
-    topic = _create_topic(client, auth_headers, project, title="system-ack-unread")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "participant round1"},
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "system-ack-unread")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="participant round1")
+    db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=host,
+        body="## Round 1 Summary\n\n### 已共识\n- x\n",
     )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
-    )
-    ack = client.post(
-        f"/api/v1/topics/{tid}/advance-round",
-        headers=reviewer["headers"],
-        json={"ack": "accept"},
-    )
-    assert ack.status_code == 200
+    topic_lifecycle_service.record_participant_round_ack(db_session, topic.id, rev, "accept")
 
     detail = client.get(f"/api/v1/topics/{tid}", headers=auth_headers).json()
     ack_comments = [
@@ -175,30 +181,23 @@ def test_system_ack_comment_skips_unread_change_work_item(
 
 
 def test_system_ack_comment_skips_pending_topic_reply_work_item(
-    client, auth_headers, project, reviewer
+    client, auth_headers, project, reviewer, db_session
 ):
     """Ack comments are kind=system protocol signals, not conversational
     threads the host must reply to (feedback 002e2a4f / 58193bec). They
     must NOT create a pending_topic_reply obligation — the host already
     drives the round via round_ack / pending_advance_rounds items."""
-    topic = _create_topic(client, auth_headers, project, title="system-ack-reply")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "participant round1"},
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "system-ack-reply")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="participant round1")
+    db_add_comment(
+        db_session,
+        topic_id=topic.id,
+        author=host,
+        body="## Round 1 Summary\n\n### 已共识\n- x\n",
     )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "## Round 1 Summary\n\n### 已共识\n- x\n"},
-    )
-    ack = client.post(
-        f"/api/v1/topics/{tid}/advance-round",
-        headers=reviewer["headers"],
-        json={"ack": "accept"},
-    )
-    assert ack.status_code == 200
+    topic_lifecycle_service.record_participant_round_ack(db_session, topic.id, rev, "accept")
 
     detail = client.get(f"/api/v1/topics/{tid}", headers=auth_headers).json()
     ack_comments = [
@@ -215,13 +214,14 @@ def test_system_ack_comment_skips_pending_topic_reply_work_item(
     assert ack_comments[0]["id"] not in reply_comment_ids
 
 
-def test_mention_three_views_consistent_cold_start(client, auth_headers, reviewer, project):
-    topic = _create_topic(client, auth_headers, project, title="mention-3view")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent 请参与"},
+def test_mention_three_views_consistent_cold_start(
+    client, auth_headers, reviewer, project, db_session
+):
+    host, _rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "mention-3view")
+    tid = str(topic.id)
+    db_add_comment(
+        db_session, topic_id=topic.id, author=host, body="@reviewer-agent 请参与"
     )
 
     reviewer_headers = reviewer["headers"]
@@ -240,19 +240,14 @@ def test_mention_three_views_consistent_cold_start(client, auth_headers, reviewe
 
 
 def test_mention_three_views_consistent_after_prior_participation(
-    client, auth_headers, reviewer, project
+    client, auth_headers, reviewer, project, db_session
 ):
-    topic = _create_topic(client, auth_headers, project, title="mention-3view-prior")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "reviewer participated first"},
-    )
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent 新一轮请你再看"},
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "mention-3view-prior")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="reviewer participated first")
+    db_add_comment(
+        db_session, topic_id=topic.id, author=host, body="@reviewer-agent 新一轮请你再看"
     )
 
     reviewer_headers = reviewer["headers"]
@@ -270,27 +265,24 @@ def test_mention_three_views_consistent_after_prior_participation(
     assert mention_work[0]["idempotency_key"] == f"mention:{topic_mentions[0]['id']}"
 
 
-def test_reviewer_cold_start_progress_empty(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="reviewer-filter")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=auth_headers,
-        json={"body": "host only"},
-    )
+def test_reviewer_cold_start_progress_empty(
+    client, auth_headers, project, reviewer, db_session
+):
+    host, _rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "reviewer-filter")
+    db_add_comment(db_session, topic_id=topic.id, author=host, body="host only")
 
     progress = client.get("/api/v1/agents/me/topic-progress", headers=reviewer["headers"]).json()
     assert progress["total"] == 0
 
 
-def test_dismiss_hides_topic_from_progress_and_todos(client, auth_headers, project, reviewer):
-    topic = _create_topic(client, auth_headers, project, title="dismiss-progress")
-    tid = topic["id"]
-    client.post(
-        f"/api/v1/topics/{tid}/comments",
-        headers=reviewer["headers"],
-        json={"body": "needs host reply"},
-    )
+def test_dismiss_hides_topic_from_progress_and_todos(
+    client, auth_headers, project, reviewer, db_session
+):
+    host, rev = _agents(db_session, reviewer)
+    topic = _topic(db_session, project, host, "dismiss-progress")
+    tid = str(topic.id)
+    db_add_comment(db_session, topic_id=topic.id, author=rev, body="needs host reply")
 
     before = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
     assert len(before["pending_topic_replies"]) == 1
@@ -308,34 +300,19 @@ def test_stale_mention_projection_matches_replied_after_mention(
     client, auth_headers, reviewer, project, db_session
 ):
     """Stale mention projection matches agent_replied_after_mention (T1 H)."""
-    import uuid
-
-    from sqlalchemy import select
-
-    from server.domain.models import Mention
-    from server.services import mention_service
-
-    reviewer_headers = reviewer["headers"]
-    reviewer_id = uuid.UUID(reviewer["id"])
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "stale-equiv", "description": "d"},
-    ).json()
-    root = client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=auth_headers,
-        json={"body": "@reviewer-agent check"},
-    ).json()
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=reviewer_headers,
-        json={"body": "ok", "parent_id": root["id"]},
+    host, rev = _agents(db_session, reviewer)
+    reviewer_id = rev.id
+    topic = _topic(db_session, project, host, "stale-equiv")
+    root = db_add_comment(
+        db_session, topic_id=topic.id, author=host, body="@reviewer-agent check"
+    )
+    db_add_comment(
+        db_session, topic_id=topic.id, author=rev, body="ok", parent_id=root.id
     )
     mention = db_session.scalar(
         select(Mention).where(
             Mention.mentioned_agent_id == reviewer_id,
-            Mention.source_id == uuid.UUID(root["id"]),
+            Mention.source_id == root.id,
         )
     )
     assert mention is not None
@@ -347,7 +324,7 @@ def test_stale_mention_projection_matches_replied_after_mention(
     )
     assert stale is True
 
-    todos = client.get("/api/v1/agents/me/todos", headers=reviewer_headers).json()
-    progress = client.get("/api/v1/agents/me/topic-progress", headers=reviewer_headers).json()
+    todos = client.get("/api/v1/agents/me/todos", headers=reviewer["headers"]).json()
+    progress = client.get("/api/v1/agents/me/topic-progress", headers=reviewer["headers"]).json()
     assert todos["mentions"] == []
     assert _obligation_work_items_by_kind(progress, "mention") == []

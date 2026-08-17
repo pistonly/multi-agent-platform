@@ -1,0 +1,11 @@
+reasonable_items:
+  - "调研质量高：两处 PRD 前提核证修正（mention 消费者活跃：waker mentions 桶/Web 待办与通知页/CLI map mention/通知级联/thread_activity；实验评论来源 comment_service.py:68 仍写 Mention 表）均有代码级证据链，M58c 据此从「实施处置」收敛为「结论回写 + 消费链保留」方向正确，避免误拆实验域仍在用的消费链"
+  - "PATCH /topics/{id} 双用途冲突（archive DB 分支 vs migrate 收尾归档 topic.py:871）识别准确，「archived 保留供 migrate、title/pinned 引导退役」最小保留面决策合理，且 test_topic_migrate.py 全 stub 不受影响的分析正确"
+  - "M58a 硬前置顺序正确（Skill/文档先于代码退役，被唤醒 agent 不撞墙）；CLI 引导复用 M56 _fs_transition_rejected 模式降低新代码面"
+  - "开放问题显式列出让评审定夺（DELETE 去留 / resolve 不做 frontmatter 扩展 / PATCH 保留面），而非隐含决策"
+  - "建议（非阻塞）：M58a-1 rollback-round 的 FS 等价约定（删本轮文件）需在 checklist 写明 index.md round/participants 一致性核对步骤（以 scan_plane 实际重扫行为为准），避免被唤醒 agent 照做出错"
+  - "建议（非阻塞）：test_topics.py ~100+ 写用例中 close/resolve 级联到 action_items 的语义，改直插后应断言 service 级联函数而非端点，保住级联回归价值"
+  - "建议（非阻塞）：e2e_collab.py 改走 fs 后手跑一轮并将输出摘要记入实验日志（evidence 补充）"
+unreasonable_items:
+  - "M58a-2 版本升级不完整：map-plugin.yaml 只升 version（0.11.0→0.13.0）不升 requires（仍为 0.11）。Skill 行为全面依赖 fs 三态路由命令（v0.12 M56 交付的 comment/advance-round/close 路由分支），requires: 0.11 会让旧 CLI 用户升级 Skill 后按 checklist 执行 fs 命令不存在、直接撞墙。需同步升 requires 至三态路由交付版本（0.12）并在 plan 写明版本依据。同时修正 M58b-1 命令清单事实错误：CLI 无 topic delete 命令（@topic_app.command 全量核证：create/list/show/progress/resolve/advance-round/rollback-round/comment/close/reopen/dismiss/read/mark-seen/archive/migrate + mention 子命令组，无 delete）；退役面应为「7 命令 DB 分支（create/resolve/rollback-round/reopen/archive）+ comment/advance-round/close 三命令的 DB 分支」，DELETE 仅作为 server 端点处置项，plan 相应段落需改写"
+  - "M58b-3 测试改造策略缺断言语义分类：「fixtures 改直插 DB 或 fs 造数保住断言」对消费者断言（waker 桶/Web/thread_activity）正确，但对「写端点产生 mention/work-item 投影」断言（test_mentions.py ~29 处话题写端点造数、test_topic_work_items.py 等）错误——直插 Mention 行后断言消费者正常 ≠ 话题评论还会产生 mention，会造出与生产行为不符的假绿测试。需按三类明确改写策略：(a) 写端点行为断言→改 410+引导 body 断言；(b) 消费者断言→直插 fixtures 保留；(c) 话题域产生断言→改 410 断言或移除、实验域产生断言保留为主验证面；写入 M58b-3 条目与风险段"

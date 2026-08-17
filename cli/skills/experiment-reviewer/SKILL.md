@@ -2,7 +2,7 @@
 name: experiment-reviewer
 description: >-
   Review MAP experiment plans and accept/reject experiment results as reviewer
-  persona; follow action_items assigned via topic resolve. Use when simple-waker
+  persona; follow action_items from topic close notes. Use when simple-waker
   wakes reviewer for pending_review, pending_result_review, or
   addressed_review_item. Do not use for: executing experiments or modifying repo
   as experiment-host, hosting topic discussions, participating as participant. Do
@@ -22,8 +22,8 @@ description: >-
 | `todos.pending_reviews` 非空 / `pending_review` wake | 提交当前计划版本的结构化评审 |
 | `todos.pending_result_reviews` 非空 / `pending_result_review` wake | 审批实验结果（accept / reject） |
 | `addressed_review_item` wake | host 已修订并标 `addressed` → 检查并 `review resolve-item`，**之后仍需提交当前版本评审** |
-| `todos.pending_round_acks` 非空 | 优先 `topic advance-round --ack accept` |
-| `todos.action_items` 有分配给本 reviewer 的 open 项 | 在来源话题跟评或完成工作，请 host `topic resolve` 更新 |
+| `todos.pending_round_acks` 非空 | **优先**写本轮自己的发言文件（FS 话题发言文件即表态，无独立 ack 命令；存量 DB 话题只读，待迁移后表态） |
+| `todos.action_items` 有分派 | 在来源话题跟评或完成工作，请 host 在话题收尾的 `fs close --note` 中更新行动项结论 |
 
 ## 硬性规则
 
@@ -40,7 +40,7 @@ description: >-
 1. **提交评审**：准备 `review.yaml`（`reasonable_items` / `unreasonable_items`），`experiment review add` 提交当前计划版本评审。`unreasonable_items` 为空表示无阻塞项；非空时 host 应 `plan revise` 并 `--addressed-item` 回应 → 格式与命令见 [review-format-guide.md](references/review-format-guide.md)
 2. **处理 addressed 项**：host 修订并标 `addressed` 后，`review list` 查看、`review resolve-item` 逐条 resolve；resolve 后**仍需**按上一步提交当前版本评审，而非结束评审
 3. **审批结果**：先读 `experiment status` 与最终 `logs`（含瘦身 `log_file_path` 文件），确认验收标准已满足后 `accept-result`（→ `done`）；不满足用 `reject-result` 驳回并写清返工要求（→ 回到 `running`）。不要替 host 修改仓库或直接补执行日志
-4. **行动项**：`map action list --mine` 查看分配项；完成后在来源话题 comment 说明，请 host 通过 `topic resolve` 更新
+4. **行动项**：`map action list --mine` 查看分配项；完成后在来源话题以 `fs comment` 说明，请 host 在 `fs close --note` 中记录行动项处置
 
 评审维度（目标清晰度、验收可观测性、话题共识一致性、风险依赖、非目标/安全遗漏、结果覆盖 acceptance）详见 [review-format-guide.md](references/review-format-guide.md)。
 

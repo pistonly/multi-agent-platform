@@ -22,28 +22,36 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
 
-def _create_topic(client, headers, project):
-    resp = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=headers,
-        json={"title": "wake endpoint test"},
+from server.domain.models import Agent
+from tests._db_topic_factory import db_create_topic, db_resolve_with_action_items
+
+
+def _create_topic(db, project, creator_agent_id):
+    """DB-direct topic insert (v0.13 M58: POST /topics retired)."""
+    return db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=uuid.UUID(str(creator_agent_id)),
+        title="wake endpoint test",
+        description=None,
     )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
-def _resolve_with_action_item(client, headers, topic_id, owner_agent_id):
-    resp = client.post(
-        f"/api/v1/topics/{topic_id}/resolve",
-        headers=headers,
-        json={
-            "decision": "test wake endpoint",
-            "action_items": [{"title": "wake me", "owner_agent_id": owner_agent_id}],
-        },
+def _resolve_with_action_item(db, topic, owner_agent_id):
+    author = db.scalar(select(Agent).where(Agent.name == "admin-agent"))
+    rows = db_resolve_with_action_items(
+        db,
+        topic,
+        author=author,
+        action_items=[{"title": "wake me", "owner_agent_id": owner_agent_id}],
     )
-    assert resp.status_code == 200, resp.text
-    return resp.json()["action_items"][0]
+    return {"id": str(rows[0].id)}
+
+
+def _admin_id(db):
+    return str(db.scalar(select(Agent).where(Agent.name == "admin-agent")).id)
 
 
 def _owner_id_from_auth(db_session_or_client, auth_headers):
@@ -58,10 +66,10 @@ def _owner_id_from_auth(db_session_or_client, auth_headers):
 # ---------------------------------------------------------------------------
 
 
-def test_mark_wake_sent_owner_succeeds(client, auth_headers, admin_headers, project):
+def test_mark_wake_sent_owner_succeeds(client, db_session, auth_headers, admin_headers, project):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     resp = client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -74,10 +82,10 @@ def test_mark_wake_sent_owner_succeeds(client, auth_headers, admin_headers, proj
     assert body["stale_at"] is None
 
 
-def test_mark_wake_sent_admin_succeeds_for_other_owner(client, admin_headers, project):
+def test_mark_wake_sent_admin_succeeds_for_other_owner(client, db_session, admin_headers, project):
     owner_id = _owner_id_from_auth(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     resp = client.post(
         f"/api/v1/action-items/{item['id']}/mark-wake-sent",
@@ -87,10 +95,10 @@ def test_mark_wake_sent_admin_succeeds_for_other_owner(client, admin_headers, pr
     assert resp.json()["wake_count"] == 1
 
 
-def test_mark_wake_sent_non_owner_rejected(client, auth_headers, admin_headers, reviewer, project):
+def test_mark_wake_sent_non_owner_rejected(client, db_session, auth_headers, admin_headers, reviewer, project):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     # reviewer is neither owner nor admin → 403
     resp = client.post(
@@ -100,10 +108,10 @@ def test_mark_wake_sent_non_owner_rejected(client, auth_headers, admin_headers, 
     assert resp.status_code == 403, resp.text
 
 
-def test_mark_wake_sent_increments_count(client, auth_headers, admin_headers, project):
+def test_mark_wake_sent_increments_count(client, db_session, auth_headers, admin_headers, project):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     for expected in (1, 2, 3):
         resp = client.post(
@@ -114,10 +122,10 @@ def test_mark_wake_sent_increments_count(client, auth_headers, admin_headers, pr
         assert resp.json()["wake_count"] == expected
 
 
-def test_mark_wake_sent_rejects_closed_item(client, auth_headers, admin_headers, project):
+def test_mark_wake_sent_rejects_closed_item(client, db_session, auth_headers, admin_headers, project):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     # Close it
     closed = client.post(
@@ -147,10 +155,10 @@ def test_mark_wake_sent_404_for_missing(client, admin_headers):
 # ---------------------------------------------------------------------------
 
 
-def test_mark_stale_admin_succeeds(client, auth_headers, admin_headers, project):
+def test_mark_stale_admin_succeeds(client, db_session, auth_headers, admin_headers, project):
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     # Audit invariant: stale requires last_woken_at set. Drive one wake first.
     wake = client.post(
@@ -168,12 +176,12 @@ def test_mark_stale_admin_succeeds(client, auth_headers, admin_headers, project)
     assert body["stale_at"] is not None
 
 
-def test_mark_stale_owner_rejected(client, auth_headers, admin_headers, project):
+def test_mark_stale_owner_rejected(client, db_session, auth_headers, admin_headers, project):
     """Owner cannot mark their own item stale — escalation is system-driven,
     not assignee-driven (plan §3 + I4 design intent)."""
     owner_id = _owner_id_from_auth(client, auth_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     resp = client.post(
         f"/api/v1/action-items/{item['id']}/mark-stale",
@@ -182,12 +190,12 @@ def test_mark_stale_owner_rejected(client, auth_headers, admin_headers, project)
     assert resp.status_code == 403, resp.text
 
 
-def test_mark_stale_idempotent(client, admin_headers, project):
+def test_mark_stale_idempotent(client, db_session, admin_headers, project):
     """The I3 helper short-circuits if stale_at is already set — verify the
     HTTP endpoint does not double-write the audit row."""
     owner_id = _owner_id_from_auth(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     # Wake first so stale's "last_woken_at required" invariant passes.
     client.post(
@@ -224,10 +232,10 @@ def test_mark_stale_404_for_missing(client, admin_headers):
 # ---------------------------------------------------------------------------
 
 
-def test_action_item_response_includes_wake_fields(client, admin_headers, project):
+def test_action_item_response_includes_wake_fields(client, db_session, admin_headers, project):
     owner_id = _owner_id_from_auth(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    item = _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    item = _resolve_with_action_item(db_session, topic, owner_id)
 
     listing = client.get(
         f"/api/v1/projects/{project['id']}/action-items",
@@ -240,10 +248,10 @@ def test_action_item_response_includes_wake_fields(client, admin_headers, projec
         assert field in match, f"missing {field} in action_item response"
 
 
-def test_todos_action_items_includes_wake_fields(client, admin_headers, project):
+def test_todos_action_items_includes_wake_fields(client, db_session, admin_headers, project):
     owner_id = _owner_id_from_auth(client, admin_headers)
-    topic = _create_topic(client, admin_headers, project)
-    _resolve_with_action_item(client, admin_headers, topic["id"], owner_id)
+    topic = _create_topic(db_session, project, _admin_id(db_session))
+    _resolve_with_action_item(db_session, topic, owner_id)
 
     resp = client.get("/api/v1/agents/me/todos", headers=admin_headers)
     assert resp.status_code == 200

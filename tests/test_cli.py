@@ -1,14 +1,18 @@
 from pathlib import Path
 from types import SimpleNamespace
+import uuid
 
 import pytest
 import yaml
 from map_client import project_config
 from map_client.testing import MAPTestClientTransport
+from sqlalchemy import select
 from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
+from server.domain.models import Agent
+from tests._db_topic_factory import db_add_comment, db_create_topic, db_resolve_with_action_items
 from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
@@ -47,6 +51,16 @@ def patched_admin_cli(monkeypatch, client, admin_headers):
         "map_client.config.load_config",
         lambda *args, **kwargs: {"api_url": "http://test", "token": token, "project_key": None},
     )
+
+
+@pytest.fixture
+def fs_routing_cli(patched_cli, monkeypatch, tmp_path: Path):
+    """patched_cli + 三态路由可用的 workspace（uuid 反查需扫描 map/ 平面；
+    patched_cli 将 find_map_dir 钉为 None，会令 fs._workspace 直接退出）。"""
+    from cli.commands import fs as fs_commands
+
+    monkeypatch.setattr(fs_commands, "_workspace", lambda: tmp_path)
+    return tmp_path
 
 
 def test_cli_admin_create_project(runner, patched_admin_cli):
@@ -330,24 +344,25 @@ def test_cli_complete_requires_metadata_evidence(runner, patched_cli, tmp_path: 
 
 
 def test_cli_topic_mark_seen_alias_advances_read_cursor(
-    runner, patched_cli, client, auth_headers, reviewer, project
+    runner, patched_cli, client, db_session, auth_headers, reviewer, project
 ):
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=auth_headers,
-        json={"title": "mark-seen alias", "description": "d"},
-    ).json()
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=reviewer["headers"],
-        json={"body": "reviewer update"},
+    host = db_session.scalar(select(Agent).where(Agent.name == "test-agent"))
+    reviewer_row = db_session.scalar(select(Agent).where(Agent.name == "reviewer-agent"))
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=host.id,
+        title="mark-seen alias",
+        description="d",
     )
+    db_add_comment(db_session, topic_id=topic.id, author=reviewer_row, body="reviewer update")
+    tid = str(topic.id)
 
-    result = runner.invoke(app, ["topic", "mark-seen", "--id", topic["id"]])
+    result = runner.invoke(app, ["topic", "mark-seen", "--id", tid])
 
     assert result.exit_code == 0, result.output
     cursor = yaml.safe_load(result.output)
-    assert cursor["topic_id"] == topic["id"]
+    assert cursor["topic_id"] == tid
     assert cursor["last_read_comment_seq"] >= 1
 
 
@@ -420,78 +435,86 @@ def test_cli_pre_complete_outputs_jsonable_phase(
     assert payload["ok"] is True
 
 
-def test_cli_topic_flow(runner, patched_cli, project, tmp_path: Path):
-    result = runner.invoke(app, ["topic", "create", "--title", "CLI话题", "--description", "desc"])
-    assert result.exit_code == 0, result.output
-    topic = yaml.safe_load(result.output)
-    assert topic["status"] == "open"
-    topic_id = topic["id"]
-
-    result = runner.invoke(app, ["topic", "comment", "--id", topic_id, "--body", "评论"])
-    assert result.exit_code == 0, result.output
-
+def test_cli_topic_write_commands_rejected_with_fs_guidance(
+    runner, fs_routing_cli, client, db_session, auth_headers, project, tmp_path: Path
+):
+    """M58b-1: DB 话题写命令一律引导性拒绝（exit 2 + fs 等价指引），不触达写端点。"""
+    host = db_session.scalar(select(Agent).where(Agent.name == "test-agent"))
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=host.id,
+        title="CLI话题",
+    )
+    tid = str(topic.id)
     comment_file = tmp_path / "comment.md"
     comment_file.write_text("文件评论", encoding="utf-8")
-    result = runner.invoke(app, ["topic", "comment", "--id", topic_id, "--file", str(comment_file)])
-    assert result.exit_code == 0, result.output
-
-    result = runner.invoke(app, ["topic", "show", "--id", topic_id])
-    assert result.exit_code == 0, result.output
-    detail = yaml.safe_load(result.output)
-    assert detail["comment_count"] == 2
-    assert detail["discussion_round"] == "round1"
-
-    result = runner.invoke(app, ["topic", "advance-round", "--id", topic_id])
-    assert result.exit_code == 0, result.output
-    advanced = yaml.safe_load(result.output)
-    assert advanced["discussion_round"] == "round2"
-    assert advanced["round_summary_count"] == 1
-
-    result = runner.invoke(app, ["topic", "list", "--status", "open", "--q", "CLI话题", "--page-size", "1"])
-    assert result.exit_code == 0, result.output
-    topics = yaml.safe_load(result.output)
-    assert len(topics) == 1
-    assert topics[0]["id"] == topic_id
-
-    result = runner.invoke(app, ["topic", "close", "--id", topic_id])
-    assert result.exit_code == 0, result.output
-    assert yaml.safe_load(result.output)["status"] == "closed"
-
-
-def test_cli_topic_resolve_and_action_list(runner, patched_cli, project, reviewer, tmp_path: Path):
-    result = runner.invoke(app, ["topic", "create", "--title", "CLI决策话题"])
-    assert result.exit_code == 0, result.output
-    topic = yaml.safe_load(result.output)
-
-    decision_file = tmp_path / "decision.yaml"
-    decision_file.write_text(
-        yaml.safe_dump(
-            {
-                "decision": "采用行动项 MVP",
-                "rationale": "先让讨论能沉淀",
-                "action_items": [
-                    {
-                        "title": "补测试",
-                        "owner_agent_id": reviewer["id"],
-                    }
-                ],
-            },
-            allow_unicode=True,
-            sort_keys=False,
+    retired = [
+        (["topic", "create", "--title", "CLI话题", "--description", "desc"], "fs topic-create"),
+        (
+            ["topic", "comment", "--id", tid, "--body", "评论"],
+            "fs comment",
         ),
-        encoding="utf-8",
-    )
+        (
+            ["topic", "comment", "--id", tid, "--file", str(comment_file)],
+            "fs comment",
+        ),
+        (
+            ["topic", "advance-round", "--id", tid],
+            "fs advance-round",
+        ),
+        (
+            ["topic", "close", "--id", tid],
+            "fs close",
+        ),
+    ]
+    for argv, hint in retired:
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 2, (argv, result.output)
+        assert "DB write path retired" in result.output, (argv, result.output)
+        assert hint in result.output, (argv, result.output)
 
-    result = runner.invoke(app, ["topic", "resolve", "--id", topic["id"], "--file", str(decision_file)])
+
+def test_cli_topic_help_announces_fs_only_writes(runner):
+    """M58b-1: `map topic --help` 顶层声明话题写操作 FS 单轨化。"""
+    result = runner.invoke(app, ["topic", "--help"])
     assert result.exit_code == 0, result.output
-    resolved = yaml.safe_load(result.output)
-    assert resolved["decision"] == "采用行动项 MVP"
-    assert resolved["action_items"][0]["title"] == "补测试"
+    assert "FS-only writes" in result.output
+
+
+def test_cli_topic_resolve_rejected_and_action_list_reads_db_fixture(
+    runner, fs_routing_cli, client, db_session, auth_headers, reviewer, project, tmp_path: Path
+):
+    """resolve 引导性拒绝；decisions / action list 读路径用 DB 直插 fixture 保留验证。"""
+    host = db_session.scalar(select(Agent).where(Agent.name == "test-agent"))
+    topic = db_create_topic(
+        db_session,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=host.id,
+        title="CLI决策话题",
+    )
+    decision_file = tmp_path / "decision.yaml"
+    decision_file.write_text("decision: 采用行动项 MVP", encoding="utf-8")
+    result = runner.invoke(
+        app, ["topic", "resolve", "--id", str(topic.id), "--file", str(decision_file)]
+    )
+    assert result.exit_code == 2, result.output
+    assert "DB write path retired" in result.output
+    assert "`map fs close --topic <slug> --reason <code> --note <decision>`" in result.output
+    assert "`map topic migrate" in result.output
+
+    db_resolve_with_action_items(
+        db_session,
+        topic,
+        author=host,
+        decision="采用行动项 MVP",
+        action_items=[{"title": "补测试", "owner_agent_id": reviewer["id"]}],
+    )
 
     result = runner.invoke(app, ["project", "decisions"])
     assert result.exit_code == 0, result.output
     decisions = yaml.safe_load(result.output)
-    assert decisions[0]["topic_id"] == topic["id"]
+    assert decisions[0]["topic_id"] == str(topic.id)
 
     result = runner.invoke(app, ["action", "list", "--owner-agent-id", reviewer["id"]])
     assert result.exit_code == 0, result.output

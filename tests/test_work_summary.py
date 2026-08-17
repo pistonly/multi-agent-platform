@@ -15,21 +15,38 @@ test focused on the schema/service contract.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from map_types.enums import TopicCommentKind
+from sqlalchemy import select
 
+from server.domain.models import Agent
+from tests._db_topic_factory import db_add_comment, db_create_topic
 from tests._frontmatter import make_valid_plan
 
 pytestmark = pytest.mark.slow
 
 
-def _seed_topic_with_mention(client, project, headers):
-    """Spin up topic + comment with @mention to drive a mention bucket."""
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=headers,
-        json={"title": "summary-mention-topic", "body": "hello"},
-    ).json()
+def _agent(db, name):
+    return db.scalar(select(Agent).where(Agent.name == name))
+
+
+def _mention_topic(db, project, *, creator: Agent, title: str, mentioned: str):
+    topic = db_create_topic(
+        db,
+        project_id=uuid.UUID(project["id"]),
+        creator_agent_id=creator.id,
+        title=title,
+        description=None,
+    )
+    db_add_comment(
+        db,
+        topic_id=topic.id,
+        author=creator,
+        body=f"@{mentioned} please review",
+        kind=TopicCommentKind.user.value,
+    )
     return topic
 
 
@@ -55,22 +72,17 @@ def test_summary_all_buckets_empty(client, project, admin_headers):
 
 
 def test_summary_partial_buckets_when_only_one_mention_present(
-    client, project, auth_headers, admin_headers
+    client, db_session, project, auth_headers, admin_headers
 ):
     """One mention → mention bucket count=1, all others empty."""
-    # create a project admin user and a topic from that admin so we can
-    # @mention the host agent (auth_headers) from a different author.
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=admin_headers,
-        json={"title": "summary-mention-topic", "body": "host check"},
-    ).json()
+    # create a topic from admin so we can @mention the host agent
+    # (auth_headers) from a different author.
     me = client.get("/api/v1/agents/me", headers=auth_headers).json()
-    body = f"@{me['name']} please review"
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=admin_headers,
-        json={"body": body, "kind": TopicCommentKind.user.value},
+    _mention_topic(
+        db_session, project,
+        creator=_agent(db_session, "admin-agent"),
+        title="summary-mention-topic",
+        mentioned=me["name"],
     )
 
     response = client.get(
@@ -88,7 +100,7 @@ def test_summary_partial_buckets_when_only_one_mention_present(
 
 
 def test_summary_full_buckets_when_many_partitions_present(
-    client, project, auth_headers, admin_headers, reviewer
+    client, db_session, project, auth_headers, admin_headers, reviewer
 ):
     """Drive every bucket — mention, round_ack, pending_reply, action_items,
     explicit_only (my_open_experiments), informational_only (pending_result_reviews).
@@ -99,16 +111,12 @@ def test_summary_full_buckets_when_many_partitions_present(
     observe both buckets.
     """
     # 1) mention: admin comments on a topic @-ing the test-agent
-    topic = client.post(
-        f"/api/v1/projects/{project['id']}/topics",
-        headers=admin_headers,
-        json={"title": "summary-full-topic", "body": "kickoff"},
-    ).json()
     me = client.get("/api/v1/agents/me", headers=auth_headers).json()
-    client.post(
-        f"/api/v1/topics/{topic['id']}/comments",
-        headers=admin_headers,
-        json={"body": f"@{me['name']} check this", "kind": TopicCommentKind.user.value},
+    _mention_topic(
+        db_session, project,
+        creator=_agent(db_session, "admin-agent"),
+        title="summary-full-topic",
+        mentioned=me["name"],
     )
 
     # 2) explicit_only: my_open_experiment (draft → at least experiment exists)
@@ -177,21 +185,18 @@ def test_summary_persona_filter_hides_host_only_for_participant(
 
 
 def test_summary_truncation_respects_topics_limit(
-    client, project, auth_headers, admin_headers
+    client, db_session, project, auth_headers, admin_headers
 ):
     """topics_limit=2 caps each bucket to 2 items; truncated count is reported."""
     # create 3 distinct mention topics
     me = client.get("/api/v1/agents/me", headers=auth_headers).json()
+    admin = _agent(db_session, "admin-agent")
     for i in range(3):
-        topic = client.post(
-            f"/api/v1/projects/{project['id']}/topics",
-            headers=admin_headers,
-            json={"title": f"truncate-topic-{i}", "body": "x"},
-        ).json()
-        client.post(
-            f"/api/v1/topics/{topic['id']}/comments",
-            headers=admin_headers,
-            json={"body": f"@{me['name']} #{i}", "kind": TopicCommentKind.user.value},
+        _mention_topic(
+            db_session, project,
+            creator=admin,
+            title=f"truncate-topic-{i}",
+            mentioned=me["name"],
         )
 
     response = client.get(

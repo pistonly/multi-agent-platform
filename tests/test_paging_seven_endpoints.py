@@ -27,7 +27,12 @@ from __future__ import annotations
 
 import inspect
 import re
+import uuid
 
+from sqlalchemy import select
+
+from server.domain.models import Agent
+from tests._db_topic_factory import db_create_topic
 from tests._frontmatter import make_valid_plan
 
 # ────────────────────────── minimal seed helpers ──────────────────────────
@@ -47,18 +52,17 @@ def _make_experiment(client, auth_headers, project_id: str) -> str:
     return create.json()["id"]
 
 
-def _make_topic(client, auth_headers, project_id: str) -> str:
-    """Create a topic via the API; return its id (str)."""
-    create = client.post(
-        f"/api/v1/projects/{project_id}/topics",
-        headers=auth_headers,
-        json={
-            "title": "limit paging test topic",
-            "body": "test",
-        },
+def _make_topic(db, project_id: str) -> str:
+    """DB-direct topic insert (v0.13 M58: POST /topics retired); return its id (str)."""
+    host = db.scalar(select(Agent).where(Agent.name == "test-agent"))
+    topic = db_create_topic(
+        db,
+        project_id=uuid.UUID(project_id),
+        creator_agent_id=host.id,
+        title="limit paging test topic",
+        description=None,
     )
-    assert create.status_code == 201, create.text
-    return create.json()["id"]
+    return str(topic.id)
 
 
 # ────────────────────────── API-layer integration tests ──────────────────────────
@@ -104,9 +108,9 @@ def test_api_list_comments_limit_honoured(client, auth_headers, project):
     assert len(resp.json()) <= 2
 
 
-def test_api_list_topic_comments_limit_honoured(client, auth_headers, project):
+def test_api_list_topic_comments_limit_honoured(client, db_session, auth_headers, project):
     """``GET /topics/{id}/comments?limit=2`` returns ≤2 rows."""
-    topic_id = _make_topic(client, auth_headers, project["id"])
+    topic_id = _make_topic(db_session, project["id"])
     resp = client.get(
         f"/api/v1/topics/{topic_id}/comments?limit=2", headers=auth_headers
     )

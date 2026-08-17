@@ -1,0 +1,6 @@
+reasonable_items:
+  - "unreasonable 28633582 已解决：requires 0.11→0.12 升级与版本依据（fs 三态路由为 v0.12 M56 交付、旧 CLI 撞墙风险）已写入 M58a acceptance、M58a-2 条目与证据键（grep 核证项）；CLI 命令清单事实修正到位——修订说明与调研结论均明确无 delete 命令、退役面为 7 命令 DB 分支 + comment/advance-round/close 三命令 DB 分支，DELETE 归入 server 端点处置（开放问题 1 补充「CLI 无对应命令，无暗门风险」）"
+  - "unreasonable a4feba18 已解决：测试改造三类断言语义分类（(a) 写端点行为→410 断言；(b) 消费者→直插 fixtures 保留；(c) 话题域产生→410/移除、实验域产生保留为主验证面）与「禁止直插造数假绿保留已死链路断言」已写入 M58b 测试 acceptance、M58b-3 条目与风险段（含「直插 Mention 行断言消费者正常 ≠ 话题评论还会产生 mention」的反例说明）；mention 误伤风险条同步按 (b)/(c) 分类"
+  - "三条非阻塞建议全部采纳并落入对应条目：rollback FS 等价约定补 index.md round/participants 一致性核对（M58a-1 + acceptance）；test_topics.py 级联语义改断言 service 级联函数（M58b 测试 acceptance + M58b-3）；e2e_collab 手跑一轮记录输出摘要（M58b 测试 acceptance + 实现顺序 5 + 风险段）"
+  - "plan v2 整体可执行：调研结论（含两处 PRD 前提核证修正）证据链完整；改动范围子表与实现顺序清晰；三个开放问题的默认决策（DELETE 410 / close_note 承载 / PATCH 最小保留）方向合理，评审确认采纳默认决策"
+unreasonable_items: []
