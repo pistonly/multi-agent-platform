@@ -1,6 +1,6 @@
 [project]
 name = "multi-agent-platform-server"
-version = "0.3.2"
+version = "0.4.0"
 description = "Meta-package: Multi-Agent Platform CLI + server dependencies"
 license = "MIT"
 requires-python = ">=3.10"
@@ -15,7 +15,7 @@ classifiers = [
 ]
 # Meta-package: 仅依赖 multi-agent-platform[server]，自动拉入 CLI + server 全部依赖。
 dependencies = [
-    "multi-agent-platform[server]>=0.3.2",
+    "multi-agent-platform[server]>=0.4.0",
 ]
 
 [project.urls]
