@@ -7,15 +7,16 @@ Create Date: 2026-07-03
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "024"
-down_revision: Union[str, None] = "023"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, None] = None
+down_revision: str | None = "023"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | None = None
 
 
 def _has_column(inspector: sa.Inspector, table_name: str, column_name: str) -> bool:

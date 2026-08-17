@@ -7,15 +7,17 @@ Create Date: 2026-07-03
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+import contextlib
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "023"
-down_revision: Union[str, None] = "022"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "022"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 _NOTIFICATION_CATEGORY_ENUM_NAME = "notificationcategory"
 _NOTIFICATION_FINGERPRINT_VERSION_ENUM_NAME = "notificationfingerprintversion"
@@ -126,10 +128,8 @@ def downgrade() -> None:
         "ix_notifications_group_key",
         "ix_notifications_category",
     ):
-        try:
+        with contextlib.suppress(Exception):
             op.drop_index(index_name, table_name="notifications")
-        except Exception:
-            pass
     for column_name in (
         "fingerprint_version",
         "updated_at",

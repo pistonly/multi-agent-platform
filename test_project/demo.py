@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-
 from charts import plot_bar_chart, plot_line_chart, plot_scatter_chart
 from charts._utils import project_root
 

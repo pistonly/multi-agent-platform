@@ -13,9 +13,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from map_types.enums import TopicActionItemStatus, TopicStatus
 from sqlalchemy.orm import Session
 
-from map_types.enums import TopicActionItemStatus, TopicStatus
 from server.domain.models import Agent, Topic, TopicActionItem, TopicComment, TopicDecision
 from server.domain.schemas import TopicCommentCreate
 from server.services import topic_comment_service

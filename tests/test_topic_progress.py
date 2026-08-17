@@ -38,7 +38,6 @@ def _create_topic(db, project, **overrides):
 
 def test_topic_progress_empty_when_last_comment_is_mine(client, db_session, auth_headers, project):
     topic = _create_topic(db_session, project, title="progress-a")
-    tid = str(topic.id)
     db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host opens")
     db_add_comment(db_session, topic_id=topic.id, author=_host(db_session), body="host again last")
     progress = client.get("/api/v1/agents/me/topic-progress", headers=auth_headers).json()

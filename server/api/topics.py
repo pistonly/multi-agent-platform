@@ -21,8 +21,8 @@ from server.domain.schemas import (
     TopicUpdate,
 )
 from server.services import fs_source_service as fs_svc
-from server.services import topic_service
 from server.services import permissions as perm
+from server.services import topic_service
 
 topics_router = APIRouter(tags=["topics"], dependencies=[Depends(bind_background_tasks)])
 

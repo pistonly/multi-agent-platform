@@ -363,7 +363,18 @@ def parse_experiment_dir(exp_dir: Path, workspace: Path) -> FsExperiment | None:
 
 
 def scan_plane(workspace: Path, content_root: str = DEFAULT_CONTENT_ROOT) -> FsPlane:
-    """实时解析整个内容平面（每次全量扫描，无缓存）。"""
+    """实时解析整个内容平面（每次全量扫描，无缓存）。
+
+    Perf note (v0.13 M59a / F4): full parse per request is a deliberate
+    design choice — the FS plane is the source of truth and there is no
+    cache to invalidate. Baseline recorded at
+    ``.map/perf-baselines/fs-scan-plane-baseline.json`` (re-measure with
+    ``pytest tests/test_fs_scan_plane_perf_baseline.py -m slow``).
+    Optimization trigger — only consider mtime-incremental scanning when
+    topics > 500 or a single scan p95 > 100 ms; re-run the baseline first
+    and diff (counts travel with the file to distinguish scale-driven from
+    code-driven drift). YAGNI until then.
+    """
     root = workspace / content_root
     plane = FsPlane()
     topics_dir = root / "topics"

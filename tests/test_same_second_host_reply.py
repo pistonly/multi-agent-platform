@@ -27,7 +27,6 @@ def test_same_second_host_reply_clears_pending_topic_reply(
         title="same-second-host-reply",
         description="d",
     )
-    participant_headers = reviewer["headers"]
 
     participant_comment = db_add_comment(
         db_session, topic_id=topic.id, author=participant, body="participant needs host reply"

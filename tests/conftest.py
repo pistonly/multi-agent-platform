@@ -221,6 +221,10 @@ _FAST_GATE_MODULES = frozenset(
         # API 级走 TestClient fixture、CLI 级走 stub transport，~2s 全量；
         # 守住「瘦身不静默：跳过必标注、提示不阻塞、审计零副作用」契约。
         "test_m57_log_slim_form",
+        # PRD v0.13 M59 — lint gate 覆盖回归锁定：纯文件读取 + 正则，
+        # ~10ms 全量；守住「CI workflow ruff 行不得静默丢掉
+        # alembic / test_project（v0.13 F5 盲区复犯防护）」契约。
+        "test_lint_gate_coverage",
     }
 )
 

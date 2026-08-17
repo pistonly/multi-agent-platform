@@ -16,9 +16,8 @@ coverage follows the experiment's assertion-semantics classes:
   centrally covered by test_topics.py.
 """
 
-from pathlib import Path
-
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select

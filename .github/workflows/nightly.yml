@@ -25,7 +25,7 @@ jobs:
         run: pip install -e ".[dev,mcp]"
 
       - name: Ruff
-        run: ruff check server cli sdk scripts tests
+        run: ruff check server cli sdk scripts tests alembic test_project
 
       - name: Alembic migrations (full upgrade path)
         run: |

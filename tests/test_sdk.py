@@ -15,7 +15,7 @@ from server.domain.schemas import (
 )
 
 pytestmark = pytest.mark.slow
-from map_types.schemas import TopicActionItemCreate, TopicResolve
+from map_types.schemas import TopicResolve
 
 from tests._frontmatter import make_valid_plan
 
@@ -123,7 +123,6 @@ def test_sdk_topic_write_methods_return_410(
 ):
     """v0.13 M58: 话题域 SDK 写方法全链 410（含 body 序列化路径仍可达 server）。"""
     from server.domain.schemas import TopicCommentCreate, TopicCreate
-
     from tests._db_topic_factory import db_create_topic
 
     me = map_client.get_me()
@@ -169,7 +168,6 @@ def test_sdk_experiment_with_topic_id(map_client: MAPClient, db_session, project
     v0.13 M58: 话题由 DB 直插创建（话题写端点已退役，实验域不受影响）。
     """
     from server.domain.schemas import ExperimentCreate, PlanInput
-
     from tests._db_topic_factory import db_create_topic
 
     me = map_client.get_me()

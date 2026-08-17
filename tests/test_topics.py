@@ -15,10 +15,10 @@ tests/test_fs_source.py.
 import uuid
 
 import pytest
+from map_types.enums import TopicStatus
 from sqlalchemy import select
 
-from map_types.enums import TopicStatus
-from server.domain.models import Agent, Topic, TopicComment
+from server.domain.models import Agent, TopicComment
 from tests._db_topic_factory import db_add_comment, db_create_topic
 from tests._frontmatter import make_valid_plan
 
@@ -247,7 +247,7 @@ def test_project_status_includes_open_topics(client, db_session, auth_headers, p
 
 def test_topic_shows_creator_and_comment_author_names(client, db_session, auth_headers, project):
     topic = _make_topic(db_session, project, title="作者展示测试")
-    comment = db_add_comment(
+    db_add_comment(
         db_session, topic_id=topic.id, author=_host_agent(db_session), body="一条评论"
     )
 

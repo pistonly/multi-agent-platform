@@ -2,9 +2,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from map_types.enums import TopicStatus
 from sqlalchemy import select
 
-from map_types.enums import TopicStatus
 from server.domain.models import Agent, Topic
 from tests._db_topic_factory import db_add_comment, db_create_topic
 from tests._frontmatter import make_valid_plan
@@ -674,7 +674,6 @@ def test_mention_dismiss_on_comment_write_path(client, db_session, auth_headers,
     """Posting a comment dismisses stale mentions on the write path (T1 B)."""
     from server.domain.models import Mention
 
-    reviewer_headers = reviewer["headers"]
     reviewer_id = uuid.UUID(reviewer["id"])
     topic = _make_topic(db_session, project, title="Write dismiss", description="d")
     root = db_add_comment(
