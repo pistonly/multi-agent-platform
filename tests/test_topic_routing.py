@@ -408,7 +408,9 @@ class TestSixCommandDbBranch:
         )
         assert result.exit_code == 2, result.output
         assert "DB write path retired" in result.output
-        assert "`map fs close`" in result.output
+        # The hint quotes the full command with args — assert the bare
+        # command prefix, not a backtick-closed token.
+        assert "map fs close --topic" in result.output
         assert "topic migrate" in result.output
         assert client.calls == []
 
