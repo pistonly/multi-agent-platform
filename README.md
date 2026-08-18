@@ -132,6 +132,7 @@ pytest
 
 # CLI 用法（需设置 MAP_TOKEN 或 ~/.map/config.yaml）
 export MAP_TOKEN=<your-token>
+map --version
 map project list
 map status
 map experiment start --id <exp-id>

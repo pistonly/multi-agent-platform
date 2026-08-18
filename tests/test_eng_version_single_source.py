@@ -69,6 +69,25 @@ def test_server_version_matches_pyproject():
     )
 
 
+def test_map_sdk_version_matches_pyproject():
+    """``map_sdk.__version__`` must equal ``pyproject [project] version``.
+
+    ``map_sdk`` ships in the CLI wheel and backs the ``map --version``
+    fallback. Drift here is the exact 0.4.0-wheel incident class: the
+    wheel reports a stale embedded string while package metadata says
+    otherwise. Pre-publish gate: ``scripts/check-release.sh``.
+    """
+    import map_sdk
+
+    pyproject_version = _read_pyproject_version()
+    assert map_sdk.__version__ == pyproject_version, (
+        f"map_sdk.__version__ ({map_sdk.__version__!r}) does not match "
+        f"pyproject.toml [project] version ({pyproject_version!r}). "
+        f"Bump all three (pyproject / server/__version__.py / "
+        f"sdk/python/map_sdk/__init__.py) in the same commit."
+    )
+
+
 def test_server_version_follows_semver_shape():
     """Version must parse as ``MAJOR.MINOR.PATCH`` with optional pre-release.
 

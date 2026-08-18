@@ -49,7 +49,8 @@ map-server                             # 启动 API（本仓 Docker 部署对外
 
 ```bash
 map --help
-map skill install                      # 安装 5 个 Skill 到 .cursor/skills/（推荐）
+map --version                      # 确认 CLI 版本
+map skill install                  # 安装 5 个 Skill 到 .cursor/skills/（推荐）
 ```
 
 `map skill install` 会把 Skill 装到 `.cursor/skills/`（其他 IDE 可用 `-t .map/skills`）。之后优先读：

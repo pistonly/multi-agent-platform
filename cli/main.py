@@ -283,8 +283,46 @@ def _apply_sub_format(raw: str | None) -> None:
     _cli_options["format_source"] = f"{source} (subcommand)"
 
 
+def _cli_version() -> str:
+    """Best-effort CLI version string.
+
+    Order: ``map_sdk.__version__`` first — it is the in-tree source of
+    truth, pinned to ``pyproject [project] version`` by
+    ``tests/test_eng_version_single_source.py``, and stays correct for
+    editable installs after a version bump (installed metadata goes
+    stale until the next ``pip install -e .`` / ``uv sync``). Package
+    metadata is the fallback when map_sdk is somehow unavailable.
+    """
+    try:
+        import map_sdk
+
+        return map_sdk.__version__
+    except Exception:
+        pass
+    try:
+        from importlib.metadata import version as _dist_version
+
+        return _dist_version("multi-agent-platform")
+    except Exception:
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    """Eager ``--version`` handler: print and exit before any subcommand."""
+    if value:
+        typer.echo(f"map {_cli_version()}")
+        raise typer.Exit()
+
+
 @app.callback()
 def cli_global_options(
+    version_flag: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the map CLI version and exit.",
+    ),
     persona: str | None = typer.Option(
         None,
         "--persona",

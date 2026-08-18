@@ -27,6 +27,7 @@ map --persona host persona whoami
 ```text
 --persona, -p   选用 .map/agents.local.yaml 中定义的 persona（host/participant/reviewer/…）
 --project-root  代码仓库根目录（默认向上搜索）
+--version       打印 CLI 版本号并退出（版本源：map_sdk.__version__，与 pyproject 同步）
 ```
 
 ## 常用流程
