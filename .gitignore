@@ -51,21 +51,10 @@ htmlcov/
 !.cursor/skills/
 !.cursor/skills/**
 
-# MAP project-local — allow-list: 默认忽略全部，显式放行团队共享文件
-# 新增运行时产物（日志/state/草稿等）无需改 .gitignore，自动被忽略；
-# 仅在新增「需团队共享的文件」时在此追加 ! 行。
-.map/*
-!.map/config.yaml
-!.map/agents.yaml
-!.map/config.yaml.example
-!.map/agents.yaml.example
-!.map/agents.local.yaml.example
-# perf-baselines 子目录：先放行目录，再放行具体 baseline 文件
-!.map/perf-baselines/
-.map/perf-baselines/*
-# history 子目录：project export 导出的 Markdown 快照，需团队共享
-!.map/history/
-.map/history/**/*
+# MAP project-local runtime (bootstrap, tokens, cache, waker state, drafts).
+# Templates: docs/map-templates/. Shared perf baselines: tests/perf-baselines/.
+# Collaboration content lives in map/, not here.
+.map/
 
 # Local data
 data/

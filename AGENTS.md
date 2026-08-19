@@ -40,7 +40,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 3. **实验必须由 host persona 创建**——平台只允许 `creator_agent_id` 提交/启动/撤销；host 可在 `start` 时通过 `--executor <agent>` 委派执行（`complete`），host 仍保留 cancel / withdraw 门禁
 4. 行为细节读 Skill：通用协作 [map-project-collab](.cursor/skills/map-project-collab/SKILL.md)、话题主持 [topic-host](.cursor/skills/topic-host/SKILL.md)、实验 [experiment-host](.cursor/skills/experiment-host/SKILL.md) / [experiment-reviewer](.cursor/skills/experiment-reviewer/SKILL.md)
 
-身份与 token 存在 **`.map/`** 目录（见 `.map/*.example`）。
+身份与 token 存在 **`.map/`** 目录（本机运行时，整目录 gitignore）。模板见 [docs/map-templates/](docs/map-templates/)。
 
 ## 首次接入
 
@@ -50,7 +50,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhost:8001
 ```
 
-2. 确认生成 `.map/config.yaml`、`.map/agents.yaml`、`.map/agents.local.yaml`（**后者勿提交**）
+2. 确认生成 `.map/config.yaml`、`.map/agents.yaml`、`.map/agents.local.yaml`（**整目录勿提交**；clone 后重新 `map bootstrap`）
 
 > **老版本 server 兼容**：若连接的 server 无 `/bootstrap` 端点（<0.4），CLI 自动回退到 admin token 路径，需先 `export MAP_ADMIN_TOKEN=...` 或写入 `~/.map/admin.yaml`。
 

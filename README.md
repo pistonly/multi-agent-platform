@@ -214,7 +214,7 @@ map --persona host status              # 查看 open_topics
 ./scripts/start-simple-waker.sh --persona host --once --dry-run
 ```
 
-状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳，勿提交 Git）。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
+状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳）。`.map/` 整目录 gitignore，勿提交。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
 
 `--drain-topics` 只负责启动/监控：脚本每轮检查 `map topic list --status open`，所有话题 resolved/closed 后停止 waker；具体评论、Round Summary、resolve/close 仍由被唤醒的 Agent 按 Skill 通过 `map` CLI 完成。
 

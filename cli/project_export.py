@@ -1,9 +1,9 @@
 """Export project history (topics, experiments, decisions) to local Markdown.
 
 This is "Plan B" of the data-portability roadmap: a read-only snapshot
-that lives inside the project repository (``.map/history/``) so that
-topic discussions, experiment records, and decisions travel with the
-code via Git.
+that lives under ``.map/history/`` by default (local runtime, gitignored).
+Pass ``-o`` to a tracked path such as ``docs/history`` if the snapshot
+should travel with the code via Git.
 
 Usage (called from ``cli/commands/project.py``)::
 

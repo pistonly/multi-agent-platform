@@ -103,8 +103,8 @@ def project_export(
 ) -> None:
     """Export project history (topics, experiments, decisions) to local Markdown.
 
-    The export is a read-only snapshot suitable for committing to Git,
-    so that topic discussions and experiment records travel with the code.
+    Default output is ``.map/history/`` (gitignored runtime dir). Pass
+    ``-o`` to a tracked path if the snapshot should be committed.
 
     \b
     Layout:
@@ -115,8 +115,8 @@ def project_export(
 
     \b
     Examples:
-        map project export                      # Export to .map/history/
-        map project export -o ./docs/history    # Custom output directory
+        map project export                      # Export to .map/history/ (local)
+        map project export -o ./docs/history    # Tracked output directory
         map project export --no-archived        # Skip archived items
     """
     from cli.main import _resolve_project, _run  # lazy: avoid cycle

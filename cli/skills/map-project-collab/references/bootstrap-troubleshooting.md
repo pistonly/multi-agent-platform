@@ -22,13 +22,15 @@ map bootstrap \
 > api_url: http://localhost:8001
 > ```
 
-生成：
+生成（**整目录为本机运行时，勿提交 Git**）：
 
 | 文件 | 提交 Git |
 |------|----------|
-| `.map/config.yaml` | 是 |
-| `.map/agents.yaml` | 是 |
-| `.map/agents.local.yaml` | **否**（已在 .gitignore） |
+| `.map/config.yaml` | **否**（含本机 `project_id`） |
+| `.map/agents.yaml` | **否**（bootstrap 生成） |
+| `.map/agents.local.yaml` | **否**（含 token） |
+
+模板见 [docs/map-templates/](../../../docs/map-templates/)。clone 后重新 `map bootstrap`。
 
 若 agent 名已存在（409），bootstrap 会跳过且**无法找回旧 token**——保留原 `agents.local.yaml`。需覆盖 token 时用 `--force`（会重写 `agents.local.yaml`）。
 

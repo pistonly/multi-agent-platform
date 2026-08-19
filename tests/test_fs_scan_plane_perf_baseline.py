@@ -3,7 +3,7 @@
 `scan_plane` is a per-request full parse of the ``map/`` content plane (no
 cache, by design — see the trigger-condition note on the function itself).
 This test records the current cost as a stable JSON artifact under
-``.map/perf-baselines/`` (same mechanism as the waker phase1 baseline in
+``tests/perf-baselines/`` (same mechanism as the waker phase1 baseline in
 ``test_waker_phase1_acceptance.py``) so any future optimization work has a
 known before/after comparison point.
 
@@ -66,7 +66,9 @@ def test_scan_plane_perf_baseline() -> None:
         "tripwire — re-run to confirm, then triage before it lands"
     )
 
-    baseline_path = _REPO_ROOT / ".map" / "perf-baselines" / "fs-scan-plane-baseline.json"
+    baseline_path = (
+        Path(__file__).resolve().parent / "perf-baselines" / "fs-scan-plane-baseline.json"
+    )
     baseline_path.parent.mkdir(parents=True, exist_ok=True)
     baseline_path.write_text(
         json.dumps(

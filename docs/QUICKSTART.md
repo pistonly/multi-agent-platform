@@ -112,8 +112,9 @@ map --persona host persona whoami
 # 应输出 host persona 的 agent 信息
 ```
 
-> **`.map/agents.local.yaml` 含 token，请勿提交到 Git。** `.gitignore` 已默认忽略它。
-> 备份一份到安全位置；若丢失，用 `map auth reissue --key my-project --name <agent-name>` 恢复。
+> **`.map/` 整目录是本机运行时（含 `config.yaml` 的 `project_id` 与 token），请勿提交到 Git。**
+> 备份 `agents.local.yaml` 到安全位置；若丢失，用 `map auth reissue --key my-project --name <agent-name>` 恢复。
+> 模板见 [`docs/map-templates/`](map-templates/)。
 
 ---
 

@@ -7,7 +7,7 @@ v0.13 M59 三交付面全部落地：F4 `scan_plane` perf 基线入库（7 话�
 ## 实施 log
 
 - R1 完整日志与证据链：[log-r1.md](log-r1.md)（代码落地明细、基线实测数据、lint 计数差异说明、误删教训）
-- 基线产物：[fs-scan-plane-baseline.json](../../.map/perf-baselines/fs-scan-plane-baseline.json)（counts 快照随文件走，复测可区分规模驱动与代码驱动漂移）
+- 基线产物：[fs-scan-plane-baseline.json](../../../tests/perf-baselines/fs-scan-plane-baseline.json)（counts 快照随文件走，复测可区分规模驱动与代码驱动漂移）
 - 测量命令：`pytest tests/test_fs_scan_plane_perf_baseline.py -m slow`
 - 回归锁定：[test_lint_gate_coverage.py](../../tests/test_lint_gate_coverage.py)（token 级断言 CI ruff 行覆盖两目录）
 - PRD 回写：[v0.13.md](../../docs/prd/v0.13.md) F4/F5 已落地标注、F6/F7 已决标注（证据清单 + 风险表）、M59 执行状态块

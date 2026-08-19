@@ -368,7 +368,7 @@ def scan_plane(workspace: Path, content_root: str = DEFAULT_CONTENT_ROOT) -> FsP
     Perf note (v0.13 M59a / F4): full parse per request is a deliberate
     design choice — the FS plane is the source of truth and there is no
     cache to invalidate. Baseline recorded at
-    ``.map/perf-baselines/fs-scan-plane-baseline.json`` (re-measure with
+    ``tests/perf-baselines/fs-scan-plane-baseline.json`` (re-measure with
     ``pytest tests/test_fs_scan_plane_perf_baseline.py -m slow``).
     Optimization trigger — only consider mtime-incremental scanning when
     topics > 500 or a single scan p95 > 100 ms; re-run the baseline first

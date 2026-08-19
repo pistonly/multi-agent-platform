@@ -129,5 +129,5 @@ map --persona <name> work --notification-category wakeable
 ## 参考
 
 - 仓库根 AGENTS.md（若存在）
-- 模板 [.map/config.yaml.example](../../../.map/config.yaml.example)
+- 模板 [docs/map-templates/config.yaml.example](../../../docs/map-templates/config.yaml.example)
 - CLI 全量命令：`map --help`、`map topic --help`、`map experiment --help`

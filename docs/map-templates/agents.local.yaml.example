@@ -1,4 +1,5 @@
-# Copy to agents.local.yaml — NEVER commit real tokens.
+# Copy to .map/agents.local.yaml — NEVER commit real tokens.
+# `.map/` is gitignored in full; this template is documentation only.
 personas:
   host:
     token: "<paste-from-map-bootstrap>"

@@ -69,7 +69,7 @@ map bootstrap \
   --api-url <server 地址，如 http://localhost:8001>
 ```
 
-这会生成 `.map/` 目录：`config.yaml`（提交 Git）、`agents.yaml`（提交 Git）、`agents.local.yaml`（含 token，**勿提交**）。
+这会生成 `.map/` 目录：`config.yaml`、`agents.yaml`、`agents.local.yaml`（含 token）。**整目录是本机运行时，勿提交 Git**；模板见 `docs/map-templates/`。
 
 ## 每次协作开始
 

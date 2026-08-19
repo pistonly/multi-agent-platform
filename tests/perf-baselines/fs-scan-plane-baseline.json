@@ -1,0 +1,14 @@
+{
+  "phase": "fs-scan-plane",
+  "iterations": 50,
+  "counts": {
+    "topics": 7,
+    "experiments": 15
+  },
+  "p50_seconds": 0.0076,
+  "p95_seconds": 0.0102,
+  "p99_seconds": 0.0135,
+  "mean_seconds": 0.0081,
+  "captured_at": "2026-08-17T00:00:00+00:00",
+  "note": "M59 capture relocated from .map/perf-baselines/ (2026-08-19). full-repo scan_plane (per-request full parse, no cache by design). Optimization trigger (see scan_plane docstring): topics > 500 or p95 > 100ms -> re-measure this baseline before introducing mtime-incremental scanning. Counts snapshot travels with the file so future diffs can tell scale-driven drift from code-driven drift. Source numbers: 7 topics + 15 experiments, p50 7.6ms / p95 10.2ms / p99 13.5ms / mean 8.1ms."
+}
