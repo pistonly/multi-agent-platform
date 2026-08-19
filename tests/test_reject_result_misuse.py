@@ -25,8 +25,8 @@ from __future__ import annotations
 import uuid
 from contextlib import contextmanager
 
-import click
 import pytest
+import typer
 from fastapi.testclient import TestClient
 from map_client.exceptions import MAPHTTPError, MAPValidationError, raise_for_status
 
@@ -356,11 +356,10 @@ def test_cli_reject_result_misuse_prints_subcode_and_hint(
         verdict_file=None,
     )
 
-    with pytest.raises((SystemExit, click.exceptions.Exit)) as exit_info:
+    with pytest.raises((SystemExit, typer.Exit)) as exit_info:
         cli_main._run(lambda c: c.reject_experiment_result(uuid.UUID(exp_id), payload))
 
-    # ``SystemExit.code`` and ``click.exceptions.Exit.exit_code`` differ;
-    # normalise to the integer code.
+    # ``SystemExit.code`` and ``typer.Exit.exit_code`` differ; normalise.
     exit_code = getattr(exit_info.value, "code", None)
     if exit_code is None:
         exit_code = exit_info.value.exit_code

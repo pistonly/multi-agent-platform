@@ -14,7 +14,7 @@ The root ``typer.Typer`` is created with ``cls=make_group_cls(apply_hook)``
 ``Group.get_command``; our subclass intercepts every lookup and patches the
 returned command:
 
-* **leaf command** — append a ``--format`` click Option and wrap the
+* **leaf command** — append a ``--format`` option and wrap the
   callback so the parsed value is handed to ``apply_hook`` *before* the
   command body runs. The hook (``_apply_sub_format`` in ``cli/main.py``)
   resolves/validates the value and writes it into ``_cli_options``, so an
@@ -30,6 +30,9 @@ when a command is actually resolved.
 
 Only the long form ``--format`` is injected. The global ``-o`` shorthand
 stays root-only to avoid future short-flag collisions on leaf commands.
+
+Typer >=0.26 vendors Click (no third-party ``click`` package). Option
+construction and group detection therefore branch on ``typer._click``.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import click
+import typer
 from typer.core import TyperGroup
 
 #: Hook that receives the raw ``--format`` string (``None`` when absent).
@@ -45,28 +48,46 @@ from typer.core import TyperGroup
 ApplyHook = Callable[[str | None], None]
 
 _PATCH_FLAG = "_map_sub_format_patched"
+_FORMAT_HELP = (
+    "Output format for this command: 'table', 'yaml', or 'json'. "
+    "Overrides the global --format flag and the MAP_CLI_FORMAT env "
+    "var (v0.12 M54A)."
+)
 
 
-def _sub_format_option() -> click.Option:
-    """The click Option appended to every leaf command."""
-    return click.Option(
-        ["--format"],
-        default=None,
-        help=(
-            "Output format for this command: 'table', 'yaml', or 'json'. "
-            "Overrides the global --format flag and the MAP_CLI_FORMAT env "
-            "var (v0.12 M54A)."
-        ),
-    )
+def _vendored_click() -> bool:
+    """True when Typer ships Click internally (0.26+) instead of depending on it."""
+    return hasattr(typer, "_click")
 
 
-def _patch_leaf(cmd: click.Command, apply: ApplyHook) -> click.Command:
+def _sub_format_option() -> Any:
+    """The ``--format`` option appended to every leaf command."""
+    if _vendored_click():
+        from typer.core import TyperOption
+
+        return TyperOption(param_decls=["--format"], default=None, help=_FORMAT_HELP)
+    import click
+
+    return click.Option(["--format"], default=None, help=_FORMAT_HELP)
+
+
+def _is_group(cmd: Any) -> bool:
+    """TyperGroup in both click-backed and vendored-Click Typer; plus classic Group."""
+    if cmd is None:
+        return False
+    if isinstance(cmd, TyperGroup):
+        return True
+    return hasattr(cmd, "get_command") and hasattr(cmd, "list_commands")
+
+
+def _patch_leaf(cmd: Any, apply: ApplyHook) -> Any:
     """Inject ``--format`` into a leaf command and route it to ``apply``."""
     if getattr(cmd, _PATCH_FLAG, False):
         return cmd
     # Defensive: if a future command declares its own --format, leave it be
     # (click would reject duplicate option names at parse time otherwise).
-    if any(param.name == "format" for param in cmd.params):
+    params = getattr(cmd, "params", None) or []
+    if any(getattr(param, "name", None) == "format" for param in params):
         return cmd
     setattr(cmd, _PATCH_FLAG, True)
     cmd.params.append(_sub_format_option())
@@ -82,16 +103,14 @@ def _patch_leaf(cmd: click.Command, apply: ApplyHook) -> click.Command:
     return cmd
 
 
-def _patch_group(group: click.Group, apply: ApplyHook) -> click.Group:
+def _patch_group(group: Any, apply: ApplyHook) -> Any:
     """Instance-patch a (possibly nested) group so its children get patched."""
     if getattr(group, _PATCH_FLAG, False):
         return group
     setattr(group, _PATCH_FLAG, True)
     original_get = group.get_command
 
-    def get_command(
-        ctx: click.Context, cmd_name: str
-    ) -> click.Command | None:
+    def get_command(ctx: Any, cmd_name: str) -> Any:
         sub = original_get(ctx, cmd_name)
         return _patch_any(sub, apply)
 
@@ -99,12 +118,10 @@ def _patch_group(group: click.Group, apply: ApplyHook) -> click.Group:
     return group
 
 
-def _patch_any(
-    cmd: click.Command | None, apply: ApplyHook
-) -> click.Command | None:
+def _patch_any(cmd: Any, apply: ApplyHook) -> Any:
     if cmd is None:
         return None
-    if isinstance(cmd, click.Group):
+    if _is_group(cmd):
         return _patch_group(cmd, apply)
     return _patch_leaf(cmd, apply)
 
@@ -117,9 +134,7 @@ def make_group_cls(apply: ApplyHook) -> type[TyperGroup]:
     """
 
     class _SubFormatGroup(TyperGroup):
-        def get_command(
-            self, ctx: click.Context, cmd_name: str
-        ) -> click.Command | None:
+        def get_command(self, ctx: Any, cmd_name: str) -> Any:
             sub = super().get_command(ctx, cmd_name)
             return _patch_any(sub, apply)
 
