@@ -1,24 +1,24 @@
-# 参与者发言手册（fs comment 模式 / 发言结构 / 逐轮职责）
+# 参与者发言手册（topic comment 模式 / 发言结构 / 逐轮职责）
 
 > 从 [topic-participant SKILL.md](../SKILL.md) 下沉的命令与模板细节。准备发言、跟评或表态时阅读本文件；何时发言、表态语义与防刷屏规则见主文件。
 >
-> **v0.13 M58 起话题写路径单轨 FS**：发言一律 `fs comment`（写文件）；存量 DB 话题只读，继续讨论须先由 host `topic migrate` 迁 FS。
+> **v0.13 M58 起话题写路径单轨 FS**：发言走 `map topic comment --id <slug>`（写文件）；存量 DB 话题只读，继续讨论须先由 host `topic migrate` 迁 FS。
 
-## 发言命令（fs comment）
+## 发言命令（topic comment）
 
 短评用 `--body`：
 
 ```bash
-map --persona participant fs comment \
-  --topic <slug> \
+map --persona participant topic comment \
+  --id <slug> \
   --body "..."
 ```
 
 长内容先写本地 MD 再引用（推荐，即写 `map/topics/<slug>/round<N>-participant.md`）：
 
 ```bash
-map --persona participant fs comment \
-  --topic <slug> \
+map --persona participant topic comment \
+  --id <slug> \
   --file ./my-opinion.md
 ```
 
@@ -26,16 +26,16 @@ host 的轮次 Summary 用 `--round-summary`（host 专用，participant 不用�
 
 ```bash
 # 仅 host 视角示意，participant 不要执行
-map --persona host fs comment --topic <slug> --round-summary --file ./summary.md
+map --persona host topic comment --id <slug> --round-summary --file ./summary.md
 ```
 
-读取他人发言：`fs show --topic <slug>` 列出各轮文件，或直接读 `map/topics/<slug>/` 下对应 round 文件全文（详见 [map-project-collab file-reference](../../map-project-collab/references/file-reference.md)）。
+读取他人发言：`topic show --id <slug>` 列出各轮文件，或直接读 `map/topics/<slug>/` 下对应 round 文件全文（详见 [map-project-collab file-reference](../../map-project-collab/references/file-reference.md)）。
 
 ## 存量 DB 话题处置
 
 - **读**：`topic show --id <topic-uuid>`（只读路径永久保留）
-- **继续讨论**：请 host 执行 `topic migrate --id <topic-uuid>` 迁为 FS 话题，之后用 `fs comment` 发言
-- **不要**对存量话题跑 `topic comment` / `advance-round --ack` 等 DB 写命令——v0.13 M58 起返回引导性错误
+- **继续讨论**：请 host 执行 `topic migrate --id <topic-uuid>` 迁为 FS 话题，之后用 `topic comment --id <slug>` 发言
+- **不要**对存量 DB uuid 跑 `topic comment` / `advance-round --ack` 等写命令——v0.13 M58 起返回引导性错误
 
 ## 发言结构（建议）
 
@@ -62,7 +62,7 @@ map --persona host fs comment --topic <slug> --round-summary --file ./summary.md
 
 > ⚠️ 若 Round 2 相关待办仍在 `map todos` 中而你**完全不写发言文件**，heartbeat 到期前 waker 可能不再唤醒你，host 也收不到你的收尾意见。
 
-- **新轮次开始时你会被自动唤醒**：host 调用 `fs advance-round` 后，平台会自动为所有 required participant 生成 wakeable 通知，simple-waker 据此唤醒你——**无需 host 手动 @mention**。被唤醒后请主动发言。
+- **新轮次开始时你会被自动唤醒**：host 调用 `topic advance-round` 后，平台会自动为所有 required participant 生成 wakeable 通知，simple-waker 据此唤醒你——**无需 host 手动 @mention**。被唤醒后请主动发言。
 - 被 Round 2 唤醒时，**至少写一条发言**（哪怕只是「议题 X 已收敛，同意 host 方向；Y 项留待实验验证」），给 host 写 Round 2 Summary 的信号。
 - 不要因「自认议题已收敛」就静默——你的**静默对 host 是「未表态」，不是「同意」**。
 - 若确实无话可说，写一条明确收尾意见（如「旁支意见，不阻塞推进」），**不要什么都不留**——host 可据此用 `--waive-ack` 记录理由后推进。

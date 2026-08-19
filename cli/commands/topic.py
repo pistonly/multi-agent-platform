@@ -2,11 +2,12 @@
 
 Three sub-apps that share the "topic work items" domain:
 
-* ``map topic ...`` — topic reads & FS-routed writes (list / show / progress /
-  comment / advance-round / close / dismiss / read / mark-seen / migrate).
-  v0.13 M58: DB write paths retired — create / resolve / rollback-round /
-  reopen / archive (and the DB branches of comment / advance-round / close)
-  reject with guidance instead of writing the platform DB.
+* ``map topic ...`` — unified topic facade (list / show / create / comment /
+  advance-round / close / progress / dismiss / read / mark-seen / migrate).
+  Writes go to ``map/topics/<slug>/``; ``list``/``show`` merge local folders with
+  leftover DB topics from the API. v0.13 M58: DB write paths retired —
+  resolve / rollback-round / reopen / archive (and the DB branches of
+  comment / advance-round / close) reject with guidance.
 * ``map mention ...`` — personal @mention todos (dismiss / list /
   dismiss-all / reconcile-stale stub).
 * ``map todo ...`` — explicit_only todo partition clear router
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 import typer
+import yaml
 from map_client.client import MAPClient
 
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
@@ -62,6 +64,198 @@ def _fs_workspace_and_root() -> tuple[Path, str]:
 
     workspace = _workspace()
     return workspace, _content_root_name(workspace)
+
+
+def _optional_workspace() -> Path | None:
+    """``.map/`` 缺失时返回 None，不退出——list 合并需要能退化成纯 API。"""
+    from map_client.project_config import find_map_dir
+
+    map_dir = find_map_dir(None)
+    return None if map_dir is None else map_dir.parent
+
+
+# 与 server/services/fs_source_service.py 同源：persona 名 → 稳定展示用 uuid。
+_PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
+
+
+def _fs_topic_to_summary(topic: Any, project_id: uuid.UUID) -> Any:
+    from datetime import datetime, timezone
+
+    from map_types.enums import TopicStatus
+    from map_types.schemas import TopicSummaryRead
+
+    last = topic.comments[-1] if topic.comments else None
+    now = datetime.now(timezone.utc)
+    created = topic.created_at or topic.updated_at or now
+    return TopicSummaryRead(
+        id=topic.id,
+        project_id=project_id,
+        creator_agent_id=uuid.uuid5(_PERSONA_NS, topic.creator),
+        creator_name=topic.creator,
+        title=topic.title,
+        description=topic.description or None,
+        slug=topic.slug,
+        status=TopicStatus(topic.status),
+        pinned=False,
+        discussion_round=topic.round,
+        round_summary_count=sum(1 for c in topic.comments if c.is_round_summary),
+        comment_count=len(topic.comments),
+        experiment_count=0,
+        last_comment_id=last.id if last is not None else None,
+        last_comment_author_agent_id=(
+            uuid.uuid5(_PERSONA_NS, last.author) if last is not None else None
+        ),
+        last_comment_author_name=last.author if last is not None else None,
+        last_comment_excerpt=last.excerpt if last is not None else None,
+        my_comment_count=None,
+        dismissed_at=None,
+        stale_since=None,
+        created_at=created,
+        updated_at=topic.updated_at or now,
+        archived_at=None,
+        close_reason=None,
+        close_note=None,
+    )
+
+
+def _fs_topic_to_detail(topic: Any) -> Any:
+    from map_types.schemas.fs import FsCommentRead, FsTopicDetailRead
+
+    return FsTopicDetailRead(
+        id=topic.id,
+        slug=topic.slug,
+        title=topic.title,
+        description=topic.description,
+        status=topic.status,
+        discussion_round=topic.round,
+        creator=topic.creator,
+        comment_count=len(topic.comments),
+        participants=topic.participants,
+        created_at=topic.created_at,
+        updated_at=topic.updated_at,
+        dir_path=topic.dir_path,
+        comments=[
+            FsCommentRead(
+                id=c.id,
+                topic_slug=c.topic_slug,
+                round=c.round,
+                author=c.author,
+                kind=c.kind,
+                is_round_summary=c.is_round_summary,
+                excerpt=c.excerpt,
+                content=c.content,
+                file_path=c.file_path,
+                posted_at=c.posted_at,
+                comment_seq=c.comment_seq,
+            )
+            for c in topic.comments
+        ],
+    )
+
+
+def _scan_local_fs_summaries(project_id: uuid.UUID) -> list[Any]:
+    from map_fs import scan_plane
+
+    from cli.commands.fs import _content_root_name
+
+    workspace = _optional_workspace()
+    if workspace is None:
+        return []
+    return [
+        _fs_topic_to_summary(t, project_id)
+        for t in scan_plane(workspace, _content_root_name(workspace)).topics
+    ]
+
+
+def _merge_topic_summaries(local_fs: list[Any], api_topics: list[Any]) -> list[Any]:
+    """API 能扫到的话题以 API 为准（agent id / experiment_count 更完整）；
+    本地独有的 slug（例如 Docker API 读不到宿主机 map/）补进列表。"""
+    api_slugs = {t.slug for t in api_topics if t.slug}
+    api_ids = {t.id for t in api_topics}
+    extras = [t for t in local_fs if t.slug not in api_slugs and t.id not in api_ids]
+    return extras + list(api_topics)
+
+
+def _local_creator_match(
+    summary: Any, creator: str | None, creator_agent_id: uuid.UUID | None
+) -> bool:
+    if creator is None and creator_agent_id is None:
+        return True
+    if creator and not _looks_like_uuid(creator) and summary.creator_name == creator:
+        return True
+    return creator_agent_id is not None and summary.creator_agent_id == creator_agent_id
+
+
+def _filter_local_summaries(
+    topics: list[Any],
+    *,
+    status: str | None,
+    creator: str | None,
+    creator_agent_id: uuid.UUID | None,
+    q: str | None,
+) -> list[Any]:
+    from map_types.enums import TopicStatus
+
+    st = TopicStatus(status) if status else None
+    needle = q.lower() if q else None
+    out: list[Any] = []
+    for t in topics:
+        if st is not None and t.status != st:
+            continue
+        if not _local_creator_match(t, creator, creator_agent_id):
+            continue
+        if needle and needle not in t.title.lower() and not (
+            t.slug and needle in t.slug.lower()
+        ):
+            continue
+        out.append(t)
+    return out
+
+
+def _list_api_topics_all(c: MAPClient, pid: uuid.UUID, **kwargs: Any) -> list[Any]:
+    page = 1
+    acc: list[Any] = []
+    while True:
+        batch, total = c.list_topics_page(pid, page=page, page_size=100, **kwargs)
+        acc.extend(batch)
+        if not batch or len(acc) >= total:
+            break
+        page += 1
+        if page > 100:
+            break
+    return acc
+
+
+def _slice_page(items: list[Any], page: int, page_size: int) -> list[Any]:
+    start = (page - 1) * page_size
+    return items[start : start + page_size]
+
+
+def _should_scan_local_fs(
+    project: uuid.UUID | None,
+    project_key: str | None,
+    resolved_pid: uuid.UUID,
+) -> bool:
+    """只在列出当前 workspace 所属项目时合并本地 map/。"""
+    workspace = _optional_workspace()
+    if workspace is None:
+        return False
+    if project is None and project_key is None:
+        return True
+    map_cfg = workspace / ".map" / "config.yaml"
+    if not map_cfg.is_file():
+        return False
+    try:
+        data = yaml.safe_load(map_cfg.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    cfg_id = data.get("project_id")
+    if cfg_id and str(cfg_id) == str(resolved_pid):
+        return True
+    cfg_key = data.get("project_key")
+    return bool(project_key) and cfg_key == project_key
 
 
 def _fs_slug_by_uuid(ref: str) -> str | None:
@@ -201,14 +395,16 @@ def _fs_projection_noop(command: str, slug: str) -> NoReturn:
     raise typer.Exit(0)
 
 
-# v0.13 M58：DB 话题写路径整体退役。退役面 = create / resolve / rollback-round /
-# reopen / archive 五命令全量 + comment / advance-round / close 三命令的 DB 分支
-#（含显式 --storage db）。读路径（show/list/progress）与 dismiss/read/mark-seen/
-# migrate 不受影响。一律引导性错误（exit 2），不静默成功。
+# v0.13 M58：DB 话题写路径整体退役。退役面 = resolve / rollback-round /
+# reopen / archive 四命令全量 + comment / advance-round / close 的 DB 分支
+#（含显式 --storage db）。``topic create`` 已转发到本地 map/ 文件夹。
+# 读路径（show/list/progress）与 dismiss/read/mark-seen/migrate 保留。
+# 一律引导性错误（exit 2），不静默成功。
 _DB_WRITE_RETIRED_HINTS: dict[str, str] = {
     "create": (
         "create FS topics instead: "
-        "`map fs topic-create --title ... --slug <name> --participants <a,b>`"
+        "`map topic create --title ... --slug <name> --participants <a,b>` "
+        "(or `map fs topic-create`)"
     ),
     "resolve": (
         "decisions are carried by the FS close note: "
@@ -275,18 +471,38 @@ def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
 @topic_app.command("create")
 def topic_create(
     title: str = typer.Option(..., "--title"),
-    project: uuid.UUID | None = typer.Option(None, "--project"),
-    project_key: str | None = typer.Option(None, "--project-key"),
+    project: uuid.UUID | None = typer.Option(
+        None, "--project", help="Ignored; create always writes the local workspace map/ folder."
+    ),
+    project_key: str | None = typer.Option(
+        None, "--project-key", help="Ignored; create always writes the local workspace map/ folder."
+    ),
     description: str | None = typer.Option(None, "--description"),
     slug: str | None = typer.Option(
         None,
         "--slug",
-        help="Human-readable identifier for file path convention (e.g. 'map-slimming').",
+        help="Folder name under map/topics/. Default: slugify(--title).",
+    ),
+    participants: str | None = typer.Option(
+        None,
+        "--participants",
+        help="Participant whitelist (comma-separated, e.g. host,participant).",
     ),
 ) -> None:
-    """(Retired v0.13 M58) DB topic creation is gone; topics are created as map/ folders."""
-    _ = (title, project, project_key, description, slug)  # accepted for clear errors
-    _db_write_retired("create")
+    """Create ``map/topics/<slug>/`` + index.md (FS source of truth; no API write)."""
+    from map_fs import slugify
+
+    from cli.commands.fs import write_new_fs_topic
+
+    _ = (project, project_key)
+    resolved_slug = slug or slugify(title)
+    index = write_new_fs_topic(
+        title=title,
+        slug=resolved_slug,
+        description=description or "",
+        participants=participants,
+    )
+    typer.echo(f"Created {index}")
 
 
 def _render_topic_table(topics: Any) -> str:
@@ -328,7 +544,7 @@ def topic_list(
     page_size: int = typer.Option(100, "--page-size", min=1, max=100),
     include_archived: bool = typer.Option(False, "--include-archived"),
 ) -> None:
-    """List topics in the current project.
+    """List topics in the current project (local map/ folders merged with API leftovers).
 
     Defaults to a compact table view. Use ``--format yaml`` or
     ``--format json`` for full structured output (scripts / piping).
@@ -341,15 +557,25 @@ def topic_list(
         pid = _resolve_project(c, project, project_key)
         st = TopicStatus(status) if status else None
         resolved_creator_id = _resolve_creator_agent_id(c, pid, creator, creator_agent_id)
-        return c.list_topics(
+        api_topics = _list_api_topics_all(
+            c,
             pid,
             status=st,
             creator_agent_id=resolved_creator_id,
             q=q,
-            page=page,
-            page_size=page_size,
             include_archived=include_archived,
         )
+        local_fs: list[Any] = []
+        if _should_scan_local_fs(project, project_key, pid):
+            local_fs = _filter_local_summaries(
+                _scan_local_fs_summaries(pid),
+                status=status,
+                creator=creator,
+                creator_agent_id=resolved_creator_id,
+                q=q,
+            )
+        merged = _merge_topic_summaries(local_fs, api_topics)
+        return _slice_page(merged, page, page_size)
 
     _run(action, table_renderer=_render_topic_table)
 
@@ -364,6 +590,17 @@ def topic_show(
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":
+            from map_fs import parse_topic_dir
+
+            from cli.commands.fs import _content_root_name
+
+            workspace = _optional_workspace()
+            if workspace is not None:
+                parsed = parse_topic_dir(
+                    workspace / _content_root_name(workspace) / "topics" / target, workspace
+                )
+                if parsed is not None:
+                    return _fs_topic_to_detail(parsed)
             return c.get_fs_topic(_resolve_project(c, None, None), target)
         return c.get_topic(target)
 

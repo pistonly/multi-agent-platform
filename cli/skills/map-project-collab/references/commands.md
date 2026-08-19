@@ -12,18 +12,18 @@
 
 同名冲突或想显式指定时加 `--storage fs | db`。FS 话题的 comment 为纯本地写（`round<N>-<persona>.md`，不支持 `--parent` / `--file-path`）。
 
-其余 topic 子命令：`dismiss / read / mark-seen / migrate` 保留（按 DB uuid；migrate 是存量话题唯一续命路径）；`create / resolve / rollback-round / reopen / archive` 已退役（v0.13 M58 起，见下节）。
+其余 topic 子命令：`dismiss / read / mark-seen / migrate` 保留（按 DB uuid；migrate 是存量话题唯一续命路径）；`resolve / rollback-round / reopen / archive` 已退役（v0.13 M58 起，见下节）。`topic create` 写 `map/topics/<slug>/`。
 
-**`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；验证型写 `advance-round` / `close` 日常直接用 `map topic --id <slug>` 等价调用。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
+**`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；日常创建、发言、清单、验证型写一律 `map topic ...`。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
 
-> **v0.13 M58 起 DB 话题写路径退役**：`topic create / resolve / rollback-round / reopen / archive` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2，文案指向 fs 等价命令或 `topic migrate`）；读路径（show / list / progress）与 dismiss / migrate 不受影响。
+> **v0.13 M58 起 DB 话题写路径退役**：`topic resolve / rollback-round / reopen / archive` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2）；`topic create / list / show` 已是 FS 兼容入口。`dismiss / migrate` 不受影响。
 
 ## 项目状态与话题清单
 
 ```bash
 map status                          # 快照（open_topics / active_experiments）+ 叙事（status_md）
 map topic list --status open
-map topic show --id <topic-uuid>
+map topic show --id <slug-or-uuid>
 map topic progress                  # topic work items 投影（obligation + contextual）
 map work                            # 统一快照：whoami + topic-progress + todos + 通知
 ```
@@ -42,8 +42,9 @@ map --persona host project status revise --file docs/status-md-v10.md --note "�
 
 ```bash
 # 创建：离线写 map/topics/<slug>/ + index.md（不调 API）
-map fs topic-create --title "..." --slug <name> --participants participant,reviewer
+map topic create --title "..." --slug <name> --participants participant,reviewer
 # --description 可选；--participants 白名单内 persona 才收到 FS 待办
+# 高级入口：map fs topic-create --title "..." --slug <name>
 
 # 关闭（验证型写：服务端校验后写回 index.md status=closed）
 map topic close --id <slug> --reason no_experiment_needed --note "结论（decision / rationale / action_items 见 topic-host）"
@@ -58,7 +59,7 @@ map topic close --id <slug> --reason no_experiment_needed --note "结论（decis
 |-----------|---------|
 | `topic rollback-round` | 删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性 |
 | `topic reopen` | 手改 `index.md` 的 `status` 并在 close note 或新发言中说明原因 |
-| `topic resolve` | 由 `fs close --note` 承载 decision / rationale / action_items |
+| `topic resolve` | 由 `topic close --note` 承载 decision / rationale / action_items |
 | `topic archive` | 移动 `map/topics/<slug>/` 目录到 `map/archive/topics/`（或项目约定的归档位置） |
 
 **存量 DB 话题处置**：读（`topic show --id <uuid>`）永久保留；继续讨论先迁移：
@@ -71,12 +72,12 @@ map --persona host topic migrate --id <topic-uuid> --slug <name>             # F
 ## 参与讨论（participant / host）
 
 ```bash
-map --persona participant fs comment --topic <slug> --body "短评（Markdown）"
+map --persona participant topic comment --id <slug> --body "短评（Markdown）"
 # 长内容用文件（即写 map/topics/<slug>/round<N>-participant.md，推荐）
-map --persona participant fs comment --topic <slug> --file ./my-opinion.md
+map --persona participant topic comment --id <slug> --file ./my-opinion.md
 ```
 
-统一入口等价：`map topic comment --id <slug> --body "..."`（slug 自动路由 FS，纯本地写）。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。
+slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。无网时可用高级入口 `map fs comment --topic <slug>`。
 
 ## 实验创建（仅 host）
 
@@ -147,6 +148,6 @@ map notification read --id <notification-uuid>
 map notification read-all
 ```
 
-行动项负责人在完成工作后，应在来源话题写发言、开关联实验，或请 host 在话题结论中更新 action_items（FS 话题由 `fs close --note` 承载；CLI 无单独 close 命令）。
+行动项负责人在完成工作后，应在来源话题写发言、开关联实验，或请 host 在话题结论中更新 action_items（FS 话题由 `topic close --note` 承载；CLI 无单独 resolve 命令）。
 
 @ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。该机制保留于实验评论域（comment 走 API）；FS 话题发言（纯本地写）中的 `@` 仅是视觉提示，不产生 mention 待办。

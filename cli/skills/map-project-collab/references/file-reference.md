@@ -4,20 +4,20 @@
 
 ## FS 事实源（推荐，新范式）
 
-话题 = `map/topics/<slug>/` 文件夹，发言 = 直接写 `round<N>-<persona>.md`（每轮每人一个文件，默认 immutable）。CLI 只是命名约定的便捷封装：
+话题 = `map/topics/<slug>/` 文件夹，发言 = 直接写 `round<N>-<persona>.md`（每轮每人一个文件，默认 immutable）。日常入口是 `map topic`；`map fs` 只是同约定的离线封装：
 
 | 动作 | 命令 | 说明 |
 |------|------|------|
-| 创建话题 | `map fs topic-create --slug <name> --title "..."` | 纯写文件（index.md），不调 API |
-| 发言 | `map fs comment --topic <slug> --file ./opinion.md` | 写 `map/topics/<slug>/round<N>-<persona>.md`，不调 API |
-| 查看 | `map fs list` / `map fs show --topic <slug>` | 实时解析本地文件夹 |
-| 我的待办 | `map fs work --persona <name>` | 文件存在性推导（无我的文件 = pending） |
-| 推进轮次 | `map fs advance-round --topic <slug>` | 验证型写：API 校验 host + ack 后写回 index.md |
-| 关闭话题 | `map fs close --topic <slug> --reason ...` | 同上 |
+| 创建话题 | `map topic create --slug <name> --title "..."` | 纯写文件（index.md），不调 API |
+| 发言 | `map topic comment --id <slug> --file ./opinion.md` | 写 `map/topics/<slug>/round<N>-<persona>.md`，不调 API |
+| 查看 | `map topic list` / `map topic show --id <slug>` | list 合并本地 map/ + API 存量；show 优先读本地文件夹 |
+| 我的待办 | `map work`（离线可用 `map fs work --persona <name>`） | 文件存在性推导（无我的文件 = pending） |
+| 推进轮次 | `map topic advance-round --id <slug>` | 验证型写：API 校验 host + ack 后写回 index.md |
+| 关闭话题 | `map topic close --id <slug> --reason ...` | 同上 |
 
 - 实验：`map/experiments/<slug>/{plan,log,review}.md`（迁移命令 `map fs migrate-from-docs`）
 - 内容根目录由 `.map/config.yaml` 的 `content_root` 配置（默认 `map`）
-- FS 话题的 topic_id 为 uuid5 派生，不能用于 `map topic --id` 系列 DB 命令
+- FS 话题的 topic_id 为 uuid5 派生，可直接用于 `map topic --id`（slug 或 uuid5）
 
 ## 文件引用模式（存量 DB 话题/实验）
 

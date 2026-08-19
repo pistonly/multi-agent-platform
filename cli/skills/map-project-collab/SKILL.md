@@ -38,13 +38,13 @@ description: >-
 |--|--|--|
 | 事实源 | `map/topics/<slug>/` 文件夹（平台实时解析，无内容 DB） | 平台 DB（评论走 API） |
 | 判别 | `map/topics/<slug>/` 目录存在 | 目录不存在 |
-| 发言 | 写文件 `map fs comment --topic <slug> --file <md>` | 只读 `topic show --id <uuid>`；继续讨论先 `topic migrate --id <uuid>` |
-| 推进轮次 | `map fs advance-round --topic <slug>`（验证型写：校验后写回 index.md） | 已退役——返回引导性错误（exit 2） |
+| 发言 | `map topic comment --id <slug> --file <md>`（写 round 文件） | 只读 `topic show --id <uuid>`；继续讨论先 `topic migrate --id <uuid>` |
+| 推进轮次 | `map topic advance-round --id <slug>`（验证型写：校验后写回 index.md） | 已退役——返回引导性错误（exit 2） |
 | 待办清理 | 文件写入即消失（`map work` 同样可见） | 服务端重算消失 |
 
-> **v0.13 M58 起 DB 话题写路径已退役**：`topic create / resolve / rollback-round / reopen / archive` 全量引导报错；`comment / advance-round / close` 的 DB 分支（DB uuid 或显式 `--storage db`）同样引导报错——读路径（`topic show / list / progress`）与 `topic migrate / dismiss` 保留。
+> **v0.13 M58 起 DB 话题写路径已退役**：`topic resolve / rollback-round / reopen / archive` 全量引导报错；`comment / advance-round / close` 的 DB 分支（DB uuid 或显式 `--storage db`）同样引导报错。`topic create / list / show / comment` 是对 `map/` 文件夹的统一入口（`map fs` 为离线高级命令）。读路径与 `topic migrate / dismiss` 保留。
 
-话题生命周期（创建/推进/关闭）FS 命令与 DB 命令**不可混用**：FS topic_id 是 uuid5 派生，传给 `map topic --id` 会 404。实验仍走 DB 生命周期（`map experiment ...`），计划/日志文件在 `map/experiments/<slug>/`。
+话题生命周期走 `map topic --id <slug>`（slug / uuid5 自动路由到文件夹）。存量 DB uuid 不要当 FS 话题写。实验仍走 DB 生命周期（`map experiment ...`），计划/日志文件在 `map/experiments/<slug>/`。
 
 ## 意图路由（选对 Skill）
 
@@ -92,7 +92,7 @@ map --persona <name> work --notification-category wakeable
 | `pending_reviews` / `pending_result_reviews` | 待我评审计划 / 审批结果（后者 reviewer） |
 | `pending_replies` | 实验争议待回复 |
 | `mentions` | @提及（须用 `map persona list` 的 **agent_name 全名**）；实验评论仍产生，话题域来源随 DB 写路径退役枯竭 |
-| `action_items` | 分配给我的 open 行动项（来自话题结论 `fs close --note`；存量 DB 话题待迁移后收尾） |
+| `action_items` | 分配给我的 open 行动项（来自话题结论 `topic close --note`；存量 DB 话题待迁移后收尾） |
 | `pending_round_acks` | **participant/reviewer**；FS 话题=写本轮自己的发言文件即表态；存量 DB 话题=只读（迁移后表态） |
 
 语义：`pending_*`、`mentions`、`action_items` 及 `actions` 非空的 `my_open_experiments` 通常是 obligation；`phase=result_review` 且 `actions=[]` 表示等 reviewer，host 不自审。
@@ -123,7 +123,7 @@ map --persona <name> work --notification-category wakeable
 
 被 **map-simple-waker** 守护进程唤醒 → 只读 [references/wake.md](references/wake.md) 即可开工。
 
-- host 调 `fs advance-round`（或统一入口 `topic advance-round --id <slug>`）后平台自动为 required participant 生成 wakeable 通知，**无需**手动 @participant
+- host 调 `topic advance-round --id <slug>`（或高级入口 `fs advance-round`）后平台自动为 required participant 生成 wakeable 通知，**无需**手动 @participant
 - `--waive-ack --waive-reason "<理由>"` 可显式豁免表态门禁（必须配非空理由）；误推进按 FS rollback 约定回退（删本轮 round 文件 + 核对 `index.md` 一致性）
 
 ## 参考

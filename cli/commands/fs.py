@@ -112,6 +112,30 @@ def fs_init() -> None:
     )
 
 
+def write_new_fs_topic(
+    *,
+    title: str,
+    slug: str,
+    description: str = "",
+    participants: str | None = None,
+    creator: str | None = None,
+) -> Path:
+    """离线创建话题文件夹 + index.md。``map topic create`` 与 ``map fs topic-create`` 共用。"""
+    from map_fs import write_topic_index
+
+    workspace = _workspace()
+    declared = [p.strip() for p in (participants or "").split(",") if p.strip()] or None
+    return write_topic_index(
+        workspace,
+        slug,
+        title=title,
+        creator=_persona(creator),
+        description=description,
+        participants=declared,
+        content_root=_content_root_name(workspace),
+    )
+
+
 @fs_app.command("topic-create")
 def fs_topic_create(
     title: str = typer.Option(..., "--title"),
@@ -122,19 +146,13 @@ def fs_topic_create(
         None, "--participants", help="参与人白名单（逗号分隔，如 host,participant）；仅白名单内 persona 收到 FS 待办"
     ),
 ) -> None:
-    """离线创建话题文件夹 + index.md（不调 API）。"""
-    from map_fs import write_topic_index
-
-    workspace = _workspace()
-    declared = [p.strip() for p in (participants or "").split(",") if p.strip()] or None
-    index = write_topic_index(
-        workspace,
-        slug,
+    """离线创建话题文件夹 + index.md（不调 API）。高级入口；日常用 ``map topic create``。"""
+    index = write_new_fs_topic(
         title=title,
-        creator=_persona(creator),
+        slug=slug,
         description=description,
-        participants=declared,
-        content_root=_content_root_name(workspace),
+        participants=participants,
+        creator=creator,
     )
     typer.echo(f"Created {index}")
 

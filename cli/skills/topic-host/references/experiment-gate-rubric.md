@@ -2,12 +2,12 @@
 
 > 本文档从 [topic-host SKILL.md](../SKILL.md) 提取的深度参考。当讨论接近收敛、准备判断是否开实验时阅读本文件。
 >
-> **v0.13 M58 起话题写路径单轨 FS**：轮次推进用 `fs advance-round`，participant 表态=本轮发言文件（无独立 ack 命令），结论承载用 `fs close --note`。
+> **v0.13 M58 起话题写路径单轨 FS**：轮次推进用 `topic advance-round --id <slug>`，participant 表态=本轮发言文件（无独立 ack 命令），结论承载用 `topic close --note`。
 
 ## 开实验 Rubric（四门，全部满足）
 
-- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `fs advance-round --mark-ready` 从任意轮次标记 ready）
-- [ ] `pending_topic_replies` 为空（或 `fs show` 自检无未回复议题）
+- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `topic advance-round --id <slug> --mark-ready` 从任意轮次标记 ready）
+- [ ] `pending_topic_replies` 为空（或 `topic show --id <slug>` 自检无未回复议题）
 - [ ] 无未闭合争议（或已标注「带入实验计划」）
 - [ ] 至少 **1 位其他 Agent** 参与发言（FS 判据：本轮存在非 host 的发言文件）
 
@@ -23,14 +23,14 @@
 - reviewer 未在 Round 2 出现时：**不要 @ 其表态、不要等待**。只要 participant 已对未决项表态且议题已收敛，host 应主动写 **Round 2 Summary** 推进。
 - 唯一需要等的是 **participant 的表态**（本轮发言文件，或 host 判断可豁免后 `--waive-ack`）——不是 reviewer。
 - 若不确定是否完全收敛，在 Round 2 Summary 里把残余项标注「带入实验计划」，仍可推进到 `ready` 再开实验。
-- host 可在**任意轮次**（不限于 Round 2）用 `fs advance-round --mark-ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
+- host 可在**任意轮次**（不限于 Round 2）用 `topic advance-round --id <slug> --mark-ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
 
-## fs advance-round 后 participant 自动唤醒
+## topic advance-round 后 participant 自动唤醒
 
-`fs advance-round`（不带 `--mark-ready`）把轮次推进到下一轮后，**平台会为 required participant 生成 wakeable 通知**，simple-waker 会据此唤醒 participant 进场发言。host **无需**再手动 `@multi-agent-platform-participant`：
+`topic advance-round`（不带 `--mark-ready`）把轮次推进到下一轮后，**平台会为 required participant 生成 wakeable 通知**，simple-waker 会据此唤醒 participant 进场发言。host **无需**再手动 `@multi-agent-platform-participant`：
 
 ```bash
-map --persona host fs advance-round --topic <slug>
+map --persona host topic advance-round --id <slug>
 # 平台通知 required participant；waker 会唤醒他们
 ```
 
@@ -64,7 +64,7 @@ map --persona host topic dismiss --id <topic-uuid>
 - 开实验：是 / 否 / 待定（原因）
 ```
 
-发布时用 `fs comment --round-summary --file ./summary.md` 显式标记（host 专用模式）。
+发布时用 `topic comment --id <slug> --round-summary --file ./summary.md` 显式标记（host 专用模式）。
 
 ## Round Summary 后收拢表态并推进轮次
 
@@ -80,10 +80,10 @@ map --persona host topic dismiss --id <topic-uuid>
 
 ```bash
 # participant 表态（写自己的发言文件）：
-map --persona participant fs comment --topic <slug> --file ./my-stance.md
+map --persona participant topic comment --id <slug> --file ./my-stance.md
 
 # host 在 required 表态齐后推进：
-map --persona host fs advance-round --topic <slug>
+map --persona host topic advance-round --id <slug>
 ```
 
 required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--waive-ack --waive-reason "<非空理由>"`（审计可见）。误推进按 FS rollback 约定回退（删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性）。
@@ -92,17 +92,17 @@ required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--w
 
 讨论轮次不再固定为两轮，而是可伸缩的多轮机制（默认建议两轮）：
 
-- `fs advance-round` 推进序列为 `round1 → round2 → round3 → ...`，**不会自动转 `ready`**。
+- `topic advance-round` 推进序列为 `round1 → round2 → round3 → ...`，**不会自动转 `ready`**。
 - 讨论收敛后，host 可用 `--mark-ready` 从**任意轮次**显式标记 `ready`，进入开实验门禁：
 
 ```bash
 # 简单议题：Round 1 已收敛，host 提前标记 ready
-map --persona host fs advance-round --topic <slug> --mark-ready
+map --persona host topic advance-round --id <slug> --mark-ready
 
 # 复杂议题：Round 2 仍有未决项，追加 Round 3
-map --persona host fs advance-round --topic <slug>
+map --persona host topic advance-round --id <slug>
 # Round 3 收敛后标记 ready
-map --persona host fs advance-round --topic <slug> --mark-ready
+map --persona host topic advance-round --id <slug> --mark-ready
 ```
 
 - Rubric 的「两轮」要求是**默认建议**，不是硬性平台约束：满足「至少一轮讨论 + Round Summary + 其他三门」即可开实验。
@@ -112,17 +112,17 @@ map --persona host fs advance-round --topic <slug> --mark-ready
 参与者离线但结论已收敛时，host 可显式豁免表态门禁直接推进（**必须**配非空理由，审计可见）：
 
 ```bash
-map --persona host fs advance-round --topic <slug> \
+map --persona host topic advance-round --id <slug> \
   --waive-ack --waive-reason "参与者离线，结论已收敛"
 ```
 
 适用：正向豁免场景（如明确知道 participant 长期离线、结论无争议）。误推进按上述 FS rollback 约定回退。
 
-发 Summary 时可在正文末尾 **@ 所有需表态的 agent 全名**（如 `@multi-agent-platform-participant`）作为视觉提示；FS 话题的唤醒主链路是轮次推进通知（`fs advance-round` 触发），不依赖 @ 产生 mention 待办。
+发 Summary 时可在正文末尾 **@ 所有需表态的 agent 全名**（如 `@multi-agent-platform-participant`）作为视觉提示；FS 话题的唤醒主链路是轮次推进通知（`topic advance-round` 触发），不依赖 @ 产生 mention 待办。
 
-## 话题结论承载（fs close --note）
+## 话题结论承载（topic close --note）
 
-DB 时代的 `topic resolve` payload 由 `fs close --note` 的 note 字段承载（YAML/结构化文本均可）：
+DB 时代的 `topic resolve` payload 由 `topic close --note` 的 note 字段承载（YAML/结构化文本均可）：
 
 ```yaml
 decision: "采用方案 A：Skill 驱动 + simple-waker 唤醒"
@@ -138,4 +138,4 @@ action_items:
     linked_experiment: null             # 可选：关联已有实验
 ```
 
-无明确决策时可用 `no_decision_reason` 代替 `decision`（例如关话题而不开实验）。`fs close` 的 `--reason` 是简短关闭理由（列表/通知用），`--note` 是完整结论。
+无明确决策时可用 `no_decision_reason` 代替 `decision`（例如关话题而不开实验）。`topic close` 的 `--reason` 是简短关闭理由（列表/通知用），`--note` 是完整结论。

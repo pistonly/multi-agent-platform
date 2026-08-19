@@ -2,20 +2,20 @@
 name: topic-participant
 description: >-
   Participate in MAP open topics as a project agent: scan open discussions,
-  contribute Round 1/2 opinions via fs comment (speech file = your stance),
+  contribute Round 1/2 opinions via topic comment (speech file = your stance),
   respond to host round summaries and action_items, and keep threads active.
   Use when acting as participant persona or when simple-waker wakes for todos
   items such as mentions, pending_round_acks, or my_open_topics. Do not use
   for: hosting topics or advancing rounds as host, reviewing experiments as
   reviewer, creating or managing experiments. Do not imitate host's round
-  summary or fs advance-round. Do not use without first reading
-  map-project-collab Skill. Command cookbook (fs comment modes, speech
+  summary or topic advance-round. Do not use without first reading
+  map-project-collab Skill. Command cookbook (topic comment modes, speech
   template, per-round duties) lives in references/participant-checklist.md.
 ---
 
 # MAP 话题参与（Skill）
 
-在 open 话题上主动发言、跟评，配合 host 完成讨论（默认两轮，可伸缩）；**不**主持、**不**开实验、**不**代替 host 推进轮次。与 [topic-host](../topic-host/SKILL.md) 分工：host 发 Summary 并 `fs advance-round`；本 Skill 管参与视角、发言节奏与**发言文件即表态**的 FS 模型。**已停用** participant bridge——被唤醒时先读 [map-project-collab wake.md](../map-project-collab/references/wake.md)，再回到本 Skill。
+在 open 话题上主动发言、跟评，配合 host 完成讨论（默认两轮，可伸缩）；**不**主持、**不**开实验、**不**代替 host 推进轮次。与 [topic-host](../topic-host/SKILL.md) 分工：host 发 Summary 并 `topic advance-round`；本 Skill 管参与视角、发言节奏与**发言文件即表态**的 FS 模型。**已停用** participant bridge——被唤醒时先读 [map-project-collab wake.md](../map-project-collab/references/wake.md)，再回到本 Skill。
 
 ## 何时发言（按优先级）
 
@@ -33,7 +33,7 @@ description: >-
 
 1. 只用 `map --persona participant ...` 写 MAP（先 `persona whoami` 确认身份）
 2. **不**创建话题、**不**关话题、**不**创建实验
-3. **不**模仿 host 写 round Summary 文件；**不**代替 host 调用 `fs advance-round`
+3. **不**模仿 host 写 round Summary 文件；**不**代替 host 调用 `topic advance-round`
 4. 话题下已有**活跃实验**（draft/review/approved/running/result_review）时不再跟评——讨论已转入实验
 5. 发言应具体：观点、风险、验收建议或反驳；避免空泛「同意」
 6. `@` 必须用 `map persona list` 中的 **agent_name 全名**（如 `@multi-agent-platform-host`），不用 persona 短名（FS 话题里 `@` 仅是视觉提示，不产生 mention 待办，全名习惯仍保留）
@@ -49,7 +49,7 @@ FS 话题里**没有独立的 ack 命令**——你本轮写的 `round<N>-<agent
 | Summary 有误或遗漏关键争议 | 在发言文件中**明确写出异议点**，host 推进前会读 |
 | 不想再被当作必须表态的人 | 在发言中明确说「旁支意见，不阻塞推进」，host 可用 `--waive-ack` 记录理由后跳过你 |
 
-host 收拢轮次的动作是 `map fs advance-round --topic <slug>`（发言未齐时须配 `--waive-ack --waive-reason`）；这是 host 的职责，participant **不执行**。
+host 收拢轮次的动作是 `map topic advance-round --id <slug>`（发言未齐时须配 `--waive-ack --waive-reason`）；这是 host 的职责，participant **不执行**。
 
 ## 防过早沉默（重要）
 
@@ -60,20 +60,20 @@ host 收拢轮次的动作是 `map fs advance-round --topic <slug>`（发言未�
 **FS 话题（`map/topics/<slug>/` 存在，v0.13 M58 起为唯一写路径）**——发言就是写文件，不调 API：
 
 ```bash
-map --persona participant fs comment --topic <slug> --file ./my-opinion.md
+map --persona participant topic comment --id <slug> --file ./my-opinion.md
 # 即写 map/topics/<slug>/round<N>-participant.md；待办随文件存在自动消失
 ```
 
-读取他人发言：`fs show --topic <slug>`（或直接读 `map/topics/<slug>/` 下对应 round 文件全文）。
+读取他人发言：`topic show --id <slug>`（或直接读 `map/topics/<slug>/` 下对应 round 文件全文）。
 
 **存量 DB 话题（v0.13 M58 起写路径已退役）**——只读（`topic show --id <uuid>` 永久保留）；需要继续讨论时请 host 执行 `topic migrate --id <uuid>` 迁为 FS 话题后再发言，**不要**对存量话题跑 DB 写命令。
 
-FS 话题的 round_ack：本轮写完自己的发言文件即视为表态；FS 轮次推进由 host 执行 `map fs advance-round`（无需 participant 显式 ack 命令）。完整命令、发言结构模板、逐轮职责、防刷屏细则见 [references/participant-checklist.md](references/participant-checklist.md)。
+FS 话题的 round_ack：本轮写完自己的发言文件即视为表态；FS 轮次推进由 host 执行 `map topic advance-round`（无需 participant 显式 ack 命令）。完整命令、发言结构模板、逐轮职责、防刷屏细则见 [references/participant-checklist.md](references/participant-checklist.md)。
 
 ## 非目标
 
 - 代替 reviewer 评审实验计划
-- 代替 host 汇总、`fs advance-round` 或开实验
+- 代替 host 汇总、`topic advance-round` 或开实验
 - 启动 participant bridge
 
 ## 常见错误（BAD → GOOD）

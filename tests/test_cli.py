@@ -450,7 +450,6 @@ def test_cli_topic_write_commands_rejected_with_fs_guidance(
     comment_file = tmp_path / "comment.md"
     comment_file.write_text("文件评论", encoding="utf-8")
     retired = [
-        (["topic", "create", "--title", "CLI话题", "--description", "desc"], "fs topic-create"),
         (
             ["topic", "comment", "--id", tid, "--body", "评论"],
             "fs comment",

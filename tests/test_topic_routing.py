@@ -26,8 +26,13 @@ from map_fs import topic_id_for_slug, write_round_comment, write_topic_index
 from typer.testing import CliRunner
 
 from cli.commands.topic import (
+    _filter_local_summaries,
+    _fs_topic_to_detail,
     _looks_like_uuid,
+    _merge_topic_summaries,
     _resolve_topic_ref,
+    _scan_local_fs_summaries,
+    _slice_page,
     topic_app,
 )
 
@@ -520,3 +525,96 @@ class TestExperimentCancelCli:
         assert result.exit_code == 1, result.output
         assert "STATE_MACHINE_EXPERIMENT_CANCEL_MISUSE" in result.output
         assert "cancel is only allowed" in result.output
+
+
+# ---------------------------------------------------------------------------
+# map topic 统一入口：create 转发 FS；list 合并本地 map/
+# ---------------------------------------------------------------------------
+
+
+class TestTopicCreateFsForward:
+    def test_create_writes_index(self, workspace: Path) -> None:
+        result = runner.invoke(
+            topic_app,
+            [
+                "create",
+                "--title",
+                "Hello World",
+                "--slug",
+                "hello-world",
+                "--participants",
+                "host,participant",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        index = workspace / "map" / "topics" / "hello-world" / "index.md"
+        assert index.is_file()
+        assert "Created" in result.output
+        text = index.read_text(encoding="utf-8")
+        assert "Hello World" in text
+        assert "participant" in text
+
+    def test_create_slugifies_title_when_slug_omitted(self, workspace: Path) -> None:
+        result = runner.invoke(topic_app, ["create", "--title", "Discuss API"])
+        assert result.exit_code == 0, result.output
+        assert (workspace / "map" / "topics" / "discuss-api" / "index.md").is_file()
+
+
+class TestTopicListLocalMerge:
+    def test_scan_local_fs_summaries(self, workspace: Path) -> None:
+        _make_fs_topic(workspace, "local-only")
+        pid = uuid.uuid4()
+        summaries = _scan_local_fs_summaries(pid)
+        assert [t.slug for t in summaries] == ["local-only"]
+        assert summaries[0].project_id == pid
+        assert summaries[0].title == "FS local-only"
+        assert summaries[0].creator_name == "host"
+
+    def test_merge_keeps_api_on_slug_overlap(self, workspace: Path) -> None:
+        pid = uuid.uuid4()
+        _make_fs_topic(workspace, "shared")
+        local = _scan_local_fs_summaries(pid)
+        api = [local[0].model_copy(update={"title": "from-api"})]
+        merged = _merge_topic_summaries(local, api)
+        assert len(merged) == 1
+        assert merged[0].title == "from-api"
+
+    def test_merge_prepends_local_only_slug(self, workspace: Path) -> None:
+        pid = uuid.uuid4()
+        _make_fs_topic(workspace, "a")
+        _make_fs_topic(workspace, "b")
+        by_slug = {t.slug: t for t in _scan_local_fs_summaries(pid)}
+        merged = _merge_topic_summaries([by_slug["a"]], [by_slug["b"]])
+        assert [t.slug for t in merged] == ["a", "b"]
+
+    def test_filter_status_and_creator(self, workspace: Path) -> None:
+        write_topic_index(workspace, "open-one", title="Open", creator="host")
+        write_topic_index(workspace, "closed-one", title="Closed", creator="host", status="closed")
+        pid = uuid.uuid4()
+        scanned = _scan_local_fs_summaries(pid)
+        opened = _filter_local_summaries(
+            scanned, status="open", creator=None, creator_agent_id=None, q=None
+        )
+        assert {t.slug for t in opened} == {"open-one"}
+        by_creator = _filter_local_summaries(
+            scanned, status=None, creator="host", creator_agent_id=None, q=None
+        )
+        assert {t.slug for t in by_creator} == {"open-one", "closed-one"}
+        other = _filter_local_summaries(
+            scanned, status=None, creator="participant", creator_agent_id=None, q=None
+        )
+        assert other == []
+
+    def test_slice_page(self) -> None:
+        assert _slice_page(list(range(5)), 2, 2) == [2, 3]
+
+    def test_fs_topic_to_detail(self, workspace: Path) -> None:
+        from map_fs import parse_topic_dir
+
+        _make_fs_topic(workspace, "d")
+        parsed = parse_topic_dir(workspace / "map" / "topics" / "d", workspace)
+        assert parsed is not None
+        detail = _fs_topic_to_detail(parsed)
+        assert detail.slug == "d"
+        assert detail.title == "FS d"
+        assert detail.creator == "host"
