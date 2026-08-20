@@ -174,17 +174,19 @@ def test_logs_data_roundtrips_experiment_log(stub_env, runner):
     assert _UUID36.fullmatch(env["data"][0]["id"])
 
 
-def test_log_create_data_is_log_create_response_wrapper(stub_env, runner):
-    with runner.isolated_filesystem():
-        with open("log.md", "w") as fh:
-            fh.write("# body")
-        result = runner.invoke(
-            app,
-            [
-                "experiment", "log", "--id", str(EXP_ID),
-                "--summary", "s", "--file", "log.md", "--format", "json",
-            ],
-        )
+def test_log_create_data_is_log_create_response_wrapper(stub_env, runner, tmp_path, monkeypatch):
+    # typer 0.27 的 CliRunner 移除了 isolated_filesystem；用 pytest 标准
+    # tmp_path + chdir 等价提供临时 cwd（写 log.md 相对路径）。
+    monkeypatch.chdir(tmp_path)
+    with open("log.md", "w") as fh:
+        fh.write("# body")
+    result = runner.invoke(
+        app,
+        [
+            "experiment", "log", "--id", str(EXP_ID),
+            "--summary", "s", "--file", "log.md", "--format", "json",
+        ],
+    )
     assert result.exit_code == 0, result.output
 
     env = _envelope(result)
@@ -216,19 +218,20 @@ def test_status_default_format_keeps_human_hints(stub_env, runner):
     assert "phase_owner:" in result.output
 
 
-def test_pre_complete_data_has_no_nested_ok(stub_env, runner):
+def test_pre_complete_data_has_no_nested_ok(stub_env, runner, tmp_path, monkeypatch):
     """M54C: the envelope carries ``ok``; a data-level ``ok`` collided
     with the contract (docs/cli-json-output.md)."""
-    with runner.isolated_filesystem():
-        with open("meta.yaml", "w") as fh:
-            fh.write("api_health: ok\n")
-        result = runner.invoke(
-            app,
-            [
-                "experiment", "pre-complete", "--id", str(EXP_ID),
-                "--metadata", "meta.yaml", "--format", "json",
-            ],
-        )
+    # 同上：typer 0.27 CliRunner 无 isolated_filesystem，换 pytest 临时目录。
+    monkeypatch.chdir(tmp_path)
+    with open("meta.yaml", "w") as fh:
+        fh.write("api_health: ok\n")
+    result = runner.invoke(
+        app,
+        [
+            "experiment", "pre-complete", "--id", str(EXP_ID),
+            "--metadata", "meta.yaml", "--format", "json",
+        ],
+    )
     assert result.exit_code == 0, result.output
 
     env = _envelope(result)
