@@ -28,6 +28,18 @@ All patches are idempotent (flagged on the command object) and add no
 import-time cost beyond a tiny closure per group; the tree is only touched
 when a command is actually resolved.
 
+Required-option enforcement (typer×click compat)
+-------------------------------------------------
+typer <0.26 builds ``TyperOption`` / ``TyperArgument`` with an explicit
+``default=None``. Click 8.2 redefined ``default=None`` as a *valid* default
+("no default" became the ``UNSET`` sentinel), so a missing required option
+resolves to a legitimate-looking default and click skips its
+``MissingParameter`` check — every ``typer.Option(...)`` required flag in the
+CLI silently passes ``None`` into the callback (reproduced with typer 0.16.1
++ click 8.3.2 / 8.4.2). ``_restore_required_check`` normalizes required
+params back to ``UNSET`` at patch time, restoring native click validation
+(usage error, exit 2) without constraining the published dependency range.
+
 Only the long form ``--format`` is injected. The global ``-o`` shorthand
 stays root-only to avoid future short-flag collisions on leaf commands.
 
@@ -71,6 +83,46 @@ def _sub_format_option() -> Any:
     return click.Option(["--format"], default=None, help=_FORMAT_HELP)
 
 
+def _unset_sentinel() -> Any:
+    """click>=8.2 的 ``UNSET`` sentinel（「无默认值」的显式表达）。
+
+    vendored click（typer>=0.26，实测必填校验原生生效、无 UNSET 概念）与
+    click<8.2（``value is None`` 即 missing）都返回 None——这两种组合
+    无需归一化。
+    """
+    if _vendored_click():
+        return None
+    try:
+        from click.core import UNSET
+    except ImportError:
+        return None
+    return UNSET
+
+
+def _restore_required_check(cmd: Any) -> None:
+    """typer(<0.26) × click(>=8.2) 必填校验失效修复。
+
+    根因：``TyperOption`` / ``TyperArgument`` 构造时对「无默认值」显式传
+    ``default=None``；click 8.2 起 ``default=None`` 是合法默认值，「无默认」
+    改由 ``UNSET`` sentinel 表达。于是 required 参数缺失时 ``get_default()``
+    返回 None 被当作有效默认值，``Parameter.process_value`` 跳过
+    ``MissingParameter`` 校验，回调以 ``None`` 直跑（实测 typer 0.16.1 +
+    click 8.3.2 / 8.4.2 下全部 ``typer.Option(...)`` 必填项失效）。
+
+    修复：把 ``required=True 且 default is None`` 的参数 default 归一为
+    ``UNSET``，恢复 click 原生校验（缺参 → usage error，exit 2）。
+    版本无关且幂等：UNSET 不存在（click<8.2 / vendored click）时不动；
+    default 已是 UNSET 时条件不命中。回归测试见
+    ``tests/test_required_option_guard.py``。
+    """
+    unset = _unset_sentinel()
+    if unset is None:
+        return
+    for param in getattr(cmd, "params", None) or []:
+        if getattr(param, "required", False) is True and param.default is None:
+            param.default = unset
+
+
 def _is_group(cmd: Any) -> bool:
     """TyperGroup in both click-backed and vendored-Click Typer; plus classic Group."""
     if cmd is None:
@@ -81,15 +133,17 @@ def _is_group(cmd: Any) -> bool:
 
 
 def _patch_leaf(cmd: Any, apply: ApplyHook) -> Any:
-    """Inject ``--format`` into a leaf command and route it to ``apply``."""
+    """Patch a leaf command: restore required-option checks + inject ``--format``."""
     if getattr(cmd, _PATCH_FLAG, False):
         return cmd
+    setattr(cmd, _PATCH_FLAG, True)
+    # typer×click 必填校验修复对所有 leaf 生效（与是否注入 --format 无关）。
+    _restore_required_check(cmd)
     # Defensive: if a future command declares its own --format, leave it be
     # (click would reject duplicate option names at parse time otherwise).
     params = getattr(cmd, "params", None) or []
     if any(getattr(param, "name", None) == "format" for param in params):
         return cmd
-    setattr(cmd, _PATCH_FLAG, True)
     cmd.params.append(_sub_format_option())
     original = cmd.callback
 

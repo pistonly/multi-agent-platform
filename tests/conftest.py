@@ -195,6 +195,10 @@ _FAST_GATE_MODULES = frozenset(
         # CliRunner 进程内跑 + transport stub，~200ms 全量；守住
         # 「子命令位/全局位等价 + 嵌套子组可达 + 子命令级覆盖全局」契约。
         "test_cli_subcommand_format",
+        # typer(<0.26)×click(>=8.2) 必填校验失效修复 — 解析期把 required
+        # 且 default=None 的参数归一为 UNSET。CliRunner 进程内跑，~200ms；
+        # 守住「缺必填 → 原生 usage error exit 2，回调不得收到 None」契约。
+        "test_required_option_guard",
         # PRD v0.12 M54B — 短 ID（>=8 hex 前缀）解析（E2 修复）。
         # 纯单元（resolve_ref）+ CliRunner transport stub（list 前缀查询
         # → get 完整 uuid 链路），~300ms 全量；守住「唯一命中解析 /

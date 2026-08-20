@@ -340,8 +340,11 @@ def experiment_pre_complete(
 
 @experiment_app.command("complete")
 def experiment_complete(
-    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
-    summary: str = typer.Option(..., "--summary"),
+    # --id/--summary 声明为可选：--schema 模式打印模板即退出（无需任何参数）。
+    # 历史上这里写 required=True 却仍可用，靠的是 typer×click 必填校验失效
+    # （见 cli/subcommand_format.py）；校验恢复后改为显式条件校验。
+    experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
+    summary: str | None = typer.Option(None, "--summary"),
     log_file: Path | None = typer.Option(
         None,
         "--file",
@@ -383,6 +386,9 @@ def experiment_complete(
     )
     if schema:
         _print_complete_metadata_schema_and_exit()
+    if experiment_id is None or summary is None:
+        typer.echo("Error: --id and --summary are required (unless --schema)", err=True)
+        raise typer.Exit(2)
     if log_file is None and log_file_path is None:
         typer.echo("Error: either --file or --log-file-path is required", err=True)
         raise typer.Exit(2)
@@ -405,9 +411,10 @@ def experiment_complete(
 
 @experiment_app.command("accept-result")
 def experiment_accept_result(
-    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
-    summary: str = typer.Option(..., "--summary"),
-    log_file: Path = typer.Option(..., "--file"),
+    # 可选声明 + 显式条件校验，原因同 experiment_complete（--schema 早退）。
+    experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
+    summary: str | None = typer.Option(None, "--summary"),
+    log_file: Path | None = typer.Option(None, "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
     review_verdict_file: Path | None = typer.Option(
         None,
@@ -435,6 +442,9 @@ def experiment_accept_result(
     )
     if schema:
         _print_review_verdict_schema_and_exit()
+    if experiment_id is None or summary is None or log_file is None:
+        typer.echo("Error: --id, --summary and --file are required (unless --schema)", err=True)
+        raise typer.Exit(2)
     metadata = _read_yaml_file(metadata_file)
     verdict_file = _load_review_verdict_file(review_verdict_file)
     payload = ExperimentResultDecision(
@@ -448,9 +458,10 @@ def experiment_accept_result(
 
 @experiment_app.command("reject-result")
 def experiment_reject_result(
-    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
-    summary: str = typer.Option(..., "--summary"),
-    log_file: Path = typer.Option(..., "--file"),
+    # 可选声明 + 显式条件校验，原因同 experiment_complete（--schema 早退）。
+    experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
+    summary: str | None = typer.Option(None, "--summary"),
+    log_file: Path | None = typer.Option(None, "--file"),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
     review_verdict_file: Path | None = typer.Option(
         None,
@@ -478,6 +489,9 @@ def experiment_reject_result(
     )
     if schema:
         _print_review_verdict_schema_and_exit()
+    if experiment_id is None or summary is None or log_file is None:
+        typer.echo("Error: --id, --summary and --file are required (unless --schema)", err=True)
+        raise typer.Exit(2)
     metadata = _read_yaml_file(metadata_file)
     verdict_file = _load_review_verdict_file(review_verdict_file)
     payload = ExperimentResultDecision(
