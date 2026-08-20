@@ -13,7 +13,7 @@ from map_sdk.evidence import (
     metadata_has_completion_evidence,
 )
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 
 def hello() -> str:
