@@ -490,15 +490,12 @@ def topic_create(
     ),
 ) -> None:
     """Create ``map/topics/<slug>/`` + index.md (FS source of truth; no API write)."""
-    from map_fs import slugify
-
     from cli.commands.fs import write_new_fs_topic
 
     _ = (project, project_key)
-    resolved_slug = slug or slugify(title)
     index = write_new_fs_topic(
         title=title,
-        slug=resolved_slug,
+        slug=slug,
         description=description or "",
         participants=participants,
     )

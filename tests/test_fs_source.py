@@ -55,6 +55,19 @@ def test_comment_file_is_immutable_by_default(tmp_path: Path) -> None:
     assert scan_plane(tmp_path).topics[0].comments[0].content.strip() == "v2"
 
 
+def test_write_rejects_empty_slug(tmp_path: Path) -> None:
+    """空 slug 防护：None/空白 slug 抛可读 ValueError，而非路径拼接 TypeError。
+
+    背景：typer 0.16.1 + click 8.4.x 组合不强制校验必填 CLI 选项，缺失的
+    ``--slug`` 会以 None 穿透到 SDK 写函数（回归见 test_topic_routing.py）。"""
+    with pytest.raises(ValueError, match="non-empty folder name"):
+        write_topic_index(tmp_path, "", title="X", creator="host")
+    with pytest.raises(ValueError, match="non-empty folder name"):
+        write_topic_index(tmp_path, None, title="X", creator="host")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="non-empty folder name"):
+        write_round_comment(tmp_path, "", round_number=1, persona="host", body="x")
+
+
 def test_advance_updates_index_round(tmp_path: Path) -> None:
     write_topic_index(tmp_path, "adv", title="Adv", creator="host")
     write_round_comment(tmp_path, "adv", round_number=1, persona="host", body="# r1")

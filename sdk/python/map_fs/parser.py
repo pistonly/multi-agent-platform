@@ -241,6 +241,15 @@ def slugify(text: str) -> str:
     return slug or f"topic-{uuid.uuid4().hex[:8]}"
 
 
+def _require_slug(slug: str) -> str:
+    """空 slug 防护：部分 typer/click 版本组合（实测 0.16.1 + 8.4.x）不强制
+    校验必填 CLI 选项，None 会一路穿透到这里的路径拼接，抛出难懂的
+    ``TypeError: PosixPath / NoneType``。SDK 层提前给出可读错误。"""
+    if not slug or not str(slug).strip():
+        raise ValueError(f"slug must be a non-empty folder name, got: {slug!r}")
+    return slug
+
+
 # ---------------------------------------------------------------------------
 # 读取：实时解析
 # ---------------------------------------------------------------------------
@@ -431,6 +440,7 @@ def write_topic_index(
     ``participants`` 为参与人白名单（declared），写入 front-matter；
     creator 始终隐含在内（不强制写入列表）。
     """
+    slug = _require_slug(slug)
     topic_dir = workspace / content_root / "topics" / slug
     round_str = round_ if isinstance(round_, str) else f"round{round_}"
     meta: dict[str, object] = {
@@ -475,6 +485,7 @@ def write_round_comment(
     发言人不在 index.md 的 participants 白名单时自动并入（发言即参与）；
     index.md 缺失（手建文件夹）时跳过并入，不影响评论写入。
     """
+    slug = _require_slug(slug)
     topic_dir = workspace / content_root / "topics" / slug
     comment_path = topic_dir / f"round{round_number}-{persona}.md"
     if comment_path.exists() and not overwrite:

@@ -560,6 +560,33 @@ class TestTopicCreateFsForward:
         assert (workspace / "map" / "topics" / "discuss-api" / "index.md").is_file()
 
 
+class TestCreateMissingOptionGuards:
+    """回归：typer 0.16.1 + click 8.4.x 不强制校验必填选项，缺失参数以 None
+    穿透到函数体（``fs topic-create --title X`` 缺 --slug 曾直接抛
+    ``TypeError: PosixPath / NoneType``）。两个 create 入口必须自行兜底：
+    slug 缺省由 title 生成、title 缺省明确报错，不能崩。"""
+
+    def test_fs_topic_create_without_slug_slugifies_title(self, workspace: Path) -> None:
+        from cli.commands.fs import fs_app
+
+        result = runner.invoke(fs_app, ["topic-create", "--title", "Auto Slug Topic"])
+        assert result.exit_code == 0, result.output
+        assert (workspace / "map" / "topics" / "auto-slug-topic" / "index.md").is_file()
+
+    def test_fs_topic_create_without_title_errors_cleanly(self, workspace: Path) -> None:
+        from cli.commands.fs import fs_app
+
+        result = runner.invoke(fs_app, ["topic-create"])
+        # click 恢复必填校验的版本下是 exit 2（usage error），两种都算已修复
+        assert result.exit_code in (1, 2), result.output
+        assert "--title" in result.output
+
+    def test_topic_create_without_title_errors_cleanly(self, workspace: Path) -> None:
+        result = runner.invoke(topic_app, ["create"])
+        assert result.exit_code in (1, 2), result.output
+        assert "--title" in result.output
+
+
 class TestTopicListLocalMerge:
     def test_scan_local_fs_summaries(self, workspace: Path) -> None:
         _make_fs_topic(workspace, "local-only")

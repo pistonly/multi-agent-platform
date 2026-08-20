@@ -115,20 +115,29 @@ def fs_init() -> None:
 def write_new_fs_topic(
     *,
     title: str,
-    slug: str,
+    slug: str | None,
     description: str = "",
     participants: str | None = None,
     creator: str | None = None,
 ) -> Path:
-    """离线创建话题文件夹 + index.md。``map topic create`` 与 ``map fs topic-create`` 共用。"""
-    from map_fs import write_topic_index
+    """离线创建话题文件夹 + index.md。``map topic create`` 与 ``map fs topic-create`` 共用。
 
+    slug 为空时由 title 生成（两个入口行为一致）。title 为空直接报错退出——
+    部分 typer/click 版本组合不强制校验必填 CLI 选项，缺失的 ``--title``
+    会以 None 穿透到函数体（回归见 tests/test_topic_routing.py）。
+    """
+    from map_fs import slugify, write_topic_index
+
+    resolved_title = (title or "").strip()
+    if not resolved_title:
+        typer.echo("Error: --title is required.", err=True)
+        raise typer.Exit(1)
     workspace = _workspace()
     declared = [p.strip() for p in (participants or "").split(",") if p.strip()] or None
     return write_topic_index(
         workspace,
-        slug,
-        title=title,
+        (slug or "").strip() or slugify(resolved_title),
+        title=resolved_title,
         creator=_persona(creator),
         description=description,
         participants=declared,
@@ -139,7 +148,9 @@ def write_new_fs_topic(
 @fs_app.command("topic-create")
 def fs_topic_create(
     title: str = typer.Option(..., "--title"),
-    slug: str = typer.Option(..., "--slug", help="文件夹名，如 fs-source-of-truth"),
+    slug: str | None = typer.Option(
+        None, "--slug", help="文件夹名，如 fs-source-of-truth；缺省由 --title 生成"
+    ),
     creator: str | None = typer.Option(None, "--creator", help="默认取 .map/config.yaml 的 default_persona"),
     description: str = typer.Option("", "--description"),
     participants: str | None = typer.Option(
