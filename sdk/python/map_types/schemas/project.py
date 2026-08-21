@@ -11,6 +11,17 @@ from .experiment import ExperimentSummaryRead
 from .topic import TopicSummaryRead
 
 PROJECT_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-_]{0,62}$")
+CONTENT_ROOT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def normalize_content_root(value: str | None) -> str:
+    """Single relative directory name; never a path."""
+    root = (value or "").strip() or "map"
+    if root in {".", ".."} or "/" in root or "\\" in root:
+        raise ValueError("content_root must be a single directory name")
+    if not CONTENT_ROOT_PATTERN.fullmatch(root):
+        raise ValueError("content_root must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+    return root
 
 
 # --- Project ---
@@ -21,6 +32,8 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     workspace_path: str = Field(min_length=1, max_length=1024)
     description: str | None = None
+    content_root: str = "map"
+    fs_freshness_sla_seconds: int | None = Field(default=None, ge=1)
 
     @field_validator("project_key")
     @classmethod
@@ -30,12 +43,26 @@ class ProjectCreate(BaseModel):
             raise ValueError("project_key must match [a-z0-9][a-z0-9-_]{0,62}")
         return key
 
+    @field_validator("content_root")
+    @classmethod
+    def validate_content_root(cls, value: str) -> str:
+        return normalize_content_root(value)
+
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     workspace_path: str | None = Field(default=None, min_length=1, max_length=1024)
     description: str | None = None
     archived: bool | None = None
+    content_root: str | None = None
+    fs_freshness_sla_seconds: int | None = Field(default=None, ge=1)
+
+    @field_validator("content_root")
+    @classmethod
+    def validate_content_root(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_content_root(value)
 
 
 class ProjectRead(ORMModel):
@@ -43,6 +70,8 @@ class ProjectRead(ORMModel):
     project_key: str
     name: str
     workspace_path: str
+    content_root: str = "map"
+    fs_freshness_sla_seconds: int | None = None
     description: str | None
     current_status_version: int
     created_at: datetime
@@ -64,6 +93,13 @@ class BootstrapRequest(BaseModel):
     project_name: str = Field(min_length=1, max_length=255)
     workspace_path: str = Field(min_length=1, max_length=1024)
     description: str | None = None
+    content_root: str = "map"
+    fs_freshness_sla_seconds: int | None = Field(default=None, ge=1)
+
+    @field_validator("content_root")
+    @classmethod
+    def validate_content_root(cls, value: str) -> str:
+        return normalize_content_root(value)
 
 
 class BootstrapAgentResult(BaseModel):

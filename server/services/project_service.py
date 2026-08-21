@@ -542,6 +542,11 @@ def get_experiment_detail(
         # time, so this is the single source of truth.
         phase_owner=owner_for(experiment.phase),
     )
+    project = db.get(Project, experiment.project_id)
+    if project is not None:
+        from server.services.fs_source_service import content_source_meta
+
+        detail = detail.model_copy(update={"source": content_source_meta(db, project)})
     if actor is not None:
         actions, blocked_on = compute_experiment_capabilities(db, experiment, actor)
         legacy = compute_legacy_self_review(db, experiment)

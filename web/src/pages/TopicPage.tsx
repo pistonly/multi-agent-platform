@@ -212,8 +212,23 @@ export function TopicPage() {
 
       {isRemoteFsProjection && (
         <div className="rounded border border-amber-700 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
-          这是远程 FS 投影的只读视图。请在项目本地通过 <code>map topic</code> / <code>map fs</code>
-          写入文件并同步；Web 不会直接修改远程投影。
+          <p>
+            这是远程 FS 投影的只读视图。请在项目本地通过 <code>map topic</code> /{" "}
+            <code>map fs sync</code> 写入文件并同步；Web 不会直接修改远程投影。
+          </p>
+          <p className="mt-2 text-amber-50/90">
+            来源 {topic.source?.content_source ?? topic.content_source}
+            {topic.source?.source_revision ? ` · revision ${topic.source.source_revision}` : ""}
+            {topic.source?.source_updated_at
+              ? ` · 最后同步于 ${new Date(topic.source.source_updated_at).toLocaleString()}`
+              : ""}
+          </p>
+          {topic.source?.stale && (
+            <p className="mt-1 font-medium text-amber-200">
+              内容可能陈旧{topic.source.stale_reason ? `（${topic.source.stale_reason}）` : ""}
+              ，不要把当前 lifecycle 状态当成实时事实。
+            </p>
+          )}
         </div>
       )}
 

@@ -178,6 +178,9 @@ _FAST_GATE_MODULES = frozenset(
         # validate → 本地写回 → commit（HMAC token）、map fs push 投影
         # 回退（/topics 合并 + work 待办）。TestClient + tmp_path，秒级。
         "test_fs_remote_mode",
+        "test_fs_remote_p1",
+        "test_fs_projection_cli",
+        "test_049_project_fs_content_config",
         # fs CLI persona 解析 — 全局 map --persona 透传到 fs 子命令，
         # CliRunner 进程内跑，~100ms，守住「Agent 不需重复传 --persona」契约。
         "test_fs_persona",

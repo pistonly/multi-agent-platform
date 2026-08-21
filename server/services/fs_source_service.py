@@ -22,7 +22,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from map_fs import (
@@ -36,17 +36,25 @@ from map_fs import (
     update_topic_index,
 )
 from map_types.enums import TopicCommentKind, TopicStatus
+from map_types.schemas.content_source import ContentSourceMeta
 from map_types.schemas.fs import (
     FsCommentRead,
     FsExperimentRead,
     FsPlaneStatusRead,
+    FsProjectionDeltaRequest,
+    FsProjectionDeltaResult,
+    FsProjectionInventoryRead,
     FsProjectionMetaRead,
+    FsProjectionObjectHash,
     FsProjectionPushRequest,
     FsTopicDetailRead,
     FsTopicSummaryRead,
     FsWorkItemRead,
+    fs_experiment_content_hash,
     fs_projection_content_hash,
+    fs_topic_content_hash,
 )
+from map_types.schemas.project import normalize_content_root
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -69,6 +77,7 @@ _ROUND_STR_RE = re.compile(r"^round(\d+)$")
 # 变形——应当按项目拆分或改走 Git，而不是把 server 当内容仓库）。
 _PROJECTION_MAX_TOPICS = 2000
 _PROJECTION_MAX_BYTES = 8 * 1024 * 1024
+_PROJECTION_MAX_OBJECT_BYTES = 1024 * 1024
 
 
 class FsTopicNotFoundError(Exception):
@@ -100,17 +109,20 @@ class FsPlaneUnavailableError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def content_root_name() -> str:
+def content_root_name(project: Project | None = None) -> str:
+    """Project-level content root; settings default is only for missing rows."""
+    if project is not None and getattr(project, "content_root", None):
+        return str(project.content_root)
     return get_settings().content_root
 
 
 def plane_for_project(project: Project) -> FsPlane:
-    return scan_plane(Path(project.workspace_path), content_root_name())
+    return scan_plane(Path(project.workspace_path), content_root_name(project))
 
 
 def workspace_fs_available(project: Project) -> bool:
     """server 能否直接读到该 project 的内容根目录。"""
-    return (Path(project.workspace_path) / content_root_name()).is_dir()
+    return (Path(project.workspace_path) / content_root_name(project)).is_dir()
 
 
 def get_fs_projection(db: Session, project: Project) -> FsProjection | None:
@@ -129,32 +141,92 @@ def projection_payload_topics(row: FsProjection | None) -> list[FsTopicDetailRea
         return []  # 脏快照按空处理；下一次 push 覆盖修复
 
 
+def projection_payload_experiments(row: FsProjection | None) -> list[FsExperimentRead]:
+    if row is None:
+        return []
+    payload = row.payload_json or {}
+    try:
+        return [FsExperimentRead.model_validate(e) for e in payload.get("experiments", [])]
+    except Exception:
+        return []
+
+
+def _ensure_content_root_matches(project: Project, client_root: str | None) -> None:
+    expected = content_root_name(project)
+    if client_root is None:
+        return
+    got = normalize_content_root(client_root)
+    if got != expected:
+        raise ConflictError(
+            f"content_root mismatch: project has {expected!r}, client sent {got!r}",
+            error="content_root_mismatch",
+        )
+
+
+def content_source_meta(db: Session, project: Project) -> ContentSourceMeta:
+    """Build the unified origin envelope for this project's FS plane."""
+    content_root_exists = workspace_fs_available(project)
+    row = get_fs_projection(db, project)
+    now = datetime.now(timezone.utc)
+    if content_root_exists:
+        return ContentSourceMeta(
+            content_source="local-fs",
+            source_revision="local-scan",
+            source_updated_at=now,
+            stale=False,
+        )
+    if row is None:
+        return ContentSourceMeta(
+            content_source="none",
+            stale=True,
+            stale_reason="no projection",
+        )
+    stale = False
+    stale_reason = None
+    sla = project.fs_freshness_sla_seconds
+    if sla is not None and row.pushed_at is not None:
+        pushed = row.pushed_at
+        if pushed.tzinfo is None:
+            pushed = pushed.replace(tzinfo=timezone.utc)
+        if now - pushed > timedelta(seconds=sla):
+            stale = True
+            stale_reason = "freshness_sla_exceeded"
+    return ContentSourceMeta(
+        content_source="fs-projection",
+        source_revision=str(row.revision),
+        source_content_hash=row.content_hash,
+        source_updated_at=row.pushed_at,
+        stale=stale,
+        stale_reason=stale_reason,
+    )
+
+
 def fs_plane_status(db: Session, project: Project) -> FsPlaneStatusRead:
     """部署矩阵探测握手：local-fs / projection-cache / detached 三态。"""
     workspace = Path(project.workspace_path)
     workspace_exists = workspace.is_dir()
     content_root_exists = workspace_fs_available(project)
     row = get_fs_projection(db, project)
+    source = content_source_meta(db, project)
     if content_root_exists:
         mode = "local-fs"
         hint = ""
     elif row is not None:
         mode = "projection-cache"
         hint = (
-            "workspace 不可达，读路径回退到 map fs push 的投影缓存；"
-            "验证型写走 validate → 本地写回 → commit。写文件后建议重新 push。"
+            "workspace 不可达，读路径回退到 map fs sync 的投影缓存；"
+            "验证型写走 validate → 本地写回 → commit。写文件后 CLI 会自动增量同步。"
         )
     else:
         mode = "detached"
         hint = (
             "server 看不到 workspace（远程/容器部署），FS plane 对 server 不可见："
-            "map/ 话题不会出现在列表与 work 待办中。修复：1) 同机运行 server；"
-            "2) docker compose -f docker-compose.yml -f docker-compose.fs.yml 挂载 "
-            "workspace；3) 远程部署执行 `map fs push` 上行投影缓存。"
+            "map/ 话题不会出现在列表与 work 待办中。修复：执行 `map fs sync` "
+            "（或兼容别名 `map fs push`）上行投影缓存。"
         )
     return FsPlaneStatusRead(
         workspace_path=project.workspace_path,
-        content_root=content_root_name(),
+        content_root=content_root_name(project),
         workspace_exists=workspace_exists,
         content_root_exists=content_root_exists,
         mode=mode,
@@ -163,6 +235,7 @@ def fs_plane_status(db: Session, project: Project) -> FsPlaneStatusRead:
         publisher_agent_id=row.publisher_agent_id if row is not None else None,
         consistency_model=("single-publisher-eventual" if row is not None else None),
         hint=hint,
+        source=source,
     )
 
 
@@ -474,10 +547,8 @@ def upsert_fs_projection(
     db: Session, project: Project, agent: Agent, payload: FsProjectionPushRequest
 ) -> FsProjectionMetaRead:
     _ensure_projection_publisher_allowed(agent, project)
-    if len(payload.topics) > _PROJECTION_MAX_TOPICS:
-        raise FsProjectionTooLargeError(
-            f"projection too large: {len(payload.topics)} topics (max {_PROJECTION_MAX_TOPICS})"
-        )
+    _ensure_content_root_matches(project, payload.content_root)
+    _payload_size_ok(payload.topics, payload.experiments)
     computed_hash = fs_projection_content_hash(payload.topics, payload.experiments)
     if payload.content_hash is not None and payload.content_hash != computed_hash:
         raise ConflictError(
@@ -566,7 +637,7 @@ def upsert_fs_projection(
     return _projection_meta(row)
 
 
-def _projection_meta(row: FsProjection) -> FsProjectionMetaRead:
+def _projection_meta(row: FsProjection, *, project: Project | None = None) -> FsProjectionMetaRead:
     payload = row.payload_json or {}
     return FsProjectionMetaRead(
         pushed_at=row.pushed_at,
@@ -578,12 +649,231 @@ def _projection_meta(row: FsProjection) -> FsProjectionMetaRead:
         experiment_count=len(payload.get("experiments", [])),
         projection_revision=row.revision,
         content_hash=row.content_hash,
+        content_root=content_root_name(project) if project is not None else payload.get("content_root"),
     )
 
 
 def projection_meta(db: Session, project: Project) -> FsProjectionMetaRead | None:
     row = get_fs_projection(db, project)
-    return _projection_meta(row) if row is not None else None
+    return _projection_meta(row, project=project) if row is not None else None
+
+
+def projection_inventory(db: Session, project: Project) -> FsProjectionInventoryRead | None:
+    row = get_fs_projection(db, project)
+    if row is None:
+        return None
+    topics = projection_payload_topics(row)
+    experiments = projection_payload_experiments(row)
+    objects = [
+        FsProjectionObjectHash(
+            kind="topic", slug=topic.slug, content_hash=fs_topic_content_hash(topic)
+        )
+        for topic in topics
+    ]
+    objects.extend(
+        FsProjectionObjectHash(
+            kind="experiment",
+            slug=experiment.slug,
+            content_hash=fs_experiment_content_hash(experiment),
+        )
+        for experiment in experiments
+    )
+    objects.sort(key=lambda item: (item.kind, item.slug))
+    return FsProjectionInventoryRead(
+        projection_revision=row.revision,
+        content_hash=row.content_hash or fs_projection_content_hash(topics, experiments),
+        content_root=content_root_name(project),
+        publisher_agent_id=row.publisher_agent_id,
+        pushed_at=row.pushed_at,
+        objects=objects,
+        source=content_source_meta(db, project),
+    )
+
+
+def _object_payload_bytes(item: FsTopicDetailRead | FsExperimentRead) -> int:
+    return len(item.model_dump_json().encode("utf-8"))
+
+
+def _payload_size_ok(topics: list[FsTopicDetailRead], experiments: list[FsExperimentRead]) -> None:
+    if len(topics) > _PROJECTION_MAX_TOPICS:
+        raise FsProjectionTooLargeError(
+            f"projection too large: {len(topics)} topics (max {_PROJECTION_MAX_TOPICS})"
+        )
+    if len(experiments) > _PROJECTION_MAX_TOPICS:
+        raise FsProjectionTooLargeError(
+            f"projection too large: {len(experiments)} experiments (max {_PROJECTION_MAX_TOPICS})"
+        )
+    for topic in topics:
+        size = _object_payload_bytes(topic)
+        if size > _PROJECTION_MAX_OBJECT_BYTES:
+            raise FsProjectionTooLargeError(
+                f"topic {topic.slug!r} exceeds {_PROJECTION_MAX_OBJECT_BYTES} bytes"
+            )
+    for experiment in experiments:
+        size = _object_payload_bytes(experiment)
+        if size > _PROJECTION_MAX_OBJECT_BYTES:
+            raise FsProjectionTooLargeError(
+                f"experiment {experiment.slug!r} exceeds {_PROJECTION_MAX_OBJECT_BYTES} bytes"
+            )
+    body = {
+        "topics": [t.model_dump(mode="json") for t in topics],
+        "experiments": [e.model_dump(mode="json") for e in experiments],
+    }
+    if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > _PROJECTION_MAX_BYTES:
+        raise FsProjectionTooLargeError(
+            f"projection too large: payload exceeds {_PROJECTION_MAX_BYTES} bytes"
+        )
+
+
+def apply_fs_projection_delta(
+    db: Session,
+    project: Project,
+    agent: Agent,
+    payload: FsProjectionDeltaRequest,
+) -> FsProjectionDeltaResult:
+    _ensure_projection_publisher_allowed(agent, project)
+    _ensure_content_root_matches(project, payload.content_root)
+    row = get_fs_projection(db, project)
+    if row is None:
+        raise ConflictError(
+            "no projection exists; run a full map fs sync / push to bootstrap",
+            error="fs_projection_missing",
+        )
+    if agent.id != row.publisher_agent_id and agent.role != AgentRole.admin:
+        raise ConflictError(
+            "FS projection is bound to another single publisher; use that publisher "
+            "or an admin recovery path",
+            error="fs_projection_conflict",
+        )
+    topics = {item.slug: item for item in projection_payload_topics(row)}
+    experiments = {item.slug: item for item in projection_payload_experiments(row)}
+    tombstones = 0
+    applied = 0
+    for change in payload.changes:
+        kind = change.kind
+        slug = change.slug
+        if kind == "topic_upsert":
+            if not isinstance(change.value, FsTopicDetailRead):
+                raise ConflictError(
+                    f"topic_upsert {slug!r} requires a topic value",
+                    error="fs_projection_delta_invalid",
+                )
+            topics[slug] = change.value
+            applied += 1
+        elif kind == "topic_delete":
+            existing = topics.get(slug)
+            if existing is None:
+                raise ConflictError(
+                    f"topic_delete {slug!r} does not exist on the current projection",
+                    error="fs_projection_delta_invalid",
+                )
+            if not change.expected_hash:
+                raise ConflictError(
+                    f"topic_delete {slug!r} requires expected_hash",
+                    error="fs_projection_delta_invalid",
+                )
+            current_hash = fs_topic_content_hash(existing)
+            if change.expected_hash != current_hash:
+                raise ConflictError(
+                    f"topic_delete {slug!r} hash mismatch",
+                    error="fs_projection_delta_invalid",
+                )
+            del topics[slug]
+            tombstones += 1
+            applied += 1
+        elif kind == "experiment_upsert":
+            if not isinstance(change.value, FsExperimentRead):
+                raise ConflictError(
+                    f"experiment_upsert {slug!r} requires an experiment value",
+                    error="fs_projection_delta_invalid",
+                )
+            experiments[slug] = change.value
+            applied += 1
+        elif kind == "experiment_delete":
+            existing = experiments.get(slug)
+            if existing is None:
+                raise ConflictError(
+                    f"experiment_delete {slug!r} does not exist on the current projection",
+                    error="fs_projection_delta_invalid",
+                )
+            if not change.expected_hash:
+                raise ConflictError(
+                    f"experiment_delete {slug!r} requires expected_hash",
+                    error="fs_projection_delta_invalid",
+                )
+            current_hash = fs_experiment_content_hash(existing)
+            if change.expected_hash != current_hash:
+                raise ConflictError(
+                    f"experiment_delete {slug!r} hash mismatch",
+                    error="fs_projection_delta_invalid",
+                )
+            del experiments[slug]
+            tombstones += 1
+            applied += 1
+        else:
+            raise ConflictError(
+                f"unknown delta change kind: {kind}",
+                error="fs_projection_delta_invalid",
+            )
+
+    topic_list = list(topics.values())
+    experiment_list = list(experiments.values())
+    _payload_size_ok(topic_list, experiment_list)
+    result_hash = fs_projection_content_hash(topic_list, experiment_list)
+    if result_hash != payload.result_content_hash:
+        raise ConflictError(
+            "result_content_hash does not match the reconstructed snapshot",
+            error="fs_projection_hash_mismatch",
+        )
+    if not payload.changes or result_hash == row.content_hash:
+        meta = _projection_meta(row, project=project)
+        return FsProjectionDeltaResult(**meta.model_dump(), applied_changes=0, tombstones=0, noop=True)
+    if payload.base_revision != row.revision:
+        raise ConflictError(
+            f"projection revision conflict: expected {row.revision}, "
+            f"got {payload.base_revision}; pull status/diff before retrying",
+            error="fs_projection_conflict",
+        )
+    body = {
+        "client_workspace": payload.client_workspace,
+        "content_root": content_root_name(project),
+        "topics": [item.model_dump(mode="json") for item in topic_list],
+        "experiments": [item.model_dump(mode="json") for item in experiment_list],
+        "content_hash": result_hash,
+    }
+    pushed_at = datetime.now(timezone.utc)
+    result = db.execute(
+        update(FsProjection)
+        .where(
+            FsProjection.id == row.id,
+            FsProjection.revision == payload.base_revision,
+        )
+        .values(
+            pushed_by_agent_id=agent.id,
+            client_workspace=payload.client_workspace,
+            payload_json=body,
+            content_hash=result_hash,
+            revision=payload.base_revision + 1,
+            pushed_at=pushed_at,
+        )
+    )
+    if result.rowcount != 1:
+        db.expire(row)
+        db.refresh(row)
+        raise ConflictError(
+            f"projection revision conflict: expected {row.revision}; "
+            "another writer committed first",
+            error="fs_projection_conflict",
+        )
+    db.expire(row)
+    db.refresh(row)
+    meta = _projection_meta(row, project=project)
+    return FsProjectionDeltaResult(
+        **meta.model_dump(),
+        applied_changes=applied,
+        tombstones=tombstones,
+        noop=False,
+    )
 
 
 def apply_fields_to_projection(
@@ -814,6 +1104,7 @@ def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRe
                 close_reason=None,
                 close_note=None,
                 content_source=("fs-local" if projection is None else "fs-projection"),
+                source=content_source_meta(db, project),
             )
         )
     return results
@@ -856,6 +1147,7 @@ def fs_topic_as_detail(db: Session, project: Project, view: _TopicView) -> Topic
         close_reason=None,
         close_note=None,
         content_source=("fs-local" if projection is None else "fs-projection"),
+        source=content_source_meta(db, project),
     )
     comments = [
         TopicCommentTreeNode(
@@ -1062,7 +1354,7 @@ def advance_fs_round(
     )
     _ = view
     update_topic_index(
-        Path(project.workspace_path), slug, content_root=content_root_name(), **fields
+        Path(project.workspace_path), slug, content_root=content_root_name(project), **fields
     )
     refreshed = _view_from_fs_topic(fs_topic_or_raise(project, slug))
     return fs_topic_summary(refreshed)
@@ -1094,7 +1386,7 @@ def close_fs_topic(
     update_topic_index(
         Path(project.workspace_path),
         slug,
-        content_root=content_root_name(),
+        content_root=content_root_name(project),
         **fields,
     )
     return fs_topic_summary(_view_from_fs_topic(fs_topic_or_raise(project, slug)))
@@ -1123,7 +1415,9 @@ __all__ = [
     "advance_fs_round",
     "apply_fields_to_projection",
     "close_fs_topic",
+    "apply_fs_projection_delta",
     "content_root_name",
+    "content_source_meta",
     "find_fs_topic_by_id",
     "fs_experiment_read",
     "fs_experiments_view",
@@ -1137,6 +1431,7 @@ __all__ = [
     "persona_short_name",
     "plane_for_project",
     "plane_views",
+    "projection_inventory",
     "projection_meta",
     "projection_payload_topics",
     "projection_revision_for_write",

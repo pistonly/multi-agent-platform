@@ -49,6 +49,10 @@ class Project(Base):
     project_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     workspace_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    content_root: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="map", server_default="map"
+    )
+    fs_freshness_sla_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_status_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -9,11 +9,10 @@
 | 形态 | 判定 | 读路径（列表/work/Web） | 验证型写（advance/close） |
 |------|------|------------------------|---------------------------|
 | **同机部署** | `mode=local-fs`（server 直接读 workspace） | 实时解析 `map/` | validate → 本地写回 → commit（CLI 默认；server 写回端点保留给 Web UI） |
-| **Docker 同路径挂载** | `mode=local-fs`（用 `docker-compose.fs.yml`） | 同上 | 同上 |
-| **远程 / 容器（单发布者缓存）** | `mode=projection-cache`（有 `map fs push` 缓存） | 回退投影缓存；Web 只读 | CLI 先 CAS push → server 以可信投影校验 → 本地写回 → 一次性 commit |
+| **远程 / 容器（单发布者缓存）** | `mode=projection-cache`（有 `map fs sync` 缓存） | 回退投影缓存；Web 只读，展示 revision / stale | CLI 增量 CAS sync → server 以可信投影校验 → 本地写回 → 一次性 commit |
 | **detached（既不可达又无投影）** | `mode=detached` | FS 话题对 server 不可见（显式警告，非静默） | validate 直接 409 + 修复指引 |
 
-远程投影是 **trusted single publisher + eventual consistency** 兼容层，不支持多个 clone 各自全量覆盖。首次成功 push 会绑定发布者；后续按 `projection_revision` CAS，旧 clone 返回 409。只有 project host、admin 或显式 `*-sync` agent 可以 push。`map topic advance-round/close` 会自动先 CAS push；普通文件写入后仍执行 `map fs push` 刷新 waker/Web。
+远程投影是 **trusted single publisher + eventual consistency** 兼容层，不支持多个 clone 各自全量覆盖。首次成功 sync 会绑定发布者；后续按 `projection_revision` CAS，旧 clone 返回 409。只有 project host、admin 或显式 `*-sync` agent 可以发布。`map topic create/comment` 在远程模式下默认自动 `map fs sync`（`--no-sync` 可关）；失败时本地文件保留，命令提示 `map fs diff` / `map fs sync`。删除远端对象必须显式 tombstone（`--yes`）。`map fs push` 是 `map fs sync --full` 的兼容别名。不要把 `docker-compose.fs.yml` 挂载当作推荐安装路径。
 
 ## FS 事实源（推荐，新范式）
 
@@ -21,17 +20,17 @@
 
 | 动作 | 命令 | 说明 |
 |------|------|------|
-| 创建话题 | `map topic create --slug <name> --title "..."` | 纯写文件（index.md），不调 API |
-| 发言 | `map topic comment --id <slug> --file ./opinion.md` | 写 `map/topics/<slug>/round<N>-<persona>.md`，不调 API |
+| 创建话题 | `map topic create --slug <name> --title "..."` | 写 index.md；远程模式下默认自动 sync |
+| 发言 | `map topic comment --id <slug> --file ./opinion.md` | 写 round 文件；远程模式下默认自动 sync（`--no-sync` 可关） |
 | 查看 | `map topic list` / `map topic show --id <slug>` | list 合并本地 map/ + API 存量；show 优先读本地文件夹 |
 | 我的待办 | `map work`（离线可用 `map fs work --persona <name>`） | 文件存在性推导（无我的文件 = pending） |
 | 推进轮次 | `map topic advance-round --id <slug>` | 验证型写：API 校验 host + ack 后由 CLI 写回 index.md（commit 审计） |
 | 关闭话题 | `map topic close --id <slug> --reason ...` | 同上 |
-| 投影上行 | `map fs push` | 远程部署：单发布者按 revision CAS 推送；冲突返回 409，不做 last-writer-wins |
-| 可达性握手 | `map fs status` | 本地 plane 概览 + server 三态（local-fs / projection-cache / detached） |
+| 投影同步 | `map fs sync` / `map fs diff` / `map fs status` | 远程部署：增量 CAS + 显式 tombstone；`push` 为 `--full` 兼容别名 |
+| 可达性握手 | `map fs status` | 本地 hash + server revision/publisher + in-sync/local-ahead/divergent/detached/stale |
 
 - 实验：`map/experiments/<slug>/{plan,log,review}.md`（迁移命令 `map fs migrate-from-docs`）
-- 内容根目录由 `.map/config.yaml` 的 `content_root` 配置（默认 `map`）
+- 内容根目录由项目级 `content_root`（bootstrap 写入 `.map/config.yaml`，默认 `map`）决定；CLI 本地扫描读 `.map/config.yaml`，服务端扫描读 Project 行，二者必须一致，否则 `map fs sync` 返回 409。
 - FS 话题的 topic_id 为 uuid5 派生，可直接用于 `map topic --id`（slug 或 uuid5）
 
 ## 文件引用模式（存量 DB 话题/实验）

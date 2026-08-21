@@ -40,6 +40,9 @@ from map_types import (
     FsCloseRequest,
     FsExperimentRead,
     FsPlaneStatusRead,
+    FsProjectionDeltaRequest,
+    FsProjectionDeltaResult,
+    FsProjectionInventoryRead,
     FsProjectionMetaRead,
     FsProjectionPushRequest,
     FsTopicDetailRead,
@@ -304,12 +307,16 @@ class MAPClient:
         name: str,
         workspace_path: str,
         description: str | None = None,
+        content_root: str = "map",
+        fs_freshness_sla_seconds: int | None = None,
     ) -> ProjectRead:
         payload = ProjectCreate(
             project_key=project_key,
             name=name,
             workspace_path=workspace_path,
             description=description,
+            content_root=content_root,
+            fs_freshness_sla_seconds=fs_freshness_sla_seconds,
         )
         data = self._json("POST", "/projects", json=payload.model_dump())
         return ProjectRead.model_validate(data)
@@ -835,6 +842,26 @@ class MAPClient:
             "PUT", f"/projects/{project_id}/fs/projection", json=payload.model_dump(mode="json")
         )
         return FsProjectionMetaRead.model_validate(data)
+
+    def fs_projection_inventory(
+        self, project_id: uuid.UUID
+    ) -> FsProjectionInventoryRead | None:
+        data = self._json("GET", f"/projects/{project_id}/fs/projection/inventory")
+        if data is None:
+            return None
+        return FsProjectionInventoryRead.model_validate(data)
+
+    def fs_apply_projection_delta(
+        self,
+        project_id: uuid.UUID,
+        payload: FsProjectionDeltaRequest,
+    ) -> FsProjectionDeltaResult:
+        data = self._json(
+            "POST",
+            f"/projects/{project_id}/fs/projection/delta",
+            json=payload.model_dump(mode="json"),
+        )
+        return FsProjectionDeltaResult.model_validate(data)
 
     def list_topics(
         self,

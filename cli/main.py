@@ -1115,46 +1115,9 @@ def _load_topic_resolve_payload(path: Path) -> TopicResolve:
 
 
 def _warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
-    """bootstrap 后的 FS plane 握手：server 看不到 workspace 时显式警告。
+    from cli.fs_projection import warn_fs_plane_detached
 
-    部署矩阵显式化的一部分——旧实现里远程/容器部署的 FS 事实源会"静默
-    消失"（列表空、advance 404、waker 空转），现在在接入时就点破并给出
-    修复指引。老版本 server 无 /fs/status 端点时静默跳过（404 不报错）。
-    """
-    if not config.project_id:
-        return
-    try:
-        client = config.client_for(config.default_persona, transport=transport)
-    except ValueError:
-        return  # 无可用 persona token（全部 skip）：不阻塞 bootstrap
-    try:
-        status = client.fs_plane_status(uuid.UUID(str(config.project_id)))
-    except Exception:
-        return  # 老版本 server（无 /fs/status）或网络抖动：best-effort
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
-    if status.mode == "local-fs":
-        typer.echo(
-            f"FS plane: server 可直接读取 workspace（mode=local-fs, "
-            f"content_root={status.content_root}）"
-        )
-        return
-    typer.echo(
-        f"WARNING: FS plane mode={status.mode} —— server 看不到本机 workspace "
-        f"({status.workspace_path})。map/ 文件夹话题不会出现在 server 的列表与"
-        " work 待办中，验证型写需走 validate → 本地写回 → commit。",
-        err=True,
-    )
-    if status.hint:
-        typer.echo(f"  hint: {status.hint}", err=True)
-    typer.echo(
-        "  修复: 1) 同机运行 server；2) docker compose -f docker-compose.yml "
-        "-f docker-compose.fs.yml 挂载 workspace；3) 远程部署执行 `map fs push`。",
-        err=True,
-    )
+    warn_fs_plane_detached(config, transport=transport)
 
 
 @app.command("bootstrap")

@@ -244,16 +244,11 @@ docker compose up --build
 
 `map/` 文件夹事实源默认要求 server 与仓库**同文件系统**。容器 / 远程部署时 `map bootstrap` 会在末尾自动探测并给出三态判定（`map fs status` 随时复查）：
 
-- **`local-fs`**：server 直接读 workspace，全链路可用。
-- **`projection-cache`**：workspace 不可达，但已由 host/admin/`*-sync` 执行 `map fs push`。这是带 revision CAS 的**单发布者、最终一致**缓存：旧 clone/其他发布者不能全量覆盖；列表、`map work`、Web 回退到投影，Web 对远程 FS 明确只读。验证型写由 CLI 自动先 CAS push，再 validate → 本地写回 → 一次性 commit（token 绑定 actor/revision/nonce）。
-- **`detached`**：两者皆无——FS 话题对 server 不可见（显式警告，不再静默空列表）。
+- **`local-fs`**：server 直接读 workspace，全链路可用（同机 `map-server`）。
+- **`projection-cache`**：workspace 不可达，但已由 host/admin/`*-sync` 执行 `map fs sync`（兼容别名 `map fs push`）。这是带 revision CAS 的**单发布者、最终一致**缓存：旧 clone/其他发布者不能覆盖；列表、`map work`、Web 回退到投影并展示 revision / stale。`map topic comment/create` 默认自动增量同步。
+- **`detached`**：两者皆无——FS 话题对 server 不可见（bootstrap 会尝试自动 sync；失败则显式警告）。
 
-Docker 单机想让 server 直接看到 workspace 时，用同绝对路径挂载（过渡方案；注意 macOS bind mount 性能与容器写文件的属主问题）：
-
-```bash
-export MAP_WORKSPACE_PATH=/absolute/path/to/this/repo
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.fs.yml up
-```
+Docker / 远程的推荐路径是 **projection-cache + 写后自动 sync**，不要把 `docker-compose.fs.yml` 同路径挂载当作默认安装方式。
 
 详见 [架构文档 §4.1 部署矩阵](docs/ARCHITECTURE.md#41-部署矩阵server-能否看到-workspace)。
 

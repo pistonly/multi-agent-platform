@@ -100,6 +100,7 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("fs", "migrate-from-docs"),
     # 部署矩阵握手：只读（本地扫描 + GET /fs/status）。
     ("fs", "status"),
+    ("fs", "diff"),
     ("sync", "pull"),
     ("sync", "status"),
     ("sync", "topic"),

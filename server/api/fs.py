@@ -17,6 +17,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from map_types.schemas.fs import (
     FsPlaneStatusRead,
+    FsProjectionDeltaRequest,
+    FsProjectionDeltaResult,
+    FsProjectionInventoryRead,
     FsProjectionMetaRead,
     FsProjectionPushRequest,
     FsWriteCommitRequest,
@@ -110,7 +113,7 @@ def push_fs_projection(
     except ConflictError as err:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            {"error": "fs_projection_conflict", "detail": str(err)},
+            {"error": err.error or "fs_projection_conflict", "detail": str(err)},
         ) from err
     emit(
         db,
@@ -121,11 +124,77 @@ def push_fs_projection(
         project_id=project.id,
         summary=(
             f"[fs] 投影上行：{meta.topic_count} topic(s), "
-            f"{meta.experiment_count} experiment(s)"
+            f"{meta.experiment_count} experiment(s) rev={meta.projection_revision}"
         ),
+        audit_payload={
+            "projection_revision": meta.projection_revision,
+            "content_hash": meta.content_hash,
+            "topic_count": meta.topic_count,
+            "experiment_count": meta.experiment_count,
+        },
         notify=False,
     )
     return meta
+
+
+@fs_router.get(
+    "/projects/{project_id}/fs/projection/inventory",
+    response_model=FsProjectionInventoryRead | None,
+)
+def get_fs_projection_inventory(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsProjectionInventoryRead | None:
+    project = _project(db, agent, project_id)
+    return fs_svc.projection_inventory(db, project)
+
+
+@fs_router.post(
+    "/projects/{project_id}/fs/projection/delta",
+    response_model=FsProjectionDeltaResult,
+)
+def apply_fs_projection_delta(
+    project_id: uuid.UUID,
+    payload: FsProjectionDeltaRequest,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsProjectionDeltaResult:
+    project = _project(db, agent, project_id)
+    try:
+        result = fs_svc.apply_fs_projection_delta(db, project, agent, payload)
+    except fs_svc.FsProjectionTooLargeError as err:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(err)) from err
+    except ForbiddenError as err:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(err)) from err
+    except ConflictError as err:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": err.error or "fs_projection_conflict", "detail": str(err)},
+        ) from err
+    emit(
+        db,
+        agent,
+        action="fs.projection_delta",
+        target_type="project",
+        target_id=project.id,
+        project_id=project.id,
+        summary=(
+            f"[fs] 投影增量：rev {payload.base_revision}->{result.projection_revision} "
+            f"changes={result.applied_changes} tombstones={result.tombstones} "
+            f"noop={result.noop}"
+        ),
+        audit_payload={
+            "base_revision": payload.base_revision,
+            "new_revision": result.projection_revision,
+            "applied_changes": result.applied_changes,
+            "tombstones": result.tombstones,
+            "result_hash": result.content_hash,
+            "noop": result.noop,
+        },
+        notify=False,
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +294,7 @@ def _validate_error_http(exc: Exception) -> HTTPException:
             status.HTTP_409_CONFLICT,
             {"error": "round_ack_pending", "missing": exc.missing},
         )
-    if isinstance(exc, (fs_svc.FsStateError, ConflictError)):
+    if isinstance(exc, fs_svc.FsStateError | ConflictError):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     if isinstance(exc, ForbiddenError):
         return HTTPException(status.HTTP_403_FORBIDDEN, str(exc))

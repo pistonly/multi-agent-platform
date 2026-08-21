@@ -3,7 +3,14 @@ class NotFoundError(Exception):
 
 
 class ConflictError(Exception):
-    pass
+    """Domain conflict (HTTP 409). Optional ``error`` is a stable machine code."""
+
+    error: str | None = None
+
+    def __init__(self, message: str, *, error: str | None = None) -> None:
+        super().__init__(message)
+        if error is not None:
+            self.error = error
 
 
 class BadRequestError(Exception):

@@ -49,6 +49,8 @@ def bootstrap(
         project_name=payload.project_name,
         workspace_path=payload.workspace_path,
         description=payload.description,
+        content_root=payload.content_root,
+        fs_freshness_sla_seconds=payload.fs_freshness_sla_seconds,
     )
     return BootstrapResponse(
         project=ProjectRead.model_validate(project),

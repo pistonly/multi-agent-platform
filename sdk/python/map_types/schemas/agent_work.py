@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from .agent import AgentRead
+from .content_source import ContentSourceMeta
 from .notification import NotificationListRead
 from .todo import TodoRead
 from .topic_progress import TopicProgressListRead
@@ -19,6 +20,7 @@ class AgentWorkRead(BaseModel):
     topic_progress: TopicProgressListRead
     todos: TodoRead
     notifications: NotificationListRead
+    source: ContentSourceMeta | None = None
 
 
 BucketVisibility = Literal["all", "host_only", "reviewer_only", "participant_only"]

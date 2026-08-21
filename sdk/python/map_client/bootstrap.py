@@ -89,6 +89,7 @@ def _public_bootstrap(
     project_name: str,
     workspace_path: str,
     description: str | None,
+    content_root: str = "map",
     transport: Any = None,
 ) -> BootstrapResponse | None:
     """Try the self-service ``POST /api/v1/bootstrap`` endpoint (no admin token).
@@ -103,6 +104,7 @@ def _public_bootstrap(
         "project_key": project_key,
         "project_name": project_name,
         "workspace_path": workspace_path,
+        "content_root": content_root,
     }
     if description is not None:
         body["description"] = description
@@ -349,6 +351,7 @@ def _finalize_from_public_bootstrap(
         "project_key": project_key,
         "project_id": project_id,
         "default_persona": "host",
+        "content_root": resp.project.content_root or "map",
     }
     _write_yaml(map_dir / CONFIG_FILE, config_yaml)
     _write_yaml(map_dir / AGENTS_FILE, agents_yaml)
@@ -407,6 +410,7 @@ def bootstrap_project_map(
         project_name=project_name,
         workspace_path=str(workspace_path),
         description=description,
+        content_root="map",
         transport=transport,
     )
     if public_resp is not None:
@@ -427,6 +431,7 @@ def bootstrap_project_map(
             name=project_name,
             workspace_path=str(workspace_path),
             description=description,
+            content_root="map",
         )
         project_id = str(project.id)
         created_project = True
@@ -473,6 +478,7 @@ def bootstrap_project_map(
         "project_key": project_key,
         "project_id": project_id,
         "default_persona": "host",
+        "content_root": "map",
     }
 
     _write_yaml(map_dir / CONFIG_FILE, config_yaml)
