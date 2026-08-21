@@ -18,7 +18,7 @@ pip install multi-agent-platform
 pip install multi-agent-platform-server
 ```
 
-安装后即可使用 `map` CLI；安装 server 包后还可使用 `map-server` 命令。详见 [Quick Start 指南](docs/QUICKSTART.md)。
+安装后即可使用 `map` CLI；安装 server 包后还可使用 `map-server` 命令（**API 与看板同源**，浏览器打开 `http://localhost:8000/`，本仓常用 `8001`）。详见 [Quick Start 指南](docs/QUICKSTART.md)。
 
 **新用户？** 一键启动：`./scripts/quickstart.sh`，或阅读 [Quick Start 指南](docs/QUICKSTART.md)。
 
@@ -110,9 +110,10 @@ pip install -e ".[dev]"
 # 运行数据库迁移（需要 server 依赖）
 alembic upgrade head
 
-# 启动 API 服务
+# 启动 API + 看板（同源：http://localhost:8001/ ，端口见 MAP_PORT / 本仓 override）
 map-server
 # 或: uvicorn server.main:app --reload
+# 看板无需 clone web/ 或 npm；源码开发热更新仍可用：cd web && npm run dev
 
 # 注册首个 Admin（仅当系统中尚无 Agent 时可匿名调用）
 curl -X POST "http://localhost:8001/api/v1/agents?name=ops-admin&role=admin"
@@ -170,9 +171,9 @@ map --persona participant mention dismiss-all
 map --persona host host invoke --persona participant --prompt "请参与话题 <topic-id> 的讨论"
 map --persona host host invoke --persona reviewer --prompt-file ./review-task.md --json
 
-# Web UI（React + Vite）
-cd web && npm install && npm run dev   # http://localhost:5173
-# 开发模式通过 Vite 代理访问 API；先在设置页填入 API Token
+# Web UI：map-server 已同源提供看板（打开 API 根路径，设置页填 Token）
+# 前端热更新（贡献者）：cd web && npm install && npm run dev   # http://localhost:5173
+# 把构建产物打进 Python 包（发 PyPI / 本机 map-server 看板）：./scripts/sync-web-dist.sh
 ```
 
 实验计划可在验收列表项行首标记类型，例如

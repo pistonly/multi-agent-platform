@@ -1,3 +1,14 @@
+# syntax=docker/dockerfile:1
+FROM node:20-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci
+COPY web/ ./
+# Empty VITE_API_URL → browser calls same-origin /api/v1 (map-server or nginx).
+ARG VITE_API_URL=
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
+
 FROM python:3.12-slim
 WORKDIR /app
 
@@ -12,6 +23,8 @@ COPY cli ./cli
 COPY sdk ./sdk
 COPY alembic ./alembic
 COPY alembic.ini ./
+COPY MANIFEST.in ./
+COPY --from=web /web/dist ./server/web_dist
 
 # Install local package only (deps already present)
 RUN pip install --no-cache-dir --no-deps -i https://mirrors.aliyun.com/pypi/simple --timeout 120 --retries 5 .

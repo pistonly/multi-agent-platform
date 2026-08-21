@@ -105,8 +105,8 @@ comment 的 FS 分支为纯本地写（本地优先路由，离线可用）；sh
 
 ## 7. 部署拓扑
 
-- **API**：`http://localhost:8001`（Uvicorn；Docker compose 默认）
-- **Web**：`http://localhost:3000`（React；经 API 代理读本地 MD，UI 无文件系统访问）
+- **API + 看板**：`http://localhost:8001`（Uvicorn；`map-server` 同源提供 SPA。Docker compose 另有 nginx 看板 `:3000`）
+- **Web（Docker nginx）**：`http://localhost:3000`（与 API 同源看板等价；Vite 开发仍为 `:5173`）
 - **waker**：`./scripts/start-all-wakers.sh`；状态 `.map/simple-waker-state-*.json`、日志 `.map/waker-logs/`、session 转录 `.map/runtime-waker-sessions/`
-- **PyPI**：`multi-agent-platform`（CLI + SDK；Web UI 与 Alembic 迁移需 Docker 或 clone 仓库）
+- **PyPI**：`multi-agent-platform`（CLI + SDK）；`multi-agent-platform-server` / `map-server` 内含看板静态资源。Alembic 完整迁移链仍建议 Docker 或 clone 仓库。
 - **FS plane 三态**（见 §4.1）：`map fs status` / `GET /fs/status` 握手。Docker 单机需要 server 看到 workspace 时叠加 `docker-compose.fs.yml`（宿主与容器同绝对路径挂载）；远程部署走 `map fs push` 投影上行 + validate/commit 两段式验证型写。`map bootstrap` 末尾自动探测并在 detached 时给出修复指引。

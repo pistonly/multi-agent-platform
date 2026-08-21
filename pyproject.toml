@@ -88,6 +88,9 @@ include = ["server*", "cli*", "map_client*", "map_fs*", "map_mcp*", "map_sdk*", 
 
 [tool.setuptools.package-data]
 "cli.skills" = ["**/*.md", "**/*.sh", "**/*.yaml"]
+# Bundled React SPA (scripts/sync-web-dist.sh → server/web_dist). Required
+# in the wheel so `map-server` can serve the board without a git clone.
+"server" = ["web_dist/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

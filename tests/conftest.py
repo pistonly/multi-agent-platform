@@ -364,7 +364,10 @@ def client(db_session):
     # ``init_db_on_startup=False`` 跳过 lifespan 中的 ``init_db()`` 调用，
     # 改由 ``engine`` fixture 在会话级 ``Base.metadata.create_all`` 完成；
     # 之前对 ``server.main.init_db`` 的 monkey-patch 不再需要。
-    app = create_app(init_db_on_startup=False)
+    # serve_web=False keeps the default TestClient hermetic: a local
+    # scripts/sync-web-dist.sh checkout must not rewrite unknown GET
+    # paths to index.html during API tests.
+    app = create_app(init_db_on_startup=False, serve_web=False)
 
     def override_get_db():
         try:

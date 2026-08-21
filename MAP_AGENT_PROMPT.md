@@ -42,7 +42,7 @@ pip install multi-agent-platform
 ```bash
 pip install multi-agent-platform-server
 alembic upgrade head                   # 初始化数据库
-map-server                             # 启动 API（本仓 Docker 部署对外为 http://localhost:8001；可用 MAP_API_URL 覆盖）
+map-server                             # API + 看板同源（本仓 Docker 部署对外为 http://localhost:8001/）
 ```
 
 安装后验证：

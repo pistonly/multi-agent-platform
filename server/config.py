@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # 否则跨进程签发的 commit token 无法验证。
     fs_write_token_secret: str | None = None
 
+    # Serve the bundled React SPA from map-server (same origin as /api).
+    # Disable with MAP_SERVE_WEB=false when another process (Vite / nginx)
+    # already serves the board. MAP_WEB_DIST overrides the packaged
+    # server/web_dist directory.
+    serve_web: bool = True
+    web_dist: str | None = None
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

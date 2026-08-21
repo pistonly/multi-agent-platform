@@ -68,6 +68,11 @@ node_modules/
 web/dist/
 *.tsbuildinfo
 
+# Bundled SPA copied by scripts/sync-web-dist.sh (hashed Vite assets).
+# The directory placeholder is tracked; the build output is not.
+server/web_dist/**
+!server/web_dist/.gitkeep
+
 # Demo project generated output
 test_project/output/
 
