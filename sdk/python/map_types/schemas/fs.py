@@ -12,7 +12,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .content_source import ContentSourceMeta
+from .project import normalize_content_root
 
 
 class FsCommentRead(BaseModel):
@@ -127,6 +130,7 @@ class FsPlaneStatusRead(BaseModel):
     publisher_agent_id: uuid.UUID | None = None
     consistency_model: str | None = None
     hint: str = ""
+    source: ContentSourceMeta | None = None
 
 
 class FsWriteVerdictRead(BaseModel):
@@ -175,6 +179,10 @@ class FsProjectionPushRequest(BaseModel):
     """
 
     client_workspace: str = Field(description="推送端本地 workspace 绝对路径（审计用）")
+    content_root: str | None = Field(
+        default=None,
+        description="Must match Project.content_root when set; omitted keeps P0 clients working",
+    )
     base_revision: int | None = Field(
         default=None,
         ge=1,
@@ -192,6 +200,13 @@ class FsProjectionPushRequest(BaseModel):
         default=None, description="缺省由 server 盖当前时间戳"
     )
 
+    @field_validator("content_root")
+    @classmethod
+    def validate_content_root(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_content_root(value)
+
 
 class FsProjectionMetaRead(BaseModel):
     """投影缓存元信息（不含正文，供 status / UI 展示）。"""
@@ -206,6 +221,109 @@ class FsProjectionMetaRead(BaseModel):
     projection_revision: int = 1
     content_hash: str | None = None
     consistency_model: str = "single-publisher-eventual"
+    content_root: str | None = None
+
+
+class FsProjectionObjectHash(BaseModel):
+    kind: str  # topic | experiment
+    slug: str
+    content_hash: str
+
+
+class FsProjectionInventoryRead(BaseModel):
+    """Object-level hash list for CLI diff without downloading bodies."""
+
+    projection_revision: int
+    content_hash: str
+    content_root: str
+    publisher_agent_id: uuid.UUID | None = None
+    pushed_at: datetime
+    objects: list[FsProjectionObjectHash] = Field(default_factory=list)
+    source: ContentSourceMeta | None = None
+
+
+class FsProjectionChange(BaseModel):
+    kind: str  # topic_upsert | topic_delete | experiment_upsert | experiment_delete
+    slug: str
+    value: Any = None
+    expected_hash: str | None = None
+
+    @model_validator(mode="after")
+    def parse_value(self) -> FsProjectionChange:
+        if self.kind == "topic_upsert":
+            if self.value is None:
+                raise ValueError("topic_upsert requires value")
+            if not isinstance(self.value, FsTopicDetailRead):
+                self.value = FsTopicDetailRead.model_validate(self.value)
+        elif self.kind == "experiment_upsert":
+            if self.value is None:
+                raise ValueError("experiment_upsert requires value")
+            if not isinstance(self.value, FsExperimentRead):
+                self.value = FsExperimentRead.model_validate(self.value)
+        elif self.kind in {"topic_delete", "experiment_delete"}:
+            self.value = None
+            if not self.expected_hash:
+                raise ValueError(f"{self.kind} requires expected_hash")
+        else:
+            raise ValueError(f"unknown delta change kind: {self.kind}")
+        return self
+
+
+class FsProjectionDeltaRequest(BaseModel):
+    """Incremental CAS update. Deletes must be explicit tombstones."""
+
+    base_revision: int = Field(ge=1)
+    client_workspace: str
+    content_root: str
+    changes: list[FsProjectionChange] = Field(default_factory=list)
+    result_content_hash: str = Field(min_length=64, max_length=64)
+
+    @field_validator("content_root")
+    @classmethod
+    def validate_content_root(cls, value: str) -> str:
+        return normalize_content_root(value)
+
+
+class FsProjectionDeltaResult(FsProjectionMetaRead):
+    applied_changes: int = 0
+    tombstones: int = 0
+    noop: bool = False
+
+
+def _canonical_topic_dict(topic: FsTopicDetailRead) -> dict[str, Any]:
+    data = topic.model_dump(
+        mode="json",
+        exclude={"created_at", "updated_at", "dir_path", "comments"},
+    )
+    data["comments"] = [
+        comment.model_dump(mode="json", exclude={"posted_at", "file_path"})
+        for comment in sorted(
+            topic.comments, key=lambda item: (item.round, item.author, item.comment_seq)
+        )
+    ]
+    return data
+
+
+def _canonical_experiment_dict(experiment: FsExperimentRead) -> dict[str, Any]:
+    return experiment.model_dump(mode="json", exclude={"created_at", "dir_path"})
+
+
+def _sha256_canonical(payload: Any) -> str:
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def fs_topic_content_hash(topic: FsTopicDetailRead) -> str:
+    return _sha256_canonical(_canonical_topic_dict(topic))
+
+
+def fs_experiment_content_hash(experiment: FsExperimentRead) -> str:
+    return _sha256_canonical(_canonical_experiment_dict(experiment))
 
 
 def fs_projection_content_hash(
@@ -213,29 +331,11 @@ def fs_projection_content_hash(
 ) -> str:
     """生成跨客户端稳定的投影内容摘要，不包含路径、时间戳或 CAS 元数据。"""
 
-    topic_payloads: list[dict[str, Any]] = []
-    for topic in sorted(topics, key=lambda item: item.slug):
-        data = topic.model_dump(
-            mode="json",
-            exclude={"created_at", "updated_at", "dir_path", "comments"},
-        )
-        data["comments"] = [
-            comment.model_dump(
-                mode="json", exclude={"posted_at", "file_path"}
-            )
-            for comment in sorted(
-                topic.comments, key=lambda item: (item.round, item.author, item.comment_seq)
-            )
-        ]
-        topic_payloads.append(data)
+    topic_payloads = [
+        _canonical_topic_dict(topic) for topic in sorted(topics, key=lambda item: item.slug)
+    ]
     experiment_payloads = [
-        item.model_dump(mode="json", exclude={"created_at", "dir_path"})
+        _canonical_experiment_dict(item)
         for item in sorted(experiments, key=lambda item: item.slug)
     ]
-    canonical = json.dumps(
-        {"topics": topic_payloads, "experiments": experiment_payloads},
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    return _sha256_canonical({"topics": topic_payloads, "experiments": experiment_payloads})

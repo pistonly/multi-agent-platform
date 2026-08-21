@@ -459,9 +459,11 @@ def topic_create(
         "--participants",
         help="Participant whitelist (comma-separated, e.g. host,participant).",
     ),
+    no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
     """Create ``map/topics/<slug>/`` + index.md (FS source of truth; no API write)."""
     from cli.commands.fs import write_new_fs_topic
+    from cli.fs_projection import maybe_auto_sync
 
     _ = (project, project_key)
     index = write_new_fs_topic(
@@ -471,6 +473,7 @@ def topic_create(
         participants=participants,
     )
     typer.echo(f"Created {index}")
+    maybe_auto_sync(no_sync=no_sync)
 
 
 def _render_topic_table(topics: Any) -> str:
@@ -732,6 +735,7 @@ def topic_comment(
         "--excerpt",
         help="Short excerpt for list views (max 200 chars). Use with --file-path.",
     ),
+    no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
     from cli.main import _read_text_file, _run
 
@@ -763,16 +767,16 @@ def topic_comment(
         if target is None:
             typer.echo(f"Error: fs topic not found: {topic_id} (see `map fs list`)", err=True)
             raise typer.Exit(1)
-        _write_fs_comment(target, content, parent, round_summary, file_path)
+        _write_fs_comment(target, content, parent, round_summary, file_path, no_sync=no_sync)
         return
     if storage is None and (slug := _fs_comment_target()) is not None:
-        _write_fs_comment(slug, content, parent, round_summary, file_path)
+        _write_fs_comment(slug, content, parent, round_summary, file_path, no_sync=no_sync)
         return
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":  # pragma: no cover - 本地优先分支已拦截；兜底保持一致
-            _write_fs_comment(target, content, parent, round_summary, file_path, exit_after=True)
+            _write_fs_comment(target, content, parent, round_summary, file_path, exit_after=True, no_sync=no_sync)
             raise typer.Exit(0)
         _db_write_retired("comment", str(target))
 
@@ -787,6 +791,7 @@ def _write_fs_comment(
     file_path: str | None,
     *,
     exit_after: bool = False,
+    no_sync: bool = False,
 ) -> None:
     """FS 话题发言 = 写 round<N>-<persona>.md（纯本地，与 map fs comment 同语义）。"""
     if content is None:
@@ -822,6 +827,9 @@ def _write_fs_comment(
         typer.echo(f"Error: {err} (use `map fs comment --force` to overwrite)", err=True)
         raise typer.Exit(1) from err
     typer.echo(f"Wrote {path} (fs topic: {slug})")
+    from cli.fs_projection import maybe_auto_sync
+
+    maybe_auto_sync(no_sync=no_sync, workspace=workspace)
     if exit_after:
         raise typer.Exit(0)
 

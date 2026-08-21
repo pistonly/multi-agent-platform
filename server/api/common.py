@@ -19,6 +19,7 @@ def emit(
     summary: str | None = None,
     event: str | None = None,
     event_payload: dict[str, Any] | None = None,
+    audit_payload: dict[str, Any] | None = None,
     notify: bool = True,
 ) -> None:
     """记录审计日志并扇出副作用（notification + webhook）。
@@ -35,6 +36,7 @@ def emit(
         target_id=target_id,
         project_id=project_id,
         summary=summary,
+        payload=audit_payload,
     )
     if event is None:
         return
@@ -62,6 +64,7 @@ def _log_audit(
     target_id: uuid.UUID | None,
     project_id: uuid.UUID | None,
     summary: str | None,
+    payload: dict[str, Any] | None = None,
 ) -> None:
     audit_service.log(
         db,
@@ -71,6 +74,7 @@ def _log_audit(
         target_id=target_id,
         project_id=project_id,
         summary=summary,
+        payload=payload,
     )
 
 

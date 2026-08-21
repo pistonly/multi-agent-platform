@@ -14,7 +14,7 @@
 
 其余 topic 子命令：`dismiss / read / mark-seen / migrate` 保留（按 DB uuid；migrate 是存量话题唯一续命路径）；`resolve / rollback-round / reopen / archive` 已退役（v0.13 M58 起，见下节）。`topic create` 写 `map/topics/<slug>/`。
 
-**`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；日常创建、发言、清单、验证型写一律 `map topic ...`。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
+**`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；日常创建、发言、清单、验证型写一律 `map topic ...`。远程/容器部署用 `map fs status` / `map fs diff` / `map fs sync`（`push` 为 `--full` 兼容别名）。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
 
 > **v0.13 M58 起 DB 话题写路径退役**：`topic resolve / rollback-round / reopen / archive` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2）；`topic create / list / show` 已是 FS 兼容入口。`dismiss / migrate` 不受影响。
 

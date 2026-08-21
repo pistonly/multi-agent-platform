@@ -127,6 +127,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "migrate-from-docs",
         "status",
         "push",
+        "diff",
+        "sync",
     ],
     "docs": ["error-codes"],
     "topic": [

@@ -122,11 +122,18 @@ def get_agent_work(
         unread_count=unread_count,
     )
 
+    source = None
+    if agent.project_id is not None:
+        source = fs_source_service.content_source_meta(
+            db, svc.get_project(db, agent.project_id)
+        )
+
     return AgentWorkRead(
         agent=agent_read,
         topic_progress=topic_progress,
         todos=todos,
         notifications=notifications,
+        source=source,
     )
 
 

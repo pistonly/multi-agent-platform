@@ -10,6 +10,7 @@ from map_types.enums import AcceptanceType, ExperimentMode, ExperimentPhase, Pha
 
 from .base import ORMModel
 from .comment import CommentTreeNode
+from .content_source import ContentSourceMeta
 from .plan import PlanInput, PlanVersionRead
 from .review import ReviewRead
 
@@ -108,6 +109,7 @@ class ExperimentSummaryRead(ORMModel):
     # MAP slimming: local MD file paths for plan and log.
     plan_file_path: str | None = None
     log_file_path: str | None = None
+    source: ContentSourceMeta | None = None
 
 
 class AcceptanceStatusRead(BaseModel):

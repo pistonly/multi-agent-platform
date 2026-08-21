@@ -54,6 +54,8 @@ def run_bootstrap(
     project_name: str,
     workspace_path: str,
     description: str | None = None,
+    content_root: str = "map",
+    fs_freshness_sla_seconds: int | None = None,
 ) -> tuple[Project, list[tuple[str, Agent, str]]]:
     """Atomically create a project + 3 persona agents.
 
@@ -94,6 +96,8 @@ def run_bootstrap(
         name=project_name,
         workspace_path=workspace_path,
         description=description,
+        content_root=content_root,
+        fs_freshness_sla_seconds=fs_freshness_sla_seconds,
     )
     db.add(project)
     db.flush()

@@ -9,6 +9,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field,
 from map_types.enums import ActionItemCategory, ExperimentPhase, TopicActionItemStatus, TopicCommentKind, TopicStatus
 
 from .base import ORMModel
+from .content_source import ContentSourceMeta
 from .experiment import ExperimentSummaryRead
 
 # --- Topic ---
@@ -192,6 +193,7 @@ class TopicSummaryRead(BaseModel):
     close_reason: str | None = None
     close_note: str | None = None
     content_source: str = "db"  # db | fs-local | fs-projection
+    source: ContentSourceMeta | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

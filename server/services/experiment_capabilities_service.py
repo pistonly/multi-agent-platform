@@ -15,6 +15,7 @@ from server.domain.models import (
     Experiment,
     ExperimentLog,
     ExperimentPhase,
+    Project,
     Review,
     ReviewItem,
     ReviewItemKind,
@@ -275,6 +276,11 @@ def experiment_summary_for_actor(
     }
     if extra_updates:
         update.update(extra_updates)
+    project = db.get(Project, experiment.project_id)
+    if project is not None:
+        from server.services.fs_source_service import content_source_meta
+
+        update["source"] = content_source_meta(db, project)
     return ExperimentSummaryRead.model_validate(experiment).model_copy(update=update)
 
 

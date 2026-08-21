@@ -10,7 +10,7 @@ from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.auth import experiment_access
 from server.db.session import get_db
-from server.domain.models import Agent, ExperimentPhase
+from server.domain.models import Agent, ExperimentPhase, Project
 from server.domain.schemas import (
     AuditLogRead,
     CommentCreate,
@@ -148,7 +148,16 @@ def list_experiments(
         id_prefix=id_prefix,
     )
     response.headers["X-Total-Count"] = str(total)
-    return [ExperimentSummaryRead.model_validate(e) for e in experiments]
+    project = db.get(Project, resolved_project_id)
+    source = None
+    if project is not None:
+        from server.services.fs_source_service import content_source_meta
+
+        source = content_source_meta(db, project)
+    return [
+        ExperimentSummaryRead.model_validate(e).model_copy(update={"source": source})
+        for e in experiments
+    ]
 
 
 @experiments_router.get("/experiments/{experiment_id}", response_model=ExperimentDetailRead)

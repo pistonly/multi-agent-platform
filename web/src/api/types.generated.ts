@@ -280,6 +280,7 @@ export interface AgentWorkRead {
   topic_progress: TopicProgressListRead;
   todos: TodoRead;
   notifications: NotificationListRead;
+  source?: ContentSourceMeta | null;
 }
 export interface TopicProgressListRead {
   items?: TopicProgressItemRead[];
@@ -372,6 +373,7 @@ export interface ExperimentSummaryRead {
   template_validation?: TemplateValidationSchema | null;
   plan_file_path?: string | null;
   log_file_path?: string | null;
+  source?: ContentSourceMeta | null;
 }
 /**
  * Soft validation result for a result submission (b72d0542 I1.b).
@@ -391,6 +393,21 @@ export interface TemplateWarningSchema {
   code: "MISSING_TEMPLATE_SECTION" | "NO_LINK_IN_LOG_SECTION" | "MALFORMED_MARKDOWN_LINK";
   section?: string | null;
   detail?: string | null;
+}
+/**
+ * Unified origin metadata for content-derived remote reads.
+ *
+ * ``stale`` is only set from verifiable server-side signals (freshness SLA,
+ * missing projection). The server never guesses whether the client still
+ * has unpushed local files.
+ */
+export interface ContentSourceMeta {
+  content_source: string;
+  source_revision?: string | null;
+  source_content_hash?: string | null;
+  source_updated_at?: string | null;
+  stale?: boolean;
+  stale_reason?: string | null;
 }
 /**
  * Read-only experiment review snapshot for non-reviewer personas.
@@ -499,6 +516,7 @@ export interface TopicSummaryRead {
   close_reason?: string | null;
   close_note?: string | null;
   content_source?: string;
+  source?: ContentSourceMeta | null;
   /**
    * DEPRECATED alias for stale_since — kept readable for clients still using the old name.
    */
@@ -645,6 +663,8 @@ export interface BootstrapRequest {
   project_name: string;
   workspace_path: string;
   description?: string | null;
+  content_root?: string;
+  fs_freshness_sla_seconds?: number | null;
 }
 export interface BootstrapResponse {
   project: ProjectRead;
@@ -655,6 +675,8 @@ export interface ProjectRead {
   project_key: string;
   name: string;
   workspace_path: string;
+  content_root?: string;
+  fs_freshness_sla_seconds?: number | null;
   description: string | null;
   current_status_version: number;
   created_at: string;
@@ -780,6 +802,7 @@ export interface ExperimentDetailRead {
   template_validation?: TemplateValidationSchema | null;
   plan_file_path?: string | null;
   log_file_path?: string | null;
+  source?: ContentSourceMeta | null;
   current_plan?: PlanVersionRead | null;
   plan_version_count?: number;
   review_count?: number;
@@ -1017,6 +1040,58 @@ export interface FsPlaneStatusRead {
   publisher_agent_id?: string | null;
   consistency_model?: string | null;
   hint?: string;
+  source?: ContentSourceMeta | null;
+}
+export interface FsProjectionChange {
+  kind: string;
+  slug: string;
+  value?: {
+    [k: string]: unknown;
+  };
+  expected_hash?: string | null;
+}
+/**
+ * Incremental CAS update. Deletes must be explicit tombstones.
+ */
+export interface FsProjectionDeltaRequest {
+  base_revision: number;
+  client_workspace: string;
+  content_root: string;
+  changes?: FsProjectionChange[];
+  result_content_hash: string;
+}
+export interface FsProjectionDeltaResult {
+  pushed_at: string;
+  pushed_by_agent_id?: string | null;
+  publisher_agent_id?: string | null;
+  owner_agent_id?: string | null;
+  client_workspace: string;
+  topic_count: number;
+  experiment_count: number;
+  projection_revision?: number;
+  content_hash?: string | null;
+  consistency_model?: string;
+  content_root?: string | null;
+  applied_changes?: number;
+  tombstones?: number;
+  noop?: boolean;
+}
+/**
+ * Object-level hash list for CLI diff without downloading bodies.
+ */
+export interface FsProjectionInventoryRead {
+  projection_revision: number;
+  content_hash: string;
+  content_root: string;
+  publisher_agent_id?: string | null;
+  pushed_at: string;
+  objects?: FsProjectionObjectHash[];
+  source?: ContentSourceMeta | null;
+}
+export interface FsProjectionObjectHash {
+  kind: string;
+  slug: string;
+  content_hash: string;
 }
 /**
  * 投影缓存元信息（不含正文，供 status / UI 展示）。
@@ -1032,6 +1107,7 @@ export interface FsProjectionMetaRead {
   projection_revision?: number;
   content_hash?: string | null;
   consistency_model?: string;
+  content_root?: string | null;
 }
 /**
  * ``map fs push`` 上行的 FS plane 投影（远程/容器部署的读侧回退源）。
@@ -1044,6 +1120,10 @@ export interface FsProjectionPushRequest {
    * 推送端本地 workspace 绝对路径（审计用）
    */
   client_workspace: string;
+  /**
+   * Must match Project.content_root when set; omitted keeps P0 clients working
+   */
+  content_root?: string | null;
   /**
    * CAS 基线；首次 push 为空，已有投影时必须等于当前 revision
    */
@@ -1287,6 +1367,8 @@ export interface ProjectCreate {
   name: string;
   workspace_path: string;
   description?: string | null;
+  content_root?: string;
+  fs_freshness_sla_seconds?: number | null;
 }
 export interface ProjectStatusRevise {
   content_md: string;
@@ -1306,6 +1388,8 @@ export interface ProjectUpdate {
   workspace_path?: string | null;
   description?: string | null;
   archived?: boolean | null;
+  content_root?: string | null;
+  fs_freshness_sla_seconds?: number | null;
 }
 export interface ReviewCreate {
   reasonable_items?: string[];
@@ -1477,6 +1561,7 @@ export interface TopicRead {
   close_reason?: string | null;
   close_note?: string | null;
   content_source?: string;
+  source?: ContentSourceMeta | null;
   experiments?: ExperimentSummaryRead[];
   comments?: TopicCommentTreeNode[];
   decision?: TopicDecisionRead | null;

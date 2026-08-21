@@ -12,8 +12,9 @@ class Settings(BaseSettings):
     debug: bool = False
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
-    # map/ 文件夹事实源的内容根目录名（相对 project.workspace_path）。
-    # fs plane（server/api/fs.py）实时解析该目录；改名走 MAP_CONTENT_ROOT。
+    # Default content_root for *new* projects when the client omits it.
+    # Existing projects store content_root on the Project row (P1); scan
+    # paths never fall back to this env var per project.
     content_root: str = "map"
 
     # f873c287 I1(c): tunable stale-open-topic threshold (minutes). CLI /

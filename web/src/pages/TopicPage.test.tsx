@@ -106,11 +106,21 @@ describe("TopicPage", () => {
     mocks.fetchTopic.mockResolvedValue({
       ...topicFixture,
       content_source: "fs-projection",
+      source: {
+        content_source: "fs-projection",
+        source_revision: "3",
+        source_updated_at: "2026-08-21T01:00:00Z",
+        stale: true,
+        stale_reason: "freshness_sla_exceeded",
+      },
     });
 
     renderTopicPage();
 
     expect(await screen.findByText(/远程 FS 投影的只读视图/)).toBeTruthy();
+    expect(await screen.findByText(/revision 3/)).toBeTruthy();
+    expect(screen.getByText(/最后同步于/)).toBeTruthy();
+    expect(screen.getByText(/内容可能陈旧/)).toBeTruthy();
     expect(screen.queryByPlaceholderText(/参与讨论/)).toBeNull();
     expect(screen.queryByText("关闭话题")).toBeNull();
     expect(screen.queryByText("沉淀结论")).toBeNull();

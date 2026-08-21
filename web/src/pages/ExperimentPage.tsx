@@ -221,6 +221,18 @@ export function ExperimentPage() {
           {experiment.archived_at && <span className="badge bg-amber-900/40 text-amber-200">已归档</span>}
         </div>
         {experiment.description && <p className="mt-2 text-slate-300">{experiment.description}</p>}
+        {experiment.source?.content_source === "fs-projection" && (
+          <p className="mt-2 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">
+            来源 {experiment.source.content_source}
+            {experiment.source.source_revision ? ` · revision ${experiment.source.source_revision}` : ""}
+            {experiment.source.source_updated_at
+              ? ` · 最后同步于 ${new Date(experiment.source.source_updated_at).toLocaleString()}`
+              : ""}
+            {experiment.source.stale
+              ? ` · 内容可能陈旧${experiment.source.stale_reason ? `（${experiment.source.stale_reason}）` : ""}，不要把当前 lifecycle 状态当成实时事实`
+              : ""}
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
           <CopyableId id={experiment.id} label="Experiment ID" />
           {experiment.topic_id && (

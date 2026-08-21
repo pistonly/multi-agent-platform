@@ -157,6 +157,7 @@ def fs_topic_create(
     participants: str | None = typer.Option(
         None, "--participants", help="参与人白名单（逗号分隔，如 host,participant）；仅白名单内 persona 收到 FS 待办"
     ),
+    no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
     """离线创建话题文件夹 + index.md（不调 API）。高级入口；日常用 ``map topic create``。"""
     index = write_new_fs_topic(
@@ -167,6 +168,9 @@ def fs_topic_create(
         creator=creator,
     )
     typer.echo(f"Created {index}")
+    from cli.fs_projection import maybe_auto_sync
+
+    maybe_auto_sync(no_sync=no_sync, workspace=_workspace())
 
 
 @fs_app.command("comment")
@@ -178,6 +182,7 @@ def fs_comment(
     round_number: int | None = typer.Option(None, "--round", help="默认取话题当前轮次"),
     round_summary: bool = typer.Option(False, "--round-summary"),
     force: bool = typer.Option(False, "--force", help="覆盖已有评论文件（破坏 immutable 约定）"),
+    no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
     """离线写一条评论：map/topics/<slug>/round<N>-<persona>.md（不调 API）。"""
     from map_fs import write_round_comment
@@ -209,6 +214,9 @@ def fs_comment(
         typer.echo(f"Error: {err} (use --force to overwrite)", err=True)
         raise typer.Exit(1) from err
     typer.echo(f"Wrote {path}")
+    from cli.fs_projection import maybe_auto_sync
+
+    maybe_auto_sync(no_sync=no_sync, workspace=workspace)
 
 
 @fs_app.command("list")
@@ -351,23 +359,31 @@ def fs_status(
     def action(c: MAPClient):
         from map_fs import scan_plane
 
+        from cli.fs_projection import build_diff_payload
+
+        pid = _resolve_project(c, project, project_key)
         plane = scan_plane(workspace, _content_root_name(workspace))
-        status = c.fs_plane_status(_resolve_project(c, project, project_key))
+        status = c.fs_plane_status(pid)
+        diff = build_diff_payload(c, pid=pid, workspace=workspace)
         return {
             "local": {
                 "workspace": str(workspace),
                 "content_root": _content_root_name(workspace),
                 "topics": len(plane.topics),
                 "experiments": len(plane.experiments),
+                "content_hash": diff["local_content_hash"],
             },
             "server": status.model_dump(mode="json"),
+            "sync_state": diff["sync_state"],
+            "next": diff["next"],
         }
 
     def _render(result: dict) -> str:
         local, server = result["local"], result["server"]
         lines = [
             f"local    : {local['topics']} topic(s), {local['experiments']} experiment(s) "
-            f"({local['workspace']}/{local['content_root']})",
+            f"({local['workspace']}/{local['content_root']}) "
+            f"hash={(local.get('content_hash') or '-')[:12]}",
             f"server   : mode={server['mode']} workspace_exists={server['workspace_exists']} "
             f"content_root_exists={server['content_root_exists']}",
         ]
@@ -379,6 +395,19 @@ def fs_status(
                 f"publisher={server.get('publisher_agent_id') or '-'} "
                 f"consistency={server.get('consistency_model') or '-'}"
             )
+        source = server.get("source") or {}
+        if source:
+            stale = "stale" if source.get("stale") else "fresh"
+            reason = source.get("stale_reason") or "-"
+            lines.append(
+                f"           source={source.get('content_source')} "
+                f"rev={source.get('source_revision') or '-'} {stale} reason={reason}"
+            )
+            if source.get("source_updated_at"):
+                lines.append(f"           updated={source['source_updated_at']}")
+        lines.append(f"sync     : {result.get('sync_state') or '-'}")
+        if result.get("next"):
+            lines.append(f"next     : {result['next']}")
         if server.get("hint"):
             lines.append(f"hint     : {server['hint']}")
         return "\n".join(lines)
@@ -536,24 +565,95 @@ def fs_close(
 def fs_push(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm remote deletes (tombstones)"),
 ) -> None:
-    """上行 FS plane 投影到 server（远程/容器部署的读侧回退源，幂等覆盖）。
+    """Deprecated alias for ``map fs sync --full``. Prefer ``map fs sync``."""
+    typer.echo(
+        "Warning: `map fs push` is deprecated; use `map fs sync --full`.",
+        err=True,
+    )
+    _run_fs_sync(project=project, project_key=project_key, dry_run=False, full=True, yes=yes)
 
-    server 直接读 workspace 不可达时，列表合并 / work 待办 / Web UI 渲染
-    回退到该投影。写完 round 文件或推进轮次后建议重新 push。
-    """
+
+def _run_fs_sync(
+    *,
+    project: uuid.UUID | None,
+    project_key: str | None,
+    dry_run: bool,
+    full: bool,
+    yes: bool,
+) -> None:
+    from cli.fs_projection import sync_projection
     from cli.main import _resolve_project, _run
 
     workspace = _workspace()
 
     def action(c: MAPClient):
-        return _push_current_projection(
+        return sync_projection(
             c,
             pid=_resolve_project(c, project, project_key),
             workspace=workspace,
+            dry_run=dry_run,
+            full=full,
+            yes=yes,
         )
 
     _run(action)
+
+
+@fs_app.command("diff")
+def fs_diff(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """Compare local map/ with the server projection (summary only, no bodies)."""
+    from cli.fs_projection import build_diff_payload
+    from cli.main import _resolve_project, _run
+
+    workspace = _workspace()
+
+    def action(c: MAPClient):
+        return build_diff_payload(
+            c, pid=_resolve_project(c, project, project_key), workspace=workspace
+        )
+
+    def _render(result: dict) -> str:
+        lines = [
+            f"sync_state : {result['sync_state']}",
+            f"revision   : {result['base_revision'] or '(none)'}",
+            f"local_hash : {result['local_content_hash'][:12]}…",
+            f"server_hash: {(result['server_content_hash'] or '-')[:12]}",
+        ]
+        for label, key in (("added", "added"), ("modified", "modified"), ("deleted", "deleted")):
+            rows = result[key]
+            if rows:
+                slugs = ", ".join(f"{r['kind']}:{r['slug']}" for r in rows)
+                lines.append(f"{label:10}: {slugs}")
+        for blocker in result.get("blockers") or []:
+            lines.append(f"blocker   : {blocker}")
+        if result.get("next"):
+            lines.append(f"next      : {result['next']}")
+        return "\n".join(lines)
+
+    _run(action, table_renderer=_render)
+
+
+@fs_app.command("sync")
+def fs_sync(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    full: bool = typer.Option(False, "--full", help="Upsert every local object, not just the delta"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm remote deletes (tombstones)"),
+) -> None:
+    """Publish local map/ to the server projection with CAS (delta + explicit deletes)."""
+    _run_fs_sync(
+        project=project,
+        project_key=project_key,
+        dry_run=dry_run,
+        full=full,
+        yes=yes,
+    )
 
 
 def _push_current_projection(
@@ -570,6 +670,7 @@ def _push_current_projection(
     current = c.fs_projection_meta(pid)
     payload = FsProjectionPushRequest(
         client_workspace=str(workspace),
+        content_root=_content_root_name(workspace),
         base_revision=(current.projection_revision if current is not None else None),
         content_hash=fs_projection_content_hash(topics, experiments),
         topics=topics,
