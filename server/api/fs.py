@@ -23,13 +23,14 @@ from map_types.schemas.fs import (
     FsWriteCommitResponse,
     FsWriteVerdictRead,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
 from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent, Project
+from server.domain.models import Agent, FsWriteReceipt, Project
 from server.domain.schemas import (
     FsAdvanceRoundRequest,
     FsCloseRequest,
@@ -41,6 +42,7 @@ from server.domain.schemas import (
 from server.services import fs_source_service as fs_svc
 from server.services import fs_write_token
 from server.services import permissions as perm
+from server.services.errors import ConflictError, ForbiddenError
 
 fs_router = APIRouter(tags=["fs"], dependencies=[Depends(bind_background_tasks)])
 
@@ -103,6 +105,13 @@ def push_fs_projection(
         meta = fs_svc.upsert_fs_projection(db, project, agent, payload)
     except fs_svc.FsProjectionTooLargeError as err:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(err)) from err
+    except ForbiddenError as err:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(err)) from err
+    except ConflictError as err:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": "fs_projection_conflict", "detail": str(err)},
+        ) from err
     emit(
         db,
         agent,
@@ -182,6 +191,8 @@ def _sign_verdict(
     view: object,
     fields: dict[str, str],
     evidence: FsTopicDetailRead | None,
+    agent: Agent,
+    base_revision: int,
 ) -> FsWriteVerdictRead:
     summary = fs_svc.fs_topic_summary(view)  # type: ignore[arg-type]
     evidence_json = evidence.model_dump_json() if evidence is not None else None
@@ -190,6 +201,8 @@ def _sign_verdict(
         project_id=str(project.id),
         slug=summary.slug,
         fields=fields,
+        agent_id=str(agent.id),
+        base_revision=base_revision,
         evidence_sha256=fs_write_token.evidence_digest(evidence_json),
     )
     return FsWriteVerdictRead(
@@ -199,6 +212,7 @@ def _sign_verdict(
         fields=fields,
         token=token,
         expires_at=expires_at,
+        base_revision=base_revision,
         topic=summary,
     )
 
@@ -211,8 +225,10 @@ def _validate_error_http(exc: Exception) -> HTTPException:
             status.HTTP_409_CONFLICT,
             {"error": "round_ack_pending", "missing": exc.missing},
         )
-    if isinstance(exc, fs_svc.FsStateError):
+    if isinstance(exc, (fs_svc.FsStateError, ConflictError)):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    if isinstance(exc, ForbiddenError):
+        return HTTPException(status.HTTP_403_FORBIDDEN, str(exc))
     if isinstance(exc, fs_svc.FsPlaneUnavailableError):
         return _plane_unavailable_http(exc)
     return HTTPException(status.HTTP_409_CONFLICT, str(exc))
@@ -242,6 +258,7 @@ def fs_advance_round_validate(
             mark_ready=body.mark_ready,
             waive_reason=body.waive_reason,
             evidence=body.evidence,
+            base_revision=body.base_revision,
         )
     except fs_svc.FsPlaneUnavailableError as err:
         raise _plane_unavailable_http(err) from err
@@ -252,11 +269,14 @@ def fs_advance_round_validate(
             status.HTTP_409_CONFLICT,
             {"error": "round_ack_pending", "missing": err.missing},
         ) from err
-    except fs_svc.FsStateError as err:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(err)) from err
+    except (fs_svc.FsStateError, ConflictError, ForbiddenError) as err:
+        raise _validate_error_http(err) from err
+    base_revision = fs_svc.projection_revision_for_write(db, project)
     return _sign_verdict(
         action="advance-round", project=project, view=view, fields=fields,
         evidence=body.evidence,
+        agent=agent,
+        base_revision=base_revision,
     )
 
 
@@ -283,12 +303,16 @@ def fs_close_validate(
             close_reason=body.close_reason,
             close_note=body.close_note,
             evidence=body.evidence,
+            base_revision=body.base_revision,
         )
     except Exception as err:  # noqa: BLE001 — 统一映射
         raise _validate_error_http(err) from err
+    base_revision = fs_svc.projection_revision_for_write(db, project)
     return _sign_verdict(
         action="close", project=project, view=view, fields=fields,
         evidence=body.evidence,
+        agent=agent,
+        base_revision=base_revision,
     )
 
 
@@ -326,6 +350,7 @@ def fs_write_commit(
             action=payload.action,
             project_id=str(project.id),
             slug=payload.slug,
+            agent_id=str(agent.id),
         )
     except fs_write_token.FsWriteTokenError as err:
         raise HTTPException(
@@ -336,6 +361,13 @@ def fs_write_commit(
     fields: dict[str, str] = {
         str(k): str(v) for k, v in (token_payload.get("fields") or {}).items()
     }
+    nonce = str(token_payload.get("nonce") or "")
+    base_revision = int(token_payload.get("base_revision") or 0)
+    if db.get(FsWriteReceipt, nonce) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": "fs_write_token_replayed", "detail": "write token already committed"},
+        )
 
     # applied_fields 与签发 fields 不一致 → 客户端写歪了，拒绝审计。
     if payload.applied_fields and payload.applied_fields != fields:
@@ -368,7 +400,38 @@ def fs_write_commit(
                 },
             )
 
-    fs_svc.apply_fields_to_projection(db, project, payload.slug, fields)
+    try:
+        projection_revision = fs_svc.apply_fields_to_projection(
+            db,
+            project,
+            payload.slug,
+            fields,
+            base_revision=base_revision,
+        )
+    except ConflictError as err:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": "fs_projection_conflict", "detail": str(err)},
+        ) from err
+
+    db.add(
+        FsWriteReceipt(
+            nonce=nonce,
+            project_id=project.id,
+            agent_id=agent.id,
+            slug=payload.slug,
+            action=payload.action,
+            base_revision=base_revision,
+        )
+    )
+    try:
+        db.flush()
+    except IntegrityError as err:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": "fs_write_token_replayed", "detail": "write token already committed"},
+        ) from err
 
     audit_action, event, summary_tpl = _COMMIT_EVENT[payload.action]
     emit(
@@ -386,7 +449,12 @@ def fs_write_commit(
             "source": "fs-commit",
         },
     )
-    return FsWriteCommitResponse(accepted=True, action=payload.action, slug=payload.slug)
+    return FsWriteCommitResponse(
+        accepted=True,
+        action=payload.action,
+        slug=payload.slug,
+        projection_revision=projection_revision,
+    )
 
 
 # ---------------------------------------------------------------------------

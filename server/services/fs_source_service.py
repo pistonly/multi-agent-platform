@@ -45,12 +45,13 @@ from map_types.schemas.fs import (
     FsTopicDetailRead,
     FsTopicSummaryRead,
     FsWorkItemRead,
+    fs_projection_content_hash,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from server.config import get_settings
-from server.domain.models import Agent, FsProjection, Project
+from server.domain.models import Agent, AgentRole, FsProjection, Project
 from server.domain.schemas import (
     TopicCommentTreeNode,
     TopicProgressItemRead,
@@ -58,7 +59,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicWorkItemRead,
 )
-from server.services.errors import ForbiddenError
+from server.services.errors import ConflictError, ForbiddenError
 from server.services.notification_service import PERSONA_AGENT_NAMES
 
 _PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
@@ -158,6 +159,9 @@ def fs_plane_status(db: Session, project: Project) -> FsPlaneStatusRead:
         content_root_exists=content_root_exists,
         mode=mode,
         projection_pushed_at=row.pushed_at if row is not None else None,
+        projection_revision=row.revision if row is not None else None,
+        publisher_agent_id=row.publisher_agent_id if row is not None else None,
+        consistency_model=("single-publisher-eventual" if row is not None else None),
         hint=hint,
     )
 
@@ -424,14 +428,63 @@ class FsProjectionTooLargeError(Exception):
     """投影快照超限（把它当内容仓库用了）。"""
 
 
+def _is_project_host(agent: Agent, project: Project) -> bool:
+    _ = project
+    return agent.name == PERSONA_AGENT_NAMES["host"] or agent.name.endswith("-host")
+
+
+def _is_projection_sync_agent(agent: Agent) -> bool:
+    return agent.name.endswith("-sync")
+
+
+def _project_host_agent(db: Session, project: Project) -> Agent | None:
+    agents = list(db.scalars(select(Agent).where(Agent.project_id == project.id)))
+    return next((agent for agent in agents if _is_project_host(agent, project)), None)
+
+
+def _ensure_projection_publisher_allowed(agent: Agent, project: Project) -> None:
+    if (
+        agent.role == AgentRole.admin
+        or _is_project_host(agent, project)
+        or _is_projection_sync_agent(agent)
+    ):
+        return
+    raise ForbiddenError(
+        "FS projection push is restricted to the project host, admin, or an "
+        "explicit *-sync agent"
+    )
+
+
+def _projection_owner_for_first_push(
+    db: Session, project: Project, agent: Agent
+) -> Agent:
+    if _is_project_host(agent, project):
+        return agent
+    host = _project_host_agent(db, project)
+    if host is not None:
+        return host
+    if agent.role == AgentRole.admin:
+        return agent
+    raise ForbiddenError(
+        "A project host agent must exist before a *-sync agent can publish the FS projection"
+    )
+
+
 def upsert_fs_projection(
     db: Session, project: Project, agent: Agent, payload: FsProjectionPushRequest
 ) -> FsProjectionMetaRead:
+    _ensure_projection_publisher_allowed(agent, project)
     if len(payload.topics) > _PROJECTION_MAX_TOPICS:
         raise FsProjectionTooLargeError(
             f"projection too large: {len(payload.topics)} topics (max {_PROJECTION_MAX_TOPICS})"
         )
+    computed_hash = fs_projection_content_hash(payload.topics, payload.experiments)
+    if payload.content_hash is not None and payload.content_hash != computed_hash:
+        raise ConflictError(
+            "projection content_hash does not match the canonical topics/experiments payload"
+        )
     body = payload.model_dump(mode="json")
+    body["content_hash"] = computed_hash
     if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > _PROJECTION_MAX_BYTES:
         raise FsProjectionTooLargeError(
             f"projection too large: payload exceeds {_PROJECTION_MAX_BYTES} bytes"
@@ -439,13 +492,77 @@ def upsert_fs_projection(
 
     row = get_fs_projection(db, project)
     if row is None:
-        row = FsProjection(project_id=project.id, client_workspace=payload.client_workspace)
+        if payload.base_revision is not None:
+            raise ConflictError("first projection push must not set base_revision")
+        owner = _projection_owner_for_first_push(db, project, agent)
+        row = FsProjection(
+            project_id=project.id,
+            client_workspace=payload.client_workspace,
+            publisher_agent_id=agent.id,
+            owner_agent_id=owner.id,
+            revision=1,
+        )
         db.add(row)
-    row.pushed_by_agent_id = agent.id
-    row.client_workspace = payload.client_workspace
-    row.payload_json = body
-    row.pushed_at = payload.pushed_at or datetime.now(timezone.utc)
-    db.flush()
+        row.pushed_by_agent_id = agent.id
+        row.payload_json = body
+        row.content_hash = computed_hash
+        row.pushed_at = datetime.now(timezone.utc)
+        db.flush()
+        return _projection_meta(row)
+    else:
+        # migration 048 leaves legacy rows unbound.  The first eligible P0
+        # publisher adopts that row without changing its current revision.
+        publisher_agent_id = row.publisher_agent_id
+        owner_agent_id = row.owner_agent_id
+        if publisher_agent_id is None:
+            publisher_agent_id = agent.id
+            owner_agent_id = _projection_owner_for_first_push(db, project, agent).id
+        elif agent.id != row.publisher_agent_id and agent.role != AgentRole.admin:
+            raise ConflictError(
+                "FS projection is bound to another single publisher; use that publisher "
+                "or an admin recovery path"
+            )
+
+        # Identical retries are idempotent even if the caller only learned the
+        # successful revision after a transport failure.
+        if row.content_hash == computed_hash:
+            return _projection_meta(row)
+        if payload.base_revision is None:
+            raise ConflictError(
+                f"projection base_revision is required; current revision is {row.revision}"
+            )
+        if payload.base_revision != row.revision:
+            raise ConflictError(
+                f"projection revision conflict: expected {row.revision}, "
+                f"got {payload.base_revision}; pull status/diff before retrying"
+            )
+        pushed_at = datetime.now(timezone.utc)
+        result = db.execute(
+            update(FsProjection)
+            .where(
+                FsProjection.id == row.id,
+                FsProjection.revision == payload.base_revision,
+            )
+            .values(
+                pushed_by_agent_id=agent.id,
+                publisher_agent_id=publisher_agent_id,
+                owner_agent_id=owner_agent_id,
+                client_workspace=payload.client_workspace,
+                payload_json=body,
+                content_hash=computed_hash,
+                revision=payload.base_revision + 1,
+                pushed_at=pushed_at,
+            )
+        )
+        if result.rowcount != 1:
+            db.expire(row)
+            db.refresh(row)
+            raise ConflictError(
+                f"projection revision conflict: expected {row.revision}; "
+                "another writer committed first"
+            )
+        db.expire(row)
+        db.refresh(row)
     return _projection_meta(row)
 
 
@@ -454,9 +571,13 @@ def _projection_meta(row: FsProjection) -> FsProjectionMetaRead:
     return FsProjectionMetaRead(
         pushed_at=row.pushed_at,
         pushed_by_agent_id=row.pushed_by_agent_id,
+        publisher_agent_id=row.publisher_agent_id,
+        owner_agent_id=row.owner_agent_id,
         client_workspace=row.client_workspace,
         topic_count=len(payload.get("topics", [])),
         experiment_count=len(payload.get("experiments", [])),
+        projection_revision=row.revision,
+        content_hash=row.content_hash,
     )
 
 
@@ -466,18 +587,28 @@ def projection_meta(db: Session, project: Project) -> FsProjectionMetaRead | Non
 
 
 def apply_fields_to_projection(
-    db: Session, project: Project, slug: str, fields: dict[str, str]
-) -> None:
+    db: Session,
+    project: Project,
+    slug: str,
+    fields: dict[str, str],
+    *,
+    base_revision: int,
+) -> int | None:
     """commit 后把写回字段应用到投影快照（远程模式下保持读视图新鲜）。
 
     本地可达时投影不是读源，跳过即可；快照无该话题也静默跳过（下次
     push 全量修复）。
     """
     if workspace_fs_available(project):
-        return
+        return None
     row = get_fs_projection(db, project)
     if row is None:
-        return
+        raise ConflictError("FS projection missing; run `map fs push` before committing")
+    if row.revision != base_revision:
+        raise ConflictError(
+            f"projection revision conflict: validated at {base_revision}, "
+            f"current revision is {row.revision}; local write was not committed"
+        )
     # 独立副本：不能就地改 ORM 缓存的 dict——否则新旧值内容相等，
     # SQLAlchemy 会把变更历史剪空，UPDATE 根本不会发出。
     payload = json.loads(json.dumps(row.payload_json or {}, ensure_ascii=False))
@@ -496,8 +627,43 @@ def apply_fields_to_projection(
         changed = True
         break
     if changed:
-        row.payload_json = payload
-        db.flush()
+        try:
+            topics = [
+                FsTopicDetailRead.model_validate(item)
+                for item in payload.get("topics", [])
+            ]
+        except Exception:
+            topics = []
+        experiments: list[FsExperimentRead] = []
+        try:
+            experiments = [
+                FsExperimentRead.model_validate(item)
+                for item in payload.get("experiments", [])
+            ]
+        except Exception:
+            experiments = []
+        content_hash = fs_projection_content_hash(topics, experiments)
+        payload["content_hash"] = content_hash
+        result = db.execute(
+            update(FsProjection)
+            .where(FsProjection.id == row.id, FsProjection.revision == base_revision)
+            .values(
+                payload_json=payload,
+                content_hash=content_hash,
+                revision=base_revision + 1,
+                pushed_at=datetime.now(timezone.utc),
+            )
+        )
+        if result.rowcount != 1:
+            raise ConflictError(
+                "projection revision conflict: another writer committed before this token"
+            )
+        db.expire(row)
+        db.refresh(row)
+        return row.revision
+    raise ConflictError(
+        f"projection topic '{slug}' is missing; push the canonical FS tree before retrying"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +772,12 @@ def _agent_id_for(name: str, agents: dict[str, Agent]) -> uuid.UUID:
 
 def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRead]:
     agents = _agents_by_name(db)
+    projection = None if workspace_fs_available(project) else get_fs_projection(db, project)
+    owner = (
+        db.get(Agent, projection.owner_agent_id)
+        if projection is not None and projection.owner_agent_id is not None
+        else None
+    )
     results: list[TopicSummaryRead] = []
     for view in plane_views(db, project):
         last = view.comments[-1] if view.comments else None
@@ -614,8 +786,12 @@ def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRe
             TopicSummaryRead(
                 id=view.id,
                 project_id=project.id,
-                creator_agent_id=_agent_id_for(view.creator, agents),
-                creator_name=view.creator,
+                creator_agent_id=(
+                    projection.owner_agent_id
+                    if projection is not None and projection.owner_agent_id is not None
+                    else _agent_id_for(view.creator, agents)
+                ),
+                creator_name=(owner.name if owner is not None else view.creator),
                 title=view.title,
                 description=view.description,
                 slug=view.slug,
@@ -637,6 +813,7 @@ def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRe
                 archived_at=None,
                 close_reason=None,
                 close_note=None,
+                content_source=("fs-local" if projection is None else "fs-projection"),
             )
         )
     return results
@@ -644,13 +821,19 @@ def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRe
 
 def fs_topic_as_detail(db: Session, project: Project, view: _TopicView) -> TopicRead:
     agents = _agents_by_name(db)
+    projection = None if workspace_fs_available(project) else get_fs_projection(db, project)
+    owner = (
+        db.get(Agent, projection.owner_agent_id)
+        if projection is not None and projection.owner_agent_id is not None
+        else None
+    )
     now = datetime.now(timezone.utc)
     last = view.comments[-1] if view.comments else None
     summary = TopicSummaryRead(
         id=view.id,
         project_id=project.id,
-        creator_agent_id=_agent_id_for(view.creator, agents),
-        creator_name=view.creator,
+        creator_agent_id=(owner.id if owner is not None else _agent_id_for(view.creator, agents)),
+        creator_name=(owner.name if owner is not None else view.creator),
         title=view.title,
         description=view.description,
         slug=view.slug,
@@ -672,6 +855,7 @@ def fs_topic_as_detail(db: Session, project: Project, view: _TopicView) -> Topic
         archived_at=None,
         close_reason=None,
         close_note=None,
+        content_source=("fs-local" if projection is None else "fs-projection"),
     )
     comments = [
         TopicCommentTreeNode(
@@ -728,25 +912,51 @@ def _ensure_fs_host(agent: Agent, creator: str) -> None:
         )
 
 
+def ensure_fs_topic_owner(
+    db: Session, project: Project, agent: Agent, view: _TopicView
+) -> None:
+    """FS 生命周期 owner 门禁；远程模式只认服务端登记 owner_agent_id。"""
+
+    if agent.role == AgentRole.admin:
+        return
+    if workspace_fs_available(project):
+        _ensure_fs_host(agent, view.creator)
+        return
+    row = get_fs_projection(db, project)
+    if row is None or row.owner_agent_id is None:
+        raise ForbiddenError(
+            "Remote FS projection has no trusted owner; an admin/host must republish it"
+        )
+    if row.owner_agent_id != agent.id:
+        raise ForbiddenError("Only the server-registered FS topic owner or admin can modify it")
+
+
+def projection_revision_for_write(db: Session, project: Project) -> int:
+    if workspace_fs_available(project):
+        return 0
+    row = get_fs_projection(db, project)
+    if row is None:
+        raise FsPlaneUnavailableError(
+            "workspace unreachable and no projection is available; run `map fs push`"
+        )
+    return row.revision
+
+
 def _topic_view_for_validation(
     db: Session,
     project: Project,
     slug: str,
     evidence: FsTopicDetailRead | None,
 ) -> _TopicView:
-    """校验用话题视图：本地实时解析 > 客户端 evidence > 投影缓存。
+    """校验用话题视图：本地实时解析；远程只认已 CAS 发布的投影。
 
-    远程模式下 evidence 是客户端声明的本地事实——server 无法独立核实，
-    token 会绑定该证据摘要；这层校验的价值是流程门禁（对诚实 Agent），
-    不是对抗恶意客户端（本地文件主权本就在 Agent 侧）。
+    ``evidence`` 为旧客户端兼容字段，不再覆盖远程权限或 ack 事实。
     """
     if workspace_fs_available(project):
         topic = plane_for_project(project).topic_by_slug(slug)
         if topic is None:
             raise FsTopicNotFoundError(f"fs topic not found: {slug}")
         return _view_from_fs_topic(topic)
-    if evidence is not None and evidence.slug == slug:
-        return _view_from_projection(evidence)
     row = get_fs_projection(db, project)
     for detail in projection_payload_topics(row):
         if detail.slug == slug:
@@ -768,10 +978,16 @@ def validate_fs_advance_round(
     mark_ready: bool = False,
     waive_reason: str | None = None,
     evidence: FsTopicDetailRead | None = None,
+    base_revision: int | None = None,
 ) -> tuple[_TopicView, dict[str, str]]:
     """校验推进轮次的前置条件，返回应写回 index.md 的 fields（不写文件）。"""
     view = _topic_view_for_validation(db, project, slug, evidence)
-    _ensure_fs_host(agent, view.creator)
+    ensure_fs_topic_owner(db, project, agent, view)
+    current_revision = projection_revision_for_write(db, project)
+    if current_revision and base_revision != current_revision:
+        raise ConflictError(
+            f"projection revision conflict: expected {current_revision}, got {base_revision}"
+        )
     if view.status != "open":
         raise FsStateError(f"fs topic '{slug}' is {view.status}; only open topics advance")
 
@@ -798,10 +1014,16 @@ def validate_fs_close(
     close_reason: str | None = None,
     close_note: str | None = None,
     evidence: FsTopicDetailRead | None = None,
+    base_revision: int | None = None,
 ) -> tuple[_TopicView, dict[str, str]]:
     """校验关闭话题的前置条件，返回应写回的 fields（不写文件）。"""
     view = _topic_view_for_validation(db, project, slug, evidence)
-    _ensure_fs_host(agent, view.creator)
+    ensure_fs_topic_owner(db, project, agent, view)
+    current_revision = projection_revision_for_write(db, project)
+    if current_revision and base_revision != current_revision:
+        raise ConflictError(
+            f"projection revision conflict: expected {current_revision}, got {base_revision}"
+        )
     if view.status == "closed":
         raise FsStateError(f"fs topic '{slug}' is already closed")
 
@@ -917,8 +1139,10 @@ __all__ = [
     "plane_views",
     "projection_meta",
     "projection_payload_topics",
+    "projection_revision_for_write",
     "topic_id_for_slug",
     "upsert_fs_projection",
+    "ensure_fs_topic_owner",
     "validate_fs_advance_round",
     "validate_fs_close",
     "workspace_fs_available",

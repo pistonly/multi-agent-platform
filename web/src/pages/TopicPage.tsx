@@ -115,6 +115,7 @@ export function TopicPage() {
   const comments = topic.comments ?? [];
   const decision = topic.decision ?? null;
   const discussionRound = topic.discussion_round ?? "round1";
+  const isRemoteFsProjection = topic.content_source === "fs-projection";
   const isTopicHost = !!agent && (agent.id === topic.creator_agent_id || isAdmin);
   const hasActiveExperiment = experiments.some((e) => ACTIVE_EXPERIMENT_PHASES.has(e.phase));
   const canCreateExperiment = topic.status === "open" && !hasActiveExperiment && isTopicHost;
@@ -161,7 +162,7 @@ export function TopicPage() {
           <CopyableId id={topic.id} label="Topic ID" />
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {isTopicHost && (
+          {isTopicHost && !isRemoteFsProjection && (
             topic.status === "open" ? (
               <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("close")}>
                 关闭话题
@@ -181,12 +182,12 @@ export function TopicPage() {
           >
             从此话题发起实验
           </button>
-          {isTopicHost && (
+          {isTopicHost && !isRemoteFsProjection && (
             <button type="button" className="btn-secondary" onClick={() => setShowResolve(true)}>
               {topic.decision ? "修订结论" : "沉淀结论"}
             </button>
           )}
-          {isTopicHost && (
+          {isTopicHost && !isRemoteFsProjection && (
             <button
               type="button"
               className="btn-secondary"
@@ -196,7 +197,7 @@ export function TopicPage() {
               {topic.pinned ? "取消置顶" : "置顶话题"}
             </button>
           )}
-          {isTopicHost && (
+          {isTopicHost && !isRemoteFsProjection && (
             <button
               type="button"
               className="btn-secondary"
@@ -208,6 +209,13 @@ export function TopicPage() {
           )}
         </div>
       </div>
+
+      {isRemoteFsProjection && (
+        <div className="rounded border border-amber-700 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+          这是远程 FS 投影的只读视图。请在项目本地通过 <code>map topic</code> / <code>map fs</code>
+          写入文件并同步；Web 不会直接修改远程投影。
+        </div>
+      )}
 
       <TopicDecisionPanel decision={decision} />
 
@@ -239,11 +247,12 @@ export function TopicPage() {
             topicId={topicId!}
             anchorCommentId={anchorCommentId}
             onUpdated={invalidate}
+            readOnly={isRemoteFsProjection}
           />
         ) : (
           <p className="text-sm text-slate-500">暂无讨论</p>
         )}
-        <div className="mt-4 border-t border-surface-border pt-4">
+        {!isRemoteFsProjection && <div className="mt-4 border-t border-surface-border pt-4">
           <AgentMentionTextarea
             className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
             placeholder="参与讨论… 输入 @ 触发 agent 候选"
@@ -260,7 +269,7 @@ export function TopicPage() {
               {commentMutation.isPending ? "发送中…" : "评论"}
             </button>
           </div>
-        </div>
+        </div>}
       </section>
 
       {showCreateExp && (
@@ -502,10 +511,11 @@ interface TopicCommentNodesProps {
   topicId: string;
   anchorCommentId: string | null;
   onUpdated: () => void;
+  readOnly?: boolean;
   depth?: number;
 }
 
-function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth = 0 }: TopicCommentNodesProps) {
+function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, readOnly = false, depth = 0 }: TopicCommentNodesProps) {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
@@ -562,14 +572,14 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth =
                 <TopicCommentContent filePath={n.file_path} fallback={n.body} />
               )}
             </div>
-            <button
+            {!readOnly && <button
               type="button"
               className="mb-2 text-xs text-accent hover:underline"
               onClick={() => setReplyingTo((id) => (id === n.id ? null : n.id))}
             >
               回复
-            </button>
-            {replyingTo === n.id ? (
+            </button>}
+            {!readOnly && replyingTo === n.id ? (
               <div className="mb-3 flex flex-wrap gap-2">
                 <AgentMentionInput
                   className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
@@ -606,6 +616,7 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, depth =
                 topicId={topicId}
                 anchorCommentId={anchorCommentId}
                 onUpdated={onUpdated}
+                readOnly={readOnly}
                 depth={depth + 1}
               />
             )}

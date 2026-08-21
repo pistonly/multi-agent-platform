@@ -6,8 +6,11 @@ id 由 uuid5 从 slug / 文件路径确定性派生，字段即文件约定本�
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -75,7 +78,8 @@ class FsAdvanceRoundRequest(BaseModel):
     waive_ack: bool = False
     waive_reason: str | None = Field(default=None, max_length=1024)
     mark_ready: bool = False
-    evidence: "FsTopicDetailRead | None" = None
+    base_revision: int | None = Field(default=None, ge=1)
+    evidence: FsTopicDetailRead | None = None
 
 
 class FsCloseRequest(BaseModel):
@@ -83,7 +87,8 @@ class FsCloseRequest(BaseModel):
 
     close_reason: str | None = Field(default=None, max_length=256)
     close_note: str | None = None
-    evidence: "FsTopicDetailRead | None" = None
+    base_revision: int | None = Field(default=None, ge=1)
+    evidence: FsTopicDetailRead | None = None
 
 
 class FsWorkItemRead(BaseModel):
@@ -118,6 +123,9 @@ class FsPlaneStatusRead(BaseModel):
     content_root_exists: bool
     mode: str
     projection_pushed_at: datetime | None = None
+    projection_revision: int | None = None
+    publisher_agent_id: uuid.UUID | None = None
+    consistency_model: str | None = None
     hint: str = ""
 
 
@@ -136,6 +144,7 @@ class FsWriteVerdictRead(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     token: str
     expires_at: datetime
+    base_revision: int = 0
     topic: FsTopicSummaryRead
 
 
@@ -155,6 +164,7 @@ class FsWriteCommitResponse(BaseModel):
     accepted: bool = True
     action: str
     slug: str
+    projection_revision: int | None = None
 
 
 class FsProjectionPushRequest(BaseModel):
@@ -165,6 +175,17 @@ class FsProjectionPushRequest(BaseModel):
     """
 
     client_workspace: str = Field(description="推送端本地 workspace 绝对路径（审计用）")
+    base_revision: int | None = Field(
+        default=None,
+        ge=1,
+        description="CAS 基线；首次 push 为空，已有投影时必须等于当前 revision",
+    )
+    content_hash: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        description="topics/experiments 规范化内容的 SHA-256；server 会复核",
+    )
     topics: list[FsTopicDetailRead] = Field(default_factory=list)
     experiments: list[FsExperimentRead] = Field(default_factory=list)
     pushed_at: datetime | None = Field(
@@ -177,6 +198,44 @@ class FsProjectionMetaRead(BaseModel):
 
     pushed_at: datetime
     pushed_by_agent_id: uuid.UUID | None = None
+    publisher_agent_id: uuid.UUID | None = None
+    owner_agent_id: uuid.UUID | None = None
     client_workspace: str
     topic_count: int
     experiment_count: int
+    projection_revision: int = 1
+    content_hash: str | None = None
+    consistency_model: str = "single-publisher-eventual"
+
+
+def fs_projection_content_hash(
+    topics: list[FsTopicDetailRead], experiments: list[FsExperimentRead]
+) -> str:
+    """生成跨客户端稳定的投影内容摘要，不包含路径、时间戳或 CAS 元数据。"""
+
+    topic_payloads: list[dict[str, Any]] = []
+    for topic in sorted(topics, key=lambda item: item.slug):
+        data = topic.model_dump(
+            mode="json",
+            exclude={"created_at", "updated_at", "dir_path", "comments"},
+        )
+        data["comments"] = [
+            comment.model_dump(
+                mode="json", exclude={"posted_at", "file_path"}
+            )
+            for comment in sorted(
+                topic.comments, key=lambda item: (item.round, item.author, item.comment_seq)
+            )
+        ]
+        topic_payloads.append(data)
+    experiment_payloads = [
+        item.model_dump(mode="json", exclude={"created_at", "dir_path"})
+        for item in sorted(experiments, key=lambda item: item.slug)
+    ]
+    canonical = json.dumps(
+        {"topics": topic_payloads, "experiments": experiment_payloads},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()

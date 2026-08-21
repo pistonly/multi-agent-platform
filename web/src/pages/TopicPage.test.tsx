@@ -71,6 +71,7 @@ const topicFixture: TopicRead = {
   experiments: [],
   comments: [],
   decision: null,
+  content_source: "db",
 };
 
 function renderTopicPage() {
@@ -99,5 +100,19 @@ describe("TopicPage", () => {
 
     expect(await screen.findByText("Topic read cursor")).toBeTruthy();
     await waitFor(() => expect(mocks.markTopicRead).toHaveBeenCalledWith("topic-1"));
+  });
+
+  it("renders remote FS projection as read-only", async () => {
+    mocks.fetchTopic.mockResolvedValue({
+      ...topicFixture,
+      content_source: "fs-projection",
+    });
+
+    renderTopicPage();
+
+    expect(await screen.findByText(/远程 FS 投影的只读视图/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText(/参与讨论/)).toBeNull();
+    expect(screen.queryByText("关闭话题")).toBeNull();
+    expect(screen.queryByText("沉淀结论")).toBeNull();
   });
 });

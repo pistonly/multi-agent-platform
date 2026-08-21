@@ -239,7 +239,7 @@ def experiment_summary_for_actor(
     has_latest_summary = (
         extra_updates is not None and "latest_log_summary" in extra_updates
     )
-    if has_log_count:
+    if has_log_count and extra_updates is not None:
         log_count: int = extra_updates["log_count"]
     else:
         log_count = (
@@ -250,7 +250,7 @@ def experiment_summary_for_actor(
             )
             or 0
         )
-    if has_latest_summary:
+    if has_latest_summary and extra_updates is not None:
         latest_log_summary: str | None = extra_updates["latest_log_summary"]
     else:
         latest_log = get_latest_log(db, experiment.id)

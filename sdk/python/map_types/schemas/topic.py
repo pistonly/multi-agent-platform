@@ -191,6 +191,7 @@ class TopicSummaryRead(BaseModel):
     archived_at: datetime | None = None
     close_reason: str | None = None
     close_note: str | None = None
+    content_source: str = "db"  # db | fs-local | fs-projection
 
     @computed_field  # type: ignore[prop-decorator]
     @property

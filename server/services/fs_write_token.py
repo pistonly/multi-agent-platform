@@ -3,7 +3,8 @@
 职责边界：
 
 - **签发**（validate 端点）：校验通过后把 ``action / project / slug / fields``
-  连同证据摘要与过期时间打成 canonical JSON，HMAC-SHA256 签名。
+  连同 actor / projection revision / nonce / 证据摘要与过期时间打成
+  canonical JSON，HMAC-SHA256 签名。
 - **验证**（commit 端点）：验签 + 过期 + 归属（project/slug/action 与请求
   一致），防伪造与跨话题重放。
 
@@ -24,8 +25,9 @@ import hashlib
 import hmac
 import json
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from server.config import get_settings
 
@@ -77,6 +79,9 @@ def sign_write_token(
     project_id: str,
     slug: str,
     fields: dict[str, str],
+    agent_id: str = "",
+    base_revision: int = 0,
+    nonce: str | None = None,
     evidence_sha256: str = "",
     ttl_seconds: int = _TOKEN_TTL_SECONDS,
 ) -> tuple[str, datetime]:
@@ -88,6 +93,9 @@ def sign_write_token(
         "project_id": str(project_id),
         "slug": slug,
         "fields": dict(fields),
+        "agent_id": str(agent_id),
+        "base_revision": int(base_revision),
+        "nonce": nonce or uuid.uuid4().hex,
         "ev": evidence_sha256,
         "exp": int(expires_at.timestamp()),
     }
@@ -104,6 +112,7 @@ def verify_write_token(
     action: str,
     project_id: str,
     slug: str,
+    agent_id: str = "",
 ) -> dict[str, Any]:
     """验签并校验归属与过期；通过则返回 token payload（含 fields/ev/exp）。"""
     parts = token.split(".")
@@ -121,7 +130,11 @@ def verify_write_token(
         raise FsWriteTokenError("token bound to another action/topic")
     if str(payload.get("project_id")) != str(project_id):
         raise FsWriteTokenError("token bound to another project")
+    if str(payload.get("agent_id") or "") != str(agent_id):
+        raise FsWriteTokenError("token bound to another actor")
+    if not str(payload.get("nonce") or ""):
+        raise FsWriteTokenError("token has no one-time nonce")
     exp = int(payload.get("exp") or 0)
     if datetime.now(timezone.utc).timestamp() >= exp:
         raise FsWriteTokenError("token expired")
-    return payload
+    return cast(dict[str, Any], payload)

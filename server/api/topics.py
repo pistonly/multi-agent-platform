@@ -101,7 +101,9 @@ def list_topics(
         if q:
             needle = q.lower()
             fs_topics = [
-                t for t in fs_topics if needle in t.title.lower() or needle in t.slug.lower()
+                t
+                for t in fs_topics
+                if needle in t.title.lower() or needle in (t.slug or "").lower()
             ]
     if not fs_topics:
         # 无 FS 话题：保持 SQL 分页 + DB total 的原路径。

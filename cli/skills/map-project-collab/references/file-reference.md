@@ -10,10 +10,10 @@
 |------|------|------------------------|---------------------------|
 | **同机部署** | `mode=local-fs`（server 直接读 workspace） | 实时解析 `map/` | validate → 本地写回 → commit（CLI 默认；server 写回端点保留给 Web UI） |
 | **Docker 同路径挂载** | `mode=local-fs`（用 `docker-compose.fs.yml`） | 同上 | 同上 |
-| **远程 / 容器（推荐配 push）** | `mode=projection-cache`（有 `map fs push` 缓存） | 回退投影缓存 | validate（带 evidence）→ 本地写回 → commit；commit 顺带刷投影 |
+| **远程 / 容器（单发布者缓存）** | `mode=projection-cache`（有 `map fs push` 缓存） | 回退投影缓存；Web 只读 | CLI 先 CAS push → server 以可信投影校验 → 本地写回 → 一次性 commit |
 | **detached（既不可达又无投影）** | `mode=detached` | FS 话题对 server 不可见（显式警告，非静默） | validate 直接 409 + 修复指引 |
 
-远程形态操作顺序：**写完文件 / 推进轮次后执行 `map fs push`** 刷新投影（waker 的 work 待办与 Web 列表由此更新）。
+远程投影是 **trusted single publisher + eventual consistency** 兼容层，不支持多个 clone 各自全量覆盖。首次成功 push 会绑定发布者；后续按 `projection_revision` CAS，旧 clone 返回 409。只有 project host、admin 或显式 `*-sync` agent 可以 push。`map topic advance-round/close` 会自动先 CAS push；普通文件写入后仍执行 `map fs push` 刷新 waker/Web。
 
 ## FS 事实源（推荐，新范式）
 
@@ -27,7 +27,7 @@
 | 我的待办 | `map work`（离线可用 `map fs work --persona <name>`） | 文件存在性推导（无我的文件 = pending） |
 | 推进轮次 | `map topic advance-round --id <slug>` | 验证型写：API 校验 host + ack 后由 CLI 写回 index.md（commit 审计） |
 | 关闭话题 | `map topic close --id <slug> --reason ...` | 同上 |
-| 投影上行 | `map fs push` | 远程部署：把 map/ 解析快照推给 server（读路径回退源，幂等） |
+| 投影上行 | `map fs push` | 远程部署：单发布者按 revision CAS 推送；冲突返回 409，不做 last-writer-wins |
 | 可达性握手 | `map fs status` | 本地 plane 概览 + server 三态（local-fs / projection-cache / detached） |
 
 - 实验：`map/experiments/<slug>/{plan,log,review}.md`（迁移命令 `map fs migrate-from-docs`）

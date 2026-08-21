@@ -1,7 +1,7 @@
 import logging
 import uuid
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 from map_types.enums import ExperimentMode
 from sqlalchemy import select
@@ -75,7 +75,7 @@ def _resolve_executor_id(experiment) -> uuid.UUID:
     ``executor_agent_id`` is NULL (created before migration 042) so the
     host-self-executes behavior is preserved.
     """
-    return experiment.executor_agent_id or experiment.creator_agent_id
+    return cast(uuid.UUID, experiment.executor_agent_id or experiment.creator_agent_id)
 
 
 def _ensure_can_complete(experiment, actor: Agent) -> None:
