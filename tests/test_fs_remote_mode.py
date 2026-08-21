@@ -11,13 +11,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from map_fs import scan_plane, update_topic_index, write_round_comment, write_topic_index
 from sqlalchemy import select
 
-from server.domain.models import AuditLog
+from server.domain.models import AuditLog, FsWriteReceipt
 from server.services import fs_write_token
 from server.services.fs_write_token import FsWriteTokenError
 
@@ -46,13 +47,21 @@ def _detail_read(topic) -> dict:
     return fs_topic_to_detail_read(topic).model_dump(mode="json")
 
 
-def _push_plane(client, headers: dict, pid: str, workspace: Path) -> dict:
+def _push_plane(
+    client,
+    headers: dict,
+    pid: str,
+    workspace: Path,
+    *,
+    base_revision: int | None = None,
+) -> dict:
     plane = scan_plane(workspace)
     response = client.put(
         f"/api/v1/projects/{pid}/fs/projection",
         headers=headers,
         json={
             "client_workspace": str(workspace),
+            "base_revision": base_revision,
             "topics": [_detail_read(t) for t in plane.topics],
             "experiments": [],
         },
@@ -104,6 +113,8 @@ def test_fs_status_three_modes(client, admin_headers: dict, tmp_path: Path) -> N
     body = resp.json()
     assert body["mode"] == "projection-cache"
     assert body["projection_pushed_at"] is not None
+    assert body["projection_revision"] == 1
+    assert body["consistency_model"] == "single-publisher-eventual"
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +133,7 @@ def test_remote_advance_validate_local_write_commit(
         client, admin_headers, tmp_path / "server-cannot-see", f"fs-rmt-{uuid.uuid4().hex[:6]}"
     )
     pid = project["id"]
-    _push_plane(client, admin_headers, pid, client_ws)
+    meta = _push_plane(client, admin_headers, pid, client_ws)
 
     topic = scan_plane(client_ws).topic_by_slug("remote-demo")
     assert topic is not None
@@ -131,7 +142,7 @@ def test_remote_advance_validate_local_write_commit(
     resp = client.post(
         f"/api/v1/projects/{pid}/fs/topics/remote-demo/advance-round/validate",
         headers=admin_headers,
-        json={"evidence": _detail_read(topic)},
+        json={"base_revision": meta["projection_revision"], "evidence": _detail_read(topic)},
     )
     assert resp.status_code == 200
     verdict = resp.json()
@@ -185,11 +196,12 @@ def test_remote_advance_ack_pending(client, admin_headers, tmp_path):
     )
     topic = scan_plane(client_ws).topic_by_slug("ack-pending")
     assert topic is not None
+    meta = _push_plane(client, admin_headers, project["id"], client_ws)
 
     resp = client.post(
         f"/api/v1/projects/{project['id']}/fs/topics/ack-pending/advance-round/validate",
         headers=admin_headers,
-        json={"evidence": _detail_read(topic)},
+        json={"base_revision": meta["projection_revision"], "evidence": _detail_read(topic)},
     )
     assert resp.status_code == 409
     assert resp.json()["detail"]["error"] == "round_ack_pending"
@@ -269,14 +281,18 @@ def test_remote_close_validate_commit(client, admin_headers, tmp_path):
         client, admin_headers, tmp_path / "far-away2", f"fs-close-{uuid.uuid4().hex[:6]}"
     )
     pid = project["id"]
-    _push_plane(client, admin_headers, pid, client_ws)
+    meta = _push_plane(client, admin_headers, pid, client_ws)
     topic = scan_plane(client_ws).topic_by_slug("remote-demo")
     assert topic is not None
 
     resp = client.post(
         f"/api/v1/projects/{pid}/fs/topics/remote-demo/close/validate",
         headers=admin_headers,
-        json={"close_reason": "no_experiment_needed", "evidence": _detail_read(topic)},
+        json={
+            "close_reason": "no_experiment_needed",
+            "base_revision": meta["projection_revision"],
+            "evidence": _detail_read(topic),
+        },
     )
     assert resp.status_code == 200
     verdict = resp.json()
@@ -334,6 +350,234 @@ def test_projection_read_fallback(client, admin_headers, tmp_path):
     # 专用 fs 端点同样回退
     fs_list = client.get(f"/api/v1/projects/{pid}/fs/topics", headers=admin_headers).json()
     assert [t["slug"] for t in fs_list] == ["remote-demo"]
+
+
+def test_projection_push_requires_host_admin_or_sync_agent(
+    client, admin_headers, tmp_path
+):
+    client_ws = tmp_path / "publisher-ws"
+    client_ws.mkdir()
+    _seed_topic(client_ws)
+    project = _create_project(
+        client, admin_headers, tmp_path / "remote-publisher", f"fs-pub-{uuid.uuid4().hex[:6]}"
+    )
+    agent_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        json={
+            "name": f"{project['project_key']}-participant",
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    headers = {"Authorization": f"Bearer {agent_resp.json()['api_token']}"}
+    plane = scan_plane(client_ws)
+    denied = client.put(
+        f"/api/v1/projects/{project['id']}/fs/projection",
+        headers=headers,
+        json={
+            "client_workspace": str(client_ws),
+            "topics": [_detail_read(t) for t in plane.topics],
+            "experiments": [],
+        },
+    )
+    assert denied.status_code == 403
+
+
+def test_projection_cas_and_single_publisher_block_stale_clone(
+    client, admin_headers, tmp_path
+):
+    ws_a = tmp_path / "clone-a"
+    ws_b = tmp_path / "clone-b"
+    ws_a.mkdir()
+    ws_b.mkdir()
+    _seed_topic(ws_a)
+    _seed_topic(ws_b)
+    project = _create_project(
+        client, admin_headers, tmp_path / "remote-cas", f"fs-cas-{uuid.uuid4().hex[:6]}"
+    )
+    first = _push_plane(client, admin_headers, project["id"], ws_a)
+    assert first["projection_revision"] == 1
+
+    write_round_comment(ws_a, "remote-demo", round_number=2, persona="host", body="# fresh")
+    second = _push_plane(
+        client,
+        admin_headers,
+        project["id"],
+        ws_a,
+        base_revision=first["projection_revision"],
+    )
+    assert second["projection_revision"] == 2
+
+    stale = client.put(
+        f"/api/v1/projects/{project['id']}/fs/projection",
+        headers=admin_headers,
+        json={
+            "client_workspace": str(ws_b),
+            "base_revision": 1,
+            "topics": [_detail_read(t) for t in scan_plane(ws_b).topics],
+            "experiments": [],
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["error"] == "fs_projection_conflict"
+
+
+def test_remote_validate_ignores_forged_evidence_owner(
+    client, admin_headers, tmp_path
+):
+    ws = tmp_path / "forged-owner"
+    ws.mkdir()
+    _seed_topic(ws)
+    project = _create_project(
+        client, admin_headers, tmp_path / "remote-owner", f"fs-owner-{uuid.uuid4().hex[:6]}"
+    )
+    host_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        json={
+            "name": f"{project['project_key']}-host",
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    host_headers = {"Authorization": f"Bearer {host_resp.json()['api_token']}"}
+    meta = _push_plane(client, host_headers, project["id"], ws)
+
+    attacker_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        json={
+            "name": f"{project['project_key']}-participant",
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    attacker_headers = {"Authorization": f"Bearer {attacker_resp.json()['api_token']}"}
+    forged = _detail_read(scan_plane(ws).topics[0])
+    forged["creator"] = f"{project['project_key']}-participant"
+    response = client.post(
+        f"/api/v1/projects/{project['id']}/fs/topics/remote-demo/advance-round/validate",
+        headers=attacker_headers,
+        json={"base_revision": meta["projection_revision"], "evidence": forged},
+    )
+    assert response.status_code == 403
+
+
+def test_write_token_binds_actor_and_is_one_time(
+    client, admin_headers, db_session, tmp_path
+):
+    ws = tmp_path / "actor-token"
+    ws.mkdir()
+    _seed_topic(ws)
+    project = _create_project(
+        client, admin_headers, tmp_path / "remote-token", f"fs-actor-{uuid.uuid4().hex[:6]}"
+    )
+    meta = _push_plane(client, admin_headers, project["id"], ws)
+    topic = scan_plane(ws).topics[0]
+    verdict_response = client.post(
+        f"/api/v1/projects/{project['id']}/fs/topics/remote-demo/advance-round/validate",
+        headers=admin_headers,
+        json={"base_revision": meta["projection_revision"], "evidence": _detail_read(topic)},
+    )
+    assert verdict_response.status_code == 200
+    verdict = verdict_response.json()
+    update_topic_index(ws, "remote-demo", round="round2")
+
+    other = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        json={
+            "name": f"{project['project_key']}-host",
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    other_headers = {"Authorization": f"Bearer {other.json()['api_token']}"}
+    wrong_actor = client.post(
+        f"/api/v1/projects/{project['id']}/fs/write-commit",
+        headers=other_headers,
+        json={
+            "token": verdict["token"],
+            "slug": "remote-demo",
+            "action": "advance-round",
+            "applied_fields": verdict["fields"],
+        },
+    )
+    assert wrong_actor.status_code == 401
+
+    body = {
+        "token": verdict["token"],
+        "slug": "remote-demo",
+        "action": "advance-round",
+        "applied_fields": verdict["fields"],
+    }
+    accepted = client.post(
+        f"/api/v1/projects/{project['id']}/fs/write-commit",
+        headers=admin_headers,
+        json=body,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["projection_revision"] == 2
+    replay = client.post(
+        f"/api/v1/projects/{project['id']}/fs/write-commit",
+        headers=admin_headers,
+        json=body,
+    )
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["error"] == "fs_write_token_replayed"
+    assert db_session.query(FsWriteReceipt).count() == 1
+
+
+def test_cli_validated_write_restores_index_when_commit_conflicts(
+    monkeypatch, tmp_path
+):
+    from map_types.schemas.fs import (
+        FsPlaneStatusRead,
+        FsWriteVerdictRead,
+    )
+
+    from cli.commands.fs import validated_write_flow
+
+    ws = tmp_path / "rollback-index"
+    ws.mkdir()
+    _seed_topic(ws)
+    original = (ws / "map/topics/remote-demo/index.md").read_bytes()
+
+    class FakeClient:
+        def fs_plane_status(self, _pid):
+            return FsPlaneStatusRead(
+                workspace_path="/remote",
+                content_root="map",
+                workspace_exists=False,
+                content_root_exists=False,
+                mode="local-fs",
+            )
+
+        def fs_write_commit(self, _pid, _payload):
+            raise RuntimeError("simulated CAS conflict")
+
+    monkeypatch.setattr("cli.commands.fs._workspace", lambda: ws)
+
+    def validate_call(_client, _pid, evidence, _base_revision):
+        return FsWriteVerdictRead(
+            action="advance-round",
+            slug="remote-demo",
+            fields={"round": "round2"},
+            token="token",
+            expires_at=evidence.updated_at or evidence.created_at or datetime.now(timezone.utc),
+            topic=evidence,
+        )
+
+    with pytest.raises(RuntimeError, match="simulated CAS conflict"):
+        validated_write_flow(
+            FakeClient(),  # type: ignore[arg-type]
+            pid=uuid.uuid4(),
+            action_name="advance-round",
+            topic="remote-demo",
+            validate_call=validate_call,
+        )
+    assert (ws / "map/topics/remote-demo/index.md").read_bytes() == original
 
 
 def test_work_projection_fallback(client, admin_headers, tmp_path):

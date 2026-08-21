@@ -498,6 +498,7 @@ export interface TopicSummaryRead {
   archived_at?: string | null;
   close_reason?: string | null;
   close_note?: string | null;
+  content_source?: string;
   /**
    * DEPRECATED alias for stale_since — kept readable for clients still using the old name.
    */
@@ -936,6 +937,7 @@ export interface FsAdvanceRoundRequest {
   waive_ack?: boolean;
   waive_reason?: string | null;
   mark_ready?: boolean;
+  base_revision?: number | null;
   evidence?: FsTopicDetailRead | null;
 }
 export interface FsTopicDetailRead {
@@ -975,6 +977,7 @@ export interface FsCommentRead {
 export interface FsCloseRequest {
   close_reason?: string | null;
   close_note?: string | null;
+  base_revision?: number | null;
   evidence?: FsTopicDetailRead | null;
 }
 /**
@@ -1010,6 +1013,9 @@ export interface FsPlaneStatusRead {
   content_root_exists: boolean;
   mode: string;
   projection_pushed_at?: string | null;
+  projection_revision?: number | null;
+  publisher_agent_id?: string | null;
+  consistency_model?: string | null;
   hint?: string;
 }
 /**
@@ -1018,9 +1024,14 @@ export interface FsPlaneStatusRead {
 export interface FsProjectionMetaRead {
   pushed_at: string;
   pushed_by_agent_id?: string | null;
+  publisher_agent_id?: string | null;
+  owner_agent_id?: string | null;
   client_workspace: string;
   topic_count: number;
   experiment_count: number;
+  projection_revision?: number;
+  content_hash?: string | null;
+  consistency_model?: string;
 }
 /**
  * ``map fs push`` 上行的 FS plane 投影（远程/容器部署的读侧回退源）。
@@ -1033,6 +1044,14 @@ export interface FsProjectionPushRequest {
    * 推送端本地 workspace 绝对路径（审计用）
    */
   client_workspace: string;
+  /**
+   * CAS 基线；首次 push 为空，已有投影时必须等于当前 revision
+   */
+  base_revision?: number | null;
+  /**
+   * topics/experiments 规范化内容的 SHA-256；server 会复核
+   */
+  content_hash?: string | null;
   topics?: FsTopicDetailRead[];
   experiments?: FsExperimentRead[];
   /**
@@ -1088,6 +1107,7 @@ export interface FsWriteCommitResponse {
   accepted?: boolean;
   action: string;
   slug: string;
+  projection_revision?: number | null;
 }
 /**
  * 验证型写（validate 阶段）判定结果。
@@ -1106,6 +1126,7 @@ export interface FsWriteVerdictRead {
   };
   token: string;
   expires_at: string;
+  base_revision?: number;
   topic: FsTopicSummaryRead;
 }
 export interface GlobalStatusRead {
@@ -1455,6 +1476,7 @@ export interface TopicRead {
   archived_at?: string | null;
   close_reason?: string | null;
   close_note?: string | null;
+  content_source?: string;
   experiments?: ExperimentSummaryRead[];
   comments?: TopicCommentTreeNode[];
   decision?: TopicDecisionRead | null;

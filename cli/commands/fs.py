@@ -373,6 +373,12 @@ def fs_status(
         ]
         if server.get("projection_pushed_at"):
             lines.append(f"           projection pushed at {server['projection_pushed_at']}")
+        if server.get("projection_revision"):
+            lines.append(
+                f"           revision={server['projection_revision']} "
+                f"publisher={server.get('publisher_agent_id') or '-'} "
+                f"consistency={server.get('consistency_model') or '-'}"
+            )
         if server.get("hint"):
             lines.append(f"hint     : {server['hint']}")
         return "\n".join(lines)
@@ -402,25 +408,41 @@ def validated_write_flow(
     # server 凭它校验 ack 完整性，token 绑定其摘要。
     parsed = _require_local_topic(workspace, topic)
     evidence = fs_topic_to_detail_read(parsed)
+    index_path = (
+        workspace / _content_root_name(workspace) / "topics" / topic / "index.md"
+    )
+    original_index = index_path.read_bytes()
 
-    verdict = validate_call(c, pid, evidence)
+    plane_status = c.fs_plane_status(pid)
+    base_revision: int | None = None
+    if plane_status.mode != "local-fs":
+        meta = _push_current_projection(c, pid=pid, workspace=workspace)
+        base_revision = int(meta["projection_revision"])
+
+    verdict = validate_call(c, pid, evidence, base_revision)
     update_topic_index(
         workspace, topic, content_root=_content_root_name(workspace), **verdict.fields
     )
-    commit = c.fs_write_commit(
-        pid,
-        FsWriteCommitRequest(
-            token=verdict.token,
-            slug=topic,
-            action=verdict.action,
-            applied_fields=verdict.fields,
-        ),
-    )
+    try:
+        commit = c.fs_write_commit(
+            pid,
+            FsWriteCommitRequest(
+                token=verdict.token,
+                slug=topic,
+                action=verdict.action,
+                applied_fields=verdict.fields,
+            ),
+        )
+    except Exception:
+        # validate 成功但 CAS commit 失败时，不能留下未审计的本地状态。
+        index_path.write_bytes(original_index)
+        raise
     return {
         "action": commit.action,
         "slug": commit.slug,
         "fields": verdict.fields,
         "committed": commit.accepted,
+        "projection_revision": commit.projection_revision,
         "flow": f"{action_name}: validate → local write-back → commit",
         "topic": verdict.topic.model_dump(mode="json"),
     }
@@ -458,11 +480,14 @@ def fs_advance_round(
     """推进轮次：server 校验 ack 满员 → 本地写回 index.md → commit 审计。"""
     from map_types.schemas.fs import FsAdvanceRoundRequest
 
-    def validate_call(c: MAPClient, pid: uuid.UUID, evidence):
+    def validate_call(
+        c: MAPClient, pid: uuid.UUID, evidence, base_revision: int | None
+    ):
         payload = FsAdvanceRoundRequest(
             waive_ack=waive_ack,
             waive_reason=waive_reason,
             mark_ready=mark_ready,
+            base_revision=base_revision,
             evidence=evidence,
         )
         return c.fs_validate_advance_round(pid, topic, payload)
@@ -487,9 +512,14 @@ def fs_close(
     """关闭话题：server 校验 → 本地写回 index.md status=closed → commit 审计。"""
     from map_types.schemas.fs import FsCloseRequest
 
-    def validate_call(c: MAPClient, pid: uuid.UUID, evidence):
+    def validate_call(
+        c: MAPClient, pid: uuid.UUID, evidence, base_revision: int | None
+    ):
         payload = FsCloseRequest(
-            close_reason=reason, close_note=note, evidence=evidence
+            close_reason=reason,
+            close_note=note,
+            base_revision=base_revision,
+            evidence=evidence,
         )
         return c.fs_validate_close(pid, topic, payload)
 
@@ -512,30 +542,40 @@ def fs_push(
     server 直接读 workspace 不可达时，列表合并 / work 待办 / Web UI 渲染
     回退到该投影。写完 round 文件或推进轮次后建议重新 push。
     """
-    from map_types.schemas.fs import FsProjectionPushRequest
-
     from cli.main import _resolve_project, _run
 
     workspace = _workspace()
 
     def action(c: MAPClient):
-        from map_fs import scan_plane
-
-        plane = scan_plane(workspace, _content_root_name(workspace))
-        meta = c.fs_push_projection(
-            _resolve_project(c, project, project_key),
-            FsProjectionPushRequest(
-                client_workspace=str(workspace),
-                topics=[fs_topic_to_detail_read(t) for t in plane.topics],
-                experiments=[
-                    # FsExperiment dataclass 与 schema 字段一致，直接构造
-                    _experiment_read(e) for e in plane.experiments
-                ],
-            ),
+        return _push_current_projection(
+            c,
+            pid=_resolve_project(c, project, project_key),
+            workspace=workspace,
         )
-        return meta.model_dump(mode="json")
 
     _run(action)
+
+
+def _push_current_projection(
+    c: MAPClient, *, pid: uuid.UUID, workspace: Path
+) -> dict[str, Any]:
+    """用 server revision 做 CAS，发布当前本地 FS plane。"""
+
+    from map_fs import scan_plane
+    from map_types.schemas.fs import FsProjectionPushRequest, fs_projection_content_hash
+
+    plane = scan_plane(workspace, _content_root_name(workspace))
+    topics = [fs_topic_to_detail_read(t) for t in plane.topics]
+    experiments = [_experiment_read(e) for e in plane.experiments]
+    current = c.fs_projection_meta(pid)
+    payload = FsProjectionPushRequest(
+        client_workspace=str(workspace),
+        base_revision=(current.projection_revision if current is not None else None),
+        content_hash=fs_projection_content_hash(topics, experiments),
+        topics=topics,
+        experiments=experiments,
+    )
+    return c.fs_push_projection(pid, payload).model_dump(mode="json")
 
 
 def _experiment_read(e: Any) -> Any:

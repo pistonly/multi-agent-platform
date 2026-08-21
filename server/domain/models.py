@@ -784,8 +784,36 @@ class FsProjection(Base):
     pushed_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agents.id"), nullable=True
     )
+    publisher_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id"), nullable=True
+    )
+    owner_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id"), nullable=True
+    )
     client_workspace: Mapped[str] = mapped_column(String(1024), nullable=False)
     payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pushed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class FsWriteReceipt(Base):
+    """一次性 FS 写凭证的消费记录，阻止 commit token 重放。"""
+
+    __tablename__ = "fs_write_receipts"
+
+    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id"), nullable=False, index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agents.id"), nullable=False, index=True
+    )
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    base_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    committed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

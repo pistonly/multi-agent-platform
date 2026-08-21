@@ -780,6 +780,10 @@ class MAPClient:
             self._json("GET", f"/projects/{project_id}/fs/status")
         )
 
+    def fs_projection_meta(self, project_id: uuid.UUID) -> FsProjectionMetaRead | None:
+        data = self._json("GET", f"/projects/{project_id}/fs/projection")
+        return FsProjectionMetaRead.model_validate(data) if data is not None else None
+
     def fs_validate_advance_round(
         self,
         project_id: uuid.UUID,

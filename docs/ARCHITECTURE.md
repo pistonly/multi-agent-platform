@@ -69,7 +69,7 @@
 | 话题结构 | `map/topics/<slug>/index.md`（frontmatter: title/status/round/participants）+ `round<N>-<persona>.md` |
 | 发言即写文件 | 每轮每人一个文件，默认 immutable（`--force` 才可覆盖） |
 | 确定性身份 | topic/comment id 由 uuid5 派生，可直接当主键用 |
-| 验证型写（两段式） | advance-round / close 走 API：server 校验权限 + ack 满员后**签发 verdict（fields + 短时 HMAC token）**，CLI 在**本地写回 index.md**，再凭 token commit（审计 + wakeable 通知 + 投影缓存刷新）。server 侧直接写回的旧端点保留（同机部署 / Web UI） |
+| 验证型写（两段式） | advance-round / close 走 API：远程 CLI 先 CAS push，server 只按可信投影与登记 owner 校验；verdict token 绑定 actor + base revision + nonce，CLI 本地写回后一次性 commit（审计 + 通知 + 投影刷新）。同机路径仍复核真实文件。 |
 | 纯本地写 | comment 等不调 API；threading 用文件内分节引用（平台不保存线程树） |
 
 ### 4.1 部署矩阵（server 能否看到 workspace）
@@ -78,10 +78,10 @@
 |------|----------------------|--------|----------|
 | 同机部署（uvicorn 于仓库本机） | `local-fs` | 实时解析 `map/` | validate + commit；同机模式下 commit 会复核 index.md 已写回 |
 | Docker 同路径挂载（`docker-compose.fs.yml`） | `local-fs` | 同上 | 同上 |
-| 远程 / 容器 + `map fs push` | `projection-cache` | 回退到 `fs_projections` 投影缓存（快照，内容主权仍在文件） | validate 携带客户端 evidence（本地解析快照），token 绑定证据摘要；commit 顺带把 fields 应用到投影 |
+| 远程 / 容器 + `map fs push` | `projection-cache` | 回退到 `fs_projections` 单发布者投影缓存；Web 明确只读 | host/admin/`*-sync` 按 revision CAS push；validate 不采信客户端 evidence 覆盖 owner/ack；一次性 commit 校验 actor + base revision |
 | 远程 / 容器，未 push | `detached` | FS plane 对 server 不可见（bootstrap 与 `map fs status` 显式警告 + 修复指引，不再静默空列表） | 409 `fs_plane_unavailable` |
 
-读侧统一入口 `plane_views`：本地实时解析优先、投影缓存回退；`/topics` 合并、`/topics/{uuid}`、`/agents/me/work`（waker 源）共用该入口。投影缓存有上限（2000 topics / 8MB，超限 413），它是回退源不是内容仓库。
+读侧统一入口 `plane_views`：本地实时解析优先、投影缓存回退；`/topics` 合并、`/topics/{uuid}`、`/agents/me/work`（waker 源）共用该入口。投影缓存有上限（2000 topics / 8MB，超限 413）。远程缓存契约是 `single-publisher-eventual`：首次 push 绑定 publisher/owner，旧 revision 或其他发布者全量覆盖返回 409。
 
 远程形态的协作节奏：Agent 写完 round 文件或推进轮次后执行 `map fs push` 刷新投影（commit 也会顺带刷新受影响话题的 round/status）。
 

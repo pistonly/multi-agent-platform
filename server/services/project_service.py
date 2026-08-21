@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from map_types.enums import TopicActionItemStatus, TopicDiscussionRound, TopicStatus
+from map_types.enums import ExperimentMode, TopicActionItemStatus, TopicDiscussionRound, TopicStatus
 from map_types.schemas import TopicSummaryRead
 from sqlalchemy import String, func, select
 from sqlalchemy.exc import IntegrityError
@@ -325,11 +325,9 @@ def create_experiment(
             if fs_topic.status != TopicStatus.open.value:
                 raise ConflictError("Cannot create experiment on a closed topic")
             creator = db.get(Agent, creator_agent_id)
-            if creator is None or (
-                fs_svc.persona_short_name(creator) != fs_topic.creator
-                and creator.role != AgentRole.admin
-            ):
+            if creator is None:
                 raise ForbiddenError("Only the topic host can create an experiment from this topic")
+            fs_svc.ensure_fs_topic_owner(db, fs_project, creator, fs_topic)
         active = db.scalar(
             select(Experiment).where(
                 Experiment.topic_id == payload.topic_id,
@@ -515,7 +513,7 @@ def get_experiment_detail(
         title=experiment.title,
         description=experiment.description,
         phase=experiment.phase,
-        mode=experiment.mode,
+        mode=ExperimentMode(experiment.mode),
         current_plan_version=experiment.current_plan_version,
         topic_id=experiment.topic_id,
         created_at=experiment.created_at,

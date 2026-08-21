@@ -662,7 +662,12 @@ def topic_advance_round(
 
             from cli.commands.fs import validated_write_flow
 
-            def validate_call(client: MAPClient, pid: uuid.UUID, evidence):
+            def validate_call(
+                client: MAPClient,
+                pid: uuid.UUID,
+                evidence,
+                base_revision: int | None,
+            ):
                 return client.fs_validate_advance_round(
                     pid,
                     target,
@@ -670,6 +675,7 @@ def topic_advance_round(
                         waive_ack=waive_ack,
                         waive_reason=waive_reason,
                         mark_ready=mark_ready,
+                        base_revision=base_revision,
                         evidence=evidence,
                     ),
                 )
@@ -844,11 +850,21 @@ def topic_close(
 
             from cli.commands.fs import validated_write_flow
 
-            def validate_call(client: MAPClient, pid: uuid.UUID, evidence):
+            def validate_call(
+                client: MAPClient,
+                pid: uuid.UUID,
+                evidence,
+                base_revision: int | None,
+            ):
                 return client.fs_validate_close(
                     pid,
                     target,
-                    FsCloseRequest(close_reason=reason, close_note=note, evidence=evidence),
+                    FsCloseRequest(
+                        close_reason=reason,
+                        close_note=note,
+                        base_revision=base_revision,
+                        evidence=evidence,
+                    ),
                 )
 
             return validated_write_flow(

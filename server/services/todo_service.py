@@ -83,7 +83,7 @@ def list_pending_advance_rounds(
     agent: Agent,
     *,
     open_topics: list[Topic] | None = None,
-    comments_by_topic: dict[uuid.UUID, list] | None = None,
+    comments_by_topic: dict[uuid.UUID, list[Any]] | None = None,
 ) -> list[PendingAdvanceRoundTodoRead]:
     """Topics the host created where all required acks are in and advance-round is due."""
     if agent.project_id is None:
