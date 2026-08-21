@@ -63,7 +63,7 @@ def _seed_threaded_app(tmp_path: Path) -> tuple[TestClient, Any]:
     Base.metadata.create_all(bind=engine)
 
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    app = create_app(init_db_on_startup=False)
+    app = create_app(init_db_on_startup=False, serve_web=False)
 
     def override_get_db():
         session = SessionLocal()

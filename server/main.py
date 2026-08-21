@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request, status
@@ -38,6 +39,7 @@ from server.services.errors import (
     StateTransitionError,
     UnauthorizedError,
 )
+from server.spa import mount_spa, resolve_web_dist
 
 
 def register_domain_exception_handlers(app: FastAPI) -> None:
@@ -154,7 +156,12 @@ def register_request_validation_handler(app: FastAPI) -> None:
         return JSONResponse(status_code=422, content=content)
 
 
-def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
+def create_app(
+    *,
+    init_db_on_startup: bool = True,
+    serve_web: bool | None = None,
+    web_dist: str | Path | None = None,
+) -> FastAPI:
     """Build the ASGI app.
 
     Args:
@@ -163,8 +170,12 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
             handler so ``uvicorn server.main:app`` self-bootstraps the
             schema. Tests pass ``False`` and inject a per-test session via
             ``app.dependency_overrides``.
+        serve_web: Override ``MAP_SERVE_WEB``. ``None`` uses settings.
+        web_dist: Override ``MAP_WEB_DIST`` / packaged ``server/web_dist``.
     """
     settings = get_settings()
+    enable_web = settings.serve_web if serve_web is None else serve_web
+    dist = resolve_web_dist(web_dist if web_dist is not None else settings.web_dist)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -177,6 +188,11 @@ def create_app(*, init_db_on_startup: bool = True) -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
+    # SPA middleware must be registered before CORS so the index.html
+    # fallback still gets Access-Control-* headers (last add_middleware
+    # is outermost).
+    if enable_web and dist is not None:
+        mount_spa(app, dist)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,

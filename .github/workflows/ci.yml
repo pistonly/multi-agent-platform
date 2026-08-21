@@ -82,6 +82,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Sync bundled SPA into server/web_dist layout
+        # Exercises scripts/sync-web-dist.sh so a missing rsync/copy
+        # path fails CI before a release wheel ships without the board.
+        run: bash ../scripts/sync-web-dist.sh --skip-build
+
   gen-types:
     # 校验 web/src/api/types.generated.ts 与 sdk schemas 一致：改了 schema 必须
     # 跑 `python scripts/gen_types.py` 重新生成并提交，否则 git diff 非零 fail。

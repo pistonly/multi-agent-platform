@@ -13,10 +13,12 @@
 #      == server/__version__.py __version__
 #      == sdk/python/map_sdk/__init__.py __version__
 #   2. with --require-tag: git tag v<version> exists and points at HEAD
+#      AND server/web_dist/index.html exists (run scripts/sync-web-dist.sh
+#      first so the wheel ships the board)
 #
 # Usage:
 #   scripts/check-release.sh                # version consistency only
-#   scripts/check-release.sh --require-tag  # + tag check (right before publish)
+#   scripts/check-release.sh --require-tag  # + tag + bundled SPA (right before publish)
 
 set -euo pipefail
 
@@ -60,6 +62,11 @@ EOF
 fi
 
 if [[ "${1:-}" == "--require-tag" ]]; then
+  web_index="$ROOT/server/web_dist/index.html"
+  if [[ ! -f "$web_index" ]]; then
+    echo "check-release: missing $web_index — run scripts/sync-web-dist.sh before publish so map-server ships the board" >&2
+    exit 1
+  fi
   tag="v$ver_pyproject"
   if ! git -C "$ROOT" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
     echo "check-release: git tag $tag not found (create: git tag $tag && git push origin $tag)" >&2
