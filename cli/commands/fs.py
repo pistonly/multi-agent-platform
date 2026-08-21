@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 import typer
 import yaml
@@ -280,8 +281,169 @@ def fs_work(persona: str | None = typer.Option(None, "--persona")) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 验证型写（走 API，服务端校验后写回 index.md）
+# 部署矩阵握手 + 验证型写（validate → 本地写回 → commit）
 # ---------------------------------------------------------------------------
+
+
+def fs_topic_to_detail_read(topic: Any) -> Any:
+    """parser FsTopic → FsTopicDetailRead（evidence / push 投影共用）。"""
+    from map_types.schemas.fs import FsCommentRead, FsTopicDetailRead
+
+    return FsTopicDetailRead(
+        id=topic.id,
+        slug=topic.slug,
+        title=topic.title,
+        description=topic.description,
+        status=topic.status,
+        discussion_round=topic.round,
+        creator=topic.creator,
+        comment_count=len(topic.comments),
+        participants=topic.participants,
+        created_at=topic.created_at,
+        updated_at=topic.updated_at,
+        dir_path=topic.dir_path,
+        comments=[
+            FsCommentRead(
+                id=c.id,
+                topic_slug=c.topic_slug,
+                round=c.round,
+                author=c.author,
+                kind=c.kind,
+                is_round_summary=c.is_round_summary,
+                excerpt=c.excerpt,
+                content=c.content,
+                file_path=c.file_path,
+                posted_at=c.posted_at,
+                comment_seq=c.comment_seq,
+            )
+            for c in topic.comments
+        ],
+    )
+
+
+def _require_local_topic(workspace: Path, slug: str) -> Any:
+    """本地解析话题文件夹；缺失时给出可操作错误（evidence 源）。"""
+    from map_fs import parse_topic_dir
+
+    parsed = parse_topic_dir(
+        workspace / _content_root_name(workspace) / "topics" / slug, workspace
+    )
+    if parsed is None:
+        typer.echo(
+            f"Error: fs topic not found locally: {slug} "
+            "(验证型写需要本地 map/ 文件夹作为事实源；run `map fs topic create` first)",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return parsed
+
+
+@fs_app.command("status")
+def fs_status(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """部署矩阵握手：本地 plane 概览 + server 可达性（local-fs / projection-cache / detached）。"""
+    from cli.main import _resolve_project, _run
+
+    workspace = _workspace()
+
+    def action(c: MAPClient):
+        from map_fs import scan_plane
+
+        plane = scan_plane(workspace, _content_root_name(workspace))
+        status = c.fs_plane_status(_resolve_project(c, project, project_key))
+        return {
+            "local": {
+                "workspace": str(workspace),
+                "content_root": _content_root_name(workspace),
+                "topics": len(plane.topics),
+                "experiments": len(plane.experiments),
+            },
+            "server": status.model_dump(mode="json"),
+        }
+
+    def _render(result: dict) -> str:
+        local, server = result["local"], result["server"]
+        lines = [
+            f"local    : {local['topics']} topic(s), {local['experiments']} experiment(s) "
+            f"({local['workspace']}/{local['content_root']})",
+            f"server   : mode={server['mode']} workspace_exists={server['workspace_exists']} "
+            f"content_root_exists={server['content_root_exists']}",
+        ]
+        if server.get("projection_pushed_at"):
+            lines.append(f"           projection pushed at {server['projection_pushed_at']}")
+        if server.get("hint"):
+            lines.append(f"hint     : {server['hint']}")
+        return "\n".join(lines)
+
+    _run(action, table_renderer=_render)
+
+
+def validated_write_flow(
+    c: MAPClient,
+    *,
+    pid: uuid.UUID,
+    action_name: str,
+    topic: str,
+    validate_call,
+) -> dict:
+    """验证型写核心流程（复用调用方 client）：validate → 本地写回 → commit。
+
+    - server 校验权限与 ack 完整性（远程模式凭本地解析的 evidence）；
+    - 写回永远发生在 CLI 本地（内容主权在文件系统）；
+    - commit 凭 HMAC token 完成审计 + 通知 + 投影缓存刷新。
+    """
+    from map_fs import update_topic_index
+    from map_types.schemas.fs import FsWriteCommitRequest
+
+    workspace = _workspace()
+    # evidence：本地解析快照。同机部署 server 自行扫描（忽略它）；远程部署
+    # server 凭它校验 ack 完整性，token 绑定其摘要。
+    parsed = _require_local_topic(workspace, topic)
+    evidence = fs_topic_to_detail_read(parsed)
+
+    verdict = validate_call(c, pid, evidence)
+    update_topic_index(
+        workspace, topic, content_root=_content_root_name(workspace), **verdict.fields
+    )
+    commit = c.fs_write_commit(
+        pid,
+        FsWriteCommitRequest(
+            token=verdict.token,
+            slug=topic,
+            action=verdict.action,
+            applied_fields=verdict.fields,
+        ),
+    )
+    return {
+        "action": commit.action,
+        "slug": commit.slug,
+        "fields": verdict.fields,
+        "committed": commit.accepted,
+        "flow": f"{action_name}: validate → local write-back → commit",
+        "topic": verdict.topic.model_dump(mode="json"),
+    }
+
+
+def _run_validated_write(
+    *,
+    action_name: str,
+    topic: str,
+    project: uuid.UUID | None,
+    project_key: str | None,
+    validate_call,
+) -> None:
+    """``map fs advance-round|close`` 入口：包一层 client 构造与输出渲染。"""
+    from cli.main import _resolve_project, _run
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        return validated_write_flow(
+            c, pid=pid, action_name=action_name, topic=topic, validate_call=validate_call
+        )
+
+    _run(action)
 
 
 @fs_app.command("advance-round")
@@ -293,18 +455,25 @@ def fs_advance_round(
     waive_reason: str | None = typer.Option(None, "--waive-reason"),
     mark_ready: bool = typer.Option(False, "--mark-ready"),
 ) -> None:
-    """推进轮次（服务端校验 ack 满员后写回 index.md）。"""
+    """推进轮次：server 校验 ack 满员 → 本地写回 index.md → commit 审计。"""
     from map_types.schemas.fs import FsAdvanceRoundRequest
 
-    from cli.main import _resolve_project, _run
+    def validate_call(c: MAPClient, pid: uuid.UUID, evidence):
+        payload = FsAdvanceRoundRequest(
+            waive_ack=waive_ack,
+            waive_reason=waive_reason,
+            mark_ready=mark_ready,
+            evidence=evidence,
+        )
+        return c.fs_validate_advance_round(pid, topic, payload)
 
-    payload = FsAdvanceRoundRequest(waive_ack=waive_ack, waive_reason=waive_reason, mark_ready=mark_ready)
-
-    def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
-        return c.fs_advance_round(pid, topic, payload)
-
-    _run(action)
+    _run_validated_write(
+        action_name="advance-round",
+        topic=topic,
+        project=project,
+        project_key=project_key,
+        validate_call=validate_call,
+    )
 
 
 @fs_app.command("close")
@@ -315,18 +484,76 @@ def fs_close(
     reason: str | None = typer.Option(None, "--reason"),
     note: str | None = typer.Option(None, "--note"),
 ) -> None:
-    """关闭话题（服务端校验后写回 index.md status=closed）。"""
+    """关闭话题：server 校验 → 本地写回 index.md status=closed → commit 审计。"""
     from map_types.schemas.fs import FsCloseRequest
+
+    def validate_call(c: MAPClient, pid: uuid.UUID, evidence):
+        payload = FsCloseRequest(
+            close_reason=reason, close_note=note, evidence=evidence
+        )
+        return c.fs_validate_close(pid, topic, payload)
+
+    _run_validated_write(
+        action_name="close",
+        topic=topic,
+        project=project,
+        project_key=project_key,
+        validate_call=validate_call,
+    )
+
+
+@fs_app.command("push")
+def fs_push(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """上行 FS plane 投影到 server（远程/容器部署的读侧回退源，幂等覆盖）。
+
+    server 直接读 workspace 不可达时，列表合并 / work 待办 / Web UI 渲染
+    回退到该投影。写完 round 文件或推进轮次后建议重新 push。
+    """
+    from map_types.schemas.fs import FsProjectionPushRequest
 
     from cli.main import _resolve_project, _run
 
-    payload = FsCloseRequest(close_reason=reason, close_note=note)
+    workspace = _workspace()
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
-        return c.fs_close_topic(pid, topic, payload)
+        from map_fs import scan_plane
+
+        plane = scan_plane(workspace, _content_root_name(workspace))
+        meta = c.fs_push_projection(
+            _resolve_project(c, project, project_key),
+            FsProjectionPushRequest(
+                client_workspace=str(workspace),
+                topics=[fs_topic_to_detail_read(t) for t in plane.topics],
+                experiments=[
+                    # FsExperiment dataclass 与 schema 字段一致，直接构造
+                    _experiment_read(e) for e in plane.experiments
+                ],
+            ),
+        )
+        return meta.model_dump(mode="json")
 
     _run(action)
+
+
+def _experiment_read(e: Any) -> Any:
+    from map_types.schemas.fs import FsExperimentRead
+
+    return FsExperimentRead(
+        id=e.id,
+        slug=e.slug,
+        title=e.title,
+        description=e.description,
+        phase=e.phase,
+        creator=e.creator,
+        created_at=e.created_at,
+        dir_path=e.dir_path,
+        plan_path=e.plan_path,
+        log_path=e.log_path,
+        review_path=e.review_path,
+    )
 
 
 # ---------------------------------------------------------------------------

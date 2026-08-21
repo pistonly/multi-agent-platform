@@ -1,8 +1,13 @@
 """fs plane API：对 map/ 文件夹事实源的实时解析与验证型写。
 
-- **读**端点每次请求重新扫描文件系统，不经过内容 DB。
-- **写**端点只保留带验证/互斥语义的小面（advance-round / close），
-  校验通过后写回 index.md；发言本身 = Agent 写一个 .md 文件，零 API。
+- **读**端点每次请求重新扫描文件系统（同机部署）；workspace 不可达时
+  回退到 ``map fs push`` 上行的投影缓存，不经过内容 DB。
+- **验证型写**拆成两段：``/validate`` 校验权限与 ack 完整性并签发 HMAC
+  token + 应写回 fields；CLI 本地写回 index.md 后凭 ``/write-commit``
+  审计 + 刷投影缓存。旧的服务端直接写回端点保留（同机部署 / Web UI）。
+- ``GET /fs/status`` 是部署矩阵探测握手：local-fs / projection-cache /
+  detached 三态显式可见，杜绝静默降级。
+- 发言本身 = Agent 写一个 .md 文件，零 API。
 """
 
 from __future__ import annotations
@@ -10,6 +15,14 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from map_types.schemas.fs import (
+    FsPlaneStatusRead,
+    FsProjectionMetaRead,
+    FsProjectionPushRequest,
+    FsWriteCommitRequest,
+    FsWriteCommitResponse,
+    FsWriteVerdictRead,
+)
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
@@ -26,6 +39,7 @@ from server.domain.schemas import (
     FsWorkItemRead,
 )
 from server.services import fs_source_service as fs_svc
+from server.services import fs_write_token
 from server.services import permissions as perm
 
 fs_router = APIRouter(tags=["fs"], dependencies=[Depends(bind_background_tasks)])
@@ -40,6 +54,76 @@ def _project(db: Session, agent: Agent, project_id: uuid.UUID) -> Project:
     return project
 
 
+def _plane_unavailable_http(err: fs_svc.FsPlaneUnavailableError) -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        {"error": "fs_plane_unavailable", "detail": str(err)},
+    )
+
+
+# ---------------------------------------------------------------------------
+# 部署矩阵探测握手 + 投影缓存
+# ---------------------------------------------------------------------------
+
+
+@fs_router.get("/projects/{project_id}/fs/status", response_model=FsPlaneStatusRead)
+def get_fs_plane_status(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsPlaneStatusRead:
+    """workspace 可达性握手：local-fs / projection-cache / detached。"""
+    project = _project(db, agent, project_id)
+    return fs_svc.fs_plane_status(db, project)
+
+
+@fs_router.get(
+    "/projects/{project_id}/fs/projection",
+    response_model=FsProjectionMetaRead | None,
+)
+def get_fs_projection_meta(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsProjectionMetaRead | None:
+    project = _project(db, agent, project_id)
+    return fs_svc.projection_meta(db, project)
+
+
+@fs_router.put("/projects/{project_id}/fs/projection", response_model=FsProjectionMetaRead)
+def push_fs_projection(
+    project_id: uuid.UUID,
+    payload: FsProjectionPushRequest,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsProjectionMetaRead:
+    """``map fs push``：上行 FS plane 投影快照（幂等覆盖）。"""
+    project = _project(db, agent, project_id)
+    try:
+        meta = fs_svc.upsert_fs_projection(db, project, agent, payload)
+    except fs_svc.FsProjectionTooLargeError as err:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(err)) from err
+    emit(
+        db,
+        agent,
+        action="fs.projection_push",
+        target_type="project",
+        target_id=project.id,
+        project_id=project.id,
+        summary=(
+            f"[fs] 投影上行：{meta.topic_count} topic(s), "
+            f"{meta.experiment_count} experiment(s)"
+        ),
+        notify=False,
+    )
+    return meta
+
+
+# ---------------------------------------------------------------------------
+# 读端点
+# ---------------------------------------------------------------------------
+
+
 @fs_router.get("/projects/{project_id}/fs/topics", response_model=list[FsTopicSummaryRead])
 def list_fs_topics(
     project_id: uuid.UUID,
@@ -47,7 +131,7 @@ def list_fs_topics(
     agent: Agent = Depends(get_current_agent),
 ) -> list[FsTopicSummaryRead]:
     project = _project(db, agent, project_id)
-    return [fs_svc.fs_topic_summary(t) for t in fs_svc.plane_for_project(project).topics]
+    return [fs_svc.fs_topic_summary(v) for v in fs_svc.plane_views(db, project)]
 
 
 @fs_router.get("/projects/{project_id}/fs/topics/{slug}", response_model=FsTopicDetailRead)
@@ -58,10 +142,10 @@ def get_fs_topic(
     agent: Agent = Depends(get_current_agent),
 ) -> FsTopicDetailRead:
     project = _project(db, agent, project_id)
-    try:
-        return fs_svc.fs_topic_detail(fs_svc.fs_topic_or_raise(project, slug))
-    except fs_svc.FsTopicNotFoundError as err:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(err)) from err
+    for view in fs_svc.plane_views(db, project):
+        if view.slug == slug:
+            return fs_svc.fs_topic_detail(view)
+    raise HTTPException(status.HTTP_404_NOT_FOUND, f"fs topic not found: {slug}")
 
 
 @fs_router.get("/projects/{project_id}/fs/experiments", response_model=list[FsExperimentRead])
@@ -71,7 +155,7 @@ def list_fs_experiments(
     agent: Agent = Depends(get_current_agent),
 ) -> list[FsExperimentRead]:
     project = _project(db, agent, project_id)
-    return fs_svc.fs_experiment_read(fs_svc.plane_for_project(project))
+    return fs_svc.fs_experiments_view(db, project)
 
 
 @fs_router.get("/projects/{project_id}/fs/work", response_model=list[FsWorkItemRead])
@@ -84,6 +168,230 @@ def fs_work(
     """从文件推导某 persona 的协作待办（waker 可轮询此端点）。"""
     project = _project(db, agent, project_id)
     return fs_svc.fs_work_items(project, persona)
+
+
+# ---------------------------------------------------------------------------
+# 验证型写（新）：validate → CLI 本地写回 → commit
+# ---------------------------------------------------------------------------
+
+
+def _sign_verdict(
+    *,
+    action: str,
+    project: Project,
+    view: object,
+    fields: dict[str, str],
+    evidence: FsTopicDetailRead | None,
+) -> FsWriteVerdictRead:
+    summary = fs_svc.fs_topic_summary(view)  # type: ignore[arg-type]
+    evidence_json = evidence.model_dump_json() if evidence is not None else None
+    token, expires_at = fs_write_token.sign_write_token(
+        action=action,
+        project_id=str(project.id),
+        slug=summary.slug,
+        fields=fields,
+        evidence_sha256=fs_write_token.evidence_digest(evidence_json),
+    )
+    return FsWriteVerdictRead(
+        action=action,
+        allowed=True,
+        slug=summary.slug,
+        fields=fields,
+        token=token,
+        expires_at=expires_at,
+        topic=summary,
+    )
+
+
+def _validate_error_http(exc: Exception) -> HTTPException:
+    if isinstance(exc, fs_svc.FsTopicNotFoundError):
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    if isinstance(exc, fs_svc.FsAckPendingError):
+        return HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": "round_ack_pending", "missing": exc.missing},
+        )
+    if isinstance(exc, fs_svc.FsStateError):
+        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    if isinstance(exc, fs_svc.FsPlaneUnavailableError):
+        return _plane_unavailable_http(exc)
+    return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+
+
+@fs_router.post(
+    "/projects/{project_id}/fs/topics/{slug}/advance-round/validate",
+    response_model=FsWriteVerdictRead,
+)
+def fs_advance_round_validate(
+    project_id: uuid.UUID,
+    slug: str,
+    payload: FsAdvanceRoundRequest | None = None,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsWriteVerdictRead:
+    """校验推进轮次，返回应写回的 fields + commit token（不写文件）。"""
+    project = _project(db, agent, project_id)
+    body = payload or FsAdvanceRoundRequest()
+    try:
+        view, fields = fs_svc.validate_fs_advance_round(
+            db,
+            project,
+            slug,
+            agent,
+            waive_ack=body.waive_ack,
+            mark_ready=body.mark_ready,
+            waive_reason=body.waive_reason,
+            evidence=body.evidence,
+        )
+    except fs_svc.FsPlaneUnavailableError as err:
+        raise _plane_unavailable_http(err) from err
+    except fs_svc.FsTopicNotFoundError as err:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(err)) from err
+    except fs_svc.FsAckPendingError as err:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"error": "round_ack_pending", "missing": err.missing},
+        ) from err
+    except fs_svc.FsStateError as err:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(err)) from err
+    return _sign_verdict(
+        action="advance-round", project=project, view=view, fields=fields,
+        evidence=body.evidence,
+    )
+
+
+@fs_router.post(
+    "/projects/{project_id}/fs/topics/{slug}/close/validate",
+    response_model=FsWriteVerdictRead,
+)
+def fs_close_validate(
+    project_id: uuid.UUID,
+    slug: str,
+    payload: FsCloseRequest | None = None,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsWriteVerdictRead:
+    """校验关闭话题，返回应写回的 fields + commit token（不写文件）。"""
+    project = _project(db, agent, project_id)
+    body = payload or FsCloseRequest()
+    try:
+        view, fields = fs_svc.validate_fs_close(
+            db,
+            project,
+            slug,
+            agent,
+            close_reason=body.close_reason,
+            close_note=body.close_note,
+            evidence=body.evidence,
+        )
+    except Exception as err:  # noqa: BLE001 — 统一映射
+        raise _validate_error_http(err) from err
+    return _sign_verdict(
+        action="close", project=project, view=view, fields=fields,
+        evidence=body.evidence,
+    )
+
+
+_COMMIT_EVENT = {
+    "advance-round": (
+        "topic.advance_round",
+        "topic.round_advanced",
+        "[fs] 推进话题轮次至 {round}（{slug}）",
+    ),
+    "close": (
+        "topic.closed",
+        "topic.lifecycle.closed",
+        "[fs] 关闭话题 {slug}",
+    ),
+}
+
+
+@fs_router.post("/projects/{project_id}/fs/write-commit", response_model=FsWriteCommitResponse)
+def fs_write_commit(
+    project_id: uuid.UUID,
+    payload: FsWriteCommitRequest,
+    db: Session = Depends(get_db),
+    agent: Agent = Depends(get_current_agent),
+) -> FsWriteCommitResponse:
+    """CLI 本地写回完成后的 commit：验 token → 审计 + 通知 + 刷投影缓存。"""
+    if payload.action not in _COMMIT_EVENT:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"action must be one of {sorted(_COMMIT_EVENT)}, got '{payload.action}'",
+        )
+    project = _project(db, agent, project_id)
+    try:
+        token_payload = fs_write_token.verify_write_token(
+            payload.token,
+            action=payload.action,
+            project_id=str(project.id),
+            slug=payload.slug,
+        )
+    except fs_write_token.FsWriteTokenError as err:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            {"error": "fs_write_token_invalid", "detail": str(err)},
+        ) from err
+
+    fields: dict[str, str] = {
+        str(k): str(v) for k, v in (token_payload.get("fields") or {}).items()
+    }
+
+    # applied_fields 与签发 fields 不一致 → 客户端写歪了，拒绝审计。
+    if payload.applied_fields and payload.applied_fields != fields:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "error": "fs_write_fields_mismatch",
+                "expected": fields,
+                "applied": payload.applied_fields,
+            },
+        )
+
+    # 同机部署可复核：index.md 应已带上写回字段（远程模式跳过，凭 token）。
+    if fs_svc.workspace_fs_available(project):
+        try:
+            current = fs_svc.fs_topic_or_raise(project, payload.slug)
+        except fs_svc.FsTopicNotFoundError as err:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(err)) from err
+        mismatches = [
+            key
+            for key in ("round", "status")
+            if key in fields and str(getattr(current, key, None)) != str(fields[key])
+        ]
+        if mismatches:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {
+                    "error": "fs_write_not_applied",
+                    "detail": f"index.md 未写回字段: {', '.join(sorted(set(mismatches)))}",
+                },
+            )
+
+    fs_svc.apply_fields_to_projection(db, project, payload.slug, fields)
+
+    audit_action, event, summary_tpl = _COMMIT_EVENT[payload.action]
+    emit(
+        db,
+        agent,
+        action=audit_action,
+        target_type="topic",
+        target_id=fs_svc.topic_id_for_slug(payload.slug),
+        project_id=project.id,
+        summary=summary_tpl.format(round=fields.get("round", "?"), slug=payload.slug),
+        event=event,
+        event_payload={
+            "topic_slug": payload.slug,
+            "fields": fields,
+            "source": "fs-commit",
+        },
+    )
+    return FsWriteCommitResponse(accepted=True, action=payload.action, slug=payload.slug)
+
+
+# ---------------------------------------------------------------------------
+# 验证型写（旧，服务端直接写回）：同机部署 / Web UI
+# ---------------------------------------------------------------------------
 
 
 @fs_router.post(
@@ -108,6 +416,8 @@ def fs_advance_round(
             mark_ready=body.mark_ready,
             waive_reason=body.waive_reason,
         )
+    except fs_svc.FsPlaneUnavailableError as err:
+        raise _plane_unavailable_http(err) from err
     except fs_svc.FsTopicNotFoundError as err:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(err)) from err
     except fs_svc.FsAckPendingError as err:
@@ -156,6 +466,8 @@ def fs_close_topic(
         summary = fs_svc.close_fs_topic(
             project, slug, agent, close_reason=body.close_reason, close_note=body.close_note
         )
+    except fs_svc.FsPlaneUnavailableError as err:
+        raise _plane_unavailable_http(err) from err
     except fs_svc.FsTopicNotFoundError as err:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(err)) from err
     except fs_svc.FsStateError as err:

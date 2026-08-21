@@ -2,6 +2,19 @@
 
 > 内容主权归 Agent + 本地文件系统。当前两级：**FS 事实源**（`map/` 文件夹，平台只解析）为推荐路径；**文件引用模式**（`--file-path`，平台存路径元数据）用于存量 DB 话题/实验。发布长内容前读本文件。
 
+## 部署形态与 FS plane 可达性（先确认你在哪种形态）
+
+`map fs status`（或 bootstrap 末尾的握手提示）会给出三态判定：
+
+| 形态 | 判定 | 读路径（列表/work/Web） | 验证型写（advance/close） |
+|------|------|------------------------|---------------------------|
+| **同机部署** | `mode=local-fs`（server 直接读 workspace） | 实时解析 `map/` | validate → 本地写回 → commit（CLI 默认；server 写回端点保留给 Web UI） |
+| **Docker 同路径挂载** | `mode=local-fs`（用 `docker-compose.fs.yml`） | 同上 | 同上 |
+| **远程 / 容器（推荐配 push）** | `mode=projection-cache`（有 `map fs push` 缓存） | 回退投影缓存 | validate（带 evidence）→ 本地写回 → commit；commit 顺带刷投影 |
+| **detached（既不可达又无投影）** | `mode=detached` | FS 话题对 server 不可见（显式警告，非静默） | validate 直接 409 + 修复指引 |
+
+远程形态操作顺序：**写完文件 / 推进轮次后执行 `map fs push`** 刷新投影（waker 的 work 待办与 Web 列表由此更新）。
+
 ## FS 事实源（推荐，新范式）
 
 话题 = `map/topics/<slug>/` 文件夹，发言 = 直接写 `round<N>-<persona>.md`（每轮每人一个文件，默认 immutable）。日常入口是 `map topic`；`map fs` 只是同约定的离线封装：
@@ -12,8 +25,10 @@
 | 发言 | `map topic comment --id <slug> --file ./opinion.md` | 写 `map/topics/<slug>/round<N>-<persona>.md`，不调 API |
 | 查看 | `map topic list` / `map topic show --id <slug>` | list 合并本地 map/ + API 存量；show 优先读本地文件夹 |
 | 我的待办 | `map work`（离线可用 `map fs work --persona <name>`） | 文件存在性推导（无我的文件 = pending） |
-| 推进轮次 | `map topic advance-round --id <slug>` | 验证型写：API 校验 host + ack 后写回 index.md |
+| 推进轮次 | `map topic advance-round --id <slug>` | 验证型写：API 校验 host + ack 后由 CLI 写回 index.md（commit 审计） |
 | 关闭话题 | `map topic close --id <slug> --reason ...` | 同上 |
+| 投影上行 | `map fs push` | 远程部署：把 map/ 解析快照推给 server（读路径回退源，幂等） |
+| 可达性握手 | `map fs status` | 本地 plane 概览 + server 三态（local-fs / projection-cache / detached） |
 
 - 实验：`map/experiments/<slug>/{plan,log,review}.md`（迁移命令 `map fs migrate-from-docs`）
 - 内容根目录由 `.map/config.yaml` 的 `content_root` 配置（默认 `map`）

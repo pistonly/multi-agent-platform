@@ -467,9 +467,11 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("agent", "register"),
     ("e2e", "run"),
     ("host", "invoke"),
-    # fs plane 验证型写（走 API，服务端写回 index.md）
+    # fs plane 验证型写（validate → 本地写回 → commit，走 API）
     ("fs", "advance-round"),
     ("fs", "close"),
+    # fs plane 投影上行（PUT /fs/projection，幂等覆盖 server 侧缓存）
+    ("fs", "push"),
     # M52C：token 自助轮换（服务端改写 agent.api_token_hash，旧 token 立即失效）
     ("auth", "reissue"),
 }

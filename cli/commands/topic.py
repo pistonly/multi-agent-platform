@@ -119,38 +119,9 @@ def _fs_topic_to_summary(topic: Any, project_id: uuid.UUID) -> Any:
 
 
 def _fs_topic_to_detail(topic: Any) -> Any:
-    from map_types.schemas.fs import FsCommentRead, FsTopicDetailRead
+    from cli.commands.fs import fs_topic_to_detail_read
 
-    return FsTopicDetailRead(
-        id=topic.id,
-        slug=topic.slug,
-        title=topic.title,
-        description=topic.description,
-        status=topic.status,
-        discussion_round=topic.round,
-        creator=topic.creator,
-        comment_count=len(topic.comments),
-        participants=topic.participants,
-        created_at=topic.created_at,
-        updated_at=topic.updated_at,
-        dir_path=topic.dir_path,
-        comments=[
-            FsCommentRead(
-                id=c.id,
-                topic_slug=c.topic_slug,
-                round=c.round,
-                author=c.author,
-                kind=c.kind,
-                is_round_summary=c.is_round_summary,
-                excerpt=c.excerpt,
-                content=c.content,
-                file_path=c.file_path,
-                posted_at=c.posted_at,
-                comment_seq=c.comment_seq,
-            )
-            for c in topic.comments
-        ],
-    )
+    return fs_topic_to_detail_read(topic)
 
 
 def _scan_local_fs_summaries(project_id: uuid.UUID) -> list[Any]:
@@ -689,12 +660,26 @@ def topic_advance_round(
                 raise typer.Exit(2)
             from map_types.schemas.fs import FsAdvanceRoundRequest
 
-            return c.fs_advance_round(
-                _resolve_project(c, None, None),
-                target,
-                FsAdvanceRoundRequest(
-                    waive_ack=waive_ack, waive_reason=waive_reason, mark_ready=mark_ready
-                ),
+            from cli.commands.fs import validated_write_flow
+
+            def validate_call(client: MAPClient, pid: uuid.UUID, evidence):
+                return client.fs_validate_advance_round(
+                    pid,
+                    target,
+                    FsAdvanceRoundRequest(
+                        waive_ack=waive_ack,
+                        waive_reason=waive_reason,
+                        mark_ready=mark_ready,
+                        evidence=evidence,
+                    ),
+                )
+
+            return validated_write_flow(
+                c,
+                pid=_resolve_project(c, None, None),
+                action_name="advance-round",
+                topic=target,
+                validate_call=validate_call,
             )
         _db_write_retired("advance-round", str(target))
 
@@ -857,10 +842,21 @@ def topic_close(
         if kind == "fs":
             from map_types.schemas.fs import FsCloseRequest
 
-            return c.fs_close_topic(
-                _resolve_project(c, None, None),
-                target,
-                FsCloseRequest(close_reason=reason, close_note=note),
+            from cli.commands.fs import validated_write_flow
+
+            def validate_call(client: MAPClient, pid: uuid.UUID, evidence):
+                return client.fs_validate_close(
+                    pid,
+                    target,
+                    FsCloseRequest(close_reason=reason, close_note=note, evidence=evidence),
+                )
+
+            return validated_write_flow(
+                c,
+                pid=_resolve_project(c, None, None),
+                action_name="close",
+                topic=target,
+                validate_call=validate_call,
             )
         _db_write_retired("close", str(target))
 

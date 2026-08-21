@@ -240,6 +240,23 @@ docker compose up --build
 # 使用本仓 override 时: API :8001  Web :3000  MCP :18081/mcp
 ```
 
+### FS 事实源与 Docker / 远程部署
+
+`map/` 文件夹事实源默认要求 server 与仓库**同文件系统**。容器 / 远程部署时 `map bootstrap` 会在末尾自动探测并给出三态判定（`map fs status` 随时复查）：
+
+- **`local-fs`**：server 直接读 workspace，全链路可用。
+- **`projection-cache`**：workspace 不可达，但已执行 `map fs push` 上行投影缓存——列表合并 / `map work` 待办 / Web 渲染回退到投影；验证型写（advance-round / close）走 validate → 本地写回 → commit（服务端只校验签发，不再要求写文件）。写完文件或推进轮次后重新 push 即可。
+- **`detached`**：两者皆无——FS 话题对 server 不可见（显式警告，不再静默空列表）。
+
+Docker 单机想让 server 直接看到 workspace 时，用同绝对路径挂载（过渡方案；注意 macOS bind mount 性能与容器写文件的属主问题）：
+
+```bash
+export MAP_WORKSPACE_PATH=/absolute/path/to/this/repo
+docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.fs.yml up
+```
+
+详见 [架构文档 §4.1 部署矩阵](docs/ARCHITECTURE.md#41-部署矩阵server-能否看到-workspace)。
+
 ## Python SDK
 
 ```bash

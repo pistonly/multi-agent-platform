@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # never makes "rotate the key" ambiguous.
     webhook_secret_encryption_key: str | None = None
 
+    # FS 验证型写（validate → 本地写回 → commit）的 HMAC 签名密钥。
+    # 解析顺序：本配置 > webhook_secret_encryption_key > 进程级随机密钥。
+    # 单进程部署（uvicorn 默认 / SQLite）validate 与 commit 同进程，随机
+    # 回退即可工作；多 worker（Postgres + --workers N）必须显式设置，
+    # 否则跨进程签发的 commit token 无法验证。
+    fs_write_token_secret: str | None = None
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

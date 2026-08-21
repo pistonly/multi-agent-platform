@@ -66,11 +66,16 @@ class FsExperimentRead(BaseModel):
 
 
 class FsAdvanceRoundRequest(BaseModel):
-    """验证型写：推进轮次（服务端校验 ack 后写回 index.md）。"""
+    """验证型写：推进轮次（服务端校验 ack 后写回 index.md）。
+
+    远程/容器部署（server 看不到 workspace）时携带 ``evidence``——客户端
+    本地解析的话题快照，server 据此校验 ack 完整性并签发写回 verdict。
+    """
 
     waive_ack: bool = False
     waive_reason: str | None = Field(default=None, max_length=1024)
     mark_ready: bool = False
+    evidence: "FsTopicDetailRead | None" = None
 
 
 class FsCloseRequest(BaseModel):
@@ -78,6 +83,7 @@ class FsCloseRequest(BaseModel):
 
     close_reason: str | None = Field(default=None, max_length=256)
     close_note: str | None = None
+    evidence: "FsTopicDetailRead | None" = None
 
 
 class FsWorkItemRead(BaseModel):
@@ -88,3 +94,89 @@ class FsWorkItemRead(BaseModel):
     title: str
     round: int
     detail: str
+
+
+# ---------------------------------------------------------------------------
+# 部署矩阵显式化：workspace 可达性握手
+# ---------------------------------------------------------------------------
+
+
+class FsPlaneStatusRead(BaseModel):
+    """server 视角的 FS plane 可达状态（部署矩阵探测握手）。
+
+    - ``local-fs``：server 能直接读 ``<workspace>/<content_root>/``（同机部署
+      或容器内同路径挂载），实时解析 + 服务端写回均可用。
+    - ``projection-cache``：workspace 不可达，但存在 ``map fs push`` 上行的
+      投影缓存——读路径回退到缓存，验证型写走 validate → 本地写回 → commit。
+    - ``detached``：两者皆无，FS plane 对 server 不可见（读写链路均断，
+      ``hint`` 给出修复指引）。
+    """
+
+    workspace_path: str
+    content_root: str
+    workspace_exists: bool
+    content_root_exists: bool
+    mode: str
+    projection_pushed_at: datetime | None = None
+    hint: str = ""
+
+
+class FsWriteVerdictRead(BaseModel):
+    """验证型写（validate 阶段）判定结果。
+
+    ``allowed=True`` 时 ``fields`` 是 CLI 应本地写回 index.md 的 front-matter
+    字段；``token`` 是 server 签发的短时 HMAC 凭证，本地写回完成后凭它
+    commit（审计 + 通知 + 投影缓存刷新）。防伪造 verdict，不防恶意客户端
+    （本地文件主权本就在 Agent 侧）。
+    """
+
+    action: str  # advance-round | close
+    allowed: bool = True
+    slug: str
+    fields: dict[str, str] = Field(default_factory=dict)
+    token: str
+    expires_at: datetime
+    topic: FsTopicSummaryRead
+
+
+class FsWriteCommitRequest(BaseModel):
+    """本地写回完成后的 commit 请求（凭 validate 签发的 token）。"""
+
+    token: str
+    slug: str
+    action: str = Field(description="advance-round | close（与 validate 的 action 一致）")
+    applied_fields: dict[str, str] = Field(
+        default_factory=dict,
+        description="客户端实际写回的字段（与 verdict.fields 比对，不一致时 409）",
+    )
+
+
+class FsWriteCommitResponse(BaseModel):
+    accepted: bool = True
+    action: str
+    slug: str
+
+
+class FsProjectionPushRequest(BaseModel):
+    """``map fs push`` 上行的 FS plane 投影（远程/容器部署的读侧回退源）。
+
+    内容主权仍在本地文件：这里只是 server 侧的只读投影缓存，push 幂等
+    覆盖。``topics`` 携带评论元数据与正文（供 Web UI / work 投影离线渲染）。
+    """
+
+    client_workspace: str = Field(description="推送端本地 workspace 绝对路径（审计用）")
+    topics: list[FsTopicDetailRead] = Field(default_factory=list)
+    experiments: list[FsExperimentRead] = Field(default_factory=list)
+    pushed_at: datetime | None = Field(
+        default=None, description="缺省由 server 盖当前时间戳"
+    )
+
+
+class FsProjectionMetaRead(BaseModel):
+    """投影缓存元信息（不含正文，供 status / UI 展示）。"""
+
+    pushed_at: datetime
+    pushed_by_agent_id: uuid.UUID | None = None
+    client_workspace: str
+    topic_count: int
+    experiment_count: int

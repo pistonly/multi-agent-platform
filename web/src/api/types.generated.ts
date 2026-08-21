@@ -147,6 +147,22 @@ export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
 export type TopicCommentKind = "user" | "system";
 export type TopicCommentKind1 = "user" | "system";
 
+export interface A2ATaskListRead {
+  tasks?: A2ATaskRead[];
+  total?: number;
+  protocol: string;
+}
+/**
+ * A2A Task 投影条目：MAP 话题轮次 / 实验生命周期 → Task。
+ */
+export interface A2ATaskRead {
+  id: string;
+  kind: string;
+  name: string;
+  status: string;
+  map_ref: string;
+  updated_at?: string | null;
+}
 export interface AcceptanceStatusRead {
   id: string;
   description: string;
@@ -200,6 +216,28 @@ export interface ActionItemWakeSentPayload {
   first_open_at: string;
   elapsed_since_first_open_seconds: number;
   triggered_by?: string;
+}
+export interface AgentCardListRead {
+  items?: AgentCardRead[];
+  total?: number;
+  protocol: string;
+}
+export interface AgentCardRead {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  skills?: AgentCardSkillRead[];
+  capabilities?: string[];
+  protocol: string;
+  project_id?: string | null;
+}
+/**
+ * 卡片 skills 条目：id + name 最小对（评审建议 2）。
+ */
+export interface AgentCardSkillRead {
+  id: string;
+  name: string;
 }
 /**
  * Body for ``POST /api/v1/agents`` (cleanup experiment f12a5638 P2 #5).
@@ -786,6 +824,7 @@ export interface ExperimentLogRead {
   author_agent_id: string;
   summary: string;
   content_md: string;
+  file_path?: string | null;
   metadata_json: {
     [k: string]: unknown;
   } | null;
@@ -835,7 +874,8 @@ export interface ExperimentLockStalledScanRead {
 }
 export interface ExperimentLogCreate {
   summary: string;
-  content_md: string;
+  content_md?: string | null;
+  file_path?: string | null;
   metadata?: {
     [k: string]: unknown;
   } | null;
@@ -885,6 +925,188 @@ export interface ExperimentUpdate {
   title?: string | null;
   description?: string | null;
   archived?: boolean | null;
+}
+/**
+ * 验证型写：推进轮次（服务端校验 ack 后写回 index.md）。
+ *
+ * 远程/容器部署（server 看不到 workspace）时携带 ``evidence``——客户端
+ * 本地解析的话题快照，server 据此校验 ack 完整性并签发写回 verdict。
+ */
+export interface FsAdvanceRoundRequest {
+  waive_ack?: boolean;
+  waive_reason?: string | null;
+  mark_ready?: boolean;
+  evidence?: FsTopicDetailRead | null;
+}
+export interface FsTopicDetailRead {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  status?: string;
+  discussion_round?: string;
+  creator: string;
+  comment_count?: number;
+  participants?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  dir_path: string;
+  comments?: FsCommentRead[];
+}
+/**
+ * 一条评论 = map/topics/<slug>/round<N>-<persona>.md。
+ */
+export interface FsCommentRead {
+  id: string;
+  topic_slug: string;
+  round: number;
+  author: string;
+  kind?: string;
+  is_round_summary?: boolean;
+  excerpt?: string;
+  content?: string;
+  file_path: string;
+  posted_at?: string | null;
+  comment_seq: number;
+}
+/**
+ * 验证型写：关闭话题（写回 index.md 的 status/close_reason）。
+ */
+export interface FsCloseRequest {
+  close_reason?: string | null;
+  close_note?: string | null;
+  evidence?: FsTopicDetailRead | null;
+}
+/**
+ * 一个实验内容包 = map/experiments/<slug>/ 文件夹。
+ */
+export interface FsExperimentRead {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  phase?: string;
+  creator: string;
+  created_at?: string | null;
+  dir_path: string;
+  plan_path?: string | null;
+  log_path?: string | null;
+  review_path?: string | null;
+}
+/**
+ * server 视角的 FS plane 可达状态（部署矩阵探测握手）。
+ *
+ * - ``local-fs``：server 能直接读 ``<workspace>/<content_root>/``（同机部署
+ *   或容器内同路径挂载），实时解析 + 服务端写回均可用。
+ * - ``projection-cache``：workspace 不可达，但存在 ``map fs push`` 上行的
+ *   投影缓存——读路径回退到缓存，验证型写走 validate → 本地写回 → commit。
+ * - ``detached``：两者皆无，FS plane 对 server 不可见（读写链路均断，
+ *   ``hint`` 给出修复指引）。
+ */
+export interface FsPlaneStatusRead {
+  workspace_path: string;
+  content_root: string;
+  workspace_exists: boolean;
+  content_root_exists: boolean;
+  mode: string;
+  projection_pushed_at?: string | null;
+  hint?: string;
+}
+/**
+ * 投影缓存元信息（不含正文，供 status / UI 展示）。
+ */
+export interface FsProjectionMetaRead {
+  pushed_at: string;
+  pushed_by_agent_id?: string | null;
+  client_workspace: string;
+  topic_count: number;
+  experiment_count: number;
+}
+/**
+ * ``map fs push`` 上行的 FS plane 投影（远程/容器部署的读侧回退源）。
+ *
+ * 内容主权仍在本地文件：这里只是 server 侧的只读投影缓存，push 幂等
+ * 覆盖。``topics`` 携带评论元数据与正文（供 Web UI / work 投影离线渲染）。
+ */
+export interface FsProjectionPushRequest {
+  /**
+   * 推送端本地 workspace 绝对路径（审计用）
+   */
+  client_workspace: string;
+  topics?: FsTopicDetailRead[];
+  experiments?: FsExperimentRead[];
+  /**
+   * 缺省由 server 盖当前时间戳
+   */
+  pushed_at?: string | null;
+}
+/**
+ * 一个话题 = map/topics/<slug>/ 文件夹（index.md + 评论文件）。
+ */
+export interface FsTopicSummaryRead {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  status?: string;
+  discussion_round?: string;
+  creator: string;
+  comment_count?: number;
+  participants?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  dir_path: string;
+}
+/**
+ * 从文件推导的协作待办（waker / CLI 共用的纯函数产物）。
+ */
+export interface FsWorkItemRead {
+  kind: string;
+  topic_slug: string;
+  title: string;
+  round: number;
+  detail: string;
+}
+/**
+ * 本地写回完成后的 commit 请求（凭 validate 签发的 token）。
+ */
+export interface FsWriteCommitRequest {
+  token: string;
+  slug: string;
+  /**
+   * advance-round | close（与 validate 的 action 一致）
+   */
+  action: string;
+  /**
+   * 客户端实际写回的字段（与 verdict.fields 比对，不一致时 409）
+   */
+  applied_fields?: {
+    [k: string]: string;
+  };
+}
+export interface FsWriteCommitResponse {
+  accepted?: boolean;
+  action: string;
+  slug: string;
+}
+/**
+ * 验证型写（validate 阶段）判定结果。
+ *
+ * ``allowed=True`` 时 ``fields`` 是 CLI 应本地写回 index.md 的 front-matter
+ * 字段；``token`` 是 server 签发的短时 HMAC 凭证，本地写回完成后凭它
+ * commit（审计 + 通知 + 投影缓存刷新）。防伪造 verdict，不防恶意客户端
+ * （本地文件主权本就在 Agent 侧）。
+ */
+export interface FsWriteVerdictRead {
+  action: string;
+  allowed?: boolean;
+  slug: string;
+  fields?: {
+    [k: string]: string;
+  };
+  token: string;
+  expires_at: string;
+  topic: FsTopicSummaryRead;
 }
 export interface GlobalStatusRead {
   total_experiments_by_phase: {
@@ -971,6 +1193,8 @@ export interface LogCreateResponse {
   validation: EvidenceValidationSchema;
   similarity_warning?: SimilarityWarningSchema | null;
   force_skip?: boolean;
+  similarity_skipped?: string | null;
+  summary_repeat_hint?: string | null;
 }
 /**
  * Soft warning fired when the new log body is too similar to a
@@ -1072,6 +1296,26 @@ export interface ReviewCreate {
 }
 export interface ReviewItemUpdate {
   status: ReviewItemStatus;
+}
+/**
+ * Body for ``POST /api/v1/bootstrap/reissue`` — reissue one agent token.
+ *
+ * Trust model mirrors ``POST /bootstrap``: the ``project_key`` acts as
+ * the self-service proof of project ownership (it is committed in
+ * ``.map/config.yaml``). Reissuing immediately revokes the previous
+ * token, so a lost ``.map/agents.local.yaml`` is recoverable.
+ */
+export interface TokenReissueRequest {
+  project_key: string;
+  agent_name: string;
+}
+export interface TokenReissueResponse {
+  agent_id: string;
+  agent_name: string;
+  project_key: string;
+  api_token: string;
+  previous_token_revoked?: boolean;
+  reissued_at: string;
 }
 export interface TopicActionItemCreate {
   title: string;

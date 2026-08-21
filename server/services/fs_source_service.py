@@ -1,11 +1,16 @@
-"""map/ 文件夹事实源：实时解析桥接层。
+"""map/ 文件夹事实源：实时解析桥接层 + 部署矩阵适配。
 
 职责边界：
 
-- **读**：实时解析 ``<workspace>/<content_root>/``，产出 FS plane；并转换为
-  DB 兼容的 ``TopicSummaryRead`` / ``TopicRead``，供主读路径（/topics）合并。
-- **验证型写**：advance-round / close 在服务端校验（host 权限 + ack 完整性）
-  后**写回 index.md**——平台不存内容，只改事实源文件的 front-matter。
+- **读**：优先实时解析 ``<workspace>/<content_root>/``（同机部署）；workspace
+  不可达（Docker / 远程 server）时回退到 ``map fs push`` 上行的投影缓存，
+  产出统一的 ``_TopicView`` 供主读路径（/topics 合并、/agents/me/work）使用。
+- **可达性**：``fs_plane_status`` 显式暴露 local-fs / projection-cache /
+  detached 三态，杜绝"扫不到目录静默返回空"的隐性降级。
+- **验证型写**：拆成 validate（校验 host 权限 + ack 完整性，签发 HMAC
+  token 与应写回的 fields）与 commit（凭 token 审计 + 刷投影缓存）两段；
+  CLI 在本地写回 index.md。server 侧直接写回的旧路径保留，供同机部署
+  与 Web UI 使用。
 - persona 名字 → Agent 的映射仅用于填充 DB 兼容 schema 的 agent id 字段
   （名字查不到时用 uuid5 合成稳定 id），不参与权限判断；FS 写权限只认
   creator 名字或 admin。
@@ -13,22 +18,30 @@
 
 from __future__ import annotations
 
+import json
+import re
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from map_fs import (
+    FsComment,
     FsPlane,
     FsTopic,
     FsWorkItem,
     derive_work,
     scan_plane,
+    topic_id_for_slug,
     update_topic_index,
 )
 from map_types.enums import TopicCommentKind, TopicStatus
 from map_types.schemas.fs import (
     FsCommentRead,
     FsExperimentRead,
+    FsPlaneStatusRead,
+    FsProjectionMetaRead,
+    FsProjectionPushRequest,
     FsTopicDetailRead,
     FsTopicSummaryRead,
     FsWorkItemRead,
@@ -37,7 +50,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.config import get_settings
-from server.domain.models import Agent, Project
+from server.domain.models import Agent, FsProjection, Project
 from server.domain.schemas import (
     TopicCommentTreeNode,
     TopicProgressItemRead,
@@ -49,6 +62,12 @@ from server.services.errors import ForbiddenError
 from server.services.notification_service import PERSONA_AGENT_NAMES
 
 _PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
+_ROUND_STR_RE = re.compile(r"^round(\d+)$")
+
+# 投影缓存上限：超限 413（payload 是 JSON 快照，超过该量级说明 push 用法
+# 变形——应当按项目拆分或改走 Git，而不是把 server 当内容仓库）。
+_PROJECTION_MAX_TOPICS = 2000
+_PROJECTION_MAX_BYTES = 8 * 1024 * 1024
 
 
 class FsTopicNotFoundError(Exception):
@@ -67,8 +86,16 @@ class FsStateError(Exception):
     """话题当前状态不允许该操作（如已关闭再推进）。"""
 
 
+class FsPlaneUnavailableError(Exception):
+    """server 看不到 workspace 且无投影缓存/evidence 可用。
+
+    部署矩阵显式化的一部分：旧实现里这表现为"静默空列表"或 404，现在
+    抛出带修复指引的错误（挂载 workspace / map fs push / 携带 evidence）。
+    """
+
+
 # ---------------------------------------------------------------------------
-# 基础：workspace / plane
+# 基础：workspace / plane / 可达性
 # ---------------------------------------------------------------------------
 
 
@@ -78,6 +105,218 @@ def content_root_name() -> str:
 
 def plane_for_project(project: Project) -> FsPlane:
     return scan_plane(Path(project.workspace_path), content_root_name())
+
+
+def workspace_fs_available(project: Project) -> bool:
+    """server 能否直接读到该 project 的内容根目录。"""
+    return (Path(project.workspace_path) / content_root_name()).is_dir()
+
+
+def get_fs_projection(db: Session, project: Project) -> FsProjection | None:
+    return db.scalar(
+        select(FsProjection).where(FsProjection.project_id == project.id)
+    )
+
+
+def projection_payload_topics(row: FsProjection | None) -> list[FsTopicDetailRead]:
+    if row is None:
+        return []
+    payload = row.payload_json or {}
+    try:
+        return [FsTopicDetailRead.model_validate(t) for t in payload.get("topics", [])]
+    except Exception:
+        return []  # 脏快照按空处理；下一次 push 覆盖修复
+
+
+def fs_plane_status(db: Session, project: Project) -> FsPlaneStatusRead:
+    """部署矩阵探测握手：local-fs / projection-cache / detached 三态。"""
+    workspace = Path(project.workspace_path)
+    workspace_exists = workspace.is_dir()
+    content_root_exists = workspace_fs_available(project)
+    row = get_fs_projection(db, project)
+    if content_root_exists:
+        mode = "local-fs"
+        hint = ""
+    elif row is not None:
+        mode = "projection-cache"
+        hint = (
+            "workspace 不可达，读路径回退到 map fs push 的投影缓存；"
+            "验证型写走 validate → 本地写回 → commit。写文件后建议重新 push。"
+        )
+    else:
+        mode = "detached"
+        hint = (
+            "server 看不到 workspace（远程/容器部署），FS plane 对 server 不可见："
+            "map/ 话题不会出现在列表与 work 待办中。修复：1) 同机运行 server；"
+            "2) docker compose -f docker-compose.yml -f docker-compose.fs.yml 挂载 "
+            "workspace；3) 远程部署执行 `map fs push` 上行投影缓存。"
+        )
+    return FsPlaneStatusRead(
+        workspace_path=project.workspace_path,
+        content_root=content_root_name(),
+        workspace_exists=workspace_exists,
+        content_root_exists=content_root_exists,
+        mode=mode,
+        projection_pushed_at=row.pushed_at if row is not None else None,
+        hint=hint,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 统一话题视图：scan 与 projection 两个来源归一到同一形态
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _CommentView:
+    id: uuid.UUID
+    round: int
+    author: str
+    kind: str
+    is_round_summary: bool
+    excerpt: str
+    content: str
+    file_path: str
+    posted_at: datetime | None
+    comment_seq: int
+
+
+@dataclass
+class _TopicView:
+    slug: str
+    id: uuid.UUID
+    title: str
+    description: str
+    status: str
+    round: str  # roundN | ready
+    round_number: int
+    creator: str
+    created_at: datetime | None
+    updated_at: datetime | None
+    dir_path: str
+    participants: list[str] = field(default_factory=list)
+    comments: list[_CommentView] = field(default_factory=list)
+
+    def authors_in_round(self, round_number: int) -> set[str]:
+        return {c.author for c in self.comments if c.round == round_number}
+
+
+def _round_number_of(round_str: str, comments: list[_CommentView]) -> int:
+    match = _ROUND_STR_RE.match(round_str)
+    if match:
+        return int(match.group(1))
+    return max((c.round for c in comments), default=1)
+
+
+def _view_from_fs_topic(topic: FsTopic) -> _TopicView:
+    return _TopicView(
+        slug=topic.slug,
+        id=topic.id,
+        title=topic.title,
+        description=topic.description,
+        status=topic.status,
+        round=topic.round,
+        round_number=topic.round_number,
+        creator=topic.creator,
+        created_at=topic.created_at,
+        updated_at=topic.updated_at,
+        dir_path=topic.dir_path,
+        participants=list(topic.participants),
+        comments=[
+            _CommentView(
+                id=c.id,
+                round=c.round,
+                author=c.author,
+                kind=c.kind,
+                is_round_summary=c.is_round_summary,
+                excerpt=c.excerpt,
+                content=c.content,
+                file_path=c.file_path,
+                posted_at=c.posted_at,
+                comment_seq=c.comment_seq,
+            )
+            for c in topic.comments
+        ],
+    )
+
+
+def _view_from_projection(detail: FsTopicDetailRead) -> _TopicView:
+    comments = [
+        _CommentView(
+            id=c.id,
+            round=c.round,
+            author=c.author,
+            kind=c.kind,
+            is_round_summary=c.is_round_summary,
+            excerpt=c.excerpt,
+            content=c.content,
+            file_path=c.file_path,
+            posted_at=c.posted_at,
+            comment_seq=c.comment_seq,
+        )
+        for c in detail.comments
+    ]
+    return _TopicView(
+        slug=detail.slug,
+        id=detail.id,
+        title=detail.title,
+        description=detail.description,
+        status=detail.status,
+        round=detail.discussion_round,
+        round_number=_round_number_of(detail.discussion_round, comments),
+        creator=detail.creator,
+        created_at=detail.created_at,
+        updated_at=detail.updated_at,
+        dir_path=detail.dir_path,
+        participants=list(detail.participants),
+        comments=comments,
+    )
+
+
+def _view_as_fs_topic(view: _TopicView) -> FsTopic:
+    """视图 → parser FsTopic（复用 derive_work 纯函数）。
+
+    declared_participants 取非 creator 的白名单成员：FsTopic.participants =
+    creator ∪ declared ∪ speakers，与视图的 participants 列表等价。
+    """
+    return FsTopic(
+        slug=view.slug,
+        id=view.id,
+        title=view.title,
+        description=view.description,
+        status=view.status,
+        round=view.round,
+        round_number=view.round_number,
+        creator=view.creator,
+        created_at=view.created_at,
+        updated_at=view.updated_at,
+        dir_path=view.dir_path,
+        comments=[
+            FsComment(
+                id=c.id,
+                topic_slug=view.slug,
+                round=c.round,
+                author=c.author,
+                kind=c.kind,
+                is_round_summary=c.is_round_summary,
+                excerpt=c.excerpt,
+                content=c.content,
+                file_path=c.file_path,
+                posted_at=c.posted_at,
+                comment_seq=c.comment_seq,
+            )
+            for c in view.comments
+        ],
+        declared_participants=[p for p in view.participants if p != view.creator],
+    )
+
+
+def plane_views(db: Session, project: Project) -> list[_TopicView]:
+    """读路径统一入口：本地实时解析优先，投影缓存回退。"""
+    if workspace_fs_available(project):
+        return [_view_from_fs_topic(t) for t in plane_for_project(project).topics]
+    row = get_fs_projection(db, project)
+    return [_view_from_projection(d) for d in projection_payload_topics(row)]
 
 
 def fs_topic_or_raise(project: Project, slug: str) -> FsTopic:
@@ -93,30 +332,30 @@ def fs_topic_or_raise(project: Project, slug: str) -> FsTopic:
 # ---------------------------------------------------------------------------
 
 
-def fs_topic_summary(topic: FsTopic) -> FsTopicSummaryRead:
+def fs_topic_summary(view: _TopicView) -> FsTopicSummaryRead:
     return FsTopicSummaryRead(
-        id=topic.id,
-        slug=topic.slug,
-        title=topic.title,
-        description=topic.description,
-        status=topic.status,
-        discussion_round=topic.round,
-        creator=topic.creator,
-        comment_count=len(topic.comments),
-        participants=topic.participants,
-        created_at=topic.created_at,
-        updated_at=topic.updated_at,
-        dir_path=topic.dir_path,
+        id=view.id,
+        slug=view.slug,
+        title=view.title,
+        description=view.description,
+        status=view.status,
+        discussion_round=view.round,
+        creator=view.creator,
+        comment_count=len(view.comments),
+        participants=view.participants,
+        created_at=view.created_at,
+        updated_at=view.updated_at,
+        dir_path=view.dir_path,
     )
 
 
-def fs_topic_detail(topic: FsTopic) -> FsTopicDetailRead:
+def fs_topic_detail(view: _TopicView) -> FsTopicDetailRead:
     return FsTopicDetailRead(
-        **fs_topic_summary(topic).model_dump(),
+        **fs_topic_summary(view).model_dump(),
         comments=[
             FsCommentRead(
                 id=c.id,
-                topic_slug=c.topic_slug,
+                topic_slug=view.slug,
                 round=c.round,
                 author=c.author,
                 kind=c.kind,
@@ -127,7 +366,7 @@ def fs_topic_detail(topic: FsTopic) -> FsTopicDetailRead:
                 posted_at=c.posted_at,
                 comment_seq=c.comment_seq,
             )
-            for c in topic.comments
+            for c in view.comments
         ],
     )
 
@@ -151,6 +390,20 @@ def fs_experiment_read(plane: FsPlane) -> list[FsExperimentRead]:
     ]
 
 
+def fs_experiments_view(db: Session, project: Project) -> list[FsExperimentRead]:
+    """实验列表读：本地解析优先，投影缓存回退（与话题读一致）。"""
+    if workspace_fs_available(project):
+        return fs_experiment_read(plane_for_project(project))
+    row = get_fs_projection(db, project)
+    if row is None:
+        return []
+    payload = row.payload_json or {}
+    try:
+        return [FsExperimentRead.model_validate(e) for e in payload.get("experiments", [])]
+    except Exception:
+        return []
+
+
 def fs_work_items(project: Project, persona: str) -> list[FsWorkItemRead]:
     plane = plane_for_project(project)
     items: list[FsWorkItem] = []
@@ -160,6 +413,91 @@ def fs_work_items(project: Project, persona: str) -> list[FsWorkItemRead]:
         FsWorkItemRead(kind=i.kind, topic_slug=i.topic_slug, title=i.title, round=i.round, detail=i.detail)
         for i in items
     ]
+
+
+# ---------------------------------------------------------------------------
+# 投影缓存：map fs push 上行 / commit 顺带刷新
+# ---------------------------------------------------------------------------
+
+
+class FsProjectionTooLargeError(Exception):
+    """投影快照超限（把它当内容仓库用了）。"""
+
+
+def upsert_fs_projection(
+    db: Session, project: Project, agent: Agent, payload: FsProjectionPushRequest
+) -> FsProjectionMetaRead:
+    if len(payload.topics) > _PROJECTION_MAX_TOPICS:
+        raise FsProjectionTooLargeError(
+            f"projection too large: {len(payload.topics)} topics (max {_PROJECTION_MAX_TOPICS})"
+        )
+    body = payload.model_dump(mode="json")
+    if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > _PROJECTION_MAX_BYTES:
+        raise FsProjectionTooLargeError(
+            f"projection too large: payload exceeds {_PROJECTION_MAX_BYTES} bytes"
+        )
+
+    row = get_fs_projection(db, project)
+    if row is None:
+        row = FsProjection(project_id=project.id, client_workspace=payload.client_workspace)
+        db.add(row)
+    row.pushed_by_agent_id = agent.id
+    row.client_workspace = payload.client_workspace
+    row.payload_json = body
+    row.pushed_at = payload.pushed_at or datetime.now(timezone.utc)
+    db.flush()
+    return _projection_meta(row)
+
+
+def _projection_meta(row: FsProjection) -> FsProjectionMetaRead:
+    payload = row.payload_json or {}
+    return FsProjectionMetaRead(
+        pushed_at=row.pushed_at,
+        pushed_by_agent_id=row.pushed_by_agent_id,
+        client_workspace=row.client_workspace,
+        topic_count=len(payload.get("topics", [])),
+        experiment_count=len(payload.get("experiments", [])),
+    )
+
+
+def projection_meta(db: Session, project: Project) -> FsProjectionMetaRead | None:
+    row = get_fs_projection(db, project)
+    return _projection_meta(row) if row is not None else None
+
+
+def apply_fields_to_projection(
+    db: Session, project: Project, slug: str, fields: dict[str, str]
+) -> None:
+    """commit 后把写回字段应用到投影快照（远程模式下保持读视图新鲜）。
+
+    本地可达时投影不是读源，跳过即可；快照无该话题也静默跳过（下次
+    push 全量修复）。
+    """
+    if workspace_fs_available(project):
+        return
+    row = get_fs_projection(db, project)
+    if row is None:
+        return
+    # 独立副本：不能就地改 ORM 缓存的 dict——否则新旧值内容相等，
+    # SQLAlchemy 会把变更历史剪空，UPDATE 根本不会发出。
+    payload = json.loads(json.dumps(row.payload_json or {}, ensure_ascii=False))
+    changed = False
+    for topic in payload.get("topics", []):
+        if topic.get("slug") != slug:
+            continue
+        if "round" in fields:
+            topic["discussion_round"] = fields["round"]
+        if "status" in fields:
+            topic["status"] = fields["status"]
+        if "close_reason" in fields:
+            topic["close_reason"] = fields["close_reason"]
+        if "waive_reason" in fields:
+            topic["waive_reason"] = fields["waive_reason"]
+        changed = True
+        break
+    if changed:
+        row.payload_json = payload
+        db.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +529,9 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
     FS 待办由此进入统一 work 快照，无需 waker 侧第二套规则。
     清理语义与 DB 路径一致：写 round<N>-<persona>.md 文件即清除
     pending_topic_reply；host 推进轮次即清除 round_ack。
+
+    远程部署：读源回退到投影缓存（plane_views），语义不变、新鲜度取决于
+    最后一次 ``map fs push``。
     """
     if agent.project_id is None:
         return []
@@ -201,38 +542,38 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
     agents_by_name = _agents_by_name(db)
     now = datetime.now(timezone.utc)
     results: list[TopicProgressItemRead] = []
-    for topic in plane_for_project(project).topics:
-        if topic.status != "open":
+    for view in plane_views(db, project):
+        if view.status != "open":
             continue
-        derived = derive_work(topic, persona)
+        derived = derive_work(_view_as_fs_topic(view), persona)
         if not derived:
             continue
-        last = topic.comments[-1] if topic.comments else None
-        mine = [c for c in topic.comments if c.author == persona]
+        last = view.comments[-1] if view.comments else None
+        mine = [c for c in view.comments if c.author == persona]
         my_last = mine[-1] if mine else None
         work_items = [
             TopicWorkItemRead(
                 kind=_FS_KIND_MAP[d.kind][0],
                 priority="obligation",
-                topic_id=topic.id,
-                topic_title=topic.title,
+                topic_id=view.id,
+                topic_title=view.title,
                 source_comment_id=None,
                 thread_root_id=None,
                 required_agent_id=agent.id,
                 reason="fs_file_missing",
-                idempotency_key=f"fs:{_FS_KIND_MAP[d.kind][0]}:{topic.slug}:round{d.round}",
+                idempotency_key=f"fs:{_FS_KIND_MAP[d.kind][0]}:{view.slug}:round{d.round}",
                 clear_action=_FS_KIND_MAP[d.kind][1],
                 excerpt=d.detail,
-                created_at=topic.updated_at or now,
-                discussion_round=topic.round,
+                created_at=view.updated_at or now,
+                discussion_round=view.round,
             )
             for d in derived
         ]
         results.append(
             TopicProgressItemRead(
-                topic_id=topic.id,
-                topic_title=topic.title,
-                discussion_round=topic.round,
+                topic_id=view.id,
+                topic_title=view.title,
+                discussion_round=view.round,
                 last_comment_author_agent_id=(
                     _agent_id_for(last.author, agents_by_name) if last is not None else None
                 ),
@@ -264,26 +605,25 @@ def _agent_id_for(name: str, agents: dict[str, Agent]) -> uuid.UUID:
 
 
 def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRead]:
-    plane = plane_for_project(project)
     agents = _agents_by_name(db)
     results: list[TopicSummaryRead] = []
-    for topic in plane.topics:
-        last = topic.comments[-1] if topic.comments else None
+    for view in plane_views(db, project):
+        last = view.comments[-1] if view.comments else None
         now = datetime.now(timezone.utc)
         results.append(
             TopicSummaryRead(
-                id=topic.id,
+                id=view.id,
                 project_id=project.id,
-                creator_agent_id=_agent_id_for(topic.creator, agents),
-                creator_name=topic.creator,
-                title=topic.title,
-                description=topic.description,
-                slug=topic.slug,
-                status=TopicStatus(topic.status),
+                creator_agent_id=_agent_id_for(view.creator, agents),
+                creator_name=view.creator,
+                title=view.title,
+                description=view.description,
+                slug=view.slug,
+                status=TopicStatus(view.status),
                 pinned=False,
-                discussion_round=topic.round,
-                round_summary_count=sum(1 for c in topic.comments if c.is_round_summary),
-                comment_count=len(topic.comments),
+                discussion_round=view.round,
+                round_summary_count=sum(1 for c in view.comments if c.is_round_summary),
+                comment_count=len(view.comments),
                 experiment_count=0,
                 last_comment_id=last.id if last is not None else None,
                 last_comment_author_agent_id=_agent_id_for(last.author, agents) if last is not None else None,
@@ -292,8 +632,8 @@ def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRe
                 my_comment_count=None,
                 dismissed_at=None,
                 stale_since=None,
-                created_at=topic.created_at or topic.updated_at or now,
-                updated_at=topic.updated_at or now,
+                created_at=view.created_at or view.updated_at or now,
+                updated_at=view.updated_at or now,
                 archived_at=None,
                 close_reason=None,
                 close_note=None,
@@ -302,16 +642,41 @@ def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRe
     return results
 
 
-def fs_topic_as_detail(db: Session, project: Project, topic: FsTopic) -> TopicRead:
+def fs_topic_as_detail(db: Session, project: Project, view: _TopicView) -> TopicRead:
     agents = _agents_by_name(db)
     now = datetime.now(timezone.utc)
-    summary = next(
-        t for t in fs_topics_as_summaries(db, project) if t.id == topic.id
+    last = view.comments[-1] if view.comments else None
+    summary = TopicSummaryRead(
+        id=view.id,
+        project_id=project.id,
+        creator_agent_id=_agent_id_for(view.creator, agents),
+        creator_name=view.creator,
+        title=view.title,
+        description=view.description,
+        slug=view.slug,
+        status=TopicStatus(view.status),
+        pinned=False,
+        discussion_round=view.round,
+        round_summary_count=sum(1 for c in view.comments if c.is_round_summary),
+        comment_count=len(view.comments),
+        experiment_count=0,
+        last_comment_id=last.id if last is not None else None,
+        last_comment_author_agent_id=_agent_id_for(last.author, agents) if last is not None else None,
+        last_comment_author_name=last.author if last is not None else None,
+        last_comment_excerpt=last.excerpt if last is not None else None,
+        my_comment_count=None,
+        dismissed_at=None,
+        stale_since=None,
+        created_at=view.created_at or view.updated_at or now,
+        updated_at=view.updated_at or now,
+        archived_at=None,
+        close_reason=None,
+        close_note=None,
     )
     comments = [
         TopicCommentTreeNode(
             id=c.id,
-            topic_id=topic.id,
+            topic_id=view.id,
             author_agent_id=_agent_id_for(c.author, agents),
             author_name=c.author,
             parent_comment_id=None,
@@ -325,36 +690,127 @@ def fs_topic_as_detail(db: Session, project: Project, topic: FsTopic) -> TopicRe
             excerpt=c.excerpt,
             children=[],
         )
-        for c in topic.comments
+        for c in view.comments
     ]
     return TopicRead(**summary.model_dump(), comments=comments)
 
 
 def find_fs_topic_by_id(
     db: Session, topic_id: uuid.UUID
-) -> tuple[Project, FsTopic] | None:
-    """跨项目实时解析，按确定性 id 定位 FS topic；未命中返回 None。"""
+) -> tuple[Project, _TopicView] | None:
+    """跨项目定位 FS topic（本地解析优先，投影缓存回退）。
+
+    workspace 不可达且无投影的 project 直接跳过——旧行为是对每个 project
+    全量 scan（目录不存在时静默空扫），多项目注册到同一远程 server 时这
+    既是性能坑也是语义坑。
+    """
     for project in db.scalars(select(Project)).all():
-        plane = plane_for_project(project)
-        for topic in plane.topics:
-            if topic.id == topic_id:
-                return project, topic
+        if not workspace_fs_available(project) and get_fs_projection(db, project) is None:
+            continue
+        for view in plane_views(db, project):
+            if view.id == topic_id:
+                return project, view
     return None
 
 
 # ---------------------------------------------------------------------------
-# 验证型写：校验后写回 index.md
+# 验证型写：validate（校验 + 签发）→ CLI 本地写回 → commit（审计）
 # ---------------------------------------------------------------------------
 
 
-def _ensure_fs_host(agent: Agent, topic: FsTopic) -> None:
+def _ensure_fs_host(agent: Agent, creator: str) -> None:
     # index.md 里 creator 存的是 persona 短名（host），而 bootstrap persona
     # agent 的 name 是 multi-agent-platform-host——先经 persona_short_name
     # 归一到同一侧再比对，否则真正的 host 会被自己的话题挡在门外（403）。
-    if persona_short_name(agent) != topic.creator and agent.role != "admin":
+    if persona_short_name(agent) != creator and agent.role != "admin":
         raise ForbiddenError(
-            f"Only the fs topic creator ({topic.creator}) or admin can modify it"
+            f"Only the fs topic creator ({creator}) or admin can modify it"
         )
+
+
+def _topic_view_for_validation(
+    db: Session,
+    project: Project,
+    slug: str,
+    evidence: FsTopicDetailRead | None,
+) -> _TopicView:
+    """校验用话题视图：本地实时解析 > 客户端 evidence > 投影缓存。
+
+    远程模式下 evidence 是客户端声明的本地事实——server 无法独立核实，
+    token 会绑定该证据摘要；这层校验的价值是流程门禁（对诚实 Agent），
+    不是对抗恶意客户端（本地文件主权本就在 Agent 侧）。
+    """
+    if workspace_fs_available(project):
+        topic = plane_for_project(project).topic_by_slug(slug)
+        if topic is None:
+            raise FsTopicNotFoundError(f"fs topic not found: {slug}")
+        return _view_from_fs_topic(topic)
+    if evidence is not None and evidence.slug == slug:
+        return _view_from_projection(evidence)
+    row = get_fs_projection(db, project)
+    for detail in projection_payload_topics(row):
+        if detail.slug == slug:
+            return _view_from_projection(detail)
+    raise FsPlaneUnavailableError(
+        f"workspace unreachable and no usable evidence/projection for '{slug}'; "
+        "pass evidence (CLI does this automatically), run `map fs push`, or "
+        "mount the workspace (docker-compose.fs.yml)"
+    )
+
+
+def validate_fs_advance_round(
+    db: Session,
+    project: Project,
+    slug: str,
+    agent: Agent,
+    *,
+    waive_ack: bool = False,
+    mark_ready: bool = False,
+    waive_reason: str | None = None,
+    evidence: FsTopicDetailRead | None = None,
+) -> tuple[_TopicView, dict[str, str]]:
+    """校验推进轮次的前置条件，返回应写回 index.md 的 fields（不写文件）。"""
+    view = _topic_view_for_validation(db, project, slug, evidence)
+    _ensure_fs_host(agent, view.creator)
+    if view.status != "open":
+        raise FsStateError(f"fs topic '{slug}' is {view.status}; only open topics advance")
+
+    if not waive_ack:
+        authors = view.authors_in_round(view.round_number)
+        missing = [p for p in view.participants if p != view.creator and p not in authors]
+        if missing:
+            raise FsAckPendingError(missing)
+
+    fields: dict[str, str] = {
+        "round": "ready" if mark_ready else f"round{view.round_number + 1}"
+    }
+    if waive_ack and waive_reason:
+        fields["waive_reason"] = waive_reason
+    return view, fields
+
+
+def validate_fs_close(
+    db: Session,
+    project: Project,
+    slug: str,
+    agent: Agent,
+    *,
+    close_reason: str | None = None,
+    close_note: str | None = None,
+    evidence: FsTopicDetailRead | None = None,
+) -> tuple[_TopicView, dict[str, str]]:
+    """校验关闭话题的前置条件，返回应写回的 fields（不写文件）。"""
+    view = _topic_view_for_validation(db, project, slug, evidence)
+    _ensure_fs_host(agent, view.creator)
+    if view.status == "closed":
+        raise FsStateError(f"fs topic '{slug}' is already closed")
+
+    fields: dict[str, str] = {"status": "closed"}
+    if close_reason:
+        fields["close_reason"] = close_reason
+    if close_note:
+        fields["close_note"] = close_note
+    return view, fields
 
 
 def advance_fs_round(
@@ -366,26 +822,27 @@ def advance_fs_round(
     mark_ready: bool = False,
     waive_reason: str | None = None,
 ) -> FsTopicSummaryRead:
-    topic = fs_topic_or_raise(project, slug)
-    _ensure_fs_host(agent, topic)
-    if topic.status != "open":
-        raise FsStateError(f"fs topic '{slug}' is {topic.status}; only open topics advance")
-
-    if not waive_ack:
-        authors = topic.authors_in_round(topic.round_number)
-        missing = [p for p in topic.participants if p != topic.creator and p not in authors]
-        if missing:
-            raise FsAckPendingError(missing)
-
-    fields: dict[str, object] = {
-        "round": "ready" if mark_ready else f"round{topic.round_number + 1}"
-    }
-    if waive_ack and waive_reason:
-        fields["waive_reason"] = waive_reason
+    """服务端直接写回（同机部署 / Web UI 路径）；validate + update_index。"""
+    if not workspace_fs_available(project):
+        raise FsPlaneUnavailableError(
+            "server cannot write back: workspace unreachable; use the "
+            "validate → local write-back → commit flow (CLI does this automatically)"
+        )
+    # 服务端写回路径以实时解析为准（无 evidence）。
+    view, fields = validate_fs_advance_round(
+        _NO_DB,
+        project,
+        slug,
+        agent,
+        waive_ack=waive_ack,
+        mark_ready=mark_ready,
+        waive_reason=waive_reason,
+    )
+    _ = view
     update_topic_index(
         Path(project.workspace_path), slug, content_root=content_root_name(), **fields
     )
-    refreshed = fs_topic_or_raise(project, slug)
+    refreshed = _view_from_fs_topic(fs_topic_or_raise(project, slug))
     return fs_topic_summary(refreshed)
 
 
@@ -397,16 +854,72 @@ def close_fs_topic(
     close_reason: str | None = None,
     close_note: str | None = None,
 ) -> FsTopicSummaryRead:
-    topic = fs_topic_or_raise(project, slug)
-    _ensure_fs_host(agent, topic)
-    if topic.status == "closed":
-        raise FsStateError(f"fs topic '{slug}' is already closed")
+    """服务端直接写回（同机部署 / Web UI 路径）；validate + update_index。"""
+    if not workspace_fs_available(project):
+        raise FsPlaneUnavailableError(
+            "server cannot write back: workspace unreachable; use the "
+            "validate → local write-back → commit flow (CLI does this automatically)"
+        )
+    view, fields = validate_fs_close(
+        _NO_DB,
+        project,
+        slug,
+        agent,
+        close_reason=close_reason,
+        close_note=close_note,
+    )
+    _ = view
     update_topic_index(
         Path(project.workspace_path),
         slug,
         content_root=content_root_name(),
-        status="closed",
-        close_reason=close_reason,
-        close_note=close_note,
+        **fields,
     )
-    return fs_topic_summary(fs_topic_or_raise(project, slug))
+    return fs_topic_summary(_view_from_fs_topic(fs_topic_or_raise(project, slug)))
+
+
+class _NullSession:
+    """服务端写回路径不需要投影缓存（workspace 可达），占位 Session。
+
+    ``_topic_view_for_validation`` 只在 workspace 不可达时才查投影，传占位
+    对象即可避免为直接写回路径伪造 DB session。
+    """
+
+    def scalar(self, *_args: object, **_kwargs: object) -> None:  # pragma: no cover
+        return None
+
+
+_NO_DB = _NullSession()  # type: ignore[assignment]
+
+
+__all__ = [
+    "FsAckPendingError",
+    "FsPlaneUnavailableError",
+    "FsProjectionTooLargeError",
+    "FsStateError",
+    "FsTopicNotFoundError",
+    "advance_fs_round",
+    "apply_fields_to_projection",
+    "close_fs_topic",
+    "content_root_name",
+    "find_fs_topic_by_id",
+    "fs_experiment_read",
+    "fs_experiments_view",
+    "fs_plane_status",
+    "fs_topic_as_detail",
+    "fs_topic_detail",
+    "fs_topic_progress_for_agent",
+    "fs_topic_summary",
+    "fs_topics_as_summaries",
+    "fs_work_items",
+    "persona_short_name",
+    "plane_for_project",
+    "plane_views",
+    "projection_meta",
+    "projection_payload_topics",
+    "topic_id_for_slug",
+    "upsert_fs_projection",
+    "validate_fs_advance_round",
+    "validate_fs_close",
+    "workspace_fs_available",
+]

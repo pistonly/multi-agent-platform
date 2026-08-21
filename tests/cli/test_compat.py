@@ -125,6 +125,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "advance-round",
         "close",
         "migrate-from-docs",
+        "status",
+        "push",
     ],
     "docs": ["error-codes"],
     "topic": [

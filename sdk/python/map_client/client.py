@@ -39,9 +39,15 @@ from map_types import (
     FsAdvanceRoundRequest,
     FsCloseRequest,
     FsExperimentRead,
+    FsPlaneStatusRead,
+    FsProjectionMetaRead,
+    FsProjectionPushRequest,
     FsTopicDetailRead,
     FsTopicSummaryRead,
     FsWorkItemRead,
+    FsWriteCommitRequest,
+    FsWriteCommitResponse,
+    FsWriteVerdictRead,
     GlobalStatusRead,
     InboundEventCreate,
     InboundEventRecordResult,
@@ -765,6 +771,66 @@ class MAPClient:
             "POST", f"/projects/{project_id}/fs/topics/{slug}/close", json=body
         )
         return FsTopicSummaryRead.model_validate(data)
+
+    # --- fs plane：部署矩阵握手 / validate+commit / 投影上行 ---
+
+    def fs_plane_status(self, project_id: uuid.UUID) -> FsPlaneStatusRead:
+        """workspace 可达性握手：local-fs / projection-cache / detached。"""
+        return FsPlaneStatusRead.model_validate(
+            self._json("GET", f"/projects/{project_id}/fs/status")
+        )
+
+    def fs_validate_advance_round(
+        self,
+        project_id: uuid.UUID,
+        slug: str,
+        payload: FsAdvanceRoundRequest | None = None,
+    ) -> FsWriteVerdictRead:
+        body = (payload or FsAdvanceRoundRequest()).model_dump(
+            mode="json", exclude_none=True
+        )
+        data = self._json(
+            "POST",
+            f"/projects/{project_id}/fs/topics/{slug}/advance-round/validate",
+            json=body,
+        )
+        return FsWriteVerdictRead.model_validate(data)
+
+    def fs_validate_close(
+        self,
+        project_id: uuid.UUID,
+        slug: str,
+        payload: FsCloseRequest | None = None,
+    ) -> FsWriteVerdictRead:
+        body = (payload or FsCloseRequest()).model_dump(
+            mode="json", exclude_none=True
+        )
+        data = self._json(
+            "POST",
+            f"/projects/{project_id}/fs/topics/{slug}/close/validate",
+            json=body,
+        )
+        return FsWriteVerdictRead.model_validate(data)
+
+    def fs_write_commit(
+        self,
+        project_id: uuid.UUID,
+        payload: FsWriteCommitRequest,
+    ) -> FsWriteCommitResponse:
+        data = self._json(
+            "POST", f"/projects/{project_id}/fs/write-commit", json=payload.model_dump(mode="json")
+        )
+        return FsWriteCommitResponse.model_validate(data)
+
+    def fs_push_projection(
+        self,
+        project_id: uuid.UUID,
+        payload: FsProjectionPushRequest,
+    ) -> FsProjectionMetaRead:
+        data = self._json(
+            "PUT", f"/projects/{project_id}/fs/projection", json=payload.model_dump(mode="json")
+        )
+        return FsProjectionMetaRead.model_validate(data)
 
     def list_topics(
         self,
