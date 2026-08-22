@@ -104,10 +104,37 @@ def test_spa_serves_hashed_assets_and_keeps_asset_404(tmp_path: Path) -> None:
     asset = client.get("/assets/app.js")
     assert asset.status_code == 200
     assert "console.log('ok')" in asset.text
+    # 内容寻址资源应带 immutable 长缓存头
+    assert asset.headers.get("cache-control") == "public, max-age=31536000, immutable"
 
     missing = client.get("/assets/does-not-exist.js")
     assert missing.status_code == 404
     assert "MAP" not in missing.text
+
+
+def test_spa_serves_dist_root_files_without_html_fallback(tmp_path: Path) -> None:
+    dist = _write_spa(tmp_path / "web_dist")
+    (dist / "favicon.ico").write_bytes(b"\x00\x00\x01\x00icon")
+    app = create_app(init_db_on_startup=False, serve_web=True, web_dist=dist)
+    client = TestClient(app)
+
+    favicon = client.get("/favicon.ico")
+    assert favicon.status_code == 200
+    assert favicon.content == b"\x00\x00\x01\x00icon"
+    assert "html" not in favicon.headers["content-type"]
+    assert favicon.headers.get("cache-control") == "no-cache"
+
+
+def test_dist_root_file_lookup_rejects_traversal(tmp_path: Path) -> None:
+    from server.spa import _dist_root_file
+
+    dist = _write_spa(tmp_path / "web_dist")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+
+    assert _dist_root_file(dist, "../secret.txt") is None
+    assert _dist_root_file(dist, "index.html") is not None
+    assert _dist_root_file(dist, "topics/demo") is None
 
 
 def test_serve_web_false_skips_spa(tmp_path: Path) -> None:

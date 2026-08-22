@@ -176,6 +176,16 @@ def create_app(
     settings = get_settings()
     enable_web = settings.serve_web if serve_web is None else serve_web
     dist = resolve_web_dist(web_dist if web_dist is not None else settings.web_dist)
+    if enable_web and dist is None:
+        # 静默降级排查成本高（看板无声消失、只剩 JSON 404）——必须留痕。
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "MAP_SERVE_WEB is enabled but no usable web dist was found "
+            "(MAP_WEB_DIST=%r); starting API-only without the bundled board. "
+            "Run scripts/sync-web-dist.sh or install a wheel built with web_dist.",
+            str(settings.web_dist),
+        )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
