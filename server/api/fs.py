@@ -318,7 +318,7 @@ def fs_advance_round_validate(
     project = _project(db, agent, project_id)
     body = payload or FsAdvanceRoundRequest()
     try:
-        view, fields = fs_svc.validate_fs_advance_round(
+        view, fields, base_revision = fs_svc.validate_fs_advance_round(
             db,
             project,
             slug,
@@ -340,7 +340,7 @@ def fs_advance_round_validate(
         ) from err
     except (fs_svc.FsStateError, ConflictError, ForbiddenError) as err:
         raise _validate_error_http(err) from err
-    base_revision = fs_svc.projection_revision_for_write(db, project)
+    # token 绑定 validate 实际确认的 revision（单次读取，杜绝 TOCTOU 窗口）
     return _sign_verdict(
         action="advance-round", project=project, view=view, fields=fields,
         evidence=body.evidence,
@@ -364,7 +364,7 @@ def fs_close_validate(
     project = _project(db, agent, project_id)
     body = payload or FsCloseRequest()
     try:
-        view, fields = fs_svc.validate_fs_close(
+        view, fields, base_revision = fs_svc.validate_fs_close(
             db,
             project,
             slug,
@@ -376,7 +376,7 @@ def fs_close_validate(
         )
     except Exception as err:  # noqa: BLE001 — 统一映射
         raise _validate_error_http(err) from err
-    base_revision = fs_svc.projection_revision_for_write(db, project)
+    # token 绑定 validate 实际确认的 revision（单次读取，杜绝 TOCTOU 窗口）
     return _sign_verdict(
         action="close", project=project, view=view, fields=fields,
         evidence=body.evidence,

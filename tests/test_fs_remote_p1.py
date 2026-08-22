@@ -421,3 +421,109 @@ def test_experiment_and_work_share_source_revision(client, admin_headers, tmp_pa
     ).json()
     assert listed[0]["source"]["source_revision"] == revision
 
+
+def test_same_content_retry_is_heartbeat_and_heals_stale(
+    client, admin_headers, db_session, tmp_path
+) -> None:
+    """同内容重推 / 空 delta = publisher 心跳：刷新 pushed_at，stale 可自愈。"""
+    ws = tmp_path / "heartbeat-ws"
+    ws.mkdir()
+    _seed_topic(ws)
+    project = _create_project(
+        client, admin_headers, tmp_path / "gone", f"fs-heartbeat-{uuid.uuid4().hex[:6]}",
+        fs_freshness_sla_seconds=60,
+    )
+    _push_plane(client, admin_headers, project["id"], ws)
+
+    from server.domain.models import FsProjection
+
+    pid = uuid.UUID(project["id"])
+    proj = db_session.scalar(select(FsProjection).where(FsProjection.project_id == pid))
+    assert proj is not None
+    proj.pushed_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    db_session.commit()
+    status = client.get(f"/api/v1/projects/{pid}/fs/status", headers=admin_headers).json()
+    assert status["source"]["stale"] is True
+
+    # 同内容重推（内容未变，hash 命中幂等分支）
+    again = _push_plane(client, admin_headers, project["id"], ws)
+    assert again["projection_revision"] == 1  # 心跳不 bump revision
+    status = client.get(f"/api/v1/projects/{pid}/fs/status", headers=admin_headers).json()
+    assert status["source"]["stale"] is False
+
+    # 空 delta 同样是心跳
+    proj.pushed_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    db_session.commit()
+    assert (
+        client.get(f"/api/v1/projects/{pid}/fs/status", headers=admin_headers).json()["source"]["stale"]
+        is True
+    )
+    empty = client.post(
+        f"/api/v1/projects/{pid}/fs/projection/delta",
+        headers=admin_headers,
+        json={
+            "base_revision": 1,
+            "client_workspace": str(ws),
+            "content_root": "map",
+            "result_content_hash": again["content_hash"],
+            "changes": [],
+        },
+    )
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["noop"] is True
+    assert empty.json()["projection_revision"] == 1
+    status = client.get(f"/api/v1/projects/{pid}/fs/status", headers=admin_headers).json()
+    assert status["source"]["stale"] is False
+
+
+def test_legacy_unbound_row_is_adopted_on_same_content_retry(
+    client, admin_headers, db_session, tmp_path
+) -> None:
+    """048 迁移遗留的未绑定行：同内容重推必须落库收养绑定，owner 门禁不再死锁。"""
+    from server.domain.models import FsProjection
+
+    ws = tmp_path / "adopt-ws"
+    ws.mkdir()
+    _seed_topic(ws)
+    project = _create_project(
+        client, admin_headers, tmp_path / "gone", f"fs-adopt-{uuid.uuid4().hex[:6]}"
+    )
+    host_resp = client.post(
+        "/api/v1/agents",
+        headers=admin_headers,
+        json={
+            "name": f"{project['project_key']}-host",
+            "role": "agent",
+            "project_key": project["project_key"],
+        },
+    )
+    host_headers = {"Authorization": f"Bearer {host_resp.json()['api_token']}"}
+    meta = _push_plane(client, host_headers, project["id"], ws)
+    pid = uuid.UUID(project["id"])
+
+    # 模拟 migration 048 遗留：清空绑定
+    proj = db_session.scalar(select(FsProjection).where(FsProjection.project_id == pid))
+    assert proj is not None
+    proj.publisher_agent_id = None
+    proj.owner_agent_id = None
+    db_session.commit()
+
+    # 未修复前：同内容重推被幂等短路，绑定永远不落库 → owner 门禁死锁
+    retry = _push_plane(client, host_headers, project["id"], ws)
+    assert retry["projection_revision"] == meta["projection_revision"]
+    assert retry["publisher_agent_id"] is not None
+    assert retry["owner_agent_id"] is not None
+    inventory = client.get(
+        f"/api/v1/projects/{pid}/fs/projection/inventory", headers=admin_headers
+    ).json()
+    assert inventory["publisher_agent_id"] == retry["publisher_agent_id"]
+
+    # 收养落库后，host 的远程验证型写应通过 owner 门禁（后续校验失败应是
+    # ack pending / state 之类的业务 409，而非 403 no trusted owner）
+    verdict = client.post(
+        f"/api/v1/projects/{pid}/fs/topics/remote-demo/advance-round/validate",
+        headers=host_headers,
+        json={"base_revision": retry["projection_revision"], "waive_ack": True},
+    )
+    assert verdict.status_code == 200, verdict.text
+

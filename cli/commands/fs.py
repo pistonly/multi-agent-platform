@@ -433,8 +433,8 @@ def validated_write_flow(
     from map_types.schemas.fs import FsWriteCommitRequest
 
     workspace = _workspace()
-    # evidence：本地解析快照。同机部署 server 自行扫描（忽略它）；远程部署
-    # server 凭它校验 ack 完整性，token 绑定其摘要。
+    # evidence：本地解析快照（旧客户端兼容字段，远程校验只信已 CAS 发布的
+    # 投影；validate 前的增量 sync 会先把本地变更发布上去并取回 revision）。
     parsed = _require_local_topic(workspace, topic)
     evidence = fs_topic_to_detail_read(parsed)
     index_path = (
@@ -445,8 +445,21 @@ def validated_write_flow(
     plane_status = c.fs_plane_status(pid)
     base_revision: int | None = None
     if plane_status.mode != "local-fs":
-        meta = _push_current_projection(c, pid=pid, workspace=workspace)
-        base_revision = int(meta["projection_revision"])
+        # 增量同步（禁删）：远端独有对象不会被验证型写隐式清掉——全量 PUT
+        # 会静默删除投影中本地缺失的对象，绕过 map fs sync 的 tombstone 门禁。
+        from cli.fs_projection import sync_projection
+
+        result = sync_projection(c, pid=pid, workspace=workspace, allow_deletes=False)
+        if result.get("sync_state") == "skipped-deletes":
+            typer.echo(
+                "Warning: projection sync before validate skipped because remote "
+                "objects would be deleted. Preview with `map fs diff`, then "
+                "`map fs sync --yes`.",
+                err=True,
+            )
+        base_revision = int(
+            result.get("projection_revision") or result["base_revision"]
+        )
 
     verdict = validate_call(c, pid, evidence, base_revision)
     update_topic_index(
@@ -654,29 +667,6 @@ def fs_sync(
         full=full,
         yes=yes,
     )
-
-
-def _push_current_projection(
-    c: MAPClient, *, pid: uuid.UUID, workspace: Path
-) -> dict[str, Any]:
-    """用 server revision 做 CAS，发布当前本地 FS plane。"""
-
-    from map_fs import scan_plane
-    from map_types.schemas.fs import FsProjectionPushRequest, fs_projection_content_hash
-
-    plane = scan_plane(workspace, _content_root_name(workspace))
-    topics = [fs_topic_to_detail_read(t) for t in plane.topics]
-    experiments = [_experiment_read(e) for e in plane.experiments]
-    current = c.fs_projection_meta(pid)
-    payload = FsProjectionPushRequest(
-        client_workspace=str(workspace),
-        content_root=_content_root_name(workspace),
-        base_revision=(current.projection_revision if current is not None else None),
-        content_hash=fs_projection_content_hash(topics, experiments),
-        topics=topics,
-        experiments=experiments,
-    )
-    return c.fs_push_projection(pid, payload).model_dump(mode="json")
 
 
 def _experiment_read(e: Any) -> Any:

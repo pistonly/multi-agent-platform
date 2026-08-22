@@ -595,8 +595,50 @@ def upsert_fs_projection(
             )
 
         # Identical retries are idempotent even if the caller only learned the
-        # successful revision after a transport failure.
+        # successful revision after a transport failure.  They still (a) persist
+        # the adoption binding for pre-P0 legacy rows — otherwise the remote
+        # owner gate stays 403-locked forever because the same-content retry is
+        # short-circuited before the binding is written — and (b) refresh
+        # pushed_at as a publisher heartbeat so the freshness SLA can recover.
         if row.content_hash == computed_hash:
+            if row.publisher_agent_id is None:
+                adopted = db.execute(
+                    update(FsProjection)
+                    .where(
+                        FsProjection.id == row.id,
+                        FsProjection.publisher_agent_id.is_(None),
+                    )
+                    .values(
+                        publisher_agent_id=publisher_agent_id,
+                        owner_agent_id=owner_agent_id,
+                        pushed_by_agent_id=agent.id,
+                        pushed_at=datetime.now(timezone.utc),
+                    )
+                )
+                db.expire(row)
+                db.refresh(row)
+                if adopted.rowcount != 1 and (
+                    row.publisher_agent_id != agent.id and agent.role != AgentRole.admin
+                ):
+                    raise ConflictError(
+                        "FS projection is bound to another single publisher; use that "
+                        "publisher or an admin recovery path"
+                    )
+            else:
+                db.execute(
+                    update(FsProjection)
+                    .where(
+                        FsProjection.id == row.id,
+                        FsProjection.revision == row.revision,
+                        FsProjection.content_hash == computed_hash,
+                    )
+                    .values(
+                        pushed_by_agent_id=agent.id,
+                        pushed_at=datetime.now(timezone.utc),
+                    )
+                )
+                db.expire(row)
+                db.refresh(row)
             return _projection_meta(row)
         if payload.base_revision is None:
             raise ConflictError(
@@ -826,6 +868,23 @@ def apply_fs_projection_delta(
             error="fs_projection_hash_mismatch",
         )
     if not payload.changes or result_hash == row.content_hash:
+        # noop delta = publisher heartbeat：刷新 pushed_at 让 freshness SLA
+        # 可自愈（同内容定期 sync 证明发布端仍活跃），不 bump revision。
+        db.execute(
+            update(FsProjection)
+            .where(
+                FsProjection.id == row.id,
+                FsProjection.revision == row.revision,
+                FsProjection.content_hash == row.content_hash,
+            )
+            .values(
+                pushed_by_agent_id=agent.id,
+                client_workspace=payload.client_workspace,
+                pushed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.expire(row)
+        db.refresh(row)
         meta = _projection_meta(row, project=project)
         return FsProjectionDeltaResult(**meta.model_dump(), applied_changes=0, tombstones=0, noop=True)
     if payload.base_revision != row.revision:
@@ -1254,9 +1313,8 @@ def _topic_view_for_validation(
         if detail.slug == slug:
             return _view_from_projection(detail)
     raise FsPlaneUnavailableError(
-        f"workspace unreachable and no usable evidence/projection for '{slug}'; "
-        "pass evidence (CLI does this automatically), run `map fs push`, or "
-        "mount the workspace (docker-compose.fs.yml)"
+        f"workspace unreachable and no usable projection for '{slug}'; "
+        "run `map fs sync` first, or mount the workspace (docker-compose.fs.yml)"
     )
 
 
@@ -1271,8 +1329,12 @@ def validate_fs_advance_round(
     waive_reason: str | None = None,
     evidence: FsTopicDetailRead | None = None,
     base_revision: int | None = None,
-) -> tuple[_TopicView, dict[str, str]]:
-    """校验推进轮次的前置条件，返回应写回 index.md 的 fields（不写文件）。"""
+) -> tuple[_TopicView, dict[str, str], int]:
+    """校验推进轮次的前置条件，返回应写回 index.md 的 fields（不写文件）。
+
+    第三项为校验时实际确认的投影 revision，供签发 commit token 直接
+    使用——handler 不得二次读取（避免两次读取间的 TOCTOU 窗口）。
+    """
     view = _topic_view_for_validation(db, project, slug, evidence)
     ensure_fs_topic_owner(db, project, agent, view)
     current_revision = projection_revision_for_write(db, project)
@@ -1294,7 +1356,7 @@ def validate_fs_advance_round(
     }
     if waive_ack and waive_reason:
         fields["waive_reason"] = waive_reason
-    return view, fields
+    return view, fields, current_revision
 
 
 def validate_fs_close(
@@ -1307,8 +1369,11 @@ def validate_fs_close(
     close_note: str | None = None,
     evidence: FsTopicDetailRead | None = None,
     base_revision: int | None = None,
-) -> tuple[_TopicView, dict[str, str]]:
-    """校验关闭话题的前置条件，返回应写回的 fields（不写文件）。"""
+) -> tuple[_TopicView, dict[str, str], int]:
+    """校验关闭话题的前置条件，返回应写回的 fields（不写文件）。
+
+    返回值第三项语义同 ``validate_fs_advance_round``。
+    """
     view = _topic_view_for_validation(db, project, slug, evidence)
     ensure_fs_topic_owner(db, project, agent, view)
     current_revision = projection_revision_for_write(db, project)
@@ -1324,7 +1389,7 @@ def validate_fs_close(
         fields["close_reason"] = close_reason
     if close_note:
         fields["close_note"] = close_note
-    return view, fields
+    return view, fields, current_revision
 
 
 def advance_fs_round(
@@ -1343,7 +1408,7 @@ def advance_fs_round(
             "validate → local write-back → commit flow (CLI does this automatically)"
         )
     # 服务端写回路径以实时解析为准（无 evidence）。
-    view, fields = validate_fs_advance_round(
+    _view, fields, _revision = validate_fs_advance_round(
         _NO_DB,
         project,
         slug,
@@ -1352,7 +1417,6 @@ def advance_fs_round(
         mark_ready=mark_ready,
         waive_reason=waive_reason,
     )
-    _ = view
     update_topic_index(
         Path(project.workspace_path), slug, content_root=content_root_name(project), **fields
     )
@@ -1374,7 +1438,7 @@ def close_fs_topic(
             "server cannot write back: workspace unreachable; use the "
             "validate → local write-back → commit flow (CLI does this automatically)"
         )
-    view, fields = validate_fs_close(
+    _view, fields, _revision = validate_fs_close(
         _NO_DB,
         project,
         slug,
@@ -1382,7 +1446,6 @@ def close_fs_topic(
         close_reason=close_reason,
         close_note=close_note,
     )
-    _ = view
     update_topic_index(
         Path(project.workspace_path),
         slug,
