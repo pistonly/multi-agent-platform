@@ -236,6 +236,11 @@ _FAST_GATE_MODULES = frozenset(
         # ~10ms 全量；守住「CI workflow ruff 行不得静默丢掉
         # alembic / test_project（v0.13 F5 盲区复犯防护）」契约。
         "test_lint_gate_coverage",
+        # CLI 启动探测守卫 —— map_fs 缺失（过期 editable 安装）必须在
+        # 第一条命令就 fail-fast（干净 stderr + 恢复命令 + exit 1），
+        # 而非懒加载 import 在 FS 扫描命令深处炸 traceback；
+        # CliRunner + sys.modules 打桩，~50ms 全量。
+        "test_cli_version_flag",
     }
 )
 
