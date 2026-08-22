@@ -581,13 +581,37 @@ def upsert_fs_projection(
         db.flush()
         return _projection_meta(row)
     else:
-        # migration 048 leaves legacy rows unbound.  The first eligible P0
-        # publisher adopts that row without changing its current revision.
         publisher_agent_id = row.publisher_agent_id
         owner_agent_id = row.owner_agent_id
         if publisher_agent_id is None:
-            publisher_agent_id = agent.id
-            owner_agent_id = _projection_owner_for_first_push(db, project, agent).id
+            # migration 048 leaves legacy rows unbound; the first eligible P0
+            # publisher adopts the row in place.  Adoption never requires
+            # base_revision and keeps the current revision: it initialises the
+            # unbound snapshot and persists the owner/publisher binding (which is what
+            # unblocks the owner gate, ensure_fs_topic_owner).  CAS-guarded so
+            # a concurrent adopter wins cleanly.  Doing this idempotently (rather
+            # than falling into the retry short-circuit) is what makes a content-
+            # identical repush of a legacy row succeed on its first try.
+            result = db.execute(
+                update(FsProjection)
+                .where(
+                    FsProjection.id == row.id,
+                    FsProjection.publisher_agent_id.is_(None),
+                )
+                .values(
+                    pushed_by_agent_id=agent.id,
+                    publisher_agent_id=agent.id,
+                    owner_agent_id=_projection_owner_for_first_push(db, project, agent).id,
+                    client_workspace=payload.client_workspace,
+                    payload_json=body,
+                    content_hash=computed_hash,
+                    revision=row.revision,
+                )
+            )
+            if result.rowcount == 1:
+                db.expire(row)
+                db.refresh(row)
+            return _projection_meta(row)
         elif agent.id != row.publisher_agent_id and agent.role != AgentRole.admin:
             raise ConflictError(
                 "FS projection is bound to another single publisher; use that publisher "

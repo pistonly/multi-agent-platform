@@ -421,3 +421,46 @@ def test_experiment_and_work_share_source_revision(client, admin_headers, tmp_pa
     ).json()
     assert listed[0]["source"]["source_revision"] == revision
 
+
+def test_legacy_row_content_identical_push_adopts_owner(
+    client, admin_headers, db_session, tmp_path
+) -> None:
+    """A legacy (unbound) projection row must have owner/publisher persisted even
+    when the repushed content is byte-for-byte identical, so the owner gate
+    (ensure_fs_topic_owner) is not 403-locked forever by an idempotent
+    short-circuit that drops the adoption."""
+    from server.domain.models import FsProjection
+
+    ws = tmp_path / "legacy-ws"
+    ws.mkdir()
+    _seed_topic(ws)
+    project = _create_project(
+        client, admin_headers, tmp_path / "gone", f"fs-legacy-{uuid.uuid4().hex[:6]}"
+    )
+    pid = project["id"]
+
+    _push_plane(client, admin_headers, pid, ws)  # establish a bound row at rev 1
+
+    row = db_session.scalar(
+        select(FsProjection).where(FsProjection.project_id == uuid.UUID(pid))
+    )
+    assert row is not None
+    # Simulate migration 048: legacy rows are unbound and content_hash is NULL.
+    row.publisher_agent_id = None
+    row.owner_agent_id = None
+    row.content_hash = None
+    row.revision = 1
+    db_session.commit()
+    db_session.expire_all()
+
+    # Content-identical repush: adoption must persist without bumping revision.
+    _push_plane(client, admin_headers, pid, ws)
+
+    db_session.expire_all()
+    row = db_session.scalar(
+        select(FsProjection).where(FsProjection.project_id == uuid.UUID(pid))
+    )
+    assert row.owner_agent_id is not None
+    assert row.publisher_agent_id is not None
+    assert row.revision == 1  # adoption keeps the current revision
+
