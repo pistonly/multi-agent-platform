@@ -507,7 +507,12 @@ def _admin_client_ctx() -> Iterator[MAPClient]:
 #       error: {"ok": false, "error": {"error_code", "message", "hint", "retryable"}} to stderr.
 # When --format yaml/table, behavior is unchanged (yaml.safe_dump / table_renderer).
 def _print_json(data: Any) -> None:
-    """Dump data as YAML to stdout (used for yaml/legacy format)."""
+    """Dump data as JSON to stdout (``--format json``)."""
+    typer.echo(json.dumps(_to_jsonable(data), ensure_ascii=False, indent=2))
+
+
+def _print_yaml(data: Any) -> None:
+    """Dump data as YAML to stdout (default / ``--format yaml``)."""
     typer.echo(yaml.safe_dump(_to_yamlable(data), allow_unicode=True, sort_keys=False))
 
 
@@ -801,7 +806,7 @@ def _run(
                     )
                 )
             else:
-                _print_json(result)
+                _print_yaml(result)
     except MAPHTTPError as exc:
         _emit_maphttp_error(exc, experiment_id=experiment_id, output_format=error_format)
         raise typer.Exit(1) from exc

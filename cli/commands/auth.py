@@ -42,18 +42,26 @@ def auth_reissue(
         "--project-root",
         help="Directory containing .map/ (default: current directory).",
     ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="Bearer token for the reissue call (explicit, or falls back to "
+        "MAP_ADMIN_TOKEN, then any surviving token in .map/agents.local.yaml).",
+    ),
 ) -> None:
     """Reissue an agent's API token and write it back to .map/agents.local.yaml.
 
     Recovery path for a lost ``.map/agents.local.yaml``. The previous
     token is revoked immediately (anywhere it was used will start
-    returning 401 until re-reissued). Trust model mirrors
-    ``map bootstrap``: the project_key is the proof of ownership.
+    returning 401 until re-reissued). Authorization requires a valid token:
+    an admin token, or any surviving token of the same project (knowing only
+    the public ``project_key`` is NOT enough — see the security note).
 
     \b
     Examples:
         map auth reissue --key my-project --name my-project-host
-        map auth reissue --name my-project-host          # key from .map/config.yaml
+        map auth reissue --name my-project-host          # from .map/config.yaml
     """
     from cli.main import _cli_options
 
@@ -66,6 +74,7 @@ def auth_reissue(
             project_key=key,
             project_root=Path(root) if root else None,
             api_url=api_url,
+            bearer_token=token,
         )
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)

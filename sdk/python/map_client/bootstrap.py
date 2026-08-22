@@ -152,27 +152,50 @@ def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
+def _surviving_local_tokens(map_dir: Path) -> list[str]:
+    """Any persona tokens left in ``.map/agents.local.yaml`` — usable as auth."""
+    local_path = map_dir / AGENTS_LOCAL_FILE
+    if not local_path.is_file():
+        return []
+    try:
+        data = _read_yaml(local_path)
+    except Exception:
+        return []
+    personas = (data or {}).get("personas") if isinstance(data, dict) else None
+    if not isinstance(personas, dict):
+        return []
+    tokens: list[str] = []
+    for spec in personas.values():
+        if isinstance(spec, dict) and isinstance(spec.get("token"), str) and spec["token"]:
+            tokens.append(spec["token"])
+    return tokens
+
+
 def _public_reissue(
     api_url: str,
     *,
     project_key: str,
     agent_name: str,
+    bearer_token: str | None = None,
     transport: Any = None,
 ) -> TokenReissueResponse | None:
     """Call the self-service ``POST /api/v1/bootstrap/reissue`` endpoint.
 
-    Returns the parsed ``TokenReissueResponse`` on success, or ``None``
-    when the endpoint is missing (server < v0.11). Other errors (404
-    unknown project/agent, 422, 5xx) raise ``MAPHTTPError``.
+    The server requires a valid Bearer token (admin, or an agent of the
+    target project) so a leaked public ``project_key`` cannot take over a
+    persona's token. Returns the parsed ``TokenReissueResponse`` on success,
+    or ``None`` when the endpoint is missing (server < v0.11). Other
+    errors (401/403/404, 422, 5xx) raise ``MAPHTTPError``.
     """
     url = f"{api_url.rstrip('/')}/api/v1/bootstrap/reissue"
+    headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
     try:
         client = httpx.Client(transport=transport, timeout=30.0)
     except Exception:
         return None
     try:
         resp = client.post(
-            url, json={"project_key": project_key, "agent_name": agent_name}
+            url, json={"project_key": project_key, "agent_name": agent_name}, headers=headers
         )
     except Exception:
         return None
@@ -223,14 +246,20 @@ def reissue_map_token(
     project_key: str | None = None,
     project_root: Path | None = None,
     api_url: str | None = None,
+    bearer_token: str | None = None,
     transport: Any = None,
 ) -> ReissueResult:
     """Reissue one agent token and write it back to ``.map/agents.local.yaml``.
 
     Resolution order for the arguments: explicit args → ``.map/config.yaml``
-    → ``MAP_API_URL``. Raises ``ValueError`` when ``.map/`` is not
-    initialized (bootstrap first) or the server predates the reissue
-    endpoint.
+    → ``MAP_API_URL``.
+
+    Authentication for the reissue call is resolved from (in priority):
+    the explicit ``bearer_token`` argument → ``MAP_ADMIN_TOKEN`` env → the
+    first surviving persona token in ``.map/agents.local.yaml`` (any same-
+    project credential authorizes recovery of another). Raises ``ValueError``
+    when ``.map/`` is not initialized (bootstrap first) or the server
+    predates the reissue endpoint.
     """
     root = (project_root or Path.cwd()).resolve()
     map_dir = root / MAP_DIR_NAME
@@ -263,10 +292,17 @@ def reissue_map_token(
                 persona_key = str(key)
                 break
 
+    auth_token = bearer_token or os.environ.get("MAP_ADMIN_TOKEN")
+    if not auth_token:
+        for entry in _surviving_local_tokens(map_dir):
+            auth_token = entry
+            break
+
     resp = _public_reissue(
         resolved_api_url,
         project_key=resolved_key,
         agent_name=agent_name,
+        bearer_token=auth_token,
         transport=transport,
     )
     if resp is None:

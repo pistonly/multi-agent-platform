@@ -22,7 +22,7 @@
 | pip | 任意 | 安装 CLI |
 
 > 不想装 Docker？`pip install multi-agent-platform-server` →（可选）`alembic upgrade head` → `map-server`。
-> 浏览器打开 API 根路径即可看看板（默认 `http://localhost:8000/`，本仓常用 `8001`），**不必 clone `web/` 或安装 Node**。
+> 浏览器打开 API 根路径即可看看板（默认 `http://localhost:8001/`），**不必 clone `web/` 或安装 Node**。
 > 详见 [README.md](../README.md) 的「快速开始」章节。
 
 ---

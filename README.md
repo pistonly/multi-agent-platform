@@ -18,7 +18,7 @@ pip install multi-agent-platform
 pip install multi-agent-platform-server
 ```
 
-安装后即可使用 `map` CLI；安装 server 包后还可使用 `map-server` 命令（**API 与看板同源**，浏览器打开 `http://localhost:8000/`，本仓常用 `8001`）。详见 [Quick Start 指南](docs/QUICKSTART.md)。
+安装后即可使用 `map` CLI；安装 server 包后还可使用 `map-server` 命令（**API 与看板同源**，浏览器打开 `http://localhost:8001/`）。详见 [Quick Start 指南](docs/QUICKSTART.md)。
 
 **新用户？** 一键启动：`./scripts/quickstart.sh`，或阅读 [Quick Start 指南](docs/QUICKSTART.md)。
 

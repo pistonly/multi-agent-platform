@@ -120,10 +120,12 @@ class BootstrapResponse(BaseModel):
 class TokenReissueRequest(BaseModel):
     """Body for ``POST /api/v1/bootstrap/reissue`` — reissue one agent token.
 
-    Trust model mirrors ``POST /bootstrap``: the ``project_key`` acts as
-    the self-service proof of project ownership (it is committed in
-    ``.map/config.yaml``). Reissuing immediately revokes the previous
-    token, so a lost ``.map/agents.local.yaml`` is recoverable.
+    The endpoint requires a valid Bearer token: an admin, or an agent of
+    the target project. ``project_key`` (committed in ``.map/config.yaml``)
+    identifies the project but is NOT by itself proof of ownership — a leaked
+    public key cannot take over a persona's token. Reissuing immediately
+    revokes the previous token, so a lost ``.map/agents.local.yaml`` is
+    recoverable as long as some same-project credential (or admin) remains.
     """
 
     project_key: str = Field(min_length=2, max_length=64)

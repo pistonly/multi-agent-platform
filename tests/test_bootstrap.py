@@ -170,6 +170,12 @@ def _bootstrap_once(client, key: str = "reissue-demo") -> dict:
     return resp.json()
 
 
+def _bearer(body: dict, persona: str = "participant") -> dict:
+    """A valid Bearer header for the named persona of a bootstrapped body."""
+    p = next(a for a in body["agents"] if a["persona"] == persona)
+    return {"Authorization": f"Bearer {p['api_token']}"}
+
+
 def test_reissue_rotates_token_and_revokes_old(client):
     """reissue 返回新 token；旧 token 立即 401，新 token 可用。"""
     body = _bootstrap_once(client)
@@ -178,6 +184,7 @@ def test_reissue_rotates_token_and_revokes_old(client):
 
     resp = client.post(
         "/api/v1/bootstrap/reissue",
+        headers=_bearer(body),
         json={
             "project_key": "reissue-demo",
             "agent_name": host["agent_name"],
@@ -205,10 +212,22 @@ def test_reissue_rotates_token_and_revokes_old(client):
     assert new_me.json()["id"] == host["agent_id"]
 
 
-def test_reissue_unknown_project_returns_404(client):
+def test_reissue_unauthenticated_returns_401(client):
+    """无 Bearer token → 401，公共 project_key 不再足以接管 token。"""
     _bootstrap_once(client)
     resp = client.post(
         "/api/v1/bootstrap/reissue",
+        json={"project_key": "reissue-demo", "agent_name": "demo-host"},
+    )
+    assert resp.status_code == 401
+
+
+def test_reissue_unknown_project_returns_404(client):
+    """已认证但 key 不存在 → 404（不泄露 key 是否存在）。"""
+    body = _bootstrap_once(client)
+    resp = client.post(
+        "/api/v1/bootstrap/reissue",
+        headers=_bearer(body),
         json={"project_key": "no-such-key", "agent_name": "whatever-host"},
     )
     assert resp.status_code == 404
@@ -216,28 +235,30 @@ def test_reissue_unknown_project_returns_404(client):
 
 
 def test_reissue_unknown_agent_returns_404(client):
-    _bootstrap_once(client)
+    body = _bootstrap_once(client)
     resp = client.post(
         "/api/v1/bootstrap/reissue",
+        headers=_bearer(body),
         json={"project_key": "reissue-demo", "agent_name": "ghost-agent"},
     )
     assert resp.status_code == 404
 
 
-def test_reissue_agent_from_other_project_returns_404(client):
-    """同名 agent 属于其他 project → 404（不泄露存在性）。"""
-    _bootstrap_once(client, key="reissue-a")
+def test_reissue_agent_from_other_project_returns_403(client):
+    """来自其他 project 的有效 token → 403（不可越权重签发）。"""
+    body_a = _bootstrap_once(client, key="reissue-a")
+    other_host = next(a for a in body_a["agents"] if a["persona"] == "host")
     body_b = _bootstrap_once(client, key="reissue-b-2")  # 不同 slug 避免名字冲突
-    other_host = next(a for a in body_b["agents"] if a["persona"] == "host")
 
     resp = client.post(
         "/api/v1/bootstrap/reissue",
+        headers=_bearer(body_b),
         json={
             "project_key": "reissue-a",
             "agent_name": other_host["agent_name"],
         },
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 403
 
 
 def test_bootstrap_409_mentions_reissue_command(client):

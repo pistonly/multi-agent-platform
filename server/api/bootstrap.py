@@ -16,10 +16,13 @@ revoking the previous token immediately.
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from server.api.deps import get_current_agent
 from server.db.session import get_db
+from server.domain.models import Agent, AgentRole, Project
 from server.domain.schemas import (
     BootstrapAgentResult,
     BootstrapRequest,
@@ -73,15 +76,26 @@ def bootstrap(
 )
 def reissue_token(
     payload: TokenReissueRequest,
+    agent: Agent = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ) -> TokenReissueResponse:
-    """Reissue one agent's API token (self-service, M52C).
+    """Reissue one agent's API token (self-service recovery, M52C).
 
-    Trust model mirrors ``POST /bootstrap``: ``project_key`` is the proof
-    of project ownership. The previous token is revoked atomically (hash
-    replaced in the same commit); callers should write the new token back
-    to ``.map/agents.local.yaml`` (``map auth reissue`` does this).
+    Requires a valid Bearer token. The caller must be an admin, or an
+    agent belonging to the target project — knowing only the (public, committed)
+    ``project_key`` is not enough to take over a persona's token. The
+    previous token is revoked atomically (hash replaced in the same commit);
+    callers should write the new token back to ``.map/agents.local.yaml``
+    (``map auth reissue`` does this).
     """
+    if agent.role != AgentRole.admin:
+        project = db.scalar(select(Project).where(Project.project_key == payload.project_key))
+        if project is not None and agent.project_id != project.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Not authorized to reissue tokens for this project",
+            )
+
     agent, token = _reissue_agent_token(
         db,
         project_key=payload.project_key,
