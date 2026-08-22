@@ -3,8 +3,9 @@
 两类命令：
 
 * **纯文件操作**（零 API、零网络）：``init`` / ``topic create`` / ``comment`` /
-  ``list`` / ``show`` / ``work`` / ``migrate-from-docs``。Agent 发言 = 写一个
-  ``round<N>-<persona>.md``，学习成本为零，这些命令只是命名约定的便捷封装。
+  ``list`` / ``show`` / ``work`` / ``migrate-from-docs`` / ``archive`` /
+  ``archive-index``。Agent 发言 = 写一个 ``round<N>-<persona>.md``，学习成本为
+  零，这些命令只是命名约定的便捷封装。
 * **验证型写**（走 API）：``advance-round`` / ``close``。服务端校验权限与
   ack 完整性后写回 index.md。
 
@@ -253,8 +254,17 @@ def fs_show(
     from map_fs import parse_topic_dir
 
     workspace = _workspace()
-    t = parse_topic_dir(workspace / _content_root_name(workspace) / "topics" / topic, workspace)
+    root = _content_root_name(workspace)
+    t = parse_topic_dir(workspace / root / "topics" / topic, workspace)
     if t is None:
+        # v0.14 读路径：归档目录命中时给「已归档」指引而非裸 404（不泄露 ghost）
+        if (workspace / root / "archive" / "topics" / topic).is_dir():
+            typer.echo(
+                f"Error: topic '{topic}' is archived (map/archive/topics/{topic}/) — "
+                f"restore via `map fs archive --topic {topic} --undo` to resume",
+                err=True,
+            )
+            raise typer.Exit(1)
         typer.echo(f"Error: fs topic not found: {topic}", err=True)
         raise typer.Exit(1)
     typer.echo(f"# {t.title}  [{t.slug}]")
@@ -572,6 +582,80 @@ def fs_close(
         project_key=project_key,
         validate_call=validate_call,
     )
+
+
+@fs_app.command("archive")
+def fs_archive(
+    topic: str = typer.Option(..., "--topic", help="话题 slug"),
+    undo: bool = typer.Option(
+        False, "--undo", help="还原归档话题（archive 目录移回 map/topics/）"
+    ),
+) -> None:
+    """归档 FS 话题：校验（已 closed / 目标不存在）→ git mv 移入 map/archive/ → 自动重建索引。
+
+    薄命令（v0.14 M60 定稿）：零 API；git workspace 下 ``git mv`` 前置执行
+    （stage 后 ``git status`` 显示 ``renamed:``），非 git fallback ``os.rename``；
+    不承载索引维护逻辑，索引一致性由自动 rebuild 达成（M61 生成式投影）。
+    """
+    from map_fs.archive import (
+        ArchiveStateError,
+        archive_topic,
+        find_experiment_references,
+        rebuild_archive_index,
+        unarchive_topic,
+    )
+
+    workspace = _workspace()
+    root = _content_root_name(workspace)
+    try:
+        if undo:
+            restored = unarchive_topic(workspace, topic, content_root=root)
+            index = rebuild_archive_index(workspace, root)
+            typer.echo(f"Restored {restored.relative_to(workspace)}")
+            typer.echo(f"Rebuilt {index.relative_to(workspace)} (entry removed)")
+            return
+        refs = find_experiment_references(workspace, topic, content_root=root)
+        if refs:
+            typer.echo(
+                f"Warning: '{topic}' is referenced by experiment files below "
+                "(weak local check — experiment phase lives in DB and is not "
+                "visible without API; archive proceeds):\n  " + "\n  ".join(refs),
+                err=True,
+            )
+        dst = archive_topic(workspace, topic, content_root=root)
+    except ArchiveStateError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(2) from err
+    index = rebuild_archive_index(workspace, root)
+    typer.echo(f"Archived {topic} -> {dst.relative_to(workspace)}")
+    typer.echo(f"Rebuilt {index.relative_to(workspace)} (entry reflected)")
+
+
+@fs_app.command("archive-index")
+def fs_archive_index(
+    rebuild: bool = typer.Option(
+        False, "--rebuild", help="全量重建（生成式投影，唯一模式）"
+    ),
+) -> None:
+    """重建 ``map/archive/INDEX.md``：扫描 archive/topics/ 全量重生成（v0.14 M61）。
+
+    双形态解析：目录形态 ``<slug>/`` 读 index.md frontmatter；legacy export
+    标题命名单文件读头部字段。幂等——重复执行结果一致，无增量状态。
+    """
+    from map_fs.archive import rebuild_archive_index, scan_archive_entries
+
+    workspace = _workspace()
+    root = _content_root_name(workspace)
+    if not rebuild:
+        typer.echo(
+            "Error: --rebuild is required (INDEX.md is a generative projection; "
+            "there is no incremental mode)",
+            err=True,
+        )
+        raise typer.Exit(2)
+    entries = scan_archive_entries(workspace, root)
+    index = rebuild_archive_index(workspace, root)
+    typer.echo(f"Rebuilt {index.relative_to(workspace)} ({len(entries)} entries)")
 
 
 @fs_app.command("push")

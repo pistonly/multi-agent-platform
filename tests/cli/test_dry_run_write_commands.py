@@ -98,6 +98,10 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("fs", "show"),
     ("fs", "work"),
     ("fs", "migrate-from-docs"),
+    # v0.14 M60/M61：归档薄命令 + 索引重建，零 API 纯本地
+    # （移动 map/ 目录内文件 + 重建 archive INDEX，不调 server）。
+    ("fs", "archive"),
+    ("fs", "archive-index"),
     # 部署矩阵握手：只读（本地扫描 + GET /fs/status）。
     ("fs", "status"),
     ("fs", "diff"),

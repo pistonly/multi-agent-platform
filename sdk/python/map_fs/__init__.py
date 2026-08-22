@@ -1,5 +1,14 @@
 """map_fs — map/ 文件夹事实源的共享解析层（server 与 cli 复用）。"""
 
+from map_fs.archive import (
+    ArchiveEntry,
+    ArchiveStateError,
+    archive_topic,
+    find_experiment_references,
+    rebuild_archive_index,
+    scan_archive_entries,
+    unarchive_topic,
+)
 from map_fs.parser import (
     DEFAULT_CONTENT_ROOT,
     FsComment,
@@ -22,6 +31,8 @@ from map_fs.parser import (
 )
 
 __all__ = [
+    "ArchiveEntry",
+    "ArchiveStateError",
     "DEFAULT_CONTENT_ROOT",
     "FsComment",
     "FsExperiment",
@@ -31,6 +42,11 @@ __all__ = [
     "comment_id_for_path",
     "derive_work",
     "make_excerpt",
+    "archive_topic",
+    "find_experiment_references",
+    "rebuild_archive_index",
+    "scan_archive_entries",
+    "unarchive_topic",
     "parse_experiment_dir",
     "parse_front_matter",
     "parse_topic_dir",

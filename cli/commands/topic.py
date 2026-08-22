@@ -254,6 +254,41 @@ def _db_uuid_by_slug(c: MAPClient, slug: str) -> uuid.UUID | None:
     return None
 
 
+def _archived_slug_hint(ref: str, ref_uuid: uuid.UUID | None) -> str | None:
+    """FS 未命中时的归档 fallback：ref 命中 map/archive/topics/ 则返回 slug（v0.14 读路径）。
+
+    slug 直查目录存在性；uuid5 引用扫归档目录反推（uuid5 由 slug 确定派生）。
+    返回非空时调用方输出「已归档」指引（含 --undo 还原路径），不泄露 ghost。
+    """
+    from map_fs import topic_id_for_slug
+
+    workspace, root = _fs_workspace_and_root()
+    archive_dir = workspace / root / "archive" / "topics"
+    if not archive_dir.is_dir():
+        return None
+    if ref_uuid is None:
+        return ref if (archive_dir / ref).is_dir() else None
+    for entry in sorted(archive_dir.iterdir()):
+        if entry.is_dir() and topic_id_for_slug(entry.name) == ref_uuid:
+            return entry.name
+    return None
+
+
+def _exit_not_found(message: str, ref: str, ref_uuid: uuid.UUID | None) -> NoReturn:
+    """统一的 topic 未找到出口：命中归档目录时升级为「已归档」指引（v0.14）。"""
+    hint = _archived_slug_hint(ref, ref_uuid)
+    if hint is not None:
+        typer.echo(
+            f"Error: topic '{hint}' is archived (map/archive/topics/{hint}/) — "
+            f"restore via `map fs archive --topic {hint} --undo` to resume; "
+            "archived topics are read-only via the archive folder",
+            err=True,
+        )
+        raise typer.Exit(1)
+    typer.echo(message, err=True)
+    raise typer.Exit(1)
+
+
 def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str, str | uuid.UUID]:
     """解析 --id 为 ('db', uuid) 或 ('fs', slug)。
 
@@ -292,8 +327,7 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
         slug = fs_hit()
         if slug is not None:
             return ("fs", slug)
-        typer.echo(f"Error: fs topic not found: {ref} (see `map fs list`)", err=True)
-        raise typer.Exit(1)
+        _exit_not_found(f"Error: fs topic not found: {ref} (see `map fs list`)", ref, ref_uuid)
     if storage == "db":
         tid = db_hit()
         if tid is not None:
@@ -307,20 +341,19 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
         slug = fs_hit()
         if slug is not None:
             return ("fs", slug)
-        typer.echo(f"Error: topic not found (DB API and map/ folders): {ref}", err=True)
-        raise typer.Exit(1)
+        _exit_not_found(f"Error: topic not found (DB API and map/ folders): {ref}", ref, ref_uuid)
     slug = fs_hit()
     if slug is not None:
         return ("fs", slug)
     tid = db_hit()
     if tid is not None:
         return ("db", tid)
-    typer.echo(
+    _exit_not_found(
         f"Error: topic not found: {ref} (no map/topics/{ref}/ folder and no DB slug "
         "match; see `map fs list` / `map topic list`)",
-        err=True,
+        ref,
+        None,
     )
-    raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -408,13 +441,13 @@ _DB_WRITE_RETIRED_HINTS: dict[str, str] = {
         "legacy DB topic: `map topic migrate` first"
     ),
     "archive": (
-        "FS archiving is a file move: "
-        "mv map/topics/<slug>/ map/archive/topics/ ; legacy DB topics stay "
-        "readable via `topic show` (archive flag no longer maintained)"
+        "archive FS topics via `map fs archive --topic <slug>` "
+        "(validates closed status, git mv, auto-rebuilds archive INDEX; v0.14 M60); "
+        "legacy DB topics stay readable via `topic show` (archive flag no longer maintained)"
     ),
     "archive-undo": (
-        "restore a FS-archived topic by moving the folder back: "
-        "mv map/archive/topics/<slug>/ map/topics/"
+        "restore a FS-archived topic via `map fs archive --topic <slug> --undo` "
+        "(v0.14 M60); index consistency is rebuilt automatically"
     ),
 }
 

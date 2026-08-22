@@ -177,6 +177,11 @@ _FAST_GATE_MODULES = frozenset(
         # fs plane — map/ 文件夹事实源（解析器 + API 合并 + 验证型写），
         # 纯 tmp_path 文件系统 + TestClient，秒级，默认 gate 必须跑。
         "test_fs_source",
+        # v0.14 M60/M61 — fs archive 薄命令 + archive-index 生成式投影，
+        # 纯 tmp_path 文件系统（tmp workspace 走 os.rename 路径），秒级；
+        # 守住「首跑修复 F2 失时 / archive→undo 循环 rebuild 一致 / 未 closed
+        # 拦截 / 弱校验不阻断」契约（话题 v014-fs-archive-design round2 定稿）。
+        "test_fs_archive_command",
         # fs plane 远程/容器部署模式 — 部署矩阵握手（/fs/status 三态）、
         # validate → 本地写回 → commit（HMAC token）、map fs push 投影
         # 回退（/topics 合并 + work 待办）。TestClient + tmp_path，秒级。

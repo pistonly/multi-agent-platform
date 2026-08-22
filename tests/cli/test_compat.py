@@ -129,6 +129,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "push",
         "diff",
         "sync",
+        "archive",
+        "archive-index",
     ],
     "docs": ["error-codes"],
     "topic": [
