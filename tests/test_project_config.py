@@ -37,6 +37,24 @@ def test_load_project_map_config(tmp_path):
     assert cfg.personas["host"].agent_name == "demo-host"
 
 
+def test_token_for_accepts_agent_name_long_name(tmp_path):
+    map_dir = tmp_path / ".map"
+    map_dir.mkdir()
+    (map_dir / "config.yaml").write_text("project_key: demo\napi_url: http://test\n", encoding="utf-8")
+    (map_dir / "agents.yaml").write_text(
+        "personas:\n  host:\n    agent_name: demo-host\n  reviewer:\n    agent_name: demo-reviewer\n",
+        encoding="utf-8",
+    )
+    (map_dir / "agents.local.yaml").write_text(
+        "personas:\n  host:\n    token: host-tok\n  reviewer:\n    token: rev-tok\n",
+        encoding="utf-8",
+    )
+    cfg = load_project_map_config(map_dir=map_dir)
+    assert cfg.resolve_persona("reviewer") == "reviewer"
+    assert cfg.resolve_persona("demo-reviewer") == "reviewer"
+    assert cfg.token_for("demo-reviewer") == "rev-tok"
+
+
 def test_resolve_client_uses_persona(tmp_path):
     map_dir = tmp_path / ".map"
     map_dir.mkdir()

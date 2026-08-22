@@ -192,6 +192,10 @@ _FAST_GATE_MODULES = frozenset(
         # fs CLI persona 解析 — 全局 map --persona 透传到 fs 子命令，
         # CliRunner 进程内跑，~100ms，守住「Agent 不需重复传 --persona」契约。
         "test_fs_persona",
+        # project_config — .map/ 配置解析与 persona token 路由（--persona 短名 /
+        # agent_name 长名双兼容），纯 tmp_path 秒级，守住「按文档用长名不撞
+        # token 缺失错」契约。
+        "test_project_config",
         # PRD v0.11 M52 — Skill 分发可靠性（map-plugin.yaml 版本化 +
         # --runtime 多目标 + upgrade diff 摘要），CliRunner 进程内跑，
         # ~200ms 全量；守住「无静默跳过 + 版本漂移可见」契约。

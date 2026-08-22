@@ -60,7 +60,7 @@ description: >-
 ## 硬性规则
 
 1. **禁止**手写 `httpx`/`curl` 调 MAP API；统一用 **`map [--persona <name>]` CLI**
-2. **首次操作或切换 persona 时**执行 `map [--persona <name>] persona whoami`，向用户确认身份
+2. **首次操作或切换 persona 时**执行 `map [--persona <name>] persona whoami`，向用户确认身份。`--persona <name>` 的 `<name>` 是 `.map/agents.yaml` 里 **personas 的短名 key**（`host` / `participant` / `reviewer`），也接受对应的 `agent_name` 长名（如 `multi-agents-platform-reviewer`）。
 3. 用户未指定 persona 时：用 `.map/config.yaml` 的 `default_persona`（通常 `host`）
 4. **host** 才能创建/关闭话题、从话题开实验、推进实验生命周期；**participant** 参与讨论；**reviewer** 评审
 5. **实验必须由 host persona 创建**，否则 submit/approve/start/complete 返回 403

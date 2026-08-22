@@ -46,10 +46,28 @@ class ProjectMapConfig:
     personas: dict[str, PersonaInfo]
     tokens: dict[str, str]
 
+    def resolve_persona(self, persona: str) -> str:
+        """归一到 personas 短名 key：已接受短名，也接受 agent_name 长名。
+
+        `--persona` 参数的 key 是 personas 短名（host/participant/reviewer），
+        但文档与 whoami 展示的是 agent_name 长名（multi-agents-platform-*）。允许
+        长名反查短名，让两边写哪个都可用，避免按文档用长名时误撞 token 缺失错。
+        """
+        if persona in self.personas:
+            return persona
+        for key, info in self.personas.items():
+            if info.agent_name == persona:
+                return key
+        return persona
+
     def token_for(self, persona: str) -> str:
+        persona = self.resolve_persona(persona)
         if persona not in self.tokens:
             known = ", ".join(sorted(self.tokens)) or "(none)"
-            raise ValueError(f"Unknown or missing token for persona '{persona}'. Known: {known}")
+            raise ValueError(
+                f"Unknown or missing token for persona '{persona}'. "
+                f"--persona accepts a personas short name or an agent_name. Known: {known}"
+            )
         return self.tokens[persona]
 
     def client_for(self, persona: str | None = None, *, transport: Any = None) -> MAPClient:
