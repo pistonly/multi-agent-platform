@@ -12,7 +12,7 @@ import httpx
 import yaml
 from map_types import AgentCreateResponse, BootstrapResponse, TokenReissueResponse
 
-from map_client.client import MAPClient
+from map_client.client import MAPClient, _is_local_url
 from map_client.exceptions import MAPHTTPError, raise_for_status
 from map_client.project_config import (
     AGENTS_FILE,
@@ -109,7 +109,11 @@ def _public_bootstrap(
     if description is not None:
         body["description"] = description
     try:
-        client = httpx.Client(transport=transport, timeout=30.0)
+        # 与 MAPClient 同策略：本地地址忽略环境代理，避免 SOCKS 代理
+        # 初始化失败等影响首次 bootstrap / reissue（FTUE 关键路径）。
+        client = httpx.Client(
+            transport=transport, timeout=30.0, trust_env=not _is_local_url(url)
+        )
     except Exception:
         return None
     try:
@@ -167,7 +171,10 @@ def _public_reissue(
     """
     url = f"{api_url.rstrip('/')}/api/v1/bootstrap/reissue"
     try:
-        client = httpx.Client(transport=transport, timeout=30.0)
+        # 同上：本地地址忽略环境代理。
+        client = httpx.Client(
+            transport=transport, timeout=30.0, trust_env=not _is_local_url(url)
+        )
     except Exception:
         return None
     try:
@@ -248,7 +255,7 @@ def reissue_map_token(
             "with `map bootstrap` first."
         )
     resolved_api_url = (
-        (api_url or config.get("api_url") or os.environ.get("MAP_API_URL") or "http://localhost:8000").rstrip("/")
+        (api_url or config.get("api_url") or os.environ.get("MAP_API_URL") or "http://localhost:18400").rstrip("/")
     )
 
     # Locate the persona (if any) that maps to this agent_name — for the
@@ -401,7 +408,7 @@ def bootstrap_project_map(
             "to recover them)."
         )
 
-    resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:8000").rstrip("/")
+    resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:18400").rstrip("/")
 
     # 优先尝试自助 bootstrap 端点（无需 admin token，新版本 server 支持）
     public_resp = _public_bootstrap(

@@ -47,7 +47,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 1. 在本仓库根目录执行（**无需 admin token**，走自助 `POST /api/v1/bootstrap` 端点）：
 
 ```bash
-map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhost:8001
+map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhost:18400
 ```
 
 2. 确认生成 `.map/config.yaml`、`.map/agents.yaml`、`.map/agents.local.yaml`（**整目录勿提交**；clone 后重新 `map bootstrap`）
@@ -60,9 +60,9 @@ map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhos
 
 命令清单与参数细节见 [commands.md](.cursor/skills/map-project-collab/references/commands.md)；FS 事实源约定（`map/topics/<slug>/`、`map/experiments/<slug>/`）见 [file-reference.md](.cursor/skills/map-project-collab/references/file-reference.md)。
 
-## 服务地址（Docker override）
+## 服务地址
 
-- API: http://localhost:8001
+- API: http://localhost:18400（默认端口，`MAP_PORT` 可覆盖）
 - Web: http://localhost:3000
 
 # 回答语言

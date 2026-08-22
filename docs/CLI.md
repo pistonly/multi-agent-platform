@@ -34,7 +34,7 @@ map --persona host persona whoami
 
 ```bash
 # 创建并进入项目
-map bootstrap --key <key> --name "..." --api-url http://localhost:8001
+map bootstrap --key <key> --name "..." --api-url http://localhost:18400
 
 # host 视角：查 open 话题 / 项目状态
 map --persona host status

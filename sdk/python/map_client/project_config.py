@@ -19,7 +19,7 @@ DEFAULT_PERSONA = "host"
 
 BOOTSTRAP_HINT = (
     "Run:\n"
-    "  map bootstrap --key <project-key> --name \"<Project Name>\" --api-url http://localhost:8001\n"
+    "  map bootstrap --key <project-key> --name \"<Project Name>\" --api-url http://localhost:18400\n"
     f"Or copy from {MAP_DIR_NAME}/config.yaml.example."
 )
 
@@ -89,7 +89,7 @@ def load_project_map_config(
     api_url = str(
         config.get("api_url")
         or os.environ.get("MAP_API_URL")
-        or "http://localhost:8000"
+        or "http://localhost:18400"
     ).rstrip("/")
     project_key = config.get("project_key")
     if not project_key:

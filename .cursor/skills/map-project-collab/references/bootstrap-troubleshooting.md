@@ -12,14 +12,14 @@
 map bootstrap \
   --key "<unique-project-key>" \
   --name "<Human readable name>" \
-  --api-url http://localhost:8001
+  --api-url http://localhost:18400
 ```
 
 > **老版本 server 兼容**：若连接的 server 无 `/bootstrap` 端点（<0.4），CLI 自动回退到 admin token 路径。此时需先准备 admin token，写入 `MAP_ADMIN_TOKEN` 或 `~/.map/admin.yaml`：
 >
 > ```yaml
 > token: "<admin-api-token>"
-> api_url: http://localhost:8001
+> api_url: http://localhost:18400
 > ```
 
 生成（**整目录为本机运行时，勿提交 Git**）：

@@ -1,5 +1,5 @@
-# MAP API base URL (match docker-compose.override: host port 8001)
-api_url: http://localhost:8001
+# MAP API base URL (default port 18400; override with MAP_PORT)
+api_url: http://localhost:18400
 
 # MAP project_key for this code repository
 project_key: my-app

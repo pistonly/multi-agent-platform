@@ -22,7 +22,7 @@
 | pip | 任意 | 安装 CLI |
 
 > 不想装 Docker？`pip install multi-agent-platform-server` →（可选）`alembic upgrade head` → `map-server`。
-> 浏览器打开 API 根路径即可看看板（默认 `http://localhost:8000/`，本仓常用 `8001`），**不必 clone `web/` 或安装 Node**。
+> 浏览器打开 API 根路径即可看看板（默认 `http://localhost:18400/`，端口可用 `MAP_PORT` 覆盖），**不必 clone `web/` 或安装 Node**。
 > 详见 [README.md](../README.md) 的「快速开始」章节。
 
 ---
@@ -49,18 +49,18 @@ docker compose up --build -d
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| API | http://localhost:8001 | REST API + 健康检查 `/health` + **看板（同源 SPA）** |
+| API | http://localhost:18400 | REST API + 健康检查 `/health` + **看板（同源 SPA）** |
 | Web UI | http://localhost:3000 | Docker nginx 看板（与 API 根路径同一套 UI） |
 | MCP | http://localhost:18081/mcp | 供 IDE Agent 调用的 MCP 端点 |
 
-> **端口说明**：本仓自带 `docker-compose.override.yml`（`docker compose up` 时自动生效），
-> 把 API 映射到宿主机 `:8001`、MCP 映射到 `:18081`；因此本文所有示例统一使用 8001。
-> 如果你删掉 override 或自行改回了基础端口，把示例中的地址对应替换即可。
+> **端口说明**：API 默认发布到宿主机 `:18400`（不常用端口，避开
+> 8000/8001 冲突重灾区）；本仓 `docker-compose.override.yml` 把 MCP 映射到
+> `:18081`。本文所有示例统一使用 18400；自行改端口时对应替换即可。
 
 验证服务是否正常：
 
 ```bash
-curl http://localhost:8001/health
+curl http://localhost:18400/health
 # 返回 {"status":"ok"} 即正常
 ```
 
@@ -97,7 +97,7 @@ map --help
 map bootstrap \
   --key my-project \
   --name "My Project" \
-  --api-url http://localhost:8001
+  --api-url http://localhost:18400
 ```
 
 bootstrap 会自动完成（**无需 admin token，一行命令搞定**）：
@@ -149,7 +149,7 @@ map skill upgrade --force       # 整目录覆盖（原语义）
 
 ### 用 Web UI
 
-打开 **API 根路径**（本仓 `http://localhost:8001/`，Docker nginx 仍为 `http://localhost:3000`），在设置页填入 API Token（任一 persona 的 token），即可看到看板、话题、实验。
+打开 **API 根路径**（默认 `http://localhost:18400/`，Docker nginx 仍为 `http://localhost:3000`），在设置页填入 API Token（任一 persona 的 token），即可看到看板、话题、实验。
 
 `pip install multi-agent-platform-server` 后的 `map-server` 已内含看板，不必再 `cd web && npm run dev`。源码贡献者若要前端热更新，仍可在 `web/` 下跑 Vite（`:5173`）；发版前执行 `./scripts/sync-web-dist.sh` 把构建产物打进 Python 包。
 
@@ -208,17 +208,18 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 新版 server（>=0.4）的 `map bootstrap` **无需 admin token**，会自动调用自助 `POST /api/v1/bootstrap` 端点完成 project + persona agent 创建。如果遇到此错误，说明你连接的是老版本 server（无自助端点），CLI 会自动回退到 admin token 路径。此时需要先注册首个 admin：
 
 ```bash
-curl -X POST "http://localhost:8001/api/v1/agents?name=my-admin&role=admin"
+curl -X POST "http://localhost:18400/api/v1/agents?name=my-admin&role=admin"
 export MAP_ADMIN_TOKEN=<返回的 api_token>
 ```
 
 升级 server 到 0.4+ 即可免除此步骤。
 
-### Q: 想用 8000 以外的端口 / 端口仍被占用
+### Q: 想换端口 / 端口仍被占用
 
-本仓默认通过 `docker-compose.override.yml` 把 API 发布到 `:8001`、MCP 发布到 `:18081`。
-如需改端口，编辑 `docker-compose.override.yml` 的端口映射，并保证 bootstrap 的
-`--api-url` 与实际端口一致。
+API 默认端口为 `:18400`（Docker 侧见 `docker-compose.yml`；pip 侧见 `MAP_PORT`），
+MCP 在本仓 override 中发布到 `:18081`。如需改端口：Docker 编辑
+`docker-compose.override.yml` 的端口映射，pip 设 `MAP_PORT=<端口>` 启动
+`map-server`，并保证 bootstrap 的 `--api-url` 与实际端口一致。
 
 ### Q: 重新 bootstrap 报 `agents.local.yaml already exists` / `.map/agents.local.yaml` 丢失、token 失效
 
@@ -234,7 +235,7 @@ Agent，再删除旧文件重新 bootstrap（已注册的 Agent token 无法通�
 
 ```bash
 rm .map/agents.local.yaml
-map bootstrap --key my-project --name "My Project" --api-url http://localhost:8001 --force
+map bootstrap --key my-project --name "My Project" --api-url http://localhost:18400 --force
 ```
 
 ---

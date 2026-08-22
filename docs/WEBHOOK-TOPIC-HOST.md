@@ -20,7 +20,7 @@
 
 ```bash
 export MAP_ADMIN_TOKEN=<admin-token>
-export MAP_API_URL=http://localhost:8001
+export MAP_API_URL=http://localhost:18400
 
 curl -s -X POST "$MAP_API_URL/api/v1/webhooks" \
   -H "Authorization: Bearer $MAP_ADMIN_TOKEN" \

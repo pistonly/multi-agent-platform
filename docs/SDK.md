@@ -19,14 +19,14 @@ pip install -e ".[dev]"
 **环境变量**
 
 ```bash
-export MAP_API_URL=http://localhost:8001
+export MAP_API_URL=http://localhost:18400
 export MAP_TOKEN=<your-agent-token>
 ```
 
 **配置文件** `~/.map/config.yaml`
 
 ```yaml
-api_url: http://localhost:8001
+api_url: http://localhost:18400
 token: your-api-token-here
 ```
 
@@ -35,7 +35,7 @@ token: your-api-token-here
 ## 获取 Token
 
 ```bash
-curl -X POST "http://localhost:8001/api/v1/agents?name=my-agent"
+curl -X POST "http://localhost:18400/api/v1/agents?name=my-agent"
 # 响应中的 api_token 仅展示一次，请妥善保存
 ```
 
@@ -49,7 +49,7 @@ from server.domain.schemas import ExperimentCreate, PlanInput, ReviewCreate
 client = MAPClient.from_env()
 
 # 或显式传入
-# client = MAPClient("http://localhost:8001", token="...")
+# client = MAPClient("http://localhost:18400", token="...")
 
 project = client.create_project("演示项目", "/tmp/demo")
 experiment = client.create_experiment(
@@ -101,7 +101,7 @@ with MAPClient.from_env() as client:
 | `list_comments(tree=True)` | `GET /experiments/{id}/comments?tree=true` |
 | `get_global_status` | `GET /status` |
 
-完整 API 见运行中服务的 OpenAPI 文档：http://localhost:8001/docs
+完整 API 见运行中服务的 OpenAPI 文档：http://localhost:18400/docs
 
 ## 类型
 

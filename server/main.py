@@ -1,7 +1,11 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+import logging
+import threading
+import time
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -29,7 +33,7 @@ from server.api.router import (
     router as projects_router,
 )
 from server.config import get_settings
-from server.db.session import init_db
+from server.db.session import init_db, verify_schema_matches_models
 from server.domain.state_machine import StateMachineError
 from server.services.errors import (
     BadRequestError,
@@ -191,6 +195,8 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if init_db_on_startup:
             init_db()
+            # 旧库缺列时在这里以清晰报错终止，而不是等到第一个请求 500。
+            verify_schema_matches_models()
         yield
 
     app = FastAPI(
@@ -239,9 +245,63 @@ def create_app(
 app = create_app()
 
 
+def _self_check(port: int, server: uvicorn.Server, *, timeout: float = 15.0) -> tuple[bool, str | None]:
+    """轮询 ``/health`` 直到 uvicorn 就绪，验证 localhost 流量真的到达本服务。
+
+    防的是“假启动”：某些进程（典型为 IDE 的端口转发）通过
+    ``SO_REUSEPORT`` 与本服务共存监听同一端口，bind 成功、日志正常，
+    但 ``127.0.0.1`` 的流量全被截走。探测必须显式 ``trust_env=False``，
+    否则环境里的代理变量会先一步把 localhost 请求劫走。
+    """
+    deadline = time.monotonic() + timeout
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.2)
+    last_error: str | None = "server did not report started within timeout"
+    while time.monotonic() < deadline:
+        try:
+            resp = httpx.get(
+                f"http://127.0.0.1:{port}/health", timeout=2.0, trust_env=False
+            )
+            if resp.status_code == 200 and resp.json().get("status") == "ok":
+                return True, None
+            last_error = f"HTTP {resp.status_code}: {resp.text[:120]!r}"
+        except Exception as exc:  # noqa: BLE001 - 记录任何探测失败原因
+            last_error = f"{type(exc).__name__}: {exc}"
+        time.sleep(0.5)
+    return False, last_error
+
+
 def run() -> None:
     settings = get_settings()
-    uvicorn.run("server.main:app", host="0.0.0.0", port=settings.port, reload=settings.debug)
+    logger = logging.getLogger("map-server")
+    if settings.debug:
+        # reload 模式依赖 uvicorn 的重载进程管理，跳过自检。
+        uvicorn.run("server.main:app", host="0.0.0.0", port=settings.port, reload=True)
+        return
+
+    config = uvicorn.Config("server.main:app", host="0.0.0.0", port=settings.port)
+    server = uvicorn.Server(config)
+    result: dict[str, object] = {}
+
+    def _check_thread() -> None:
+        ok, err = _self_check(settings.port, server)
+        result["ok"], result["err"] = ok, err
+        if not ok:
+            server.should_exit = True
+
+    threading.Thread(target=_check_thread, name="map-server-self-check", daemon=True).start()
+    server.run()  # 主线程运行 uvicorn，信号处理保持正常
+    if result and not result.get("ok"):
+        logger.error(
+            "启动自检失败：http://127.0.0.1:%s/health 未返回预期响应（%s）。"
+            "端口可能被其他进程占用——例如 IDE 的端口转发会与本服务共存监听，"
+            "导致 localhost 流量被截走。排查: lsof -nP -iTCP:%s -sTCP:LISTEN；"
+            "换端口: MAP_PORT=<其他端口> map-server",
+            settings.port,
+            result.get("err"),
+            settings.port,
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

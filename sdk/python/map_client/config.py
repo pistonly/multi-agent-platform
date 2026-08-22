@@ -10,7 +10,7 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {}
     if path.exists():
         config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    api_url = config.get("api_url") or os.environ.get("MAP_API_URL", "http://localhost:8000")
+    api_url = config.get("api_url") or os.environ.get("MAP_API_URL", "http://localhost:18400")
     token = config.get("token") or os.environ.get("MAP_TOKEN")
     project_key = config.get("project_key") or os.environ.get("MAP_PROJECT_KEY")
     return {

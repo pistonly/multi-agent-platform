@@ -18,7 +18,7 @@ pip install multi-agent-platform
 pip install multi-agent-platform-server
 ```
 
-安装后即可使用 `map` CLI；安装 server 包后还可使用 `map-server` 命令（**API 与看板同源**，浏览器打开 `http://localhost:8000/`，本仓常用 `8001`）。详见 [Quick Start 指南](docs/QUICKSTART.md)。
+安装后即可使用 `map` CLI；安装 server 包后还可使用 `map-server` 命令（**API 与看板同源**，浏览器打开 `http://localhost:18400/`，默认端口见 `MAP_PORT`）。详见 [Quick Start 指南](docs/QUICKSTART.md)。
 
 **新用户？** 一键启动：`./scripts/quickstart.sh`，或阅读 [Quick Start 指南](docs/QUICKSTART.md)。
 
@@ -87,7 +87,7 @@ MAP API 运行后，在本仓库根目录执行一次 bootstrap（生成 `.map/c
 map bootstrap \
   --key multi-agent-platform \
   --name "Multi Agents Platform" \
-  --api-url http://localhost:8001
+  --api-url http://localhost:18400
 
 map --persona host persona whoami
 map --persona host todos
@@ -110,23 +110,23 @@ pip install -e ".[dev]"
 # 运行数据库迁移（需要 server 依赖）
 alembic upgrade head
 
-# 启动 API + 看板（同源：http://localhost:8001/ ，端口见 MAP_PORT / 本仓 override）
+# 启动 API + 看板（同源：http://localhost:18400/ ，端口可用 MAP_PORT 覆盖）
 map-server
 # 或: uvicorn server.main:app --reload
 # 看板无需 clone web/ 或 npm；源码开发热更新仍可用：cd web && npm run dev
 
 # 注册首个 Admin（仅当系统中尚无 Agent 时可匿名调用）
-curl -X POST "http://localhost:8001/api/v1/agents?name=ops-admin&role=admin"
+curl -X POST "http://localhost:18400/api/v1/agents?name=ops-admin&role=admin"
 
 # 后续 Agent 须由 Admin 注册
 curl -H "Authorization: Bearer <admin-token>" \
-  -X POST "http://localhost:8001/api/v1/agents?name=agent-alpha&role=agent&project_key=<project-key>"
+  -X POST "http://localhost:18400/api/v1/agents?name=agent-alpha&role=agent&project_key=<project-key>"
 
 # 创建项目
 curl -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"demo","workspace_path":"/tmp/demo"}' \
-  http://localhost:8001/api/v1/projects
+  http://localhost:18400/api/v1/projects
 
 # 运行测试
 pytest
@@ -189,7 +189,7 @@ map --persona host host invoke --persona reviewer --prompt-file ./review-task.md
 不依赖 Cursor MCP。每个代码仓库：
 
 ```bash
-map bootstrap --key my-app --name "My App" --api-url http://localhost:8001
+map bootstrap --key my-app --name "My App" --api-url http://localhost:18400
 map --persona host status              # 查看 open_topics
 ```
 
@@ -233,12 +233,12 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 
 ## Docker（API + Web）
 
-默认 `docker-compose.yml` 暴露 API `:8000`、Web `:3000`、MCP `:8080`；本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把宿主端口改为 API `:8001`、MCP `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:8001`。
+默认 `docker-compose.yml` 暴露 API `:18400`、Web `:3000`、MCP `:8080`；本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把 MCP 宿主端口改为 `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
 
 ```bash
 docker compose up --build
-# 默认端口: API :8000  Web :3000  MCP :8080/mcp
-# 使用本仓 override 时: API :8001  Web :3000  MCP :18081/mcp
+# 默认端口: API :18400  Web :3000  MCP :8080/mcp
+# 使用本仓 override 时: API :18400  Web :3000  MCP :18081/mcp
 ```
 
 ### FS 事实源与 Docker / 远程部署

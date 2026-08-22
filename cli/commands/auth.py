@@ -35,7 +35,7 @@ def auth_reissue(
         None,
         "--api-url",
         help="MAP API base URL (default: api_url from .map/config.yaml, "
-        "then MAP_API_URL, then http://localhost:8000).",
+        "then MAP_API_URL, then http://localhost:18400).",
     ),
     project_root: Path | None = typer.Option(
         None,

@@ -231,7 +231,7 @@ def _post_install_self_check(target: Path) -> None:
         typer.echo(
             "  [WARN] .map/config.yaml not found in the current directory — "
             "run `map bootstrap --key <project-key> --name \"<Project Name>\" "
-            "--api-url http://localhost:8001` first.\n"
+            "--api-url http://localhost:18400` first.\n"
             f"  Troubleshooting: {target / _TROUBLESHOOTING_ANCHOR}"
         )
 
