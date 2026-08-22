@@ -9,15 +9,7 @@ from sqlalchemy.orm import Session
 from server.domain.models import Agent, AgentRole, Experiment
 from server.domain.schemas import ExperimentReviewInformationalRead
 from server.services.experiment_capabilities_service import _reviews_for_current_plan
-from server.services.notification_service import PERSONA_AGENT_NAMES
 from server.services.review_service import _qualifying_non_creator_reviews
-
-_NON_REVIEWER_PERSONA_NAMES = frozenset(
-    {
-        PERSONA_AGENT_NAMES["host"],
-        PERSONA_AGENT_NAMES["participant"],
-    }
-)
 
 _ACTIVE_REVIEW_PHASES = (ExperimentPhase.review, ExperimentPhase.result_review)
 
@@ -27,12 +19,17 @@ def agent_sees_review_obligations(
     *,
     include_all_partitions: bool = False,
 ) -> bool:
-    """Host/participant personas omit review obligation buckets; reviewer/admin keep them."""
+    """Host/participant personas omit review obligation buckets; reviewer/admin keep them.
+
+    Persona identity follows ``Agent.persona`` (trailing ``-<persona>``
+    name segment), so bootstrap projects' ``<project_key>-host`` /
+    ``<project_key>-participant`` agents are filtered too.
+    """
     if include_all_partitions and agent.role == AgentRole.admin:
         return True
     if agent.role == AgentRole.admin:
         return True
-    return agent.name not in _NON_REVIEWER_PERSONA_NAMES
+    return agent.persona not in ("host", "participant")
 
 
 def list_experiment_review_informational(

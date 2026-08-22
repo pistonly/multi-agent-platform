@@ -100,8 +100,9 @@ class Agent(Base):
     # ``system:*`` gating from the AgentRole enum so future capabilities
     # don't churn the schema. Convention: ``<namespace>:<action>``.
     # ``system:*`` is admin-grade (audit / cross-project). Persona-scoped
-    # capabilities (e.g. ``host:scan_stalled``) match the agent's name
-    # suffix (``multi-agent-platform-host`` → ``host:*``).
+    # capabilities (e.g. ``host:scan_stalled``) match the agent's trailing
+    # name segment (``multi-agent-platform-host`` / ``<project_key>-host``
+    # → ``host:*``) — see the ``persona`` property.
     _ADMIN_CAPABILITY_PREFIX = "system:"
     _PERSONA_CAPABILITIES: dict[str, frozenset[str]] = {
         "host": frozenset(
@@ -114,19 +115,23 @@ class Agent(Base):
         "reviewer": frozenset({"review:submit", "review:accept_result"}),
         "participant": frozenset({"topic:comment"}),
     }
-    _PERSONA_NAME_PREFIX = "multi-agent-platform-"
+    _PERSONA_NAME_SUFFIXES = frozenset(_PERSONA_CAPABILITIES)
 
     @property
     def persona(self) -> str | None:
-        """Extract persona suffix from ``multi-agent-platform-<persona>``.
+        """Infer persona from the agent name's trailing ``-<persona>`` segment.
 
-        Returns ``None`` for admin-only agents or non-conforming names so
-        the capability table falls through to admin-only access.
+        Single source of truth for persona identity: canonical MAP agents
+        (``multi-agent-platform-host``) and bootstrap project agents
+        (``<project_key>-host``, created by ``bootstrap_service``) share the
+        ``*-<persona>`` naming convention. Returns ``None`` for admin-only
+        agents, custom names, and ``*-sync`` projection agents so the
+        capability table falls through to admin-only access.
         """
-        if not self.name.startswith(self._PERSONA_NAME_PREFIX):
+        if not self.name or "-" not in self.name:
             return None
-        suffix = self.name[len(self._PERSONA_NAME_PREFIX):]
-        return suffix if suffix in self._PERSONA_CAPABILITIES else None
+        suffix = self.name.rsplit("-", 1)[1]
+        return suffix if suffix in self._PERSONA_NAME_SUFFIXES else None
 
     def has_capability(self, capability: str) -> bool:
         """Return True if this agent can perform ``capability``.

@@ -68,7 +68,6 @@ from server.domain.schemas import (
     TopicWorkItemRead,
 )
 from server.services.errors import ConflictError, ForbiddenError
-from server.services.notification_service import PERSONA_AGENT_NAMES
 
 _PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
 _ROUND_STR_RE = re.compile(r"^round(\d+)$")
@@ -502,8 +501,9 @@ class FsProjectionTooLargeError(Exception):
 
 
 def _is_project_host(agent: Agent, project: Project) -> bool:
+    # 统一走 Agent.persona（尾段 -host），canonical 与 <project_key>-host 同判。
     _ = project
-    return agent.name == PERSONA_AGENT_NAMES["host"] or agent.name.endswith("-host")
+    return agent.persona == "host"
 
 
 def _is_projection_sync_agent(agent: Agent) -> bool:
@@ -1051,14 +1051,12 @@ _FS_KIND_MAP: dict[str, tuple[str, str]] = {
 
 
 def persona_short_name(agent: Agent) -> str:
-    """agent.name（如 multi-agent-platform-host）→ persona 短名（host）。
+    """agent.name（如 multi-agent-platform-host / my-project-host）→ persona 短名（host）。
 
-    自定义 agent（无 persona 映射）用 name 本身参与文件推导。
+    与 ``Agent.persona`` 同一规则（尾段 ``-<persona>``）；自定义 agent
+    （无 persona 映射）用 name 本身参与文件推导。
     """
-    for persona, name in PERSONA_AGENT_NAMES.items():
-        if name == agent.name:
-            return persona
-    return agent.name
+    return agent.persona or agent.name
 
 
 def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgressItemRead]:

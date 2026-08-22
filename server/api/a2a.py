@@ -42,14 +42,11 @@ def _card_url(agent: Agent) -> str:
 def _agent_persona(agent: Agent) -> str | None:
     """从 ``<project_key>-<persona>`` 命名约定提取 persona。
 
-    ``Agent.persona`` 仅识别 ``multi-agent-platform-*`` 前缀（capability
-    系统约定），卡片投影面向任意 bootstrap 项目，故按命名约定自行提取。
+    与 ``Agent.persona`` 同一规则（尾段 ``-<persona>``，canonical 与
+    bootstrap 项目命名同判），再收窄到有卡片预设的 persona。
     """
-    if agent.name and "-" in agent.name:
-        suffix = agent.name.rsplit("-", 1)[-1]
-        if suffix in PERSONA_CARDS:
-            return suffix
-    return None
+    persona = agent.persona
+    return persona if persona in PERSONA_CARDS else None
 
 
 def _build_card(agent: Agent) -> AgentCardRead:

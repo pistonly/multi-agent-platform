@@ -171,6 +171,9 @@ _FAST_GATE_MODULES = frozenset(
         # self-service bootstrap endpoint — POST /api/v1/bootstrap 无 admin token
         # 创建 project + 3 persona agents;~3s 全量,守住「原子性 + 409 冲突」契约。
         "test_bootstrap",
+        # persona 身份统一 — Agent.persona 尾段规则是唯一判定源,守住
+        # 「bootstrap <key>-host 与 canonical 同判」的收件人/能力/分区契约。
+        "test_persona_identity_unified",
         # fs plane — map/ 文件夹事实源（解析器 + API 合并 + 验证型写），
         # 纯 tmp_path 文件系统 + TestClient，秒级，默认 gate 必须跑。
         "test_fs_source",

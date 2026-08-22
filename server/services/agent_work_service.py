@@ -25,7 +25,6 @@ from server.domain.schemas import (
 from server.services import notification_service, todo_service, topic_progress_service
 from server.services import project_service as svc
 from server.services import topic_work_item_service as work_items
-from server.services.notification_service import PERSONA_AGENT_NAMES
 
 _BUCKET_KIND_VISIBILITY: dict[SummaryBucketKind, BucketVisibility] = {
     "mention": "all",
@@ -39,12 +38,11 @@ _BUCKET_KIND_VISIBILITY: dict[SummaryBucketKind, BucketVisibility] = {
 
 def _is_host_persona(agent: Agent) -> bool:
     """A persona 'sees host-only buckets' when they are the host (admin
-    always sees everything).
+    always sees everything). Persona identity follows ``Agent.persona``
+    (trailing ``-host`` name segment), so bootstrap projects'
+    ``<project_key>-host`` agents count too.
     """
-    if agent.role == AgentRole.admin:
-        return True
-    host_name = PERSONA_AGENT_NAMES.get("host", "")
-    return bool(host_name) and agent.name == host_name
+    return agent.role == AgentRole.admin or agent.persona == "host"
 
 
 def _make_item(*, kind: SummaryBucketKind, topic_id=None, topic_title=None, excerpt=None, updated_at=None) -> SummaryBucketItem:

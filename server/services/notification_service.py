@@ -160,18 +160,22 @@ def _discard_pending_created_after_rollback(db: Session) -> None:
 def _resolve_persona_agent_ids(
     db: Session, project_id: uuid.UUID, personas: list[str]
 ) -> list[uuid.UUID]:
-    """Resolve persona names to Agent.id within a project.
+    """Resolve persona keys to Agent.id within a project.
+
+    Persona identity follows ``Agent.persona`` (the trailing
+    ``-<persona>`` name segment), so both canonical MAP agents
+    (``multi-agent-platform-host``) and bootstrap project agents
+    (``<project_key>-host``) resolve — a project's wakeable recipients
+    no longer depend on the canonical naming.
 
     Returns an empty list if no persona matches (e.g. project hasn't bound
     that persona yet) so callers can treat it as a no-op rather than a 500.
     """
-    names = [PERSONA_AGENT_NAMES[p] for p in personas if p in PERSONA_AGENT_NAMES]
-    if not names:
+    wanted = {p for p in personas if p in PERSONA_AGENT_NAMES}
+    if not wanted:
         return []
-    rows = db.scalars(
-        select(Agent).where(Agent.name.in_(names), Agent.project_id == project_id)
-    ).all()
-    return [agent.id for agent in rows]
+    rows = db.scalars(select(Agent).where(Agent.project_id == project_id)).all()
+    return [agent.id for agent in rows if agent.persona in wanted]
 
 
 def classify(event: str, *, wakeable: bool | None = None) -> NotificationCategory:
