@@ -1,0 +1,17 @@
+{
+  "acceptance": {
+    "M60 薄命令": "map fs archive --topic <slug> [--undo] 落地：前置校验（closed/目标不存在/弱校验警告）exit 2 拦截验证；git mv 前置（真机 R renamed: 证据）；undo 反向三步；索引维护逻辑零承载（自动 rebuild 达成一致性）",
+    "M60 弱校验口径": "find_experiment_references grep map/experiments/**/*.md；真机 v012 归档警告检出 6 文件不阻断；v014 拦截用例同时检出本实验 plan/log 引用",
+    "M61 生成式投影": "map fs archive-index --rebuild 单一扫描函数双形态解析；幂等（测试）；schema 与 project export 解耦（export 未改动）",
+    "M61 首跑 R-b": "真机首跑 INDEX.md 含 2 legacy 条目不重复；F2 失时（Status: open）修复为 closed（位置即状态），Notes 保留 legacy 痕迹",
+    "M61 循环 R-c-②": "v012 archive→undo 循环后 INDEX 与目录一致（条目出现/移除验证）；rebuild 幂等测试",
+    "读路径语义": "topic show slug/uuid5 入口归档态返回已归档指引（真机输出）；fs show 同；scan_plane 排除回归测试",
+    "测试门禁 R-c-①": "test_fs_archive_command 10 用例显式入 _FAST_GATE_MODULES；compat 快照/dry-run 分类登记同步",
+    "git rename 保真": "真机 git status 显示 R（renamed:）非 deleted+untracked",
+    "引导文案": "topic.py _DB_WRITE_RETIRED archive/archive-undo 升级为 fs archive 指引",
+    "PRD 回写": "v0.14.md 状态 accepted + 定稿摘要 7 条 + M60/M61 节内已决修正指针"
+  },
+  "pytest_summary": "fast-gate 584 passed, 1113 deselected, 0 failed (2026-08-23; 新增 test_fs_archive_command 10 用例在白名单内执行)",
+  "test_summary": "pytest tests/test_fs_archive_command.py: 10 passed in 0.15s; ruff check 触及文件全绿; mypy --strict sdk/python/map_fs/archive.py 绿",
+  "smoke": "真机冒烟：map fs archive-index --rebuild（2 entries, F2 修复）；v012 archive→undo 循环（R renamed / INDEX 一致 / show 指引）；v014 open 拦截 exit 2"
+}
