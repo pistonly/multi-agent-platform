@@ -19,7 +19,7 @@ class AuditLogRead(ORMModel):
     target_type: str
     target_id: uuid.UUID | None
     summary: str | None
-    payload_json: dict | None
+    payload_json: dict[str, Any] | None
     created_at: datetime
 
 

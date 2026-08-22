@@ -99,7 +99,7 @@ def validate_result_submission_template(
         name for name in REQUIRED_SECTION_NAMES if name in parsed.present
     )
 
-    warnings: list[TemplateWarning] = []
+    warnings = []
 
     # 1. Missing-section warnings.
     for name in REQUIRED_SECTION_NAMES:

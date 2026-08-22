@@ -35,7 +35,7 @@ from sqlalchemy.types import String, TypeDecorator
 from server.services.secret_encryption import decrypt_value, encrypt_value
 
 
-class EncryptedString(TypeDecorator):
+class EncryptedString(TypeDecorator[str]):
     """Transparent Fernet encryption wrapper around ``VARCHAR(N)``.
 
     Stores ciphertext in the DB; exposes plaintext on the Python side.

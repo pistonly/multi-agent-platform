@@ -30,8 +30,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 DEFAULT_CONTENT_ROOT = "map"
 
@@ -165,7 +166,7 @@ class FsWorkItem:
 # ---------------------------------------------------------------------------
 
 
-def parse_front_matter(text: str) -> tuple[dict, str]:
+def parse_front_matter(text: str) -> tuple[dict[str, Any], str]:
     """解析 ``---`` 围栏的 YAML front-matter，返回 (meta, body)。
 
     无围栏或 YAML 解析失败时返回 ({}, 原文)，永不抛错——
@@ -262,7 +263,7 @@ def parse_topic_dir(topic_dir: Path, workspace: Path) -> FsTopic | None:
     slug = topic_dir.name
     index_path = topic_dir / "index.md"
 
-    meta: dict = {}
+    meta: dict[str, Any] = {}
     body = ""
     if index_path.is_file():
         meta, body = parse_front_matter(index_path.read_text(encoding="utf-8"))
@@ -348,7 +349,7 @@ def parse_experiment_dir(exp_dir: Path, workspace: Path) -> FsExperiment | None:
         return None
     slug = exp_dir.name
     index_path = exp_dir / "index.md"
-    meta: dict = {}
+    meta: dict[str, Any] = {}
     if index_path.is_file():
         meta, _ = parse_front_matter(index_path.read_text(encoding="utf-8"))
 
@@ -406,7 +407,7 @@ def scan_plane(workspace: Path, content_root: str = DEFAULT_CONTENT_ROOT) -> FsP
 # ---------------------------------------------------------------------------
 
 
-def _render_file(meta: dict, body: str) -> str:
+def _render_file(meta: dict[str, Any], body: str) -> str:
     fm = yaml.safe_dump(
         {k: v for k, v in meta.items() if v is not None},
         allow_unicode=True,
@@ -451,7 +452,7 @@ def write_topic_index(
         "created_at": (datetime.now(timezone.utc).isoformat() if topic_dir.joinpath("index.md").exists() is False else None),
         "description": description or None,
     }
-    old_meta: dict = {}
+    old_meta: dict[str, Any] = {}
     if meta["created_at"] is None:  # 已存在 index：保留原 created_at
         old_meta, _ = parse_front_matter((topic_dir / "index.md").read_text(encoding="utf-8"))
         meta["created_at"] = old_meta.get("created_at")

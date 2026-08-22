@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from server.domain.models import (
     Agent,
     AgentRole,
+    Experiment,
     ExperimentLog,
     ExperimentPhase,
     Review,
@@ -231,7 +232,7 @@ def _prior_version_reviews_fully_resolved(db: Session, experiment) -> bool:
 
 def prior_version_reviews_fully_resolved_by_experiment(
     db: Session,
-    experiments: list,
+    experiments: list[Experiment],
 ) -> dict[uuid.UUID, bool]:
     """Batch form of :func:`_prior_version_reviews_fully_resolved`.
 

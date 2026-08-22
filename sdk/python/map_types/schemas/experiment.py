@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -162,7 +162,7 @@ class ExperimentLogCreate(BaseModel):
     # for the slim form (marked ``similarity_skipped: slim form``).
     content_md: str | None = Field(default=None, min_length=1)
     file_path: str | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
     # b72d0542 I1.b(2)(e): when the similarity check would emit a warning,
     # callers can set this to True to acknowledge and skip the soft
     # warning. Server writes a ``log.force_skip`` audit row when the
@@ -183,7 +183,7 @@ class ExperimentLogRead(ORMModel):
     summary: str
     content_md: str
     file_path: str | None = None
-    metadata_json: dict | None
+    metadata_json: dict[str, Any] | None
     created_at: datetime
 
 
@@ -306,7 +306,7 @@ class SimilarityWarningSchema(BaseModel):
 class ExperimentComplete(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
     content_md: str | None = Field(default=None, min_length=1)
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
     # MAP slimming: when set, the log MD lives at this local path and
     # ``content_md`` may be omitted. Stored on the Experiment row.
     log_file_path: str | None = None
@@ -405,7 +405,7 @@ class ReviewVerdictFile(BaseModel):
 class ExperimentResultDecision(BaseModel):
     summary: str = Field(min_length=1, max_length=1024)
     content_md: str = Field(min_length=1)
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
     verdict_file: ReviewVerdictFile | None = Field(
         default=None,
         description=(

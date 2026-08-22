@@ -8,6 +8,7 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from sqlalchemy import delete, or_, select
@@ -110,7 +111,7 @@ def _matching_webhooks(db: Session, project_id: uuid.UUID | None, event: str) ->
 def enqueue_event_deliveries(
     db: Session,
     event: str,
-    payload: dict,
+    payload: dict[str, Any],
     project_id: uuid.UUID | None,
 ) -> list[uuid.UUID]:
     """Create pending delivery rows; HTTP happens in deliver_delivery()."""
@@ -265,7 +266,7 @@ def deliver_delivery(delivery_id: uuid.UUID) -> None:
 def deliver_event(
     db: Session,
     event: str,
-    payload: dict,
+    payload: dict[str, Any],
     project_id: uuid.UUID | None,
 ) -> None:
     """Synchronous delivery (tests / fallback when no BackgroundTasks bound)."""

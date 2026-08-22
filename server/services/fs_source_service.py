@@ -856,8 +856,8 @@ def apply_fs_projection_delta(
             experiments[slug] = change.value
             applied += 1
         elif kind == "experiment_delete":
-            existing = experiments.get(slug)
-            if existing is None:
+            existing_exp = experiments.get(slug)
+            if existing_exp is None:
                 raise ConflictError(
                     f"experiment_delete {slug!r} does not exist on the current projection",
                     error="fs_projection_delta_invalid",
@@ -867,7 +867,7 @@ def apply_fs_projection_delta(
                     f"experiment_delete {slug!r} requires expected_hash",
                     error="fs_projection_delta_invalid",
                 )
-            current_hash = fs_experiment_content_hash(existing)
+            current_hash = fs_experiment_content_hash(existing_exp)
             if change.expected_hash != current_hash:
                 raise ConflictError(
                     f"experiment_delete {slug!r} hash mismatch",
@@ -1488,7 +1488,7 @@ class _NullSession:
         return None
 
 
-_NO_DB = _NullSession()  # type: ignore[assignment]
+_NO_DB: Session = _NullSession()  # type: ignore[assignment]
 
 
 __all__ = [

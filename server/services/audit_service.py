@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from map_types.schemas import ActionItemStalePayload
 from sqlalchemy import func, select
@@ -20,7 +21,7 @@ def log_no_commit(
     project_id: uuid.UUID | None = None,
     target_id: uuid.UUID | None = None,
     summary: str | None = None,
-    payload: dict | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> AuditLog:
     """Public audit logger that flushes but does NOT commit.
 
@@ -62,7 +63,7 @@ def log(
     project_id: uuid.UUID | None = None,
     target_id: uuid.UUID | None = None,
     summary: str | None = None,
-    payload: dict | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> AuditLog:
     entry = log_no_commit(
         db,
@@ -309,7 +310,7 @@ def log_cross_persona_call_no_commit(
     caller_agent_id: uuid.UUID,
     target_experiment_id: uuid.UUID,
     project_id: uuid.UUID,
-    visibility_diff: dict | None = None,
+    visibility_diff: dict[str, Any] | None = None,
     result_partition_count: int = 0,
     diff_size: int = 0,
     rejected: bool = False,

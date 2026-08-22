@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -1065,7 +1065,7 @@ class MAPClient:
         return NotificationRead.model_validate(data)
 
     def mark_all_notifications_read(self) -> dict[str, int]:
-        return self._json("POST", "/agents/me/notifications/read-all")
+        return cast(dict[str, int], self._json("POST", "/agents/me/notifications/read-all"))
 
     # --- inbound events (runtime-waker dedup gate; D6) ---
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from typing import Any
 
 from map_types.enums import AcceptanceType
 
@@ -22,7 +23,7 @@ _ACCEPTANCE_ITEM_RE = re.compile(
 
 
 def parse_acceptance_status(
-    content_md: str, *, completion_metadata: dict | None = None
+    content_md: str, *, completion_metadata: dict[str, Any] | None = None
 ) -> list[AcceptanceStatusRead]:
     statuses: list[AcceptanceStatusRead] = []
     has_generic_evidence = metadata_has_completion_evidence(completion_metadata)

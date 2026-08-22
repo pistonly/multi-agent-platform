@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,7 @@ class InboundEventCreate(BaseModel):
     event_type: str = Field(min_length=1, max_length=64)
     source: InboundEventSource = InboundEventSource.polling
     fingerprint: str = Field(min_length=1, max_length=128)
-    payload: dict | None = None
+    payload: dict[str, Any] | None = None
 
 
 class InboundEventRead(ORMModel):
@@ -35,7 +35,7 @@ class InboundEventRead(ORMModel):
     event_type: str
     source: InboundEventSource
     fingerprint: str
-    payload: dict | None
+    payload: dict[str, Any] | None
     received_at: datetime
     acked_at: datetime | None
     rejection_count: int = 0

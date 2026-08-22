@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -63,7 +63,7 @@ def _is_expired(experiment: Experiment, *, now: datetime | None = None) -> bool:
     if acquired.tzinfo is None:
         acquired = acquired.replace(tzinfo=timezone.utc)
     ttl = experiment.lock_ttl_seconds or DEFAULT_LOCK_TTL_SECONDS
-    return reference >= acquired + __import__("datetime").timedelta(seconds=ttl)
+    return reference >= acquired + timedelta(seconds=ttl)
 
 
 def _to_result(experiment: Experiment) -> LockResult:

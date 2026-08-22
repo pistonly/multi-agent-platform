@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from map_types.enums import ExperimentMode, ExperimentPhase, ReviewItemStatus
@@ -66,7 +67,7 @@ def validate_review_item_transition(
     target: ReviewItemStatus,
     ctx: ReviewItemTransitionContext,
 ) -> None:
-    transitions: dict[tuple[ReviewItemStatus, ReviewItemStatus], callable] = {
+    transitions: dict[tuple[ReviewItemStatus, ReviewItemStatus], Callable[[ReviewItemTransitionContext], bool]] = {
         (ReviewItemStatus.open, ReviewItemStatus.addressed): lambda c: c.via_plan_revision,
         (ReviewItemStatus.open, ReviewItemStatus.rebutted): lambda c: c.is_creator,
         (ReviewItemStatus.open, ReviewItemStatus.withdrawn): lambda c: c.is_reviewer,

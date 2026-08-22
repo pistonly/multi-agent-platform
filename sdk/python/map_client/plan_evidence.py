@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 class PlanFrontmatterParseError(Exception):

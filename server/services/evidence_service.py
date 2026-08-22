@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from map_client.plan_evidence import (
     PlanEvidenceKeys,
@@ -47,7 +47,7 @@ class EvidenceValidationResult:
 def validate_log_evidence(
     *,
     plan_md: str | None,
-    metadata: dict | None,
+    metadata: dict[str, Any] | None,
 ) -> EvidenceValidationResult:
     """Compare ``metadata`` keys against plan ``evidence_keys``.
 

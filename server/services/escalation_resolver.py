@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from map_types.enums import AgentRole
 from sqlalchemy import select
@@ -101,7 +102,7 @@ def resolve_escalation_target_with_tier(
     # Tier 2b: same-role + same-project agent with any recent activity.
     if caller is not None and caller.project_id == scope_project_id:
         target_role = caller.role
-        exclude_id = caller.id
+        exclude_id: uuid.UUID | None = caller.id
     else:
         target_role = AgentRole.agent
         exclude_id = caller.id if caller is not None else None
@@ -211,7 +212,7 @@ def _admin_agent(db: Session, *, project_id: uuid.UUID | None = None) -> uuid.UU
         )
         row = db.execute(scoped).first()
         if row is not None:
-            return row[0]
+            return cast(uuid.UUID, row[0])
     global_admin = (
         select(Agent.id)
         .where(Agent.role == AgentRole.admin)

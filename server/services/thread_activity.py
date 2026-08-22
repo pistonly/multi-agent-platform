@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
+from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import ColumnElement, select
+from sqlalchemy import UnaryExpression, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Comment, Mention, MentionSourceType, Topic, TopicComment
 
 
-def topic_comment_sort_key(comment: TopicComment) -> tuple:
+def topic_comment_sort_key(comment: TopicComment) -> tuple[datetime, int, uuid.UUID]:
     """Canonical per-topic total order: wall clock, then seq, then id."""
     return (comment.created_at, comment.comment_seq, comment.id)
 
 
-def topic_comment_order_clauses() -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
+def topic_comment_order_clauses() -> tuple[UnaryExpression[datetime], UnaryExpression[int], UnaryExpression[uuid.UUID]]:
     """SQLAlchemy ORDER BY for topic comments (ascending)."""
     return (
         TopicComment.created_at.asc(),
@@ -25,7 +27,7 @@ def topic_comment_order_clauses() -> tuple[ColumnElement[bool], ColumnElement[bo
     )
 
 
-def topic_comment_order_clauses_desc() -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
+def topic_comment_order_clauses_desc() -> tuple[UnaryExpression[datetime], UnaryExpression[int], UnaryExpression[uuid.UUID]]:
     """SQLAlchemy ORDER BY for topic comments (descending / latest first)."""
     return (
         TopicComment.created_at.desc(),
@@ -82,7 +84,7 @@ def host_replied_after(
 def _is_reply_in_thread_to(
     comment: TopicComment | Comment,
     source: TopicComment | Comment,
-    by_id: dict[uuid.UUID, TopicComment | Comment],
+    by_id: Mapping[uuid.UUID, TopicComment | Comment],
 ) -> bool:
     cur: TopicComment | Comment | None = comment
     while cur is not None and cur.parent_comment_id is not None:

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -20,7 +21,7 @@ class NotificationRead(ORMModel):
     summary: str
     target_type: str
     target_id: uuid.UUID | None
-    payload_json: dict | None
+    payload_json: dict[str, Any] | None
     category: NotificationCategory = NotificationCategory.digest
     group_key: str | None = None
     wake_version: int = 1

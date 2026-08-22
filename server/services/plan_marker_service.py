@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from server.services.errors import StateTransitionError
 

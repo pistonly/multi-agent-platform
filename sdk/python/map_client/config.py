@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 def load_config(config_path: Path | None = None) -> dict[str, Any]:

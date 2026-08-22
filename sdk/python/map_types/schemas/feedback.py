@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +23,7 @@ class PlatformFeedbackCreate(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
     project_id: uuid.UUID | None = None
     category: FeedbackCategory | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class PlatformFeedbackUpdate(BaseModel):
@@ -41,7 +42,7 @@ class PlatformFeedbackRead(ORMModel):
     body: str
     category: FeedbackCategory | None
     status: FeedbackStatus
-    metadata_json: dict | None
+    metadata_json: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None

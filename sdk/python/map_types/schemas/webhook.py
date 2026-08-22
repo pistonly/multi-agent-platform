@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -39,7 +40,7 @@ class WebhookDeliveryRead(ORMModel):
     id: uuid.UUID
     webhook_id: uuid.UUID
     event: str
-    payload: dict
+    payload: dict[str, Any]
     status_code: int | None
     attempts: int
     success: bool

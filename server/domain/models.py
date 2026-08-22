@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from map_types.enums import (
     AgentRole,
@@ -561,7 +562,7 @@ class ExperimentLog(Base):
     # v0.13 M57 slim form: relative path to the local log MD file; when
     # present, content_md holds a stub ("See file: <path>").
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     log_index: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -580,7 +581,7 @@ class Webhook(Base):
     # service-layer change required. Migration 037 backfills existing
     # plaintext rows in-place.
     secret: Mapped[str] = mapped_column(EncryptedString(1024), nullable=False)
-    events: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    events: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -596,7 +597,7 @@ class WebhookDelivery(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     webhook_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("webhooks.id"), nullable=False, index=True)
     event: Mapped[str] = mapped_column(String(128), nullable=False)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -617,7 +618,7 @@ class AuditLog(Base):
     target_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     summary: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -650,7 +651,7 @@ class Notification(Base):
     summary: Mapped[str] = mapped_column(String(1024), nullable=False)
     target_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
-    payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     category: Mapped[NotificationCategory] = mapped_column(
         Enum(NotificationCategory),
         default=NotificationCategory.digest,
@@ -715,7 +716,7 @@ class InboundEvent(Base):
         nullable=False,
     )
     fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
-    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -764,7 +765,7 @@ class PlatformFeedback(Base):
     status: Mapped[FeedbackStatus] = mapped_column(
         Enum(FeedbackStatus), default=FeedbackStatus.new, nullable=False, index=True
     )
-    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -800,7 +801,7 @@ class FsProjection(Base):
         ForeignKey("agents.id"), nullable=True
     )
     client_workspace: Mapped[str] = mapped_column(String(1024), nullable=False)
-    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pushed_at: Mapped[datetime] = mapped_column(
