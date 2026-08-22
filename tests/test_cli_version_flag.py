@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import re
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
+import cli.main as cli_main
 from cli.main import app
 
 runner = CliRunner()
@@ -60,3 +63,38 @@ def test_version_flag_reports_map_sdk_single_source() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0, result.output
     assert result.output.strip() == f"map {map_sdk.__version__}"
+
+
+def test_main_fails_fast_when_map_fs_missing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Stale editable installs must fail on the FIRST command, not deep inside.
+
+    ``pip install -e .`` freezes the editable package map at install time;
+    when a later commit adds a top-level SDK package (``map_fs``), the old
+    finder can import ``cli`` but not ``map_fs``. Every ``map_fs`` import in
+    the command layer is lazy, so the drift used to surface only as a raw
+    ``ModuleNotFoundError`` traceback inside FS-scanning commands (observed
+    locally: ``map topic list`` crashed a week after the package landed).
+
+    ``sys.modules["map_fs"] = None`` makes ``import map_fs`` raise
+    ImportError, simulating the stale finder. The startup probe must turn
+    that into a clean stderr error with a recovery hint and exit 1 —
+    including for ``map --version``, by design (a broken install should be
+    loud on every invocation).
+    """
+    import sys
+
+    monkeypatch.setitem(sys.modules, "map_fs", None)
+    monkeypatch.setattr(sys, "argv", ["map", "--version"])
+    with pytest.raises(typer.Exit) as excinfo:
+        cli_main.main()
+    assert excinfo.value.exit_code == 1
+    err = capsys.readouterr().err
+    assert "'map_fs'" in err
+    assert "pip install -e ." in err
+
+
+def test_runtime_imports_probe_passes_in_healthy_env() -> None:
+    """The startup probe is a no-op when ``map_fs`` is importable."""
+    cli_main._verify_runtime_imports()  # must not raise

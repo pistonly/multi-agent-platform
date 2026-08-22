@@ -1545,7 +1545,34 @@ def map_dashboard() -> None:
     typer.echo("\n".join(lines))
 
 
+def _verify_runtime_imports() -> None:
+    """Fail fast when a bundled SDK package is missing from the environment.
+
+    ``pip install -e .`` freezes the editable package map at install time;
+    a top-level package added later (``map_fs``, v0.10) stays invisible to
+    a stale editable finder. Every ``map_fs`` import in the command layer
+    is a lazy in-function import, so the drift otherwise only surfaces as a
+    raw ``ModuleNotFoundError`` traceback deep inside an FS-scanning
+    command (observed: ``map topic list`` crashing long after the package
+    landed). ``map_client`` / ``map_sdk`` / ``map_types`` are already
+    imported at module scope above; ``map_fs`` is the only gap this probe
+    covers.
+    """
+    try:
+        import map_fs  # noqa: F401
+    except ImportError:
+        typer.echo(
+            "Error: SDK package 'map_fs' is missing from this Python environment.\n"
+            "This usually means the editable install is stale (created before\n"
+            "map_fs was added to the distribution).\n"
+            "Recover: pip install -e . --force-reinstall --no-deps",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+
+
 def main() -> None:
+    _verify_runtime_imports()
     app()
 
 
