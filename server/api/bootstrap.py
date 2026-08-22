@@ -81,14 +81,20 @@ def reissue_token(
 ) -> TokenReissueResponse:
     """Reissue one agent's API token (self-service recovery, M52C).
 
-    Requires a valid Bearer token. The caller must be an admin, or an
-    agent belonging to the target project — knowing only the (public, committed)
-    ``project_key`` is not enough to take over a persona's token. The
-    previous token is revoked atomically (hash replaced in the same commit);
-    callers should write the new token back to ``.map/agents.local.yaml``
-    (``map auth reissue`` does this).
+    Requires a valid Bearer token. The caller must be an admin, or the
+    agent being reissued itself (self-recovery only) — belonging to the
+    target project is NOT enough: otherwise any persona could mint the
+    host persona's token and bypass the creator-only experiment gates.
+    The previous token is revoked atomically (hash replaced in the same
+    commit); callers should write the new token back to
+    ``.map/agents.local.yaml`` (``map auth reissue`` does this).
     """
     if agent.role != AgentRole.admin:
+        if agent.name != payload.agent_name:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Not authorized: non-admin callers may only reissue their own token",
+            )
         project = db.scalar(select(Project).where(Project.project_key == payload.project_key))
         if project is not None and agent.project_id != project.id:
             raise HTTPException(

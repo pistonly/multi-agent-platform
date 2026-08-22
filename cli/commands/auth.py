@@ -55,8 +55,9 @@ def auth_reissue(
     Recovery path for a lost ``.map/agents.local.yaml``. The previous
     token is revoked immediately (anywhere it was used will start
     returning 401 until re-reissued). Authorization requires a valid token:
-    an admin token, or any surviving token of the same project (knowing only
-    the public ``project_key`` is NOT enough — see the security note).
+    an admin token may reissue any agent; a persona token may only reissue
+    its own agent (a sibling persona's token is NOT enough — use
+    MAP_ADMIN_TOKEN / ~/.map/admin.yaml for cross-persona recovery).
 
     \b
     Examples:

@@ -263,10 +263,13 @@ def reissue_map_token(
 
     Authentication for the reissue call is resolved from (in priority):
     the explicit ``bearer_token`` argument → ``MAP_ADMIN_TOKEN`` env → the
-    first surviving persona token in ``.map/agents.local.yaml`` (any same-
-    project credential authorizes recovery of another). Raises ``ValueError``
-    when ``.map/`` is not initialized (bootstrap first) or the server
-    predates the reissue endpoint.
+    first surviving persona token in ``.map/agents.local.yaml``. Server-side
+    authorization: an admin token may reissue any agent; a persona token
+    may only reissue its own agent — using a sibling persona's token to
+    recover another persona is rejected with 403 (install an admin token
+    via ``MAP_ADMIN_TOKEN`` / ``~/.map/admin.yaml`` for cross-persona
+    recovery). Raises ``ValueError`` when ``.map/`` is not initialized
+    (bootstrap first) or the server predates the reissue endpoint.
     """
     root = (project_root or Path.cwd()).resolve()
     map_dir = root / MAP_DIR_NAME

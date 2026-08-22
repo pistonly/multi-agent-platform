@@ -184,7 +184,7 @@ def test_reissue_rotates_token_and_revokes_old(client):
 
     resp = client.post(
         "/api/v1/bootstrap/reissue",
-        headers=_bearer(body),
+        headers=_bearer(body, persona="host"),
         json={
             "project_key": "reissue-demo",
             "agent_name": host["agent_name"],
@@ -223,22 +223,24 @@ def test_reissue_unauthenticated_returns_401(client):
 
 
 def test_reissue_unknown_project_returns_404(client):
-    """已认证但 key 不存在 → 404（不泄露 key 是否存在）。"""
+    """本人重签但 key 不存在 → 404（不泄露 key 是否存在）。"""
     body = _bootstrap_once(client)
+    participant = next(a for a in body["agents"] if a["persona"] == "participant")
     resp = client.post(
         "/api/v1/bootstrap/reissue",
         headers=_bearer(body),
-        json={"project_key": "no-such-key", "agent_name": "whatever-host"},
+        json={"project_key": "no-such-key", "agent_name": participant["agent_name"]},
     )
     assert resp.status_code == 404
     assert "not found" in resp.json()["detail"].lower()
 
 
-def test_reissue_unknown_agent_returns_404(client):
-    body = _bootstrap_once(client)
+def test_reissue_unknown_agent_returns_404(client, admin_headers):
+    """admin 重签不存在的 agent → 404（非 admin 会先撞姓名不一致的 403）。"""
+    _bootstrap_once(client)
     resp = client.post(
         "/api/v1/bootstrap/reissue",
-        headers=_bearer(body),
+        headers=admin_headers,
         json={"project_key": "reissue-demo", "agent_name": "ghost-agent"},
     )
     assert resp.status_code == 404
@@ -259,6 +261,32 @@ def test_reissue_agent_from_other_project_returns_403(client):
         },
     )
     assert resp.status_code == 403
+
+
+def test_reissue_other_persona_same_project_returns_403(client):
+    """同项目内 participant 重签 host 的 token → 403（不可跨 persona 接管）。
+
+    回归测试：非 admin 曾经只校验项目归属，participant 可 mint host
+    token 绕过 creator-only 门禁；修复后非 admin 只能重签本人 token。
+    """
+    body = _bootstrap_once(client)
+    host = next(a for a in body["agents"] if a["persona"] == "host")
+
+    resp = client.post(
+        "/api/v1/bootstrap/reissue",
+        headers=_bearer(body),  # participant 的有效 token
+        json={
+            "project_key": "reissue-demo",
+            "agent_name": host["agent_name"],
+        },
+    )
+    assert resp.status_code == 403
+    # host 的原 token 未被吊销（重签未发生）
+    me = client.get(
+        "/api/v1/agents/me",
+        headers={"Authorization": f"Bearer {host['api_token']}"},
+    )
+    assert me.status_code == 200
 
 
 def test_bootstrap_409_mentions_reissue_command(client):
