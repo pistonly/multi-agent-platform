@@ -1,5 +1,5 @@
 # Multi-Agent Platform SDK & CLI 配置示例
 # 复制到 ~/.map/config.yaml
 
-api_url: http://localhost:8001
+api_url: http://localhost:18400
 token: your-api-token-here

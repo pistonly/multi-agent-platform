@@ -105,32 +105,32 @@ class TestQuickstartMatchesCli:
         ]
         assert url_lines, "QUICKSTART should show a bootstrap --api-url example"
         for line in url_lines:
-            assert "localhost:8001" in line, (
-                f"bootstrap --api-url should use the repo default port 8001: {line}"
+            assert "localhost:18400" in line, (
+                f"bootstrap --api-url should use the repo default port 18400: {line}"
             )
 
 
 class TestDefaultPortUnique:
-    """M50B：文档默认端口值唯一（8001，override 恒生效）。"""
+    """M50B：文档默认端口值唯一（18400）。"""
 
-    def test_no_docs_use_legacy_default_port(self) -> None:
+    @pytest.mark.parametrize("legacy_port", ["localhost:8000", "localhost:8001"])
+    def test_no_docs_use_legacy_default_port(self, legacy_port: str) -> None:
         offenders = [
             str(p.relative_to(REPO_ROOT))
             for p in _iter_port_check_files()
-            if "localhost:8000" in p.read_text(encoding="utf-8")
+            if legacy_port in p.read_text(encoding="utf-8")
         ]
         assert not offenders, (
-            "docs referencing localhost:8000 found (repo override publishes API "
-            f"on :8001; keep the documented default unique): {offenders}"
+            f"docs referencing {legacy_port} found (the documented default API "
+            f"port is 18400; keep the documented default unique): {offenders}"
         )
 
-    def test_compose_override_publishes_8001(self) -> None:
-        """护栏的前提：本仓 override 确实把 API 映射到宿主 8001。"""
-        override = REPO_ROOT / "docker-compose.override.yml"
-        assert override.is_file(), "docker-compose.override.yml should exist in repo"
-        text = override.read_text(encoding="utf-8")
-        assert re.search(r"8001:\s*8000|\"?8001:8000\"?", text), (
-            "override should map host 8001 -> container 8000"
+    def test_compose_publishes_18400(self) -> None:
+        """护栏的前提：基础 compose 确实把 API 映射到宿主 18400（容器内 8000）。"""
+        compose = REPO_ROOT / "docker-compose.yml"
+        text = compose.read_text(encoding="utf-8")
+        assert re.search(r"\"?18400:8000\"?", text), (
+            "docker-compose.yml should map host 18400 -> container 8000"
         )
 
 

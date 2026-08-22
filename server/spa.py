@@ -38,6 +38,18 @@ _RESERVED_ROOTS = frozenset(
 
 _INDEX_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 
+# Vite 产物文件名带内容哈希，可安全长缓存（发新版即换文件名）。
+_ASSETS_CACHE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+class _HashedAssetFiles(StaticFiles):
+    """``/assets`` 静态服务：为内容寻址资源补 immutable 长缓存头。"""
+
+    def file_response(self, *args, **kwargs):  # type: ignore[override]
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(_ASSETS_CACHE_HEADERS)
+        return response
+
 
 def is_reserved_path(path: str) -> bool:
     """Return True for API / docs / hashed-asset paths (not SPA fallback)."""
@@ -66,6 +78,25 @@ def resolve_web_dist(web_dist: str | Path | None = None) -> Path | None:
     return None
 
 
+def _dist_root_file(dist: Path, url_path: str) -> Path | None:
+    """dist 根级静态文件（favicon/manifest 等）查找；穿越路径返回 None。
+
+    仅接受 resolve 后仍位于 dist 内的常规文件；命中者不带内容哈希，
+    回退调用方需使用协商缓存（no-cache）。
+    """
+    relative = url_path.lstrip("/")
+    if not relative:
+        return None
+    try:
+        candidate = (dist / relative).resolve()
+        candidate.relative_to(dist)
+    except ValueError:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
 def mount_spa(app: FastAPI, dist: Path) -> None:
     """Mount hashed assets and rewrite unmatched GET/HEAD 404s to index.html.
 
@@ -74,7 +105,7 @@ def mount_spa(app: FastAPI, dist: Path) -> None:
     """
     assets = dist / "assets"
     if assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets), name="web_assets")
+        app.mount("/assets", _HashedAssetFiles(directory=assets), name="web_assets")
 
     index = dist / "index.html"
 
@@ -89,6 +120,11 @@ def mount_spa(app: FastAPI, dist: Path) -> None:
             return response
         if is_reserved_path(request.url.path):
             return response
+        # dist 根级静态文件（favicon.ico / manifest 等）：命中直接返回，
+        # 否则浏览器对自动探测资源的请求会拿到 200 的 HTML。
+        root_file = _dist_root_file(dist, request.url.path)
+        if root_file is not None:
+            return FileResponse(root_file, headers=_INDEX_CACHE_HEADERS)
         return FileResponse(index, headers=_INDEX_CACHE_HEADERS)
 
     logger.info("Serving web UI from %s", dist)

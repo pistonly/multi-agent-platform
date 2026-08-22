@@ -10,10 +10,10 @@ export default defineConfig({
         port: 5173,
         proxy: {
             "/api": {
-                // Native/dev on this machine maps MAP API to :8001 (host :8000 is taken).
+                // Default MAP API port is 18400 (uncommon; 8000/8001 conflict-prone).
                 // Override with VITE_API_PROXY if needed; leave VITE_API_URL empty so
                 // the browser talks same-origin /api and skips CORS.
-                target: process.env.VITE_API_PROXY || "http://localhost:8001",
+                target: process.env.VITE_API_PROXY || "http://localhost:18400",
                 changeOrigin: true,
             },
         },

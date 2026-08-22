@@ -298,9 +298,6 @@ def maybe_auto_sync(
     from cli.commands.fs import _workspace
     from cli.main import _cli_options, _resolve_project, resolve_client
 
-    if _cli_options.get("dry_run"):
-        return
-
     ws = workspace or _workspace()
     try:
         client = resolve_client(
@@ -309,7 +306,18 @@ def maybe_auto_sync(
         )
         pid = _resolve_project(client, None, None)
         status = client.fs_plane_status(pid)
+    except MAPHTTPError as err:
+        # 认证/权限/服务端错误不是"离线"：本地写已成功，但投影会静默漂移，
+        # 必须可见（不 exit——主写操作已完成，这里只提示修复路径）。
+        typer.echo(
+            f"Warning: auto-sync skipped due to server error: "
+            f"{err.status_code} {err.detail}. Remote projection is now stale; "
+            "run `map fs sync` after fixing server access.",
+            err=True,
+        )
+        return
     except Exception:
+        # 离线 / 配置缺失：跳过（本地文件仍是事实源）。
         return
     if status.mode == "local-fs":
         return
@@ -336,8 +344,9 @@ def maybe_auto_sync(
         raise typer.Exit(1) from err
     if result.get("sync_state") == "skipped-deletes":
         typer.echo(
-            "Warning: auto-sync skipped because remote objects would be deleted. "
-            "Preview with `map fs diff`, then `map fs sync --yes`.",
+            "Warning: auto-sync skipped entirely (including this write) because "
+            "remote objects would be deleted. Preview with `map fs diff`, then "
+            "`map fs sync --yes`.",
             err=True,
         )
         return
@@ -386,6 +395,21 @@ def warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
                         f"(mode was {status.mode})"
                     )
                     return
+            except MAPHTTPError as err:
+                if err.status_code == 409:
+                    # 典型为发布权冲突（projection 绑定在其他 persona/机器），
+                    # 不是 workspace 可达性问题——指向正确排查方向。
+                    typer.echo(
+                        f"WARNING: auto sync after bootstrap rejected (409): "
+                        f"{err.detail}",
+                        err=True,
+                    )
+                else:
+                    typer.echo(
+                        f"WARNING: auto sync after bootstrap failed: "
+                        f"{err.status_code} {err.detail}",
+                        err=True,
+                    )
             except Exception as err:
                 typer.echo(f"WARNING: auto sync after bootstrap failed: {err}", err=True)
         typer.echo(

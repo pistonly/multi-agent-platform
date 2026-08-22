@@ -75,7 +75,7 @@ C 类保留正则清单已随 `docs/MAP-RUNTIME-WAKER.md` 一并归档；如需�
 - **后端**：FastAPI + SQLAlchemy + Alembic
 - **前端**：React + Vite + TypeScript
 - **协作**：CLI (`map`)、simple-waker（默认且唯一）、`.cursor/skills/`
-- **部署**：Docker Compose（API :8001 / Web :3000）；可选 systemd `map-wakers.service`
+- **部署**：Docker Compose（API :18400 / Web :3000）；可选 systemd `map-wakers.service`
 
 ## 阻塞 / 风险
 

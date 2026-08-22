@@ -74,8 +74,10 @@ class FsExperimentRead(BaseModel):
 class FsAdvanceRoundRequest(BaseModel):
     """验证型写：推进轮次（服务端校验 ack 后写回 index.md）。
 
-    远程/容器部署（server 看不到 workspace）时携带 ``evidence``——客户端
-    本地解析的话题快照，server 据此校验 ack 完整性并签发写回 verdict。
+    远程/容器部署（server 看不到 workspace）时必须携带 ``base_revision``
+    （CLI 先 ``map fs sync`` 投影再取 revision）；服务端只信任已 CAS 发布
+    的投影来校验 ack 完整性。``evidence`` 为旧客户端兼容字段，不再参与
+    权限或 ack 校验。
     """
 
     waive_ack: bool = False

@@ -4,11 +4,14 @@ services:
       context: .
       dockerfile: Dockerfile.api
     ports:
-      - "8000:8000"
+      # 宿主侧默认用不常用的 18400（8000/8001 易与其他服务/IDE 端口转发冲突）。
+      # 容器内保持 8000：nginx(web)、mcp 的 MAP_API_URL、healthcheck 均按 8000 引用。
+      - "18400:8000"
     volumes:
       - ./data:/app/data
     environment:
       TZ: Asia/Shanghai
+      MAP_PORT: "8000"
       MAP_DATABASE_URL: sqlite:////app/data/map.db
       MAP_CORS_ORIGINS: http://localhost:3000,http://localhost:5173,http://web
       # Required by alembic 037 + EncryptedString (Webhook.secret). Set in .env.

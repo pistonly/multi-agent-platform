@@ -1,8 +1,6 @@
-# 本机 8000/8080 已被占用，试用时使用备用端口
+# 8080 是常见开发端口（易与其他服务冲突），MCP 改用 18081。
+# API 宿主端口已统一为 18400（见 docker-compose.yml），无需在此重映射。
 services:
-  api:
-    ports: !override
-      - "8001:8000"
   mcp:
     ports: !override
       - "18081:8080"

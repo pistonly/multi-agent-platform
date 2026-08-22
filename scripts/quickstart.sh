@@ -11,12 +11,12 @@
 # Usage:
 #   ./scripts/quickstart.sh                    # default admin name "map-admin"
 #   ./scripts/quickstart.sh --admin-name jane  # custom admin name
-#   ./scripts/quickstart.sh --api-port 8001    # override API port
+#   ./scripts/quickstart.sh --api-port 19000   # override API port
 #   ./scripts/quickstart.sh --skip-docker      # if services already running
 #
 # Environment variables (optional):
 #   MAP_ADMIN_NAME     Admin agent name (default: map-admin)
-#   MAP_API_PORT       API port (default: 8000; auto-detected from override)
+#   MAP_API_PORT       API port (default: 18400)
 #   MAP_SKIP_DOCKER    If set, skip docker compose up
 
 set -euo pipefail
@@ -58,13 +58,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── Detect API port from docker-compose.override.yml ───────────────────────
+# ── API port ────────────────────────────────────────────────────────────────
+# 默认 18400（不常用端口，避开 8000/8001 冲突重灾区；与 docker-compose.yml 一致）。
 if [[ -z "$API_PORT" ]]; then
-  if [[ -f "docker-compose.override.yml" ]] && grep -q "8001" docker-compose.override.yml 2>/dev/null; then
-    API_PORT="8001"
-  else
-    API_PORT="8000"
-  fi
+  API_PORT="18400"
 fi
 API_URL="http://localhost:${API_PORT}"
 
@@ -232,10 +229,14 @@ echo -e "${BOLD}${GREEN}========================================${NC}"
 echo -e "${BOLD}${GREEN}  MAP is ready!${NC}"
 echo -e "${BOLD}${GREEN}========================================${NC}"
 echo ""
+MCP_PORT="8080"
+if [[ -f "docker-compose.override.yml" ]] && grep -q "18081" docker-compose.override.yml 2>/dev/null; then
+  MCP_PORT="18081"
+fi
 echo -e "Services:"
 echo -e "  API+Web: ${CYAN}${API_URL}/${NC}  (board is served from the API origin)"
 echo -e "  Web UI:  ${CYAN}http://localhost:3000${NC}  (Docker nginx; same UI)"
-echo -e "  MCP:     ${CYAN}http://localhost:$([[ "$API_PORT" == "8001" ]] && echo "18081" || echo "8080")/mcp${NC}"
+echo -e "  MCP:     ${CYAN}http://localhost:${MCP_PORT}/mcp${NC}"
 echo ""
 
 if [[ -n "${ADMIN_TOKEN:-}" ]]; then
