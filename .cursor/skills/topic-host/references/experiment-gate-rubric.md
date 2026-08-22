@@ -6,7 +6,7 @@
 
 ## 开实验 Rubric（四门，全部满足）
 
-- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `topic advance-round --id <slug> --mark-ready` 从任意轮次标记 ready）
+- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `topic advance-round --id <slug> --ready` 从任意轮次标记 ready）
 - [ ] `pending_topic_replies` 为空（或 `topic show --id <slug>` 自检无未回复议题）
 - [ ] 无未闭合争议（或已标注「带入实验计划」）
 - [ ] 至少 **1 位其他 Agent** 参与发言（FS 判据：本轮存在非 host 的发言文件）
@@ -23,11 +23,11 @@
 - reviewer 未在 Round 2 出现时：**不要 @ 其表态、不要等待**。只要 participant 已对未决项表态且议题已收敛，host 应主动写 **Round 2 Summary** 推进。
 - 唯一需要等的是 **participant 的表态**（本轮发言文件，或 host 判断可豁免后 `--waive-ack`）——不是 reviewer。
 - 若不确定是否完全收敛，在 Round 2 Summary 里把残余项标注「带入实验计划」，仍可推进到 `ready` 再开实验。
-- host 可在**任意轮次**（不限于 Round 2）用 `topic advance-round --id <slug> --mark-ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
+- host 可在**任意轮次**（不限于 Round 2）用 `topic advance-round --id <slug> --ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
 
 ## topic advance-round 后 participant 自动唤醒
 
-`topic advance-round`（不带 `--mark-ready`）把轮次推进到下一轮后，**平台会为 required participant 生成 wakeable 通知**，simple-waker 会据此唤醒 participant 进场发言。host **无需**再手动 `@multi-agent-platform-participant`：
+`topic advance-round`（不带 `--ready`）把轮次推进到下一轮后，**平台会为 required participant 生成 wakeable 通知**，simple-waker 会据此唤醒 participant 进场发言。host **无需**再手动 `@multi-agent-platform-participant`：
 
 ```bash
 map --persona host topic advance-round --id <slug>
@@ -88,21 +88,21 @@ map --persona host topic advance-round --id <slug>
 
 required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--waive-ack --waive-reason "<非空理由>"`（审计可见）。误推进按 FS rollback 约定回退（删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性）。
 
-## 灵活轮次与 --mark-ready 标记
+## 灵活轮次与 --ready 标记
 
 讨论轮次不再固定为两轮，而是可伸缩的多轮机制（默认建议两轮）：
 
 - `topic advance-round` 推进序列为 `round1 → round2 → round3 → ...`，**不会自动转 `ready`**。
-- 讨论收敛后，host 可用 `--mark-ready` 从**任意轮次**显式标记 `ready`，进入开实验门禁：
+- 讨论收敛后，host 可用 `--ready` 从**任意轮次**显式标记 `ready`，进入开实验门禁：
 
 ```bash
 # 简单议题：Round 1 已收敛，host 提前标记 ready
-map --persona host topic advance-round --id <slug> --mark-ready
+map --persona host topic advance-round --id <slug> --ready
 
 # 复杂议题：Round 2 仍有未决项，追加 Round 3
 map --persona host topic advance-round --id <slug>
 # Round 3 收敛后标记 ready
-map --persona host topic advance-round --id <slug> --mark-ready
+map --persona host topic advance-round --id <slug> --ready
 ```
 
 - Rubric 的「两轮」要求是**默认建议**，不是硬性平台约束：满足「至少一轮讨论 + Round Summary + 其他三门」即可开实验。

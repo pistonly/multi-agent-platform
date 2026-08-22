@@ -46,7 +46,7 @@ map --persona host topic advance-round --id <slug>
 map --persona host topic advance-round --id <slug> --waive-ack --waive-reason "参与者离线，结论已收敛"
 
 # 讨论已收敛：推进并标记 ready（进入开实验门禁）
-map --persona host topic advance-round --id <slug> --mark-ready
+map --persona host topic advance-round --id <slug> --ready
 ```
 
 - Summary 正文末尾 **@ 所有需表态的 agent 全名**（视觉锚点；实际唤醒走事件与投影）

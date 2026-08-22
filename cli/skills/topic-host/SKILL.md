@@ -57,7 +57,7 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 1. 实验**必须**由 host 创建（`creator_agent_id` 门禁）；`topic close --note` 承载的 action_items owner 须是 `map persona list` 中的真实 agent
 2. `topic advance-round` 前须等参与者本轮发言补齐；`--waive-ack` 必须配非空理由
 3. ack 类表态在 FS 模型里即「写本轮发言文件」——host 不代写、不催「收到」短评（读了即处理，否则制造新噪音）
-4. 收敛用 `--mark-ready`，与未满员推进互斥；rollback 后须核对 index 一致性（见下约定）
+4. 收敛用 `--ready`，与未满员推进互斥；rollback 后须核对 index 一致性（见下约定）
 
 ## 工作流
 
@@ -65,7 +65,7 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 
 1. **建**：`map topic create --slug <name> --title "..."`（纯写 index.md）；发起帖 `map topic comment --id <slug> --file <md>`
 2. **读**：`map topic list` / `map topic show --id <slug>`（list 合并本地 map/ + API；show 优先读文件夹）
-3. **敛**：参与者交齐本轮文件后 `map topic advance-round --id <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--mark-ready`
+3. **敛**：参与者交齐本轮文件后 `map topic advance-round --id <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--ready`
 4. **断/清**：`map topic close --id <slug> --reason ...`；实验仍走 `map experiment create`（DB 生命周期）
 
 **存量话题处置（v0.13 M58 起 DB 写路径已退役）**：
@@ -104,7 +104,7 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 | 死等 reviewer 在 Round N 发言才推进 | 只等 participant 发言补齐；reviewer 不需要参与 open 话题 |
 | 只读最后一条评论就回复 | `topic show --id <slug>` 读全量，按 thread 回复 |
 | 对表态发言再回「收到」 | 读到即处理，直接 `topic advance-round` 或开实验 |
-| 未满员时用 `--mark-ready` 收敛 | 收敛标 ready 前先补齐发言；确实无法补齐用 `--waive-ack --waive-reason` 说明 |
+| 未满员时用 `--ready` 收敛 | 收敛标 ready 前先补齐发言；确实无法补齐用 `--waive-ack --waive-reason` 说明 |
 | 对存量话题直接跑 DB 写命令 | 读→`topic migrate` 迁 FS 后再操作；写命令已退役，报错文案会给出指引 |
 
 ## 参考
