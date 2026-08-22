@@ -9,7 +9,11 @@ from server.domain import models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: fileConfig 默认 True 会把当时已存在的
+    # 所有未在 alembic.ini 列出的 logger 标记 disabled（进程级、不可逆）。
+    # 测试进程中 run_lock 等业务 logger 先于迁移创建时会被静默禁用，
+    # 导致后续 caplog 断言拿不到记录（test_experiment_lock_unit 全量失败）。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 settings = get_settings()
