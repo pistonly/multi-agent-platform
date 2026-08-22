@@ -86,3 +86,6 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Frontend test coverage output (vitest v8)
+coverage/
