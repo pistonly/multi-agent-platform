@@ -142,7 +142,6 @@ from .project import (
     BootstrapRequest,
     BootstrapResponse,
     GlobalStatusRead,
-    WakerHeartbeatRead,
     ProjectCreate,
     ProjectRead,
     ProjectStatusRead,
@@ -151,6 +150,7 @@ from .project import (
     ProjectUpdate,
     TokenReissueRequest,
     TokenReissueResponse,
+    WakerHeartbeatRead,
 )
 from .review import (
     ReviewCreate,

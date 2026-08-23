@@ -46,7 +46,6 @@ from cli.commands.persona import persona_app
 from cli.commands.project import project_app
 from cli.commands.runtime import runtime_app
 from cli.commands.server import server_app
-from cli.waker_heartbeat_render import render_waker_heartbeat_banner
 from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
@@ -68,6 +67,7 @@ from cli.persona_compare import (  # noqa: F401
 )
 from cli.shortid import normalize_uuid_like
 from cli.subcommand_format import make_group_cls
+from cli.waker_heartbeat_render import render_waker_heartbeat_banner
 
 # v0.12 M54A: root group class injects a subcommand-level ``--format``
 # option into every leaf command (E1). The lambda defers resolution of
