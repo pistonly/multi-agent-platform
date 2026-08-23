@@ -1309,10 +1309,18 @@ def _load_complete_metadata(path: Path | None, *, allow_missing_evidence: bool) 
         return metadata
     if not metadata_has_completion_evidence(metadata):
         keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
+        # T3-S1 (cli-hygiene-batch / A6): 错误前置给出 accepted keys + 示例
+        # JSON 片段——避免「complete 还要再传一遍 metadata」的要求只有在
+        # 失败后才知道,试探式重试。完整模板见 `--schema`。
         typer.echo(
             "Error: experiment complete now requires --metadata with deployment/test evidence "
             f"(accepted keys include: {keys}). Use --allow-missing-evidence only for explicit exceptions.\n"
-            "  schema: docs/cli-schemas.md#experiment-complete-metadata",
+            "  example: {\n"
+            '    "api_health": "ok",\n'
+            '    "pytest_summary": {"total": 35, "passed": 35, "failed": 0}\n'
+            "  }\n"
+            "  schema: docs/cli-schemas.md#experiment-complete-metadata\n"
+            "  full template: `map experiment complete --schema`",
             err=True,
         )
         raise typer.Exit(2)

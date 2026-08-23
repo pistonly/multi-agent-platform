@@ -323,8 +323,12 @@ def experiment_pre_complete(
         )
         raise typer.Exit(2)
 
+    resolved_id: uuid.UUID | None = None
+
     def _action(client: MAPClient):
+        nonlocal resolved_id
         exp = client.get_experiment(_rid(client, experiment_id))
+        resolved_id = exp.id
         # v0.12 M54C (plan.md L31): drop the nested ``ok`` — the outer
         # envelope carries it (docs/CLI-JSON-SCHEMA.md); a data-level
         # ``ok`` collided with the envelope contract.
@@ -336,6 +340,15 @@ def experiment_pre_complete(
         }
 
     _run(_action)
+    # T3-S1 (cli-hygiene-batch / A6): 校验通过后回显下一步可直接粘贴的
+    # complete 命令行——--id/--metadata 按本次入参填好,--summary 与
+    # --log-file-path 是 complete 侧必填、pre-complete 未接收的参数,作为
+    # 显式占位交给 host 补全(M55 recovery_command 形态)。
+    typer.echo(
+        "\nNext (copy-paste, fill in <summary> and <log.md>):\n"
+        f"  experiment complete --id {resolved_id} --metadata {metadata_file} "
+        "--summary '<summary>' --log-file-path <log.md>"
+    )
 
 
 @experiment_app.command("complete")
@@ -348,13 +361,15 @@ def experiment_complete(
     log_file: Path | None = typer.Option(
         None,
         "--file",
-        help="Log MD file to read and send as content (existing behavior).",
+        help="Log MD file to read and send as content (existing behavior). "
+        "Use when the full log body should land in MAP (similarity check runs on full text).",
     ),
     log_file_path: str | None = typer.Option(
         None,
         "--log-file-path",
         help="MAP slimming: store local log MD file path instead of sending content. "
-        "Use as alternative to --file.",
+        "Use as alternative to --file; use when you only need the path recorded "
+        "(slim form, skips similarity).",
     ),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
     allow_missing_evidence: bool = typer.Option(
@@ -510,7 +525,8 @@ def experiment_log(
     log_file: Path | None = typer.Option(
         None,
         "--file",
-        help="Log MD file to read and send as content_md (existing behavior).",
+        help="Log MD file to read and send as content_md (existing behavior). "
+        "Use when the full log body should land in MAP (similarity check runs on full text).",
     ),
     log_file_path: str | None = typer.Option(
         None,
@@ -518,7 +534,8 @@ def experiment_log(
         help=(
             "MAP slimming (v0.13 M57): local path to the log MD file, sent "
             "as-is without reading; the server stores a stub plus this "
-            "path on the log row. Mutually exclusive with --file."
+            "path on the log row. Mutually exclusive with --file. Use when "
+            "you only need the path recorded (slim form, skips similarity)."
         ),
     ),
     metadata_file: Path | None = typer.Option(None, "--metadata"),
@@ -560,6 +577,12 @@ def experiment_log(
     from cli.main import _read_text_file, _read_yaml_file, _run  # lazy: avoid cycle
     if log_file is not None and log_file_path is not None:
         typer.echo("Error: use only one of --file or --log-file-path", err=True)
+        raise typer.Exit(2)
+    # T1-P3 (cli-hygiene-batch / A2): --summary 是必填,但没有内容来源时让
+    # pydantic 构造直接抛 ValidationError 会泄漏约 30 行堆栈。前置一行式
+    # 错误,exit 2——与上方 --file/--log-file-path 互斥校验对齐。
+    if log_file is None and log_file_path is None:
+        typer.echo("Error: --summary requires --file or --log-file-path", err=True)
         raise typer.Exit(2)
     metadata = _read_yaml_file(metadata_file)
     if log_file is not None:
