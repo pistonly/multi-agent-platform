@@ -58,22 +58,22 @@ map --persona host topic advance-round --id <slug> --ready
 ## 3. 沉淀结论与开实验（仅 host）
 
 ```bash
-# 结论沉淀合并进关闭动作：close_note 承载 decision / rationale / action_items
-# payload 结构见 experiment-gate-rubric.md
-map --persona host topic close --id <slug> \
-  --reason experiment_ready --note "decision: ...; rationale: ...; action_items: [{item, owner}]"
-
-# 从话题开实验（四门见 experiment-gate-rubric.md）
+# 先开实验（409 门禁：不能在 closed 话题上 create，故顺序固定为 create → close）
 map --persona host experiment create \
   --title "..." \
   --plan-file ./plan.md \
-  --topic-id <topic-uuid>
+  --topic-id <topic-ref>          # uuid 或 FS slug（T2-P1 双路由）
 
 # 瘦身模式：只存计划文件路径
 map --persona host experiment create \
   --title "..." \
   --plan-file-path map/experiments/<slug>/plan.md \
-  --topic-id <topic-uuid>
+  --topic-id <topic-ref>
+
+# 后关话题：close_note 承载 decision / rationale / action_items 与实验 id
+# payload 结构见 experiment-gate-rubric.md
+map --persona host topic close --id <slug> \
+  --reason experiment_ready --note "decision: ...; rationale: ...; action_items: [{item, owner}]; 实验 <exp-id>"
 
 # 实验生命周期移交给 experiment-host Skill
 ```

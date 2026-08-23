@@ -77,16 +77,17 @@ map --persona participant topic comment --id <slug> --body "短评（Markdown）
 map --persona participant topic comment --id <slug> --file ./my-opinion.md
 ```
 
-slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。无网时可用高级入口 `map fs comment --topic <slug>`。
+slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。无网时可用高级入口 `map fs comment --topic <slug>`（T2-P2：`--topic` 与 `--id` 双轨别名均可用）。
 
 ## 实验创建（仅 host）
 
 ```bash
-map experiment create --title "..." --plan-file ./plan.md --topic-id <topic-uuid>
+# --topic-id 接受 DB uuid 或 FS 话题 slug（T2-P1 双路由，slug → 确定性 uuid5）
+map experiment create --title "..." --plan-file ./plan.md --topic-id <topic-ref>
 # 创建并直接提交评审
 map experiment create --title "..." --plan-file ./plan.md --submit-for-review
 # 文件引用模式：只存计划路径
-map experiment create --title "..." --plan-file-path map/experiments/<slug>/plan.md --topic-id <topic-uuid>
+map experiment create --title "..." --plan-file-path map/experiments/<slug>/plan.md --topic-id <topic-ref>
 ```
 
 ## 实验生命周期（host）
