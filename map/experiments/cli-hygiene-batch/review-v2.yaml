@@ -1,0 +1,10 @@
+reasonable_items:
+  - "A3 修正到位：删除边界已明确收窄为 experiment-host SKILL.md:48 日志纪律第 8 条**后半句**（同轮日志被状态机拒绝时落 FS log-rN.md + 补记）退役、前半「失败重试后必须补 experiment log 记录失败原文与修复动作」保留——已复核 SKILL.md:48 实际由前后两半构成（v0.12 M55F E5 教训与阶段白名单无关），v2 边界描述与文档结构完全吻合，删除面从「整条歧义」收窄为「净删半句」"
+  - "evidence 改可操作口径：A3 验收表述为「SKILL.md 无 log-rN.md 字样残留 + 前半句仍在 + commands.md 示例与实测一致 + host-checklist §3 顺序 create→close」——每条均可 grep / 实测核证，不再存在「删对象字面不存在」的形同虚设问题"
+  - "cookbook 歧义排除：经 grep（log-r0/log-rN/旁路/补记/落 FS）零命中确认 execution-cookbook 无 log-r0.md 落盘约定章节，删除对象限定 SKILL 第 8 条后半句一处，无双边删除面，变更面收敛"
+  - "A1 从 draft 起放宽 + I1 前置自举一致：log 幂等追加无阶段排他性、审计链信息密度论证充分；实验自身成为放宽后的第一个用户，A1 验收即日常动线验证（I2-I4 执行日志可直接写平台不走 FS 旁路）"
+  - "A4/A5 双路由与别名双轨贴合 cli-param-consistency Round 2 共识：--topic-id 改 str + 复用 _resolve_topic_ref（uuid 直传回归测试已列）、fs 域 --id 具名别名 + --topic 过渡期双轨不 break（退役留 major 窗口）+ did-you-mean——与 topic 域既有 _resolve_topic_ref 惯例对齐，非另起炉灶"
+  - "A3/T2-P3 文档核正承接 fast-gate 话题 audit_note 指派项：host-checklist §3 由 close→create 修正为 create→close，与服务端 409 门禁一致"
+  - "A6 收尾动线完整且可验：pre-complete 末尾回显可粘贴 complete 命令行（入参填好）、complete 缺 metadata 错误前置 accepted key 列表 + 示例 JSON 片段、--file/--log-file-path help 各一行场景说明——每项独立可实测"
+  - "依赖与边界完备：M55 全信封改造、T3-S2 token 单传、T3-S3 deprecate pre-complete 均显式不并入；与 eb291c4b（fast-gate 反转）并行时序交互已预案，且 fast-gate 反转现已在 result_review（待本评审审批），cli-hygiene 执行时无需临时登记 _FAST_GATE_MODULES，依赖状态自洽"
+unreasonable_items: []

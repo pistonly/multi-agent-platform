@@ -1,0 +1,8 @@
+reasonable_items:
+  - "调研事实高度可信（已逐一核验）：log 白名单三态在 server/services/log_service.py:27-36（running/result_review/done，StateTransitionError）；--topic-id 声明 uuid.UUID | None 在 cli/commands/experiment.py:92；_resolve_topic_ref 双路由在 cli/commands/topic.py:292；completion evidence 谓词四处调用（experiment.py:317 / main.py:1310 / phase_service.py:338/393）全部吻合"
+  - "合批理由充分：三话题落点同在 experiment 域 CLI + log_service，合并避免三次重叠改动；与 host-invoke-observability（编排章节）、eb291c4b（显式声明无代码依赖）边界互斥清晰"
+  - "I1 自举设计好：log 放宽先行，后续 I2-I4 的执行日志直接写平台、不走 FS 旁路——实验自身是新机制第一个用户，A1 验收即日常动线验证"
+  - "与 eb291c4b（running）的并行时序交互已预案：本实验新增测试文件在反转完成前会被现白名单静默 deselect，已写明临时登记 _FAST_GATE_MODULES、反转后移除——两实验不会互相假绿"
+  - "窄口径与三个话题 Round 2 定稿一致：M55 全信封、T3-S2 token 单传、T3-S3 deprecate pre-complete 均显式不并入；host-checklist §3 顺序核正（create → close）承接 fast-gate 话题 audit_note 指派项"
+unreasonable_items:
+  - "A3 删除边界歧义 + 验收 grep 口径不可操作：experiment-host SKILL.md:48 的「日志纪律」条目（有序列表第 8 项）由两部分组成——前半「失败重试后必须补 experiment log 记录失败原文与修复动作」（v0.12 M55F E5 教训，与阶段白名单无关）+ 后半「同轮日志被状态机拒绝时落 FS log-rN.md 并补记」（A1 放宽后失业的部分）。A3 主语「experiment-host Skill『日志纪律第 8 条』…随 A1 落地删除」按字面执行会整删、误伤前半审计纪律；且 evidence「grep 核证：Skill 文档无『日志纪律第 8 条』…残留」——文档本无「第 8 条」字面字符串，该 grep 无论删否均可通过，验收形同虚设。另「execution-cookbook 的 log-r0.md 落盘约定」在 execution-cookbook.md 中 grep（log-r0 / log-rN / 旁路 / 补记 / 落 FS）零命中，删除对象疑似不存在。请 plan revise：A3 明确为只删第 8 条后半句（FS 旁路 + 补记）、保留前半「失败后补 log」纪律；evidence 改为可操作口径（如 SKILL.md 无 `log-rN.md` 字样残留且前半句仍在）；并核实 cookbook 约定实际位置或将其从 A3 移除"
