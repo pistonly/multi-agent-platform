@@ -1,0 +1,7 @@
+reasonable_items:
+  - "目标清晰可执行：反转落点明确——保留 conftest.py:272-283 既有「显式 marker 才 continue」分支、删除 `_FAST_GATE_MODULES` frozenset（conftest.py:99）与白名单分支；已核实现状与计划「调研事实」表逐条一致（addopts 在 pyproject.toml:107、守卫测试 tests/test_eng_fast_gate_whitelist_complete.py 存在）"
+  - "验收可观测：A2 探针（无 marker 无登记的必败用例确认被默认收集且套件变红）直接检验「假绿消除」语义本身；A4 用 `pytest --collect-only -q` deselect 数对账显式打标数，静默残留可被证伪"
+  - "风险闭环：D3 把基线测量前置为验收条目（A1）→ A5 复验对照同口径裁决，防「假绿换成过慢」的反向灾难；A5 后半分支预设兜底入口（`pytest -m \"not integration and not claude_cli\"`）与文档化预案"
+  - "与话题共识一致：D1–D3 与话题 close_note 定稿逐条对应；participant Round 2 两个修正（D2 直接删 frozenset+守卫、D3 基线前置）与 top-N 补充（`--durations` 一行参数喂 A4 候选定位）均已落进验收文本，无未闭合争议"
+  - "边界清晰：变更面限定 tests/conftest.py + pyproject.toml + 存量测试 marker，与同批 host-invoke-async 实验显式解耦；claude_cli 既有排除语义与 skip_claude_cli_if_unavailable fixture 不受影响"
+unreasonable_items: []
