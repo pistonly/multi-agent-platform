@@ -93,6 +93,11 @@ class Agent(Base):
     role: Mapped[AgentRole] = mapped_column(Enum(AgentRole), default=AgentRole.agent, nullable=False)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # D1: waker 心跳可见性 — last_api_seen_at 由任意 /me/work 刷新；last_waker_poll_at
+    # 仅 waker 特征请求 (client=waker) 刷新；stale 判定只看后者，降级场景人工 work
+    # 不污染归属。null → never（该 agent 无 waker 心跳记录），不进 WARN。
+    last_api_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_waker_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project | None"] = relationship()
 
