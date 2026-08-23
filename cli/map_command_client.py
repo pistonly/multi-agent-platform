@@ -95,7 +95,15 @@ class MapCommandClient:
         return self._run(["todos"], retryable=True)
 
     def work(self) -> dict[str, Any]:
-        return self._run(["work", "--notification-category", "wakeable"], retryable=True)
+        # ``--client waker`` marks this poll as the simple-waker: the server's
+        # /agents/me/work handler refreshes BOTH last_api_seen_at and
+        # last_waker_poll_at (D1). Human ``map work`` invocations leave it
+        # unset so they only refresh last_api_seen_at — stale-waker detection
+        # reads only last_waker_poll_at, so manual work cannot pollute liveness.
+        return self._run(
+            ["work", "--notification-category", "wakeable", "--client", "waker"],
+            retryable=True,
+        )
 
     def topic_progress(self) -> dict[str, Any]:
         return self._run(["topic", "progress"], retryable=True)
