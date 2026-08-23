@@ -24,13 +24,12 @@ from server.services.similarity_service import (
 
 
 def _validate_log_phase(phase: ExperimentPhase) -> None:
-    if phase not in (
-        ExperimentPhase.running,
-        ExperimentPhase.result_review,
-        ExperimentPhase.done,
-    ):
+    # I1 (cli-hygiene-batch / A1): 白名单从 running/result_review/done 放宽到
+    # 除 cancelled 终态外的全部阶段——日志条目自带实验 phase 快照且只增不改,
+    # 立项/评审期审计链与 running 期同等可信;cancelled 后仍拒绝追加。
+    if phase == ExperimentPhase.cancelled:
         raise StateTransitionError(
-            "Logs can only be added when experiment is running, pending result review, or done"
+            "Logs can only be added when the experiment is not cancelled"
         )
 
 
