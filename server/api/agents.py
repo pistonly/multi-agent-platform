@@ -1,9 +1,10 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from map_types.enums import NotificationCategory
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from server.api.deps import get_current_agent, get_optional_current_agent
@@ -201,10 +202,22 @@ def get_my_todos(
 def get_my_work(
     notification_limit: int = Query(default=50, ge=1, le=200),
     notification_category: NotificationCategory | str | None = Query(default="wakeable"),
+    client: str | None = Query(
+        default=None,
+        help="Caller identity hint. 'waker' marks a simple-waker poll (refreshes "
+        "last_waker_poll_at); any call refreshes last_api_seen_at.",
+    ),
     agent: Agent = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ) -> AgentWorkRead:
-    """Unified work snapshot: whoami + topic-progress + todos + unread notifications."""
+    """Unified work snapshot: whoami + topic-progress + todos + unread notifications.
+
+    Waker-heartbeat record point (D1): any call refreshes ``last_api_seen_at``;
+    a waker-marked call (``?client=waker``) additionally refreshes
+    ``last_waker_poll_at``. Both are single-column UPDATEs in this handler (not the
+    ``get_current_agent`` middleware) so the waker's whoami+work double touch does
+    not blur the semantics — stale detection reads only ``last_waker_poll_at``.
+    """
     normalized_category: NotificationCategory | None
     if notification_category is None or notification_category == "all":
         normalized_category = None
@@ -218,6 +231,12 @@ def get_my_work(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="notification_category must be wakeable, digest, or all",
             ) from exc
+    now = datetime.now(timezone.utc)
+    values: dict[str, datetime] = {"last_api_seen_at": now}
+    if client == "waker":
+        values["last_waker_poll_at"] = now
+    db.execute(update(Agent).where(Agent.id == agent.id).values(**values))
+    db.commit()
     return agent_work_service.get_agent_work(
         db,
         agent,
