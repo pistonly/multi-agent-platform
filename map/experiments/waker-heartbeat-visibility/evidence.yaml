@@ -1,0 +1,23 @@
+# map experiment complete --metadata
+# schema: docs/cli-schemas.md#experiment-complete-metadata
+api_health: ok
+alembic_current:
+  head: "050"
+  upgrade_clean: true
+pytest_summary:
+  total: 603
+  passed: 603
+  failed: 0
+  skipped: 0
+test_summary: "pytest tests/test_waker_heartbeat.py tests/test_waker_heartbeat_cli.py tests/cli/test_compat.py: 28 passed；server 11 新用例入 _FAST_GATE_MODULES；fast-gate 全量回归通过"
+smoke:
+  api_health: ok
+  notes: "alembic 050 upgrade head 已应用 prod DB，agents 表 PRAGMA 确认 last_api_seen_at / last_waker_poll_at 两列；A1–A3/A5 经 server+CLI 单测与 in-process /status 形状测试锁定；A4 db schema 核证"
+  limitations: "live :18400 server 未重启（editable install 需重启才加载新代码），其上 /status 暂不含 waker_heartbeats[]"
+acceptance:
+  - "A1 停机检测：stale 判定 server 侧 + map work 顶部 [WARN]"
+  - "A2 归属区分：普通 map work 只刷 api_seen，waker 挂吊 Manual work 不污染"
+  - "A3 无误报：null→never 不 WARN / fresh 不 WARN"
+  - "A4 冷启动：时间戳持久化在 agents 表，prod DB migration 050 head 两列，重启不丢"
+  - "A5 全 persona 展示：/status waker_heartbeats[] + map work 顶部渲染（CLI 零判定）"
+  - "A6 文档：MAP-SIMPLE-WAKER.md 补降级路径/层次/边界三章"

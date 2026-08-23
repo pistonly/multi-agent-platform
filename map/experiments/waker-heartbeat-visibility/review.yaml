@@ -1,0 +1,8 @@
+reasonable_items:
+  - "目标清晰可执行：双时间戳（last_api_seen_at / last_waker_poll_at）+ `--client waker` 特征标记精准解决归属污染，A2 以本话题 invoke 补位场景作回归样例，与 round2 D1 一致"
+  - "null-never 语义独立判断（评审可改决策点）：同意「last_waker_poll_at 为 null → never 不 WARN，stale 仅对曾有心跳且超阈值」——正确承载『只挂一个 waker』部署形态（A5 可观测覆盖）。边界提示（不阻塞）：此语义把『从未配置 waker』与『配置了但从未成功轮询』都归为 never，若某 persona 配置了 waker 却因配置/权限错误从未心跳会被静默；v1 可接受，v2 可演进为区分两者"
+  - "验收可观测：A1–A6 各带可运行验证路径（Settings 调短阈值等价 + 默认值冒烟、A2 手动刷新污染回归、A4 schema 持久化核证防 working-tree 漂移），测试面细化到 server 单测/CLI 单测/A1–A4 集成/fast-gate 全量回归四层"
+  - "与话题共识一致：全部 acceptance 收敛到 round2 定稿 D1–D6，分歧项（阈值锚定→固定 15min Settings、展示粒度→全 persona per-agent、记录点→/me/work handler 非 middleware）均按 review 方修正落定，无未闭合争议"
+  - "非目标与边界说明充分：D5 反模式排除 simple-remind: 心跳（提醒审计非存活）、D6 文档三章明确 waker-stale WARN 是 stale_open_topics 的前置信任条件、server 挂为显性故障不需心跳兜底"
+  - "风险与实现顺序合理：S1 先落数据后建判定、CLI 只渲染不复制判定逻辑、涉及 server 改动时 docker compose build api 后再验（不 restart），规避热变更漂移"
+unreasonable_items: []
