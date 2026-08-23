@@ -176,7 +176,7 @@ def fs_topic_create(
 
 @fs_app.command("comment")
 def fs_comment(
-    topic: str = typer.Option(..., "--topic", help="话题 slug"),
+    topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名，T2-P2）"),
     body: str | None = typer.Option(None, "--body", help="评论正文（与 --file 二选一）"),
     file: Path | None = typer.Option(None, "--file", help="从 MD 文件读正文"),
     persona: str | None = typer.Option(None, "--persona"),
@@ -247,7 +247,7 @@ def fs_list(status: str | None = typer.Option(None, "--status", help="open | clo
 
 @fs_app.command("show")
 def fs_show(
-    topic: str = typer.Option(..., "--topic"),
+    topic: str = typer.Option(..., "--topic", "--id"),
     full: bool = typer.Option(False, "--full", help="打印评论完整正文"),
 ) -> None:
     """离线查看话题详情（index.md + 评论文件解析结果）。"""
@@ -522,7 +522,7 @@ def _run_validated_write(
 
 @fs_app.command("advance-round")
 def fs_advance_round(
-    topic: str = typer.Option(..., "--topic"),
+    topic: str = typer.Option(..., "--topic", "--id"),
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     waive_ack: bool = typer.Option(False, "--waive-ack"),
@@ -555,7 +555,7 @@ def fs_advance_round(
 
 @fs_app.command("close")
 def fs_close(
-    topic: str = typer.Option(..., "--topic"),
+    topic: str = typer.Option(..., "--topic", "--id"),
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     reason: str | None = typer.Option(None, "--reason"),
@@ -586,7 +586,7 @@ def fs_close(
 
 @fs_app.command("archive")
 def fs_archive(
-    topic: str = typer.Option(..., "--topic", help="话题 slug"),
+    topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名，T2-P2）"),
     undo: bool = typer.Option(
         False, "--undo", help="还原归档话题（archive 目录移回 map/topics/）"
     ),

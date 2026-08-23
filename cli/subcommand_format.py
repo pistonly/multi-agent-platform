@@ -49,7 +49,9 @@ construction and group detection therefore branch on ``typer._click``.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
+from difflib import get_close_matches
 from typing import Any
 
 import typer
@@ -139,6 +141,7 @@ def _patch_leaf(cmd: Any, apply: ApplyHook) -> Any:
     setattr(cmd, _PATCH_FLAG, True)
     # typer×click 必填校验修复对所有 leaf 生效（与是否注入 --format 无关）。
     _restore_required_check(cmd)
+    _patch_did_you_mean(cmd)
     # Defensive: if a future command declares its own --format, leave it be
     # (click would reject duplicate option names at parse time otherwise).
     params = getattr(cmd, "params", None) or []
@@ -178,6 +181,92 @@ def _patch_any(cmd: Any, apply: ApplyHook) -> Any:
     if _is_group(cmd):
         return _patch_group(cmd, apply)
     return _patch_leaf(cmd, apply)
+
+
+def _did_you_mean_hint(
+    message: str,
+    known_opts: list[str],
+    args: list[str],
+    flags_by_name: dict[str, list[str]],
+    ctx_args: list[str],
+) -> str | None:
+    """从 click UsageError 消息提取可落地的「你是不是想用」建议。
+
+    四种形态(cli-hygiene-batch / A5,T2-P2):
+    - missing option:``map experiment status myslug`` —— required ``--id`` 缺失
+      (vendored click 报 ``Missing parameter: experiment_id``,param 名非 flag,
+      故经 flags_by_name 反查)→ 建议 ``--id <slug>``(验收形态)。
+    - extra argument:命令已给 id 又裸传 slug(``experiment status --id x myslug``)
+      → 建议 ``--id <token>``。
+    - no such option:flag 拼错(如 ``--topc``)→ 对已知 option 名做近邻匹配。
+    """
+    match = re.search(r"missing parameter:\s*(\S+)", message, re.IGNORECASE)
+    if match:
+        pname = match.group(1)
+        flags = flags_by_name.get(pname) or []
+        target = next((f for f in ("--id", "--topic") if f in flags), None)
+        if target is None:
+            target = "--id" if "--id" in known_opts else ("--topic" if "--topic" in known_opts else None)
+            if target is None:
+                return None
+        token = next((a for a in ctx_args if not a.startswith("-")), None)
+        return f"你是不是想用 {target} {token if token else '<slug>'}"
+    match = re.search(r"extra argument\(s\)? \(([^)]+)\)", message, re.IGNORECASE)
+    if match:
+        target = "--id" if "--id" in known_opts else "--topic"
+        return f"你是不是想用 {target} {match.group(1)}"
+    match = re.search(r"no such option:\s*(\S+)", message, re.IGNORECASE)
+    if match:
+        bad = match.group(1)
+        close = get_close_matches(bad, known_opts, n=1, cutoff=0.5)
+        if close:
+            return f"你是不是想用 {close[0]}"
+        target = "--id" if "--id" in known_opts else "--topic"
+        return f"你是不是想用 {target}"
+    return None
+
+
+def _patch_did_you_mean(cmd: Any) -> None:
+    """T2-P2 (A5): id/topic 域 leaf 的参数解析 did-you-mean。
+
+    只作用于带 ``--id`` 或 ``--topic`` option 的命令(experiment / fs / topic
+    的 id 域高频命令);不改 exit code 与消息主体,只在 UsageError 上追加一行
+    ``Hint: ...``。click 错误类名在 vendored click 与独立 click 间不定,故
+    以 ``message`` 关键字匹配,不依赖类类型——同时写 ``message`` 与 ``args[0]``
+    双通道保证任一渲染路径都带 hint。
+    """
+    opts = [
+        option
+        for param in getattr(cmd, "params", None) or []
+        for option in getattr(param, "opts", None) or []
+    ]
+    if "--id" not in opts and "--topic" not in opts:
+        return
+    flags_by_name = {
+        param.name: list(getattr(param, "opts", None) or ())
+        for param in getattr(cmd, "params", None) or []
+        if getattr(param, "name", None)
+    }
+    orig_parse_args = cmd.parse_args
+
+    def parse_args(ctx: Any, args: Any) -> Any:
+        try:
+            return orig_parse_args(ctx, args)
+        except Exception as exc:
+            hint = _did_you_mean_hint(
+                str(exc),
+                opts,
+                list(args),
+                flags_by_name,
+                list(getattr(ctx, "args", None) or ()),
+            )
+            if hint and hasattr(exc, "message"):
+                amended = f"{exc.message}  Hint: {hint}"
+                exc.message = amended
+                exc.args = (amended,) + tuple(exc.args[1:])
+            raise
+
+    cmd.parse_args = parse_args  # type: ignore[method-assign]
 
 
 def make_group_cls(apply: ApplyHook) -> type[TyperGroup]:

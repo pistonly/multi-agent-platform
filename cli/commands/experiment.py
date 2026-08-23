@@ -89,7 +89,11 @@ def experiment_create(
     project_key: str | None = typer.Option(None, "--project-key"),
     description: str | None = typer.Option(None, "--description"),
     submit_for_review: bool = typer.Option(False, "--submit-for-review"),
-    topic_id: uuid.UUID | None = typer.Option(None, "--topic-id"),
+    topic_id: str | None = typer.Option(
+        None,
+        "--topic-id",
+        help="Topic UUID (DB) or FS topic slug (resolved to its deterministic uuid5, T2-P1).",
+    ),
     mode: str = typer.Option(
         "standard",
         "--mode",
@@ -165,6 +169,16 @@ def experiment_create(
             err=True,
         )
         raise typer.Exit(2) from None
+
+    # T2-P1 (A4): --topic-id 声明放宽为 str——uuid 直传(DB 话题),非 uuid 形态
+    # 视为 FS 话题 slug → 确定性 uuid5(本地纯函数,无需先 `topic show` 抄 uuid)。
+    if topic_id is not None:
+        try:
+            topic_id = uuid.UUID(topic_id)
+        except ValueError:
+            from map_fs import topic_id_for_slug
+
+            topic_id = topic_id_for_slug(topic_id)
 
     payload = ExperimentCreate(
         title=title,
