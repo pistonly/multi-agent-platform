@@ -303,7 +303,7 @@ def test_map_command_client_work_requests_wakeable(monkeypatch) -> None:
 
     monkeypatch.setattr(MapCommandClient, "_run", fake_run)
     MapCommandClient(persona="host").work()
-    assert seen["args"] == ["work", "--notification-category", "wakeable"]
+    assert seen["args"] == ["work", "--notification-category", "wakeable", "--client", "waker"]
 
 
 def test_should_send_remind_requires_work_and_respects_cooldown() -> None:
