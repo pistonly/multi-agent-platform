@@ -1,0 +1,33 @@
+review_id: a7058188-b596-489b-ae8f-f72272992e61
+verdicts:
+  - item_id: 4b2a626e-091a-4031-8a00-09fcaaced4c9
+    verdict: passed
+  - item_id: 09d6d0cb-7018-4ecf-941a-e500bd462065
+    verdict: passed
+  - item_id: 38b02f63-df3d-48c1-9aa0-2821de0c4fd7
+    verdict: passed
+  - item_id: 53f9e45f-1c3e-4849-921f-4e4ef3450718
+    verdict: passed
+  - item_id: 15116d05-a4c8-4ad0-a19a-50b3d201b86d
+    verdict: passed
+  - item_id: b11a746c-dcd7-44dc-aa2d-7521cbe783cf
+    verdict: passed
+invariants:
+  - item_id: 4b2a626e-091a-4031-8a00-09fcaaced4c9
+    verified: true
+    note: S1 ae588ff 双时间戳迁移+ORM + S2 92a5e5b /me/work 记录点已 committed；普通调用只刷 api_seen，client=waker 加刷 waker_poll_at，test_plain_call_refreshes_only_api_seen 锁定
+  - item_id: 09d6d0cb-7018-4ecf-941a-e500bd462065
+    verified: true
+    note: S3 1128fce null→never 不 WARN，test_null_never_not_stale 断言 stale=False；fresh 心跳不 stale
+  - item_id: 38b02f63-df3d-48c1-9aa0-2821de0c4fd7
+    verified: true
+    note: T a622871 11 新用例入 _FAST_GATE_MODULES 白名单；fast-gate 603 passed 0 failed；A4 prod DB alembic 050 head 落两列（PRAGMA 核证）
+  - item_id: 53f9e45f-1c3e-4849-921f-4e4ef3450718
+    verified: true
+    note: acceptance 收敛 round2 D1–D6，无未闭合争议，evidence-r1.json A1–A6 全覆盖
+  - item_id: 15116d05-a4c8-4ad0-a19a-50b3d201b86d
+    verified: true
+    note: D6 831673b + 87fdf43 文档补降级路径/层次/边界；只覆盖 waker 挂 server 活半边，server 挂显性故障不兜底
+  - item_id: b11a746c-dcd7-44dc-aa2d-7521cbe783cf
+    verified: true
+    note: S1→S2→S3→C1/C2→T→D 窄 commit 顺序落地，CLI 只渲染不复制判定
