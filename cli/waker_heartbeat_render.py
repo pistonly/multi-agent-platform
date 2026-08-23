@@ -17,7 +17,6 @@ effort: if ``/status`` is unreachable for this agent, the banner is skipped and
 from __future__ import annotations
 
 import typer
-
 from map_client.exceptions import MAPHTTPError
 
 

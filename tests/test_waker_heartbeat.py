@@ -12,15 +12,6 @@ Locks the D1 semantics at the API + service layer:
 
 from datetime import datetime, timedelta, timezone
 
-from tests.conftest import (  # noqa: F401
-    admin_headers,
-    agent_token,
-    auth_headers,
-    client,
-    db_session,
-    project,
-)
-
 
 def _agent_row(db, agent_id):
     import uuid
