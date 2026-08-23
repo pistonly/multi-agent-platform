@@ -20,6 +20,24 @@
 - 打标真 slow 后的默认套件时长待 I3 完成复测（A5 正式验收）；预期主体为快速单测（本次 durations 尾部显示大量 3-4s 的 setup，慢集中在 waker_phase2 系列，见下）
 - 兜底入口预案（A5 后半）：保留 `pytest -m "not integration and not claude_cli"` / 调整 test-fast.sh 语义，随 I3/I4 结果定稿
 
+### A5 正式复测（I4 完成，2026-08-23）
+
+命令：`python -m pytest -m "not slow and not integration and not claude_cli" -q`
+（反转后 `addopts` 不匹配任何自动打标，即「默认路由」的真实收集全集）
+
+| 指标 | 值 |
+|------|-----|
+| 反转后默认收集 | **1323 / 1680**（357 deselected 全是显式 marker：slow/integration/claude_cli） |
+| 反转后默认总时长 | **818.23s（13:38）** |
+| 结果 | **26 failed**, 1296 passed, 1 skipped |
+| 反转前对照 | 白名单内 603 / 1703，~90s 内（假绿） |
+
+**裁决与结果**：
+- 反转后默认套件 818s 仍远超旧 90s 阈值——但旧阈值语义是「白名单 603 例子集」，反转后默认收集膨胀到 1323 例的真实全集，红 = 真实状态，不再有静默 deselect
+- **26 failed 全部为反转暴露的既有债务**（test_cli_error_envelope / test_error_codes_cli / test_error_envelope_and_file_options / test_experiment_lock_notifications / test_map_sdk_skeleton(test_map_sdk_does_not_import_server / test_cli_imports_with_map_sdk_present) / test_reject_result_misuse / test_review_list_archived_filter / test_simple_waker / test_cli_format_priority / test_cli_n2_hard_cutover），与 baseline 开头 52 failed triage 同源；无反转引入的回归（探针实证 + 收集语义单测全绿）
+- 兜底入口已落地：tests/README.md 记录 `pytest -m "not integration and not claude_cli"`（全量单元）为常用路线；CI 矩阵 PR gate 行已更新为「反转后真实收集」语义（90s 指标随白名单失效）
+- I3 存量打标已完成：357 deselected ✓（= 显式 marker 数，无静默残留；新增 `pytest --collect-only` 对账见下方）
+
 ## durations 局部记录
 
 > 完整 durations=50 输出被截断（tail -80 只留尾部），最慢段丢失；per-module 聚合以 PERF.md 历史 + 本节局部 + I3 打标后 `--collect-only` 对账补偿。
