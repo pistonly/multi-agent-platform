@@ -1,106 +1,61 @@
-"""``map feedback ...`` sub-app — arch experiment 0519e2a3 PR7.
+"""``map feedback ...`` sub-app — retired in v0.15 M62 (dead-letter box teardown).
 
-Platform feedback inbox. ``submit`` is persona-scoped; ``list`` / ``get`` /
-``update`` are admin-only (used for triage).
-
-All command bodies lazy-import ``cli.main._run`` to break the
-``cli.main ↔ cli.commands.*`` import cycle.
+全链路废弃定案见话题 v015-feedback-deprecation-design（round2 全票）。
+四命令统一引导性拒绝（exit 2，M58 ``_DB_WRITE_RETIRED`` 同款模式）：
+自托管收件人错位 + 替代通道已存在。历史数据只读保留于平台 DB，
+人类友好索引 = 实验 m62-feedback-deprecation 清账处置表。
 """
+
 from __future__ import annotations
 
-import uuid
-from pathlib import Path
-
 import typer
-from map_client.client import MAPClient
 
-feedback_app = typer.Typer(help="Platform feedback inbox commands")
+feedback_app = typer.Typer(help="Platform feedback inbox commands (retired in v0.15 M62)")
+
+_HINT = (
+    "Platform feedback was retired in v0.15 M62 (dead-letter box: no recipient on "
+    "self-hosted deployments, superseded by better channels).\n"
+    "- bug report: open a GitHub issue (repo link in README; attach repro steps)\n"
+    "- improvement idea / dogfood feedback: ask the host to open a MAP topic\n"
+    "Historical feedback records are preserved read-only in the platform DB."
+)
+
+
+def _feedback_retired(command: str) -> None:
+    typer.echo(f"Error: `map feedback {command}` is retired (v0.15 M62).\n{_HINT}", err=True)
+    raise typer.Exit(2)
 
 
 @feedback_app.command("submit")
 def feedback_submit(
-    body: str | None = typer.Option(None, "--body", help="Feedback text (free-form)."),
-    body_file: Path | None = typer.Option(
-        None,
-        "--file",
-        help="Read feedback body from a file (avoids shell-quoting issues with backticks / $vars).",
-    ),
-    category: str | None = typer.Option(
-        None, "--category", help="bug|suggestion|question|other (optional, admin triage hint)"
-    ),
-    project: uuid.UUID | None = typer.Option(
-        None, "--project", help="Source project context (optional)"
-    ),
+    body: str | None = typer.Option(None, "--body", help="Retained for shell compat; command always exits 2."),
+    body_file: str | None = typer.Option(None, "--file", help="Retained for shell compat; command always exits 2."),
 ) -> None:
-    from map_types.enums import FeedbackCategory
-    from map_types.schemas import PlatformFeedbackCreate
-
-    from cli.main import _read_text_file, _run  # lazy: avoid cli.main ↔ cli.commands.* cycle
-
-    if body is None and body_file is None:
-        typer.echo("Error: either --body or --file is required", err=True)
-        raise typer.Exit(2)
-    if body is not None and body_file is not None:
-        typer.echo("Error: use only one of --body or --file", err=True)
-        raise typer.Exit(2)
-    content = body if body is not None else _read_text_file(body_file, kind="feedback")
-    payload = PlatformFeedbackCreate(
-        body=content,
-        project_id=project,
-        category=FeedbackCategory(category) if category else None,
-    )
-    _run(lambda c: c.submit_feedback(payload))
+    _feedback_retired("submit")
 
 
 @feedback_app.command("list")
 def feedback_list(
     status: str | None = typer.Option(None, "--status"),
     category: str | None = typer.Option(None, "--category"),
-    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project: str | None = typer.Option(None, "--project"),
     page: int = typer.Option(1, "--page", min=1),
     page_size: int = typer.Option(50, "--page-size", min=1, max=200),
     include_archived: bool = typer.Option(False, "--include-archived"),
 ) -> None:
-    from map_types.enums import FeedbackCategory, FeedbackStatus
-
-    from cli.main import _run  # lazy
-
-    def action(c: MAPClient):
-        items, total = c.list_feedback_page(
-            status=FeedbackStatus(status) if status else None,
-            category=FeedbackCategory(category) if category else None,
-            project_id=project,
-            page=page,
-            page_size=page_size,
-            include_archived=include_archived,
-        )
-        return {"items": items, "total": total}
-
-    _run(action, admin=True)
+    _feedback_retired("list")
 
 
 @feedback_app.command("get")
-def feedback_get(feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID")) -> None:
-    from cli.main import _run  # lazy
-
-    _run(lambda c: c.get_feedback(feedback_id), admin=True)
+def feedback_get(feedback_id: str = typer.Argument(..., help="Retained for shell compat; command always exits 2.")) -> None:
+    _feedback_retired("get")
 
 
 @feedback_app.command("update")
 def feedback_update(
-    feedback_id: uuid.UUID = typer.Argument(..., help="Feedback UUID"),
+    feedback_id: str = typer.Argument(..., help="Retained for shell compat; command always exits 2."),
     status: str | None = typer.Option(None, "--status"),
     category: str | None = typer.Option(None, "--category"),
     archived: bool | None = typer.Option(None, "--archived/--no-archived"),
 ) -> None:
-    from map_types.enums import FeedbackCategory, FeedbackStatus
-    from map_types.schemas import PlatformFeedbackUpdate
-
-    from cli.main import _run  # lazy
-
-    payload = PlatformFeedbackUpdate(
-        status=FeedbackStatus(status) if status else None,
-        category=FeedbackCategory(category) if category else None,
-        archived=archived,
-    )
-    _run(lambda c: c.update_feedback(feedback_id, payload), admin=True)
+    _feedback_retired("update")

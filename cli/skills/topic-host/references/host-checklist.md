@@ -110,4 +110,4 @@ map --persona host topic create --slug <name> --title "体验优化：<一句话
 map --persona host topic comment --id <slug> --file ./init.md   # 描述用户反馈的原始问题，含场景与期望
 ```
 
-正文评论附复现步骤与影响面；这类话题收敛后的产物通常是对 MAP 平台的改进项（可 `map feedback submit` 或开实验），而不是对本仓库业务代码的直接修改。
+正文评论附复现步骤与影响面；这类话题收敛后的产物通常是对 MAP 平台的改进项（v0.15 M62 起 `map feedback` 已退役：bug 开 GitHub issue、改进想法开 MAP 话题，或直接开实验），而不是对本仓库业务代码的直接修改。

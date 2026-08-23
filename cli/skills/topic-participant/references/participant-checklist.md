@@ -69,7 +69,7 @@ map --persona host topic comment --id <slug> --round-summary --file ./summary.md
 
 ## @提及与防刷屏细则
 
-- `@` 必须使用 `map persona list` 中的 **`agent_name` 全名**（如 `@multi-agent-platform-host`），不要写 `@host` / `@reviewer` 等 persona 短名。注意：FS 话题里 `@` 仅是视觉提示，不产生 mention 待办（v0.13 M58 起话题域 mention 来源随 DB 写路径退役枯竭）。
+- `@` 必须使用 `map persona list` 中的 **`agent_name` 全名**（如 `@multi-agent-platform-host`），不要写 `@host` / `@reviewer` 等 persona 短名。注意：FS 话题里 `@` 仅是视觉提示，不产生 mention 待办（v0.13 M58 起话题域 mention 来源随 DB 写路径退役枯竭）。与 `--persona` 参数相反：`--persona <name>` 用的是 personas 短名 key（也兼容 agent_name 长名），此处 `@` 只用 agent_name 全名。
 - **@提及**回复时尽量**写在同一轮的发言文件里**（引用对方上一轮文件名或观点），避免为每条提及新开散碎短文件。
 - 已对某轮某主题写过发言后，不再重复写同义文件。
 - **Round 1**：本话题已有 ≥2 名参与者发言且 host **尚未写 Round 1 Summary** 时，可暂停跟评，待 host Summary 后再参与 Round 2。

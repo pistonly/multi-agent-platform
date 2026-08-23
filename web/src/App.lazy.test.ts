@@ -16,11 +16,6 @@ describe("lazy route modules", () => {
     expect(mod.ProjectExperimentsPage).toBeTypeOf("function");
   });
 
-  it("resolves FeedbackPage chunk export", async () => {
-    const mod = await import("./pages/FeedbackPage");
-    expect(mod.FeedbackPage).toBeTypeOf("function");
-  });
-
   it("resolves NotificationsPage chunk export", async () => {
     const mod = await import("./pages/NotificationsPage");
     expect(mod.NotificationsPage).toBeTypeOf("function");

@@ -142,8 +142,6 @@ export type InboundEventSource = "polling" | "sse" | "replay";
  * and DB migrations don't need to widen the column later.
  */
 export type InboundEventSource1 = "polling" | "sse" | "replay";
-export type FeedbackCategory = "bug" | "suggestion" | "question" | "other";
-export type FeedbackStatus = "new" | "triaged" | "in_progress" | "resolved";
 export type TopicCommentKind = "user" | "system";
 export type TopicCommentKind1 = "user" | "system";
 
@@ -953,8 +951,10 @@ export interface ExperimentUpdate {
 /**
  * 验证型写：推进轮次（服务端校验 ack 后写回 index.md）。
  *
- * 远程/容器部署（server 看不到 workspace）时携带 ``evidence``——客户端
- * 本地解析的话题快照，server 据此校验 ack 完整性并签发写回 verdict。
+ * 远程/容器部署（server 看不到 workspace）时必须携带 ``base_revision``
+ * （CLI 先 ``map fs sync`` 投影再取 revision）；服务端只信任已 CAS 发布
+ * 的投影来校验 ack 完整性。``evidence`` 为旧客户端兼容字段，不再参与
+ * 权限或 ack 校验。
  */
 export interface FsAdvanceRoundRequest {
   waive_ack?: boolean;
@@ -1325,43 +1325,6 @@ export interface PlanRevise {
   change_note?: string | null;
   addressed_item_ids?: string[];
 }
-/**
- * A free-text feedback entry any authenticated agent may submit.
- *
- * `project_id` is an optional source-context hint (the project the agent was
- * working in); it is NOT an access boundary — feedback is platform-wide.
- */
-export interface PlatformFeedbackCreate {
-  body: string;
-  project_id?: string | null;
-  category?: FeedbackCategory | null;
-  metadata?: {
-    [k: string]: unknown;
-  } | null;
-}
-export interface PlatformFeedbackRead {
-  id: string;
-  author_agent_id: string;
-  author_name?: string | null;
-  project_id: string | null;
-  body: string;
-  category: FeedbackCategory | null;
-  status: FeedbackStatus;
-  metadata_json: {
-    [k: string]: unknown;
-  } | null;
-  created_at: string;
-  updated_at: string;
-  archived_at: string | null;
-}
-/**
- * Admin-only triage fields.
- */
-export interface PlatformFeedbackUpdate {
-  status?: FeedbackStatus | null;
-  category?: FeedbackCategory | null;
-  archived?: boolean | null;
-}
 export interface ProjectCreate {
   project_key: string;
   name: string;
@@ -1405,10 +1368,12 @@ export interface ReviewItemUpdate {
 /**
  * Body for ``POST /api/v1/bootstrap/reissue`` — reissue one agent token.
  *
- * Trust model mirrors ``POST /bootstrap``: the ``project_key`` acts as
- * the self-service proof of project ownership (it is committed in
- * ``.map/config.yaml``). Reissuing immediately revokes the previous
- * token, so a lost ``.map/agents.local.yaml`` is recoverable.
+ * The endpoint requires a valid Bearer token: an admin, or an agent of
+ * the target project. ``project_key`` (committed in ``.map/config.yaml``)
+ * identifies the project but is NOT by itself proof of ownership — a leaked
+ * public key cannot take over a persona's token. Reissuing immediately
+ * revokes the previous token, so a lost ``.map/agents.local.yaml`` is
+ * recoverable as long as some same-project credential (or admin) remains.
  */
 export interface TokenReissueRequest {
   project_key: string;

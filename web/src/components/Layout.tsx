@@ -65,9 +65,6 @@ export function Layout() {
                 通知
                 {unreadCount > 0 && <NavBadge count={unreadCount} label="未读通知" />}
               </Link>
-              <Link to="/feedback" className="hover:text-white">
-                反馈
-              </Link>
               <Link to="/agents" className="hover:text-white" data-testid="nav-agents">
                 Agents
               </Link>

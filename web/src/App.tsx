@@ -19,9 +19,6 @@ const TopicPage = lazy(() => import("./pages/TopicPage").then((m) => ({ default:
 const ProjectExperimentsPage = lazy(() =>
   import("./pages/ProjectExperimentsPage").then((m) => ({ default: m.ProjectExperimentsPage })),
 );
-const FeedbackPage = lazy(() =>
-  import("./pages/FeedbackPage").then((m) => ({ default: m.FeedbackPage })),
-);
 const NotificationsPage = lazy(() =>
   import("./pages/NotificationsPage").then((m) => ({ default: m.NotificationsPage })),
 );
@@ -49,7 +46,6 @@ export default function App() {
                   <Route path="projects/:projectId/experiments" element={<ProjectExperimentsPage />} />
                   <Route path="experiments/:experimentId" element={<ExperimentPage />} />
                   <Route path="topics/:topicId" element={<TopicPage />} />
-                  <Route path="feedback" element={<FeedbackPage />} />
                   <Route path="agents" element={<AgentsPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

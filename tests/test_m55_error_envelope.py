@@ -77,14 +77,15 @@ def test_422_experiments_endpoint_hint_embeds_minimal_payload(
 
 
 def test_422_other_endpoints_degrade_to_field_list(client, auth_headers):
+    # v0.15 M62 前 feedback 端点承担本场景，退役（410）后换 inbound-event
     resp = client.post(
-        "/api/v1/feedback", headers=auth_headers, json={"wrong": "shape"}
+        "/api/v1/agents/me/inbound-events", headers=auth_headers, json={"wrong": "shape"}
     )
     assert resp.status_code == 422, resp.text
     body = resp.json()
     assert body["error_code"] == "request_validation_error"
     # degrade path: field list only, no endpoint-specific payload example
-    assert "missing fields: body" in body["hint"]
+    assert "missing fields: event_id" in body["hint"]
     assert "minimal payload" not in body["hint"]
 
 

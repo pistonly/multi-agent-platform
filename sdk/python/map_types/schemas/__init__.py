@@ -99,11 +99,6 @@ from .experiment import (
     TemplateWarningSchema,
     WaivedReason,
 )
-from .feedback import (
-    PlatformFeedbackCreate,
-    PlatformFeedbackRead,
-    PlatformFeedbackUpdate,
-)
 from .fs import (
     FsAdvanceRoundRequest,
     FsCloseRequest,
@@ -325,9 +320,6 @@ __all__ = [
     "ACTION_ITEM_STALE",
     "ActionItemWakeSentPayload",
     "ActionItemStalePayload",
-    "PlatformFeedbackCreate",
-    "PlatformFeedbackUpdate",
-    "PlatformFeedbackRead",
     "ContentSourceMeta",
     "FsAdvanceRoundRequest",
     "FsCloseRequest",

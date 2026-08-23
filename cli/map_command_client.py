@@ -454,9 +454,6 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("action", "link"),
     ("action", "mark-wake-sent"),
     ("action", "mark-stale"),
-    # feedback
-    ("feedback", "submit"),
-    ("feedback", "update"),
     # project
     ("project", "create"),
     # inbound event（waker 审计门禁）

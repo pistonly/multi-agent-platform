@@ -196,6 +196,11 @@ _FAST_GATE_MODULES = frozenset(
         # agent_name 长名双兼容），纯 tmp_path 秒级，守住「按文档用长名不撞
         # token 缺失错」契约。
         "test_project_config",
+        # v0.15 M62 — feedback 四命令退役 stub + API 410 + 只读保留，
+        # TestClient + 进程内 CLI 调用，秒级；守住「exit 2 两行分流 /
+        # 410 引导 body / ORM+数据只读」契约（原 test_feedback*.py 整文件
+        # 删除，本文件是其退役后替代验收面）。
+        "test_feedback_stub",
         # PRD v0.11 M52 — Skill 分发可靠性（map-plugin.yaml 版本化 +
         # --runtime 多目标 + upgrade diff 摘要），CliRunner 进程内跑，
         # ~200ms 全量；守住「无静默跳过 + 版本漂移可见」契约。

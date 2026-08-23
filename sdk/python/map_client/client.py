@@ -34,8 +34,6 @@ from map_types import (
     ExperimentResultDecision,
     ExperimentSummaryRead,
     ExperimentUpdate,
-    FeedbackCategory,
-    FeedbackStatus,
     FsAdvanceRoundRequest,
     FsCloseRequest,
     FsExperimentRead,
@@ -60,9 +58,6 @@ from map_types import (
     NotificationRead,
     PlanRevise,
     PlanVersionRead,
-    PlatformFeedbackCreate,
-    PlatformFeedbackRead,
-    PlatformFeedbackUpdate,
     ProjectCreate,
     ProjectRead,
     ProjectStatusRead,
@@ -1145,73 +1140,9 @@ class MAPClient:
         params = {"project_id": str(project_id)} if project_id else None
         return GlobalStatusRead.model_validate(self._json("GET", "/status", params=params))
 
-    # --- feedback ---
-
-    def submit_feedback(self, payload: PlatformFeedbackCreate) -> PlatformFeedbackRead:
-        data = self._json("POST", "/feedback", json=payload.model_dump(mode="json"))
-        return PlatformFeedbackRead.model_validate(data)
-
-    def list_feedback(
-        self,
-        *,
-        status: FeedbackStatus | None = None,
-        category: FeedbackCategory | None = None,
-        project_id: uuid.UUID | None = None,
-        page: int = 1,
-        page_size: int = 50,
-        include_archived: bool = False,
-    ) -> list[PlatformFeedbackRead]:
-        data, _total = self.list_feedback_page(
-            status=status,
-            category=category,
-            project_id=project_id,
-            page=page,
-            page_size=page_size,
-            include_archived=include_archived,
-        )
-        return data
-
-    def list_feedback_page(
-        self,
-        *,
-        status: FeedbackStatus | None = None,
-        category: FeedbackCategory | None = None,
-        project_id: uuid.UUID | None = None,
-        page: int = 1,
-        page_size: int = 50,
-        include_archived: bool = False,
-    ) -> tuple[list[PlatformFeedbackRead], int]:
-        params: dict[str, Any] = {
-            "page": page,
-            "page_size": page_size,
-            "include_archived": include_archived,
-        }
-        if status is not None:
-            params["status"] = status.value
-        if category is not None:
-            params["category"] = category.value
-        if project_id is not None:
-            params["project_id"] = str(project_id)
-        response = self._request("GET", "/feedback", params=params)
-        data = response.json()
-        return (
-            [PlatformFeedbackRead.model_validate(item) for item in data],
-            self._total_count(response),
-        )
-
-    def get_feedback(self, feedback_id: uuid.UUID) -> PlatformFeedbackRead:
-        data = self._json("GET", f"/feedback/{feedback_id}")
-        return PlatformFeedbackRead.model_validate(data)
-
-    def update_feedback(
-        self, feedback_id: uuid.UUID, payload: PlatformFeedbackUpdate
-    ) -> PlatformFeedbackRead:
-        data = self._json(
-            "PATCH",
-            f"/feedback/{feedback_id}",
-            json=payload.model_dump(exclude_unset=True, mode="json"),
-        )
-        return PlatformFeedbackRead.model_validate(data)
+    # --- feedback: removed in v0.15 M62 (dead-letter box teardown, see
+    # topic v015-feedback-deprecation-design). CLI keeps an exit-2 guide stub;
+    # SDK callers get a clean AttributeError as the standard breaking signal. ---
 
 
 # Re-export types useful for SDK consumers

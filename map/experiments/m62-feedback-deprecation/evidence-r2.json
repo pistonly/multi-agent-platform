@@ -1,0 +1,16 @@
+{
+  "acceptance": {
+    "M62-a 清账（时序门）": "11/11 resolved 复核快照 [('resolved', 11)] 先于拆除执行；处置表落 log-r1.md；转 issue 空集（participant 10/10 核证）",
+    "M62-b CLI": "4 命令 stub exit 2 + 两行分流文案 + read-only 保留提示（实测与 5 用例断言）；--help 无死链",
+    "M62-b API": "4 端点 410 + feedback_retired 引导 body（TestClient 断言）；表与 11 条数据只读保留",
+    "M62-b SDK": "5 方法 + pydantic DTO 删除；breaking 声明落 PRD v0.15（仓库无 CHANGELOG 惯例）",
+    "M62-b Web": "页面/路由/fetcher/类型/测试/导航全拆；tsc+vite build 通过；vitest 16 files 136 tests 全过",
+    "M62-c Skill 三层": ".cursor 源 + cli/skills 分发源（sync-bundled-skills.sh 防御校验 OK）+ 四个 runtime home 副本重装；grep 零 feedback submit/platform-feedback.md 残留",
+    "测试": "test_feedback*.py 两文件删（原不在白名单 CI 零影响）；dry-run 分类同步；test_feedback_stub.py 5 用例显式入 _FAST_GATE_MODULES；fast-gate 592 passed",
+    "防半拆 grep": "cli/ server/api/ sdk/python/map_client/ 仅剩 stub 注册/retired 文案/删除位注释，无功能入口",
+    "PRD 回写": "docs/prd/v0.15.md 新建（定稿依据/时序约束/拆除清单/只读历史层白名单/breaking 声明）"
+  },
+  "pytest_summary": "fast-gate 592 passed, 1092 deselected, 0 failed（test_feedback_stub 5 用例白名单内执行）",
+  "test_summary": "web: vitest 16 files / 136 tests passed + tsc/vite build 通过；ruff 本次触及 .py 零错误",
+  "smoke": "map feedback --help 正常；feedback list 实测 exit 2 分流文案；TestClient 四端点 410；清账快照维持 11 resolved"
+}

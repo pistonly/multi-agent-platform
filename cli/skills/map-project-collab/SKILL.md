@@ -5,7 +5,7 @@ description: >-
   .map/ personas. Use when the user asks to bootstrap MAP, choose
   host/participant/reviewer identity, list open topics, join topic discussions,
   check todos, action_items, pending_topic_replies, topic close notes,
-  archive topics/experiments, submit platform feedback, run experiment lifecycle
+  archive topics/experiments, run experiment lifecycle
   commands, or use map CLI with --persona. Waker mode: when resumed by the
   simple-waker daemon, read references/wake.md first for the minimal wake
   protocol and kind-to-cleanup dispatch table. For manual collaboration read
@@ -60,7 +60,7 @@ description: >-
 ## 硬性规则
 
 1. **禁止**手写 `httpx`/`curl` 调 MAP API；统一用 **`map [--persona <name>]` CLI**
-2. **首次操作或切换 persona 时**执行 `map [--persona <name>] persona whoami`，向用户确认身份
+2. **首次操作或切换 persona 时**执行 `map [--persona <name>] persona whoami`，向用户确认身份。`--persona <name>` 的 `<name>` 是 `.map/agents.yaml` 里 **personas 的短名 key**（`host` / `participant` / `reviewer`），也接受对应的 `agent_name` 长名（如 `multi-agents-platform-reviewer`）。
 3. 用户未指定 persona 时：用 `.map/config.yaml` 的 `default_persona`（通常 `host`）
 4. **host** 才能创建/关闭话题、从话题开实验、推进实验生命周期；**participant** 参与讨论；**reviewer** 评审
 5. **实验必须由 host persona 创建**，否则 submit/approve/start/complete 返回 403
@@ -115,7 +115,6 @@ map --persona <name> work --notification-category wakeable
 | 话题主持/关闭/归档/轮次，实验创建与生命周期、评审、执行锁、通知命令 | [references/commands.md](references/commands.md) |
 | 长内容用本地 MD 文件引用（`--file-path` / `--excerpt` / `--plan-file-path` / `--log-file-path`） | [references/file-reference.md](references/file-reference.md) |
 | 首次 bootstrap、故障排查表、JSON 输出契约（`--json`） | [references/bootstrap-troubleshooting.md](references/bootstrap-troubleshooting.md) |
-| 平台反馈（bug / 建议 / 疑问） | [references/platform-feedback.md](references/platform-feedback.md) |
 | waker 调度细节（reviewer 话题静音、drain topics、action_item 升级） | [references/waker-mode.md](references/waker-mode.md) |
 | 被唤醒后的执行顺序与清理分发表 | [references/wake.md](references/wake.md) |
 

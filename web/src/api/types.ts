@@ -39,7 +39,6 @@ export type ExperimentReviewInformational = Schemas.ExperimentReviewInformationa
 export type Notification = Schemas.NotificationRead;
 export type NotificationList = Schemas.NotificationListRead;
 export type TopicProgressList = Schemas.TopicProgressListRead;
-export type PlatformFeedback = Schemas.PlatformFeedbackRead;
 export type AgentWorkSummary = Schemas.AgentWorkSummaryRead;
 export type SummaryBucket = Schemas.SummaryBucket;
 export type SummaryBucketItem = Schemas.SummaryBucketItem;
@@ -49,8 +48,6 @@ export type ProjectCreatePayload = Schemas.ProjectCreate;
 export type ExperimentCreatePayload = Schemas.ExperimentCreate;
 export type TopicCreatePayload = Schemas.TopicCreate;
 export type TopicResolvePayload = Schemas.TopicResolve;
-export type FeedbackCreatePayload = Schemas.PlatformFeedbackCreate;
-export type FeedbackUpdatePayload = Schemas.PlatformFeedbackUpdate;
 
 // --- 非派生自 Pydantic 的业务类型（无 schema，手维护） ---
 

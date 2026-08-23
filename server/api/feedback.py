@@ -1,75 +1,52 @@
-import uuid
+"""Platform feedback API — retired in v0.15 M62 (dead-letter box teardown).
 
-from fastapi import APIRouter, Depends, Query, Response, status
-from map_types.enums import FeedbackCategory, FeedbackStatus
-from sqlalchemy.orm import Session
+全链路废弃定案见话题 v015-feedback-deprecation-design（round2 全票）：
+自托管收件人错位（部署者≠上游开发者）+ 替代通道已存在（MAP 话题 /
+GitHub issue）。CLI 侧已引导性拒绝（exit 2），此为直连 API 消费者的
+第二道门。`platform_feedback` 表与 11 条历史数据只读保留（M58 先例），
+人类友好索引 = 实验 m62-feedback-deprecation 清账处置表（log-r1.md）。
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from server.api.deps import get_current_agent
-from server.db.session import get_db
 from server.domain.models import Agent
-from server.domain.schemas import (
-    PlatformFeedbackCreate,
-    PlatformFeedbackRead,
-    PlatformFeedbackUpdate,
-)
-from server.services import permissions as perm
-from server.services import platform_feedback_service as svc
 
 feedback_router = APIRouter(prefix="/feedback", tags=["feedback"])
 
-
-@feedback_router.post("", response_model=PlatformFeedbackRead, status_code=status.HTTP_201_CREATED)
-def submit_feedback(
-    payload: PlatformFeedbackCreate,
-    db: Session = Depends(get_db),
-    agent: Agent = Depends(get_current_agent),
-) -> PlatformFeedbackRead:
-    """Any authenticated agent may submit feedback. No project boundary enforced."""
-    return svc.create_feedback(db, agent, payload)
+_HINT = (
+    "bug report → open a GitHub issue (repo link in README, attach repro steps); "
+    "improvement idea / dogfood feedback → ask the host to open a MAP topic. "
+    "Historical feedback records are preserved read-only in the platform DB."
+)
 
 
-@feedback_router.get("", response_model=list[PlatformFeedbackRead])
-def list_feedback(
-    response: Response,
-    feedback_status: FeedbackStatus | None = Query(default=None, alias="status"),
-    category: FeedbackCategory | None = Query(default=None),
-    project_id: uuid.UUID | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
-    include_archived: bool = Query(default=False),
-    db: Session = Depends(get_db),
-    agent: Agent = Depends(get_current_agent),
-) -> list[PlatformFeedbackRead]:
-    perm.require_admin(agent)
-    items, total = svc.list_feedback(
-        db,
-        status=feedback_status,
-        category=category,
-        project_id=project_id,
-        page=page,
-        page_size=page_size,
-        include_archived=include_archived,
+def _feedback_retired_410(action: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error": "feedback_retired",
+            "message": f"Platform feedback `{action}` was retired in v0.15 M62 (dead-letter box teardown)",
+            "hint": _HINT,
+        },
     )
-    response.headers["X-Total-Count"] = str(total)
-    return items
 
 
-@feedback_router.get("/{feedback_id}", response_model=PlatformFeedbackRead)
-def get_feedback(
-    feedback_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    agent: Agent = Depends(get_current_agent),
-) -> PlatformFeedbackRead:
-    perm.require_admin(agent)
-    return svc.get_feedback_read(db, feedback_id)
+@feedback_router.post("", status_code=status.HTTP_410_GONE, include_in_schema=False)
+def submit_feedback(agent: Agent = Depends(get_current_agent)) -> None:
+    raise _feedback_retired_410("submit")
 
 
-@feedback_router.patch("/{feedback_id}", response_model=PlatformFeedbackRead)
-def update_feedback(
-    feedback_id: uuid.UUID,
-    payload: PlatformFeedbackUpdate,
-    db: Session = Depends(get_db),
-    agent: Agent = Depends(get_current_agent),
-) -> PlatformFeedbackRead:
-    perm.require_admin(agent)
-    return svc.update_feedback(db, feedback_id, payload)
+@feedback_router.get("", status_code=status.HTTP_410_GONE, include_in_schema=False)
+def list_feedback(agent: Agent = Depends(get_current_agent)) -> None:
+    raise _feedback_retired_410("list")
+
+
+@feedback_router.get("/{feedback_id}", status_code=status.HTTP_410_GONE, include_in_schema=False)
+def get_feedback(agent: Agent = Depends(get_current_agent)) -> None:
+    raise _feedback_retired_410("get")
+
+
+@feedback_router.patch("/{feedback_id}", status_code=status.HTTP_410_GONE, include_in_schema=False)
+def update_feedback(agent: Agent = Depends(get_current_agent)) -> None:
+    raise _feedback_retired_410("update")

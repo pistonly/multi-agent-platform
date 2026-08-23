@@ -2,14 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   api,
   fetchAgents,
-  fetchFeedbacks,
   fetchProjectActionItems,
   fetchProjectDecisions,
   fetchProjectExperiments,
   fetchTopics,
   markTopicRead,
   parseTotalCount,
-  submitFeedback,
   streamNotifications,
 } from "./client";
 import type { NotificationStreamError } from "./client";
@@ -140,50 +138,6 @@ describe("paginated list fetchers", () => {
       },
     });
     expect(result).toEqual([]);
-  });
-});
-
-describe("feedback fetchers", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("fetchFeedbacks sends filters and parses total", async () => {
-    const get = vi.spyOn(api, "get").mockResolvedValue({
-      data: [{ id: "f1" }],
-      headers: { "x-total-count": "9" },
-      status: 200,
-      statusText: "OK",
-      config: {} as never,
-    });
-
-    const result = await fetchFeedbacks({ status: "new", category: "bug", pageSize: 25 });
-
-    expect(get).toHaveBeenCalledWith("/feedback", {
-      params: {
-        status: "new",
-        category: "bug",
-        page: 1,
-        page_size: 25,
-        include_archived: false,
-      },
-    });
-    expect(result).toEqual({ items: [{ id: "f1" }], total: 9 });
-  });
-
-  it("submitFeedback posts body and category", async () => {
-    const post = vi.spyOn(api, "post").mockResolvedValue({
-      data: { id: "f2", body: "hi" },
-      status: 201,
-      statusText: "Created",
-      headers: {},
-      config: {} as never,
-    });
-
-    const result = await submitFeedback({ body: "hi", category: "suggestion" });
-
-    expect(post).toHaveBeenCalledWith("/feedback", { body: "hi", category: "suggestion" });
-    expect(result).toEqual({ id: "f2", body: "hi" });
   });
 });
 
