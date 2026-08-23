@@ -66,6 +66,9 @@ export function TopicPage() {
 
   useEffect(() => {
     if (!topicId || !query.data || markReadPending) return;
+    // FS 话题（map/ 事实源）没有 DB 读游标，后端 mark-read 只查 DB，调用会
+    // 404 "Topic not found"（CLI `topic read` 对 FS 目标同样 no-op），跳过。
+    if (query.data.content_source === "fs-local" || query.data.content_source === "fs-projection") return;
     if (markedReadTopicIdRef.current === topicId) return;
     markedReadTopicIdRef.current = topicId;
     markRead();

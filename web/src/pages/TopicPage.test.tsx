@@ -102,6 +102,17 @@ describe("TopicPage", () => {
     await waitFor(() => expect(mocks.markTopicRead).toHaveBeenCalledWith("topic-1"));
   });
 
+  it("skips mark-read for FS topics (no DB read cursor, backend would 404)", async () => {
+    mocks.fetchTopic.mockResolvedValue({ ...topicFixture, content_source: "fs-local" });
+
+    renderTopicPage();
+
+    expect(await screen.findByText("Topic read cursor")).toBeTruthy();
+    // 等待一拍，确认 effect 已跑完且没有触发 markTopicRead
+    await waitFor(() => expect(screen.getByText("Topic read cursor")).toBeTruthy());
+    expect(mocks.markTopicRead).not.toHaveBeenCalled();
+  });
+
   it("renders remote FS projection as read-only", async () => {
     mocks.fetchTopic.mockResolvedValue({
       ...topicFixture,
