@@ -108,6 +108,27 @@ Logs: `.map/simple-waker-logs/` when using `start-all-simple-wakers.sh`.
 Session transcripts: same `.map/runtime-waker-sessions/` path as the Claude
 backend (`PersonaAgentClient`).
 
+### Claude SDK credentials for resumed agents (`.map/.claude-env`)
+
+Wake/invoke only produces the remind prompt; session runner clones the actual agent via
+`PersonaAgentClient`, which needs Claude Agent SDK connection info (base URL, token,
+model) in the subprocess environment. When not set on the current process env, they
+fall back to the `export VAR=...` lines in **`.map/.claude-env`** (the whole
+`.map/` dir is gitignored — do not commit):
+
+```bash
+# .map/.claude-env — used only when process env vars are unset
+export ANTHROPIC_BASE_URL=http://192.168.20.32:8001
+export ANTHROPIC_AUTH_TOKEN=empty
+export ANTHROPIC_MODEL=claude-sonnet-4-6
+```
+
+Resolved keys: credentials `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
+`ANTHROPIC_BASE_URL`, model `ANTHROPIC_MODEL` / `CLAUDE_MODEL`. Resolution
+order: **process env > `.map/.claude-env` > `~/.bashrc` and other shell rc**.
+This is Claude SDK credentials — distinct from the MAP platform API token
+(`~/.map/config.yaml`).
+
 ## Agent rules
 
 On remind, the agent should:
@@ -118,6 +139,60 @@ On remind, the agent should:
 4. Handle **all** current pending todos (may batch related work)
 5. Finish when `map work`（或 topic progress + todos）is empty or every item has a documented blocker
 6. Never skip work based on session memory
+
+## Waker 心跳可见性与降级路径（waker-heartbeat-visibility 实验）
+
+simple-waker 是 FS 话题轮次推进后的主唤醒链路，但 waker 状态只存在本地文件里——
+平台侧看不到 waker 是否存活，停机时 advance-round 照常生成通知却无人消费，所有等表态
+话题静默挂起且无告警。本方案在平台侧做心跳可见性 + 告警。
+
+### 心跳记录点与判定（服务器侧）
+
+- `agents` 表新增双时间戳：`last_api_seen_at`（任意 `GET /agents/me/work` 刷新）
+  与 `last_waker_poll_at`（仅带 `--client waker` 特征标记的轮询刷新）。
+- simple-waker 每个 cycle 的 `map work` 子进程带 `--client waker`（
+  `cli/map_command_client.py`），CLI 透传 server；人工 `map work` 不带此参数。
+- stale 判定只看 `last_waker_poll_at`：降级场景（invoke 补位期间被唤醒 agent
+  频繁手动跑 `map work`）只刷新 `last_api_seen_at`，**不污染** waker 存活判定。
+- stale =「曾有心跳（`last_waker_poll_at` 非 null）AND 距今超过阈值
+  `MAP_WAKER_STALE_THRESHOLD_MINUTES`（默认 15min）」。null（从未心跳）→
+  `never`，不 WARN——「只挂一个 waker」的部署形态下其余 persona 不永久告警。
+- `GET /status` 的 `waker_heartbeats[]` 返回 per-agent 行（agent_id /
+  agent_name / persona / last_waker_poll_at / stale，服务器算好的字段）；`map work`
+  顶部渲染全部 persona waker 状态，**CLI 只渲染不复制判定逻辑**（stale 输出
+  `[WARN] waker heartbeat stale for <agent>(<persona>)`，渲染到 stderr，
+  stdout 保持纯净 YAML）。
+
+### 降级路径：waker 不可用 → host invoke 编排
+
+当 `[WARN] waker heartbeat stale` 出现，说明对应 persona 的 waker 已停机/心跳停止，
+话题推进的自动唤醒链路失效。此时降级到 **host invoke 手动编排**：
+
+1. 停止已失效的 waker（`map server stop`，避免它恢复后重复布唤醒）。
+2. 用 host persona 对受影响话题手动 `map topic advance-round / --ready` 推进轮次，
+   并用 `map --persona <p> work|todos` 检查各 persona 待办，逐项处理
+   （等同 waker 被唤醒后 Agent 的行为）。
+3. 修好 waker 后重启（`map server start` 或 `scripts/start-simple-waker.sh`），
+   它下一次带 `--client waker` 的轮询会刷新 `last_waker_poll_at`，告警自动消失。
+
+### 层次：waker-stale WARN 是 stale_open_topics 检测的前置信任条件
+
+- `stale_open_topics`（话题停滞检测，`MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES`）
+  判定「话题很久没进展」；waker-stale WARN 判定「waker 很久没心跳」。
+- 两者互补：话题停滞可能因为 waker 挂（无人消费通知），也可能因为真无人表态。
+  waker-stale WARN 提供**前置信任**——先确认唤醒链路健康，再谈话题是否真停滞。
+  waker 停机期间的 stale_open_topics 会是**假象**（没人被唤醒去推进），此时
+  waker-stale WARN 恰好帮人区分「waker 挂了」与「话题真卡住」。
+
+### 边界：只覆盖「waker 挂、server 活」
+
+- 本方案只兜 **waker 挂、server 活** 这半边故障：心跳存在 server 的
+  `agents` 表（时间戳持久化，server 重启不丢，A4 冷启动无误报窗口）。
+- **server 挂** 是显性故障（API/Web 直接不可用，报错明显），无需心跳兜底——
+  平台都没了还谈 waker 心跳无意义。
+- v1 不覆盖：waker 上报自己的轮询周期/双档 interval（server 无从得知，固定
+  15min 阈值 ≈3× 默认 idle 周期即可）；「从未配置 waker」与「配置了但从未成功
+  轮询」在 v1 都归为 `never`，v2 可演进区分。
 
 ## Legacy runtime-waker (deprecated)
 
