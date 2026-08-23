@@ -258,6 +258,13 @@ _FAST_GATE_MODULES = frozenset(
         # 而非懒加载 import 在 FS 扫描命令深处炸 traceback；
         # CliRunner + sys.modules 打桩，~50ms 全量。
         "test_cli_version_flag",
+        # waker-heartbeat 可见性 — 双时间戳刷新语义 / null-never /
+        # stale 边界 / /status waker_heartbeats[] 形状（server，~50ms）；
+        # CLI --client waker 透传 + WARN/stale/never 渲染到 stderr（CLI，
+        # ~50ms）。默认 pytest 必须跑才能守住「归属不污染 / never 不误报 /
+        # stdout 纯净 YAML」契约。
+        "test_waker_heartbeat",
+        "test_waker_heartbeat_cli",
     }
 )
 
