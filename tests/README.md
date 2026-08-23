@@ -13,6 +13,8 @@
 
 **约定**：新增测试默认 unit；单用例稳定 >1s 须标 `@pytest.mark.slow`。Marker 是默认 gate 的筛选器，**不是**禁止本地 `pytest tests/foo::bar` 跑慢用例。
 
+> **opt-out 语义（实验 eb291c4b 反转）**：默认 `pytest` 收集**全部**未打 marker 的用例——新测试文件无需登记即进默认 gate；deselect 只由文件内显式 marker（slow / integration / claude_cli）决定。历史 PR3 的 `_FAST_GATE_MODULES` opt-in 白名单（不登记 = 静默 deselect）已删除，其自身一致性守卫一并退役。
+
 ## 推荐命令
 
 ```bash
@@ -21,6 +23,9 @@
 
 # 等价
 python3 -m pytest -m "not slow and not integration and not claude_cli"
+
+# 全量单元（含 slow 单测，不含 integration/claude_cli）
+python3 -m pytest -m "not integration and not claude_cli"
 
 # slow 套件（nightly / 合并前）
 python3 -m pytest -m slow
@@ -43,7 +48,7 @@ python3 -m pytest -m ""   # 或 pytest --marker-all（若配置）
 
 ## Baseline
 
-耗时基线见 [`PERF.md`](./PERF.md)。PR3 将基于 duration 报告补 `@pytest.mark.slow` 并收敛 fast gate 至 <90s。
+耗时基线见 [`PERF.md`](./PERF.md)；opt-out 反转前后的完整测量（全量 1689 例 1612s / 52 既有失败 triage）见 `map/experiments/fast-gate-allowlist-inversion/baseline.md`。
 
 ## 相关脚本
 
