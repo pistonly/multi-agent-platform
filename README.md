@@ -227,6 +227,19 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 
 **@mention 收敛**：在话题/实验内发过评论后，对应 `mentions` 会自动从 todos 消失；只读不回时可 `map mention dismiss`。
 
+### 被拉起 Agent 的 Claude SDK 凭据（`.map/.claude-env`，可选）
+
+被唤醒 / 被 `map host invoke` 编排的 Claude Agent 子进程需要连接 Claude Agent SDK（base URL、token、model）。凭据按 `export VAR=...` 行写入 **`.map/.claude-env`**（`.map/` 整目录已 gitignore，勿提交）：
+
+```bash
+# .map/.claude-env —— 仅当当前进程环境变量未设置时才回退到此文件
+export ANTHROPIC_BASE_URL=http://192.168.20.32:8001
+export ANTHROPIC_AUTH_TOKEN=empty
+export ANTHROPIC_MODEL=claude-sonnet-4-6
+```
+
+解析键：`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`（凭据）、`ANTHROPIC_MODEL` / `CLAUDE_MODEL`（模型）。解析优先级：**进程环境变量 > `.map/.claude-env` > `~/.bashrc` 等 shell rc**。这是 Claude SDK 凭据，与 MAP 平台 API token（`~/.map/config.yaml`）是两回事。
+
 ## Host Worker（已退役）
 
 早期轮询 bridge（`map-host-bridge` / `map-host-worker`、`start-host-bridge*.sh`、`start-runtime-waker-claude.sh`、`start-all-wakers-legacy.sh`）已由 **simple-waker** 全面取代并停用（`MAP_USE_LEGACY_WAKER` 不再生效）。`pyproject.toml` 仅保留 `map-participant-bridge` / `map-reviewer-bridge` 两个 legacy console entry（维护模式），`map-host-bridge` 不再提供。
