@@ -81,3 +81,36 @@ def test_subcommand_persona_overrides_global(runner: CliRunner, fs_workspace: Pa
 def test_falls_back_to_config_default(runner: CliRunner, fs_workspace: Path) -> None:
     _invoke_comment(runner, fs_workspace)
     assert (fs_workspace / "map" / "topics" / "t" / "round1-host.md").is_file()
+
+
+def test_render_ack_error_lists_missing_with_reasons(capsys: pytest.CaptureFixture) -> None:
+    """A5：advance-round 409 round_ack_pending 渲染逐行列出 missing 且带文件名+原因。"""
+    from types import SimpleNamespace
+
+    import cli.commands.fs as fs_cli
+
+    exc = SimpleNamespace(
+        status_code=409,
+        detail={
+            "error": "round_ack_pending",
+            "missing": ["participant"],
+            "missing_reasons": {
+                "participant": "round1-participant.md: frontmatter author missing"
+            },
+        },
+    )
+    fs_cli._render_ack_error(exc)  # type: ignore[arg-type]
+    out = capsys.readouterr().err
+    assert "round ack pending" in out
+    assert "- participant: round1-participant.md: frontmatter author missing" in out
+
+
+def test_render_ack_error_ignores_non_ack(capsys: pytest.CaptureFixture) -> None:
+    """非 round_ack_pending 错误不做逐行渲染（交由上层统一错误输出）。"""
+    from types import SimpleNamespace
+
+    import cli.commands.fs as fs_cli
+
+    exc = SimpleNamespace(status_code=404, detail="fs topic not found")
+    fs_cli._render_ack_error(exc)  # type: ignore[arg-type]
+    assert capsys.readouterr().err == ""

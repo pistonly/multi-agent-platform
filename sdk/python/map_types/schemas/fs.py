@@ -32,6 +32,11 @@ class FsCommentRead(BaseModel):
     file_path: str
     posted_at: datetime | None = None
     comment_seq: int
+    # ack 合规标记（D2 三条，parser 判定后随投影上行；旧客户端缺失时
+    # 默认按合规处理，避免旧投影不必要地阻断 advance）
+    file_persona: str = ""
+    ack_valid: bool = True
+    ack_error: str | None = None
 
 
 class FsTopicSummaryRead(BaseModel):
@@ -46,6 +51,7 @@ class FsTopicSummaryRead(BaseModel):
     creator: str
     comment_count: int = 0
     participants: list[str] = Field(default_factory=list)
+    declared_participants: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     dir_path: str

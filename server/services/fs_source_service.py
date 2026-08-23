@@ -35,7 +35,7 @@ from map_fs import (
     topic_id_for_slug,
     update_topic_index,
 )
-from map_types.enums import TopicCommentKind, TopicStatus
+from map_types.enums import ExperimentPhase, TopicCommentKind, TopicStatus
 from map_types.schemas.content_source import ContentSourceMeta
 from map_types.schemas.fs import (
     FsCommentRead,
@@ -59,7 +59,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from server.config import get_settings
-from server.domain.models import Agent, AgentRole, FsProjection, Project
+from server.domain.models import Agent, AgentRole, Experiment, FsProjection, Project
 from server.domain.schemas import (
     TopicCommentTreeNode,
     TopicProgressItemRead,
@@ -84,11 +84,18 @@ class FsTopicNotFoundError(Exception):
 
 
 class FsAckPendingError(Exception):
-    """本轮还有参与者未发言（ack 未满）。"""
+    """本轮还有参与者未发言（ack 未满）。
 
-    def __init__(self, missing: list[str]) -> None:
+    ``missing`` 保持 persona 列表（向后兼容）；``missing_reasons`` 为
+    persona → ``round1-participant.md: 原因`` 的逐条指认（A5）。
+    """
+
+    def __init__(
+        self, missing: list[str], missing_reasons: dict[str, str] | None = None
+    ) -> None:
         super().__init__(f"round ack pending: {', '.join(missing)}")
         self.missing = missing
+        self.missing_reasons = missing_reasons or {}
 
 
 class FsStateError(Exception):
@@ -255,6 +262,9 @@ class _CommentView:
     file_path: str
     posted_at: datetime | None
     comment_seq: int
+    file_persona: str = ""
+    ack_valid: bool = True
+    ack_error: str | None = None
 
 
 @dataclass
@@ -271,10 +281,16 @@ class _TopicView:
     updated_at: datetime | None
     dir_path: str
     participants: list[str] = field(default_factory=list)
+    ack_participants: list[str] = field(default_factory=list)
     comments: list[_CommentView] = field(default_factory=list)
 
     def authors_in_round(self, round_number: int) -> set[str]:
-        return {c.author for c in self.comments if c.round == round_number}
+        """effective ack authors：与 parser ``FsTopic.authors_in_round`` 同源，
+        只统计 frontmatter 合规（ack_valid）的 comment（review 911fdb0e）。
+        """
+        return {
+            c.author for c in self.comments if c.round == round_number and c.ack_valid
+        }
 
 
 def _round_number_of(round_str: str, comments: list[_CommentView]) -> int:
@@ -298,6 +314,7 @@ def _view_from_fs_topic(topic: FsTopic) -> _TopicView:
         updated_at=topic.updated_at,
         dir_path=topic.dir_path,
         participants=list(topic.participants),
+        ack_participants=list(topic.ack_participants()),
         comments=[
             _CommentView(
                 id=c.id,
@@ -310,10 +327,17 @@ def _view_from_fs_topic(topic: FsTopic) -> _TopicView:
                 file_path=c.file_path,
                 posted_at=c.posted_at,
                 comment_seq=c.comment_seq,
+                file_persona=c.file_persona,
+                ack_valid=c.ack_valid,
+                ack_error=c.ack_error,
             )
             for c in topic.comments
         ],
     )
+
+
+def _declared_of(creator: str, participants: list[str]) -> list[str]:
+    return [p for p in participants if p != creator]
 
 
 def _view_from_projection(detail: FsTopicDetailRead) -> _TopicView:
@@ -329,9 +353,13 @@ def _view_from_projection(detail: FsTopicDetailRead) -> _TopicView:
             file_path=c.file_path,
             posted_at=c.posted_at,
             comment_seq=c.comment_seq,
+            file_persona=c.file_persona,
+            ack_valid=c.ack_valid,
+            ack_error=c.ack_error,
         )
         for c in detail.comments
     ]
+    declared = list(detail.declared_participants) or _declared_of(detail.creator, list(detail.participants))
     return _TopicView(
         slug=detail.slug,
         id=detail.id,
@@ -345,6 +373,7 @@ def _view_from_projection(detail: FsTopicDetailRead) -> _TopicView:
         updated_at=detail.updated_at,
         dir_path=detail.dir_path,
         participants=list(detail.participants),
+        ack_participants=[detail.creator] + [p for p in declared if p != detail.creator],
         comments=comments,
     )
 
@@ -380,10 +409,14 @@ def _view_as_fs_topic(view: _TopicView) -> FsTopic:
                 file_path=c.file_path,
                 posted_at=c.posted_at,
                 comment_seq=c.comment_seq,
+                file_persona=c.file_persona,
+                ack_valid=c.ack_valid,
+                ack_error=c.ack_error,
             )
             for c in view.comments
         ],
-        declared_participants=[p for p in view.participants if p != view.creator],
+        declared_participants=_declared_of(view.creator, list(view.ack_participants))
+        or _declared_of(view.creator, list(view.participants)),
     )
 
 
@@ -1049,6 +1082,17 @@ _FS_KIND_MAP: dict[str, tuple[str, str]] = {
     "round_ack_pending": ("round_ack", "ack"),
 }
 
+# 实验"在飞"相位：与 topic_lifecycle_service 的关闭阻塞集一致——这些相位下
+# 话题锁实验进行中被 host close 会 409，不能把这样的 ready 话题当 stale 反复催
+# （FS 话题无 dismiss 逃生，只能 close/推动）。stale nudge 仅对无活跃实验的话题发。
+_ACTIVE_EXPERIMENT_PHASES = (
+    ExperimentPhase.draft,
+    ExperimentPhase.review,
+    ExperimentPhase.approved,
+    ExperimentPhase.running,
+    ExperimentPhase.result_review,
+)
+
 
 def persona_short_name(agent: Agent) -> str:
     """agent.name（如 multi-agent-platform-host / my-project-host）→ persona 短名（host）。
@@ -1079,33 +1123,79 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
     agents_by_name = _agents_by_name(db)
     now = datetime.now(timezone.utc)
     results: list[TopicProgressItemRead] = []
+    # 有活跃实验（draft→result_review）的话题从 stale 候选排除：实验在飞时
+    # close 被 topic_lifecycle_service 阻塞，无 dismiss 逃生的 FS 话题若仍被催，
+    # 会变成无法清理的常驻义务（DB 路径有 dismiss 逃生，FS 没有）。
+    active_exp_topic_ids = set(
+        db.scalars(
+            select(Experiment.topic_id)
+            .where(
+                Experiment.project_id == project.id,
+                Experiment.phase.in_(_ACTIVE_EXPERIMENT_PHASES),
+                Experiment.topic_id.is_not(None),
+                Experiment.deleted_at.is_(None),
+            )
+        ).all()
+    )
+    stale_cutoff = now - timedelta(
+        minutes=get_settings().stale_open_topic_threshold_minutes
+    )
     for view in plane_views(db, project):
         if view.status != "open":
-            continue
-        derived = derive_work(_view_as_fs_topic(view), persona)
-        if not derived:
             continue
         last = view.comments[-1] if view.comments else None
         mine = [c for c in view.comments if c.author == persona]
         my_last = mine[-1] if mine else None
-        work_items = [
-            TopicWorkItemRead(
-                kind=_FS_KIND_MAP[d.kind][0],
-                priority="obligation",
-                topic_id=view.id,
-                topic_title=view.title,
-                source_comment_id=None,
-                thread_root_id=None,
-                required_agent_id=agent.id,
-                reason="fs_file_missing",
-                idempotency_key=f"fs:{_FS_KIND_MAP[d.kind][0]}:{view.slug}:round{d.round}",
-                clear_action=_FS_KIND_MAP[d.kind][1],
-                excerpt=d.detail,
-                created_at=view.updated_at or now,
-                discussion_round=view.round,
-            )
-            for d in derived
-        ]
+        derived = derive_work(_view_as_fs_topic(view), persona)
+        if derived:
+            work_items = [
+                TopicWorkItemRead(
+                    kind=_FS_KIND_MAP[d.kind][0],
+                    priority="obligation",
+                    topic_id=view.id,
+                    topic_title=view.title,
+                    source_comment_id=None,
+                    thread_root_id=None,
+                    required_agent_id=agent.id,
+                    reason="fs_file_missing",
+                    idempotency_key=f"fs:{_FS_KIND_MAP[d.kind][0]}:{view.slug}:round{d.round}",
+                    clear_action=_FS_KIND_MAP[d.kind][1],
+                    excerpt=d.detail,
+                    created_at=view.updated_at or now,
+                    discussion_round=view.round,
+                )
+                for d in derived
+            ]
+        elif (
+            persona == view.creator
+            and view.id not in active_exp_topic_ids
+            and (view.updated_at is None or view.updated_at <= stale_cutoff)
+        ):
+            # 久未推进的开放话题 → 对齐 DB todo 桶 stale_open_topics 语义
+            # （waker 对该 kind 有关注 & wake.md 有路由）。清理 = close 落结论
+            # （done-experiment 话题应 close）或推动轮次；FS 话题 dismiss 是 no-op。
+            work_items = [
+                TopicWorkItemRead(
+                    kind="stale_open_topics",
+                    priority="obligation",
+                    topic_id=view.id,
+                    topic_title=view.title,
+                    source_comment_id=None,
+                    thread_root_id=None,
+                    required_agent_id=agent.id,
+                    reason="fs_topic_stale",
+                    idempotency_key=f"fs:stale_open_topics:{view.slug}:open",
+                    clear_action="close_or_advance_topic",
+                    excerpt="开放话题久未推进，请复盘：已收敛（含已完成实验）应关闭并落结论，否则推动轮次",
+                    created_at=view.updated_at or now,
+                    discussion_round=view.round,
+                    stale_since=view.updated_at or now,
+                )
+            ]
+        else:
+            work_items = []
+        if not work_items:
+            continue
         results.append(
             TopicProgressItemRead(
                 topic_id=view.id,
@@ -1340,6 +1430,21 @@ def _topic_view_for_validation(
     )
 
 
+def _view_missing_reasons(view: _TopicView, missing: list[str]) -> dict[str, str]:
+    """missing persona 的逐条指认：``round1-participant.md: 原因``（A5）。
+
+    只对"有文件但不合规"的 persona 产原因；纯缺文件的 persona 不进 reasons
+    （missing 列表本身已指认其名）。
+    """
+    reasons: dict[str, str] = {}
+    for persona in missing:
+        for c in view.comments:
+            if c.round == view.round_number and c.file_persona == persona and c.ack_error:
+                reasons[persona] = f"{Path(c.file_path).name}: {c.ack_error}"
+                break
+    return reasons
+
+
 def validate_fs_advance_round(
     db: Session,
     project: Project,
@@ -1369,9 +1474,12 @@ def validate_fs_advance_round(
 
     if not waive_ack:
         authors = view.authors_in_round(view.round_number)
-        missing = [p for p in view.participants if p != view.creator and p not in authors]
+        ack_list = view.ack_participants or [
+            p for p in view.participants if p != view.creator
+        ]
+        missing = [p for p in ack_list if p != view.creator and p not in authors]
         if missing:
-            raise FsAckPendingError(missing)
+            raise FsAckPendingError(missing, _view_missing_reasons(view, missing))
 
     fields: dict[str, str] = {
         "round": "ready" if mark_ready else f"round{view.round_number + 1}"

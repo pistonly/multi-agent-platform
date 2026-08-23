@@ -292,7 +292,11 @@ def _validate_error_http(exc: Exception) -> HTTPException:
     if isinstance(exc, fs_svc.FsAckPendingError):
         return HTTPException(
             status.HTTP_409_CONFLICT,
-            {"error": "round_ack_pending", "missing": exc.missing},
+            {
+                "error": "round_ack_pending",
+                "missing": exc.missing,
+                "missing_reasons": exc.missing_reasons,
+            },
         )
     if isinstance(exc, fs_svc.FsStateError | ConflictError):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
@@ -336,7 +340,11 @@ def fs_advance_round_validate(
     except fs_svc.FsAckPendingError as err:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            {"error": "round_ack_pending", "missing": err.missing},
+            {
+                "error": "round_ack_pending",
+                "missing": err.missing,
+                "missing_reasons": err.missing_reasons,
+            },
         ) from err
     except (fs_svc.FsStateError, ConflictError, ForbiddenError) as err:
         raise _validate_error_http(err) from err
@@ -560,7 +568,11 @@ def fs_advance_round(
     except fs_svc.FsAckPendingError as err:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            {"error": "round_ack_pending", "missing": err.missing},
+            {
+                "error": "round_ack_pending",
+                "missing": err.missing,
+                "missing_reasons": err.missing_reasons,
+            },
         ) from err
     except fs_svc.FsStateError as err:
         raise HTTPException(status.HTTP_409_CONFLICT, str(err)) from err

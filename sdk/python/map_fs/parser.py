@@ -78,6 +78,10 @@ class FsComment:
     file_path: str  # 相对 workspace 的 posix 路径
     posted_at: datetime | None
     comment_seq: int
+    # ack 合规标记（D2 三条，按 RAW front-matter + 文件名判定，不受 fallback 影响）
+    file_persona: str = ""  # 文件名的 <persona> 段（round<N>-<persona>.md）
+    ack_valid: bool = True  # frontmatter author/round/posted_at 与文件名一致
+    ack_error: str | None = None  # 不合规的具体原因（合规时为 None）
 
 
 @dataclass
@@ -116,7 +120,27 @@ class FsTopic:
         return seen
 
     def authors_in_round(self, round_number: int) -> set[str]:
-        return {c.author for c in self.comments if c.round == round_number}
+        """本轮 **effective ack authors**：只统计 frontmatter 合规的 comment。
+
+        手写旁路 / 空壳 / 错位文件（``ack_valid=False``）不构成 ack，
+        derive_work 与 server validate 两端同源消费本集合。
+        """
+        return {c.author for c in self.comments if c.round == round_number and c.ack_valid}
+
+    def ack_participants(self) -> list[str]:
+        """ack 满员名单：index.md 声明的参与者 + creator（不含动态 speaker）。
+
+        名单外 persona 同名文件不进 ack（D3）——手写 reviewer 文件不会被
+        视为待 ack 成员、不阻塞 advance，仅作 anomaly 报告。
+        """
+        seen: list[str] = [self.creator]
+        seen.extend(p for p in self.declared_participants if p not in seen)
+        return seen
+
+    def stray_files_in_round(self, round_number: int) -> list[FsComment]:
+        """本轮名单外（不在 ack_participants）的发言文件 → anomaly 报告源。"""
+        ack_list = set(self.ack_participants())
+        return [c for c in self.comments if c.round == round_number and c.author not in ack_list]
 
 
 @dataclass
@@ -251,6 +275,59 @@ def _require_slug(slug: str) -> str:
     return slug
 
 
+def _ack_error_of(meta: dict[str, Any], persona: str, round_number: int) -> str | None:
+    """按 D2 三条判定 round 文件 ack 合规，返回失败原因（合规返回 None）。
+
+    判定基于 RAW front-matter 字段 + 文件名 persona/轮次，**不用**解析层的
+    fallback 值——否则无 frontmatter 的手写文件在 fallback 后"看起来合规"，
+    ack 判定就被绕过了（review fa3b838b 核证的关键陷阱）。
+    """
+    raw_author = meta.get("author")
+    if raw_author is None:
+        return "frontmatter author missing"
+    if str(raw_author) != persona:
+        return f"frontmatter author={raw_author}, expected {persona}"
+    raw_round = meta.get("round")
+    if raw_round is None:
+        return "frontmatter round missing"
+    try:
+        round_match = int(raw_round)
+    except (TypeError, ValueError):
+        return f"frontmatter round={raw_round!r}, expected {round_number}"
+    if round_match != round_number:
+        return f"round={round_match}, expected {round_number}"
+    raw_posted = meta.get("posted_at")
+    if raw_posted is None or _parse_dt(raw_posted) is None:
+        return "posted_at missing or unparseable"
+    return None
+
+
+def _ack_reason_of(topic: FsTopic, round_number: int, persona: str) -> str | None:
+    """该 persona 本轮文件的不合规原因；无文件或合规时返回 None。
+
+    供 round_ack_pending detail 逐条指认 `round1-participant.md: 原因`。
+    """
+    for c in topic.comments:
+        if c.round == round_number and c.file_persona == persona:
+            return c.ack_error
+    return None
+
+
+def _missing_detail(topic: FsTopic, round_number: int, persona: str) -> str:
+    """missing persona 的展示文案：合规失败带 文件名: 原因，缺文件只显名字。"""
+    reason = _ack_reason_of(topic, round_number, persona)
+    if reason:
+        return f"{_comment_name_of(topic, round_number, persona)}: {reason}"
+    return persona
+
+
+def _comment_name_of(topic: FsTopic, round_number: int, persona: str) -> str:
+    for c in topic.comments:
+        if c.round == round_number and c.file_persona == persona:
+            return Path(c.file_path).name
+    return f"round{round_number}-{persona}.md"
+
+
 # ---------------------------------------------------------------------------
 # 读取：实时解析
 # ---------------------------------------------------------------------------
@@ -282,20 +359,21 @@ def parse_topic_dir(topic_dir: Path, workspace: Path) -> FsTopic | None:
         match = _ROUND_FILE_RE.match(entry.name)
         if match is None:
             continue  # index.md 及其他文件不作为评论
-        round_number = int(match.group(1))
-        persona = match.group(2)
+        file_round = int(match.group(1))
+        file_persona = match.group(2)
         rel_path = entry.relative_to(workspace).as_posix()
         text = entry.read_text(encoding="utf-8")
         c_meta, c_body = parse_front_matter(text)
-        author = str(c_meta.get("author") or persona)
+        author = str(c_meta.get("author") or file_persona)
         kind = str(c_meta.get("kind") or "user")
         is_summary = bool(c_meta.get("is_round_summary", False))
         posted_at = _parse_dt(c_meta.get("posted_at")) or _mtime_utc(entry)
+        ack_error = _ack_error_of(c_meta, file_persona, file_round)
         comments.append(
             FsComment(
                 id=comment_id_for_path(rel_path),
                 topic_slug=slug,
-                round=int(c_meta.get("round") or round_number),
+                round=int(c_meta.get("round") or file_round),
                 author=author,
                 kind=kind if kind in {"user", "system"} else "user",
                 is_round_summary=is_summary,
@@ -304,6 +382,9 @@ def parse_topic_dir(topic_dir: Path, workspace: Path) -> FsTopic | None:
                 file_path=rel_path,
                 posted_at=posted_at,
                 comment_seq=0,
+                file_persona=file_persona,
+                ack_valid=ack_error is None,
+                ack_error=ack_error,
             )
         )
         if updated_at is None or posted_at > updated_at:
@@ -555,8 +636,10 @@ def derive_work(topic: FsTopic, persona: str) -> list[FsWorkItem]:
       （declared ∪ speakers ∪ creator），本轮还没有我的文件。白名单外
       persona（如 reviewer）不产生待办——需要其参与时在 front-matter
       ``participants:`` 声明，或其主动发言（发言即自动并入白名单）。
-    - ``round_ack_pending``（仅 host 视角）：本轮还有白名单内参与者没交文件。
-      missing 计算覆盖全量 participants，白名单过滤不削弱推进门禁。
+    - ``round_ack_pending``（仅 host 视角）：本轮还有 ack 名单内参与者没交
+      合规文件。missing 范围 = ``ack_participants()``（creator ∪ declared，
+      动态 speaker 不扩员，D3）；判定用 effective ack authors（只统计
+      frontmatter 合规，D1/D2），未发言/不合规逐条带文件名与原因（A5）。
     """
     items: list[FsWorkItem] = []
     if topic.status != "open":
@@ -575,15 +658,20 @@ def derive_work(topic: FsTopic, persona: str) -> list[FsWorkItem]:
             )
         )
     if persona == topic.creator:
-        missing = [p for p in topic.participants if p != persona and p not in authors]
+        ack_list = topic.ack_participants()
+        missing = [p for p in ack_list if p != persona and p not in authors]
         if missing and topic.round != "ready":
+            detail = "round{current} 待发言: {names}".format(
+                current=current,
+                names=", ".join(_missing_detail(topic, current, p) for p in missing),
+            )
             items.append(
                 FsWorkItem(
                     kind="round_ack_pending",
                     topic_slug=topic.slug,
                     title=topic.title,
                     round=current,
-                    detail=f"round{current} 待发言: {', '.join(missing)}",
+                    detail=detail,
                 )
             )
     return items

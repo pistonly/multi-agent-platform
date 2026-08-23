@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -510,6 +513,84 @@ def test_fs_work_snapshot_wakes_and_clears_by_file_presence(
     assert "pending_topic_reply" not in kinds
 
 
+def test_fs_stale_open_topics_nudge(
+    client, admin_headers: dict, tmp_path: Path
+) -> None:
+    """ready/久未推进的开放话题 → creator(host) 得到 stale_open_topics 义务；
+    挂活跃实验或 close 后消失；非 creator 不可见。"""
+    project = _create_project(client, admin_headers, tmp_path)
+    pid = project["id"]
+
+    def _make_agent(name: str) -> dict:
+        resp = client.post(
+            "/api/v1/agents",
+            headers=admin_headers,
+            json={"name": name, "role": "agent", "project_key": project["project_key"]},
+        )
+        assert resp.status_code == 201
+        return {"Authorization": f"Bearer {resp.json()['api_token']}"}
+
+    # 名含「-host」→ persona 自动推导为 host（FS creator 必须匹配 persona 短名）
+    host_headers = _make_agent("fs-host")
+    other_headers = _make_agent("fs-other")
+
+    def _backdate_created(slug: str, hours: int = 3) -> None:
+        # FS 话题的 updated_at 时钟 = frontmatter created_at（或最晚评论），
+        # 不是 index mtime——回拨 created_at 才能让它超过 stale 阈值。
+        index_path = tmp_path / "map" / "topics" / slug / "index.md"
+        old = time.time() - hours * 3600
+        iso = datetime.fromtimestamp(old, timezone.utc).isoformat()
+        text = re.sub(
+            r"^created_at: .*$", f"created_at: '{iso}'", index_path.read_text(encoding="utf-8"), flags=re.M
+        )
+        index_path.write_text(text, encoding="utf-8")
+
+    def _stale_kinds(headers: dict, slug: str) -> list[str]:
+        response = client.get("/api/v1/agents/me/work", headers=headers)
+        assert response.status_code == 200
+        return [
+            w["kind"]
+            for item in response.json()["topic_progress"]["items"]
+            if item["topic_id"] == str(topic_id_for_slug(slug))
+            for w in item["work_items"]
+        ]
+
+    # 话题 A：ready + 久未推进 → creator 见 stale nudge；非 creator 不可见
+    write_topic_index(
+        tmp_path, "stale-close", title="Stale Close", creator="host", round_="ready"
+    )
+    _backdate_created("stale-close")
+    assert "stale_open_topics" in _stale_kinds(host_headers, "stale-close")
+    assert "stale_open_topics" not in _stale_kinds(other_headers, "stale-close")
+
+    # close 落结论 → nudge 消失（清理动作 = topic close）
+    resp = client.post(
+        f"/api/v1/projects/{pid}/fs/topics/stale-close/close",
+        headers=host_headers,
+        json={"close_reason": "concluded", "close_note": "实验已完成并验收"},
+    )
+    assert resp.status_code in (200, 201)
+    assert "stale_open_topics" not in _stale_kinds(host_headers, "stale-close")
+
+    # 话题 B：挂活跃实验（draft）→ 排除，避免 close 被锁时仍被催
+    write_topic_index(
+        tmp_path, "stale-exp", title="Stale Exp", creator="host", round_="ready"
+    )
+    _backdate_created("stale-exp")
+    assert "stale_open_topics" in _stale_kinds(host_headers, "stale-exp")
+    created = client.post(
+        f"/api/v1/projects/{pid}/experiments",
+        headers=admin_headers,
+        json={
+            "title": "blocking experiment",
+            "topic_id": str(topic_id_for_slug("stale-exp")),
+            "plan": {"content_md": make_valid_plan(body="## p")},
+        },
+    )
+    assert created.status_code in (200, 201)
+    assert "stale_open_topics" not in _stale_kinds(host_headers, "stale-exp")
+
+
 def test_empty_workspace_yields_empty_plane(client, admin_headers: dict, tmp_path: Path) -> None:
     project = _create_project(client, admin_headers, tmp_path)
     response = client.get(f"/api/v1/projects/{project['id']}/fs/topics", headers=admin_headers)
@@ -567,3 +648,156 @@ def test_experiment_create_on_fs_topic(
         },
     )
     assert ghost.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# advance-round ack 合规校验（experiment 4b1192cc：D1/D2/D3/D4）
+# ---------------------------------------------------------------------------
+
+
+def _handwrite(d: Path, filename: str, text: str) -> None:
+    """直接手写 round 文件（不经 write_round_comment，模拟旁路）。"""
+    (d / filename).write_text(text, encoding="utf-8")
+
+
+def test_handwritten_round_file_excluded_from_effective_ack(tmp_path: Path) -> None:
+    """D1/D2：手写旁路文件（无 frontmatter）ack_valid=False，
+    effective ack authors 不含该 persona。"""
+    write_topic_index(
+        tmp_path, "hw", title="HW", creator="host", participants=["participant"]
+    )
+    write_round_comment(tmp_path, "hw", round_number=1, persona="host", body="# r1 host")
+    _handwrite(
+        tmp_path / "map" / "topics" / "hw",
+        "round1-participant.md",
+        "# 手写正文（无 frontmatter）\n",
+    )
+
+    topic = scan_plane(tmp_path).topics[0]
+    part_file = next(c for c in topic.comments if c.file_persona == "participant")
+    assert part_file.ack_valid is False
+    assert part_file.ack_error == "frontmatter author missing"
+    # effective ack authors 只认 host（手写旁路被拒）
+    assert topic.authors_in_round(1) == {"host"}
+
+
+def test_frontmatter_field_semantics_ack_reasons(tmp_path: Path) -> None:
+    """D2 三条：author 与文件名 persona 不符 / round 与文件名轮次不符 /
+    posted_at 缺失，各自进 ack_error，具体可验。"""
+    d = tmp_path / "map" / "topics" / "fm"
+    write_topic_index(tmp_path, "fm", title="FM", creator="host", participants=["participant"])
+    good = "---\nauthor: participant\nround: 1\nposted_at: '2026-08-24T00:00:00+00:00'\n---\n# ok\n"
+    _handwrite(d, "round1-participant.md", good)
+    _handwrite(
+        d,
+        "round1-reviewer.md",
+        "---\nauthor: host\nround: 1\nposted_at: '2026-08-24T00:00:00+00:00'\n---\n# 替人表态\n",
+    )
+    _handwrite(
+        d,
+        "round2-participant.md",
+        "---\nauthor: participant\nround: 1\nposted_at: '2026-08-24T00:00:00+00:00'\n---\n# 旧轮挪位\n",
+    )
+    _handwrite(
+        d,
+        "round1-host.md",
+        "---\nauthor: host\nround: 1\n---\n# 无 posted_at 空壳\n",
+    )
+
+    topic = scan_plane(tmp_path).topics[0]
+
+    def _by_file(suffix: str):
+        return next(c for c in topic.comments if c.file_path.endswith(suffix))
+
+    # 合规文件
+    assert _by_file("round1-participant.md").ack_valid is True
+    # author 与文件名 persona 不符
+    assert _by_file("round1-reviewer.md").ack_error == (
+        "frontmatter author=host, expected reviewer"
+    )
+    # round2-participant.md round=1 与文件名轮次 2 不符
+    assert _by_file("round2-participant.md").ack_error == "round=1, expected 2"
+    # frontmatter 无 posted_at → 空壳被拦截
+    assert _by_file("round1-host.md").ack_valid is False
+    assert _by_file("round1-host.md").ack_error == "posted_at missing or unparseable"
+
+
+def test_ack_participant_scope_and_stray_report(tmp_path: Path) -> None:
+    """D3：ack 名单=creator∪declared；名单外 reviewer 的合规文件进 stray
+    报告、挂 ack 满员判定时不扩员。"""
+    write_topic_index(
+        tmp_path, "scope", title="S", creator="host", participants=["participant"]
+    )
+    write_round_comment(tmp_path, "scope", round_number=1, persona="host", body="# r1")
+    write_round_comment(tmp_path, "scope", round_number=1, persona="participant", body="# r1p")
+    # reviewer 手写**合规** frontmatter 文件（D2 三字段齐全）但未被声明
+    _handwrite(
+        tmp_path / "map" / "topics" / "scope",
+        "round1-reviewer.md",
+        "---\nauthor: reviewer\nround: 1\nposted_at: '2026-08-24T00:00:00+00:00'\n---\n# r1r\n",
+    )
+
+    topic = scan_plane(tmp_path).topics[0]
+    assert topic.ack_participants() == ["host", "participant"]
+    # 名单内人员本轮均已合规发言 → host 无 ack 待办（reviewer 不阻塞）
+    assert not any(i.kind == "round_ack_pending" for i in derive_work(topic, "host"))
+    # 名单外文件单独 anomaly 报告
+    stray = topic.stray_files_in_round(1)
+    assert [c.file_persona for c in stray] == ["reviewer"]
+
+
+def test_derive_work_missing_includes_reason(tmp_path: Path) -> None:
+    """A5：host work 的 round_ack_pending detail 对不合规文件逐条指认
+    文件名 + 原因（与 advance 409 missing_reasons 同口径）。"""
+    write_topic_index(
+        tmp_path, "wr", title="W", creator="host", participants=["participant"]
+    )
+    write_round_comment(tmp_path, "wr", round_number=1, persona="host", body="# r1")
+    _handwrite(
+        tmp_path / "map" / "topics" / "wr",
+        "round1-participant.md",
+        "# 手写（无 frontmatter）\n",
+    )
+
+    topic = scan_plane(tmp_path).topics[0]
+    host_items = derive_work(topic, "host")
+    pending = next(i for i in host_items if i.kind == "round_ack_pending")
+    assert "round1-participant.md" in pending.detail
+    assert "frontmatter author missing" in pending.detail
+
+
+def test_work_and_advance_same_origin_reject_handwritten(
+    client, admin_headers: dict, tmp_path: Path
+) -> None:
+    """A1 双界面同源：同一手写旁路文件在 host work round_ack_pending 与
+    advance-round 409 missing_reasons 中一致被拒、口径相同。"""
+    project = _create_project(client, admin_headers, tmp_path)
+    pid = project["id"]
+    # participant 在 declared 名单（被 host 声明），但本轮手写旁路无 frontmatter
+    write_topic_index(
+        tmp_path, "fs-hw", title="HW", creator="admin-agent", participants=["test-participant"]
+    )
+    write_round_comment(tmp_path, "fs-hw", round_number=1, persona="admin-agent", body="# r1")
+    _handwrite(
+        tmp_path / "map" / "topics" / "fs-hw",
+        "round1-test-participant.md",
+        "# 手写旁路\n",
+    )
+
+    topic = scan_plane(tmp_path).topics[0]
+    # host 视角 work：hand-write 文件列为未发言并带原因
+    admin_items = derive_work(topic, "admin-agent")
+    pending = next(i for i in admin_items if i.kind == "round_ack_pending")
+    assert "round1-test-participant.md" in pending.detail
+
+    # advance 门槛：同样拒绝，missing + missing_reasons 逐条指认
+    resp = client.post(
+        f"/api/v1/projects/{pid}/fs/topics/fs-hw/advance-round", headers=admin_headers
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error"] == "round_ack_pending"
+    assert "test-participant" in detail["missing"]
+    reasons = detail["missing_reasons"]
+    assert "round1-test-participant.md" in reasons["test-participant"]
+    assert "frontmatter author missing" in reasons["test-participant"]

@@ -23,6 +23,7 @@ from typing import Any
 import typer
 import yaml
 from map_client.client import MAPClient
+from map_client.exceptions import MAPHTTPError
 
 from cli.table_render import render_table, truncate
 
@@ -317,6 +318,7 @@ def fs_topic_to_detail_read(topic: Any) -> Any:
         creator=topic.creator,
         comment_count=len(topic.comments),
         participants=topic.participants,
+        declared_participants=topic.declared_participants,
         created_at=topic.created_at,
         updated_at=topic.updated_at,
         dir_path=topic.dir_path,
@@ -333,6 +335,9 @@ def fs_topic_to_detail_read(topic: Any) -> Any:
                 file_path=c.file_path,
                 posted_at=c.posted_at,
                 comment_seq=c.comment_seq,
+                file_persona=c.file_persona,
+                ack_valid=c.ack_valid,
+                ack_error=c.ack_error,
             )
             for c in topic.comments
         ],
@@ -471,7 +476,11 @@ def validated_write_flow(
             result.get("projection_revision") or result["base_revision"]
         )
 
-    verdict = validate_call(c, pid, evidence, base_revision)
+    try:
+        verdict = validate_call(c, pid, evidence, base_revision)
+    except MAPHTTPError as exc:
+        _render_ack_error(exc)
+        raise
     update_topic_index(
         workspace, topic, content_root=_content_root_name(workspace), **verdict.fields
     )
@@ -551,6 +560,17 @@ def fs_advance_round(
         project_key=project_key,
         validate_call=validate_call,
     )
+
+
+def _render_ack_error(exc: MAPHTTPError) -> None:
+    """advance-round 409 round_ack_pending → 逐行列出 missing 且带文件名+原因（A5）。"""
+    detail = getattr(exc, "detail", None)
+    if not isinstance(detail, dict) or detail.get("error") != "round_ack_pending":
+        return  # 非 ack 错误交由上层统一渲染
+    typer.echo("Error 409: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
+    for persona in detail.get("missing", []):
+        reason = detail.get("missing_reasons", {}).get(persona) or "缺文件（未发言）"
+        typer.echo(f"  - {persona}: {reason}", err=True)
 
 
 @fs_app.command("close")
