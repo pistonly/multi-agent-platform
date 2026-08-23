@@ -41,7 +41,7 @@ python3 -m pytest -m ""   # 或 pytest --marker-all（若配置）
 
 | 阶段 | 命令 | 目标 |
 |------|------|------|
-| PR gate | `./scripts/test-fast.sh` | <90s（PR3 机读 gate 落地后强制执行） |
+| PR gate | `./scripts/test-fast.sh` | 默认 `pytest`（反转后真实收集全部未打标用例；历史白名单子集 <90s 指标已随 opt-out 失效，见下方 Baseline） |
 | Nightly | `pytest -m slow` | 补标审计、waker 长用例 |
 | Pre-release | `pytest -m integration` | 端到端 |
 | 可选 | `pytest -m claude_cli` | 需 Claude CLI 登录态 |
