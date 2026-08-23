@@ -52,7 +52,7 @@ bash .cursor/skills/map-project-collab/scripts/map-bootstrap.sh \
 | Admin bootstrap 失败 | 新版 server（>=0.4）无需 admin token；老版本需检查 `MAP_ADMIN_TOKEN` / `~/.map/admin.yaml` |
 | token 丢失（409 跳过） | 保留原 `agents.local.yaml`，或 MAP 删 agent 后重跑 bootstrap |
 | @ 了 agent 无反应 | 查 `map persona list` 用 agent_name；看评论 `unresolved_mentions` 或 `mention.unresolved` 通知 |
-| 想改 MAP 平台而非业务话题 | 用 `map feedback submit --category suggestion`（见 [platform-feedback.md](platform-feedback.md)） |
+| 想改 MAP 平台而非业务话题 | `map feedback` 已于 v0.15 M62 退役：bug 开 GitHub issue（README repo 链接），改进想法请 host 开 MAP 话题 |
 
 ## JSON 输出契约
 

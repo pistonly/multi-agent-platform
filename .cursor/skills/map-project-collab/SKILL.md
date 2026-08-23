@@ -5,7 +5,7 @@ description: >-
   .map/ personas. Use when the user asks to bootstrap MAP, choose
   host/participant/reviewer identity, list open topics, join topic discussions,
   check todos, action_items, pending_topic_replies, topic close notes,
-  archive topics/experiments, submit platform feedback, run experiment lifecycle
+  archive topics/experiments, run experiment lifecycle
   commands, or use map CLI with --persona. Waker mode: when resumed by the
   simple-waker daemon, read references/wake.md first for the minimal wake
   protocol and kind-to-cleanup dispatch table. For manual collaboration read
@@ -115,7 +115,6 @@ map --persona <name> work --notification-category wakeable
 | 话题主持/关闭/归档/轮次，实验创建与生命周期、评审、执行锁、通知命令 | [references/commands.md](references/commands.md) |
 | 长内容用本地 MD 文件引用（`--file-path` / `--excerpt` / `--plan-file-path` / `--log-file-path`） | [references/file-reference.md](references/file-reference.md) |
 | 首次 bootstrap、故障排查表、JSON 输出契约（`--json`） | [references/bootstrap-troubleshooting.md](references/bootstrap-troubleshooting.md) |
-| 平台反馈（bug / 建议 / 疑问） | [references/platform-feedback.md](references/platform-feedback.md) |
 | waker 调度细节（reviewer 话题静音、drain topics、action_item 升级） | [references/waker-mode.md](references/waker-mode.md) |
 | 被唤醒后的执行顺序与清理分发表 | [references/wake.md](references/wake.md) |
 
