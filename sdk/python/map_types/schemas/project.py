@@ -170,7 +170,26 @@ class ProjectStatusVersionRead(ORMModel):
 # --- Status ---
 
 
+class WakerHeartbeatRead(BaseModel):
+    """Per-agent waker liveness row, computed server-side for ``/status``.
+
+    ``stale`` is only True for an agent that HAS heartbeated (last_waker_poll_at
+    not null) AND not heartbeated within the threshold. null ``last_waker_poll_at``
+    means ``never`` (no waker poll ever) and is deliberately NOT stale — the
+    "only one waker" deployment keeps other personas from permanently WARN-ing.
+    The CLI renders this row but never re-derives the flag (single source of truth
+    is the server).
+    """
+
+    agent_id: uuid.UUID
+    agent_name: str
+    persona: str | None
+    last_waker_poll_at: datetime | None
+    stale: bool = False
+
+
 class GlobalStatusRead(BaseModel):
     total_experiments_by_phase: dict[str, int]
     projects: list[ProjectStatusRead]
     recent_experiments: list[ExperimentSummaryRead]
+    waker_heartbeats: list[WakerHeartbeatRead] = Field(default_factory=list)
