@@ -21,9 +21,17 @@
 | Python | 3.10+ | 安装 `map` CLI（用于 bootstrap 接入） |
 | pip | 任意 | 安装 CLI |
 
-> 不想装 Docker？`pip install multi-agent-platform-server` →（可选）`alembic upgrade head` → `map-server`。
-> 浏览器打开 API 根路径即可看看板（默认 `http://localhost:18400/`，端口可用 `MAP_PORT` 覆盖），**不必 clone `web/` 或安装 Node**。
-> 详见 [README.md](../README.md) 的「快速开始」章节。
+> 不想装 Docker？最少依赖路径只需两行（无需 clone 仓库）：
+>
+> ```bash
+> pip install multi-agent-platform-server
+> map server bootstrap --key my-project --name "My Project"
+> ```
+>
+> `map server bootstrap` 会自动在后台拉起服务（守护进程，PID/日志/DB 落在 `~/.map/`）、
+> 等待 `/health` 就绪，并把当前项目接入 MAP。日常用 `map server status` / `stop` / `logs`
+> 管理服务；浏览器打开 API 根路径 `http://localhost:18400/` 即可看看板（不依赖 Node）。
+> `map server run` 等价旧 `map-server` 前台命令。详见 [README.md](../README.md) 的「快速开始」章节。
 
 ---
 

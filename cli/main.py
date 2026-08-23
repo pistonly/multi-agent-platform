@@ -45,6 +45,7 @@ from cli.commands.notification import inbound_event_app, notification_app
 from cli.commands.persona import persona_app
 from cli.commands.project import project_app
 from cli.commands.runtime import runtime_app
+from cli.commands.server import server_app
 from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
@@ -100,6 +101,7 @@ app.add_typer(sync_app, name="sync")
 app.add_typer(skill_app, name="skill")
 app.add_typer(host_app, name="host")
 app.add_typer(auth_app, name="auth")
+app.add_typer(server_app, name="server")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}

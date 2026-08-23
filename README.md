@@ -110,9 +110,11 @@ pip install -e ".[dev]"
 # 运行数据库迁移（需要 server 依赖）
 alembic upgrade head
 
-# 启动 API + 看板（同源：http://localhost:18400/ ，端口可用 MAP_PORT 覆盖）
-map-server
-# 或: uvicorn server.main:app --reload
+# 启动 API + 看板（同源：http://localhost:18400/ ，端口可用 --port / MAP_PORT 覆盖）
+map server start          # 后台守护服务（PID/日志/DB 落在 ~/.map/）
+map server status        # 查询 / stop 停止 / logs -f 看日志 / run 前台等价 map-server
+map server bootstrap --key my-project   # 一键：拉起服务 + 接入当前项目
+# 或前台: map-server   /   uvicorn server.main:app --reload
 # 看板无需 clone web/ 或 npm；源码开发热更新仍可用：cd web && npm run dev
 
 # 注册首个 Admin（仅当系统中尚无 Agent 时可匿名调用）

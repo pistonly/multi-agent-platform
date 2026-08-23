@@ -221,6 +221,7 @@ EXPECTED_SUBAPP_FILES = [
     "persona.py",
     "project.py",
     "runtime.py",
+    "server.py",
     "skill.py",
     "sync.py",
     "topic.py",

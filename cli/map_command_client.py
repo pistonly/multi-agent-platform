@@ -472,6 +472,8 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("fs", "sync"),
     # M52C：token 自助轮换（服务端改写 agent.api_token_hash，旧 token 立即失效）
     ("auth", "reissue"),
+    # map server bootstrap 会创建项目 + persona（写 MAP 状态）
+    ("server", "bootstrap"),
 }
 
 _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {

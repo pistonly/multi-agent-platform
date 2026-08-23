@@ -50,6 +50,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "skill_app": ("skill",),
     "host_app": ("host",),
     "auth_app": ("auth",),
+    "server_app": ("server",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -83,6 +84,12 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("project", "status", "versions"),
     ("audit", "list"),
     ("docs", "error-codes"),
+    # map server 进程管理：不改 MAP API 状态
+    ("server", "start"),
+    ("server", "run"),
+    ("server", "status"),
+    ("server", "stop"),
+    ("server", "logs"),
     # 369ccac 拆分后补登记（此前绕过 dry-run 分类）
     ("agent", "list"),
     ("agent", "show"),
