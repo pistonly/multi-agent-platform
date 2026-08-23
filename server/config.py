@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     # ``STALE_OPEN_TOPIC_THRESHOLD`` constant.
     stale_open_topic_threshold_minutes: int = 30
 
+    # waker-heartbeat-visibility D2: fixed absolute waker-stale threshold (minutes).
+    # Overridable via ``MAP_WAKER_STALE_THRESHOLD_MINUTES`` env var (e.g.
+    # ``=1`` in tests to exercise A1/A3 without waiting the real 15min idle
+    # period). stale = ever-heartbeated AND older than this; never-heartbeated
+    # agents report ``never`` (not WARN). Same shape as
+    # ``stale_open_topic_threshold_minutes`` above.
+    waker_stale_threshold_minutes: int = 15
+
     # c9281d86 PR3: Fernet key for at-rest encryption of sensitive
     # columns (currently ``Webhook.secret``). Must be a 32-byte
     # urlsafe-base64-encoded key — generate with
