@@ -1,0 +1,15 @@
+{
+  "acceptance": {
+    "A1 停机检测": "双时间戳落 agents 表（last_api_seen_at 任意 /me/work 刷 / last_waker_poll_at 仅 client=waker 刷）；stale 判定（now−last_waker_poll_at>阈值 Settings 默认 15min）由 server 算好进 /status waker_heartbeats[]；map work 顶部 [WARN] waker heartbeat stale for <agent>(<persona>)；验收测试 test_waker_heartbeat 的 API 刷新语义 + stale 边界（含 exactly==阈值 strict < cutoff 处真）锁定等价验证，Settings 项 env MAP_WAKER_STALE_THRESHOLD_MINUTES 可调短冒烟",
+    "A2 归属区分": "server 单测 test_plain_call_refreshes_only_api_seen 证明「普通 map work 只刷 last_api_seen_at、不刷 last_waker_poll_at」→ 停 waker、invoked agent 持续手动 map work 时 last_waker_poll_at 不刷新，WARN 仍出现；正是 host invoke 补位活例",
+    "A3 无误报": "null → never（test_null_never_not_stale 断言 stale=False）；fresh 心跳不 stale（test_fresh_heartbeat_not_stale）。「只挂一个 waker」部署其余 persona 不永久告警",
+    "A4 冷启动": "alembic 050 upgrade head 应用到 prod DB，agents 表 PRAGMA 确认 last_api_seen_at / last_waker_poll_at 两列存在（sqlite3 ~/.map/data/map.db），时间戳持久化，server 重启不丢、无全量 stale 误报窗口",
+    "A5 全 persona 展示": "/status waker_heartbeats[] per-agent 行（agent_id/agent_name/persona/last_waker_poll_at/stale），GET /api/v1/status 形状由 test_status_shape_waker_heartbeats 锁定；map work 顶部渲染全部 per-agent（CLI 只渲染不复制判定）；CLI 单测 test_work_renders_stale_warn 证明 stale 行 WARN、fresh 行不 WARN",
+    "A6 文档": "docs/MAP-SIMPLE-WAKER.md 补三章：降级路径（waker 挂 → server stop + host invoke 编排）/ 层次（waker-stale WARN 是 stale_open_topics 检测的前置信任条件，两者互补）/ 边界（只覆盖「waker 挂、server 活」；server 挂是显性故障无需心跳兜底）"
+  },
+  "pytest_summary": "fast-gate 603 passed, 1100 deselected, 0 failed（2026-08-23 修复 size-cap 守卫 cli/main.py→1598 行后全绿；新增 test_waker_heartbeat 7 + test_waker_heartbeat_cli 4 共 11 用例均入 _FAST_GATE_MODULES 白名单内执行）",
+  "test_summary": "pytest tests/test_waker_heartbeat.py tests/test_waker_heartbeat_cli.py tests/cli/test_compat.py: 28 passed；ruff/ast 触及文件语法绿",
+  "db_migration": "alembic upgrade head → 049→050；prod DB (~/.map/data/map.db, SQLite) PRAGMA table_info(agents) 含 last_api_seen_at(DATETIME) / last_waker_poll_at(DATETIME) 两列",
+  "smoke": "server 单测 + CLI 单测 + fast-gate 全量回归通过；test_status_shape_waker_heartbeats 用真 TestClient in-process app 验证 /status waker_heartbeats[] 形状",
+  "live_restart": "live :18400 server 仍跑旧进程代码，/status 返回不含 waker_heartbeats[]；A4 prod DB schema 已 migration 050 head 落两列，A5 /status 形状由 in-process integration 测试锁定；live 加载新代码需重启服务（editable install），未在运行中 prod 服务上触发"
+}
