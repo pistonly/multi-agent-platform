@@ -1,0 +1,7 @@
+reasonable_items:
+  - "根因定位已核证：cli/orchestrator.py:238 `return asyncio.run(_run())` 同步化属实——阻塞点在 CLI 进程包装层而非 SDK 无流，修复面收敛在 CLI 层（无平台改动）的判断成立"
+  - "验收可观测：A1 超时路径双证据（报错全文截录 + 被调方取消 notification 记录，wakeable 通道可验证）；A2 stdout=数据/stderr=人类可读分离有单测 + 中途截录；A5 示例验收写明「可直接复制执行」"
+  - "超时语义设计克制：通知取消而非静默杀进程（被调方至少能决定是否中断）；「强制终止涉及 runtime 生命周期，明确不在 v1」边界清晰"
+  - "与话题共识一致：participant 被调方视角四点修正（prompt 上下文 A4 / 进度回流走平台对象 A5 汇合点 / 取消通知 A1 / 会话状态显式化 A3）全部映射进验收；D6 把 --async+invoke-status 归 L3 backlog 的裁决与 participant「支持方向」表态不冲突"
+  - "风险预授权有边界：取消 notification 复用既有创建路径；若实测需 server 端点补充，限定最小改动、超出即回 plan revise——不给静默扩权留口"
+unreasonable_items: []
