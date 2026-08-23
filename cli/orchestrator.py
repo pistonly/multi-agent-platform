@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,10 +53,14 @@ class InvokeResult:
     """Result of invoking a persona agent."""
 
     persona: str
-    status: str  # "ok" | "error" | "no_response"
+    status: str  # "ok" | "error" | "no_response" | "timeout"
     response_text: str = ""
     session_id: str | None = None
     error: str | None = None
+    # I1 (host invoke 可观测性): A3 启动状态行 + A1 timeout 元数据
+    session_state: str | None = None  # "waiting-for-session" | "running"
+    timed_out: bool = False
+    waited_seconds: float | None = None
 
 
 class HostOrchestrator:
@@ -99,6 +104,9 @@ class HostOrchestrator:
         prompt: str,
         *,
         new_session: bool = False,
+        timeout: float | None = None,
+        follow: bool = False,
+        on_stream: Callable[[dict[str, Any]], None] | None = None,
     ) -> InvokeResult:
         """Invoke a persona agent and return its response.
 
@@ -112,11 +120,22 @@ class HostOrchestrator:
         new_session:
             If ``True``, start a fresh Claude session instead of resuming
             the existing one for this persona.
+        timeout:
+            If set, abort waiting after this many seconds and return an
+            ``InvokeResult`` with ``status="timeout"`` / ``timed_out=True``.
+            The target session is *not* killed — the caller decides how to
+            notify the orphaned session (see CLI ``--timeout``).
+        follow:
+            If ``True``, forward each streamed ``WakeUpEvent`` to ``on_stream``
+            as it arrives (CLI prints them to stderr for live progress).
+        on_stream:
+            Callback receiving ``WakeUpEvent`` dicts when ``follow=True``.
 
         Returns
         -------
         InvokeResult
-            Contains the response text, status, and session metadata.
+            Contains the response text, status, session metadata, A3 startup
+            session state, and A1 timeout metadata.
         """
         ensure_waker_not_running(persona=persona, ignore_waker=self.ignore_waker)
 
@@ -130,28 +149,62 @@ class HostOrchestrator:
 
         await client.connect()
 
+        # A3: 启动状态行 —— 目标 session 是复用既有会话(running)还是将新建
+        # (waiting-for-session)。由 CLI 层打印给用户。
+        session_state = (
+            "running"
+            if client.state.get("claude_session_id")
+            else "waiting-for-session"
+        )
+
         response_parts: list[str] = []
         result_session_id: str | None = None
 
         def on_event(event: WakeUpEvent) -> None:
             nonlocal result_session_id
+            if follow and on_stream is not None:
+                on_stream(event)
             etype = event.get("type")
             if etype == "text":
                 response_parts.append(str(event.get("content") or ""))
             elif etype == "result":
                 result_session_id = event.get("session_id") or result_session_id
 
-        status = await client.wake_up(
-            prompt,
-            on_event=on_event,
-            event_source="orchestrator",
-        )
+        async def _run_wake_up() -> str:
+            return await client.wake_up(
+                prompt,
+                on_event=on_event,
+                event_source="orchestrator",
+            )
+
+        if timeout is not None:
+            try:
+                status = await asyncio.wait_for(_run_wake_up(), timeout=timeout)
+            except asyncio.TimeoutError:
+                # A1: 到点不静默杀进程 —— 目标会话仍挂在其 persona 侧,交由
+                # CLI 层向对方发取消 notification(wakeable 通道)告知已被放弃
+                return InvokeResult(
+                    persona=persona,
+                    status="timeout",
+                    response_text="".join(response_parts),
+                    session_id=result_session_id or client.state.get("claude_session_id"),
+                    session_state=session_state,
+                    timed_out=True,
+                    waited_seconds=timeout,
+                    error=(
+                        f"waiting for '{persona}' exceeded {timeout:g}s and was cancelled; "
+                        f"target session state={session_state}"
+                    ),
+                )
+        else:
+            status = await _run_wake_up()
 
         return InvokeResult(
             persona=persona,
             status=status,
             response_text="".join(response_parts),
             session_id=result_session_id or client.state.get("claude_session_id"),
+            session_state=session_state,
         )
 
     async def disconnect_all(self) -> None:
@@ -213,11 +266,15 @@ def run_invoke(
     new_session: bool = False,
     model: str | None = None,
     ignore_waker: bool = False,
+    timeout: float | None = None,
+    follow: bool = False,
+    on_stream: Callable[[dict[str, Any]], None] | None = None,
 ) -> InvokeResult:
     """Synchronous wrapper for :meth:`HostOrchestrator.invoke`.
 
     Creates a fresh :class:`HostOrchestrator`, invokes the target persona,
-    disconnects, and returns the result.
+    disconnects, and returns the result. ``timeout`` / ``follow`` / ``on_stream``
+    are forwarded verbatim (see :meth:`HostOrchestrator.invoke`).
     """
 
     async def _run() -> InvokeResult:
@@ -231,6 +288,9 @@ def run_invoke(
                 persona,
                 prompt,
                 new_session=new_session,
+                timeout=timeout,
+                follow=follow,
+                on_stream=on_stream,
             )
         finally:
             await orchestrator.disconnect_all()

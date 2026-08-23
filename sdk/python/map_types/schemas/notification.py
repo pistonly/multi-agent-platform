@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from map_types.enums import NotificationCategory, NotificationFingerprintVersion
 
@@ -38,3 +38,21 @@ class NotificationListRead(BaseModel):
     items: list[NotificationRead]
     total: int
     unread_count: int
+
+
+class NotificationDispatchCreate(BaseModel):
+    """Body for ``POST /agents/me/notifications/dispatch``.
+
+    Host-orchestrated ``host invoke --timeout`` uses this as the cancellation
+    channel: when an invoke times out, the host dispatches a wakeable
+    notification to the target persona so it knows its session was orphaned by
+    the timeout, rather than silently killing the process.
+    """
+
+    recipient_agent_id: uuid.UUID
+    event: str = Field(..., max_length=128)
+    summary: str = Field(..., max_length=1024)
+    target_type: str = "experiment"
+    target_id: uuid.UUID | None = None
+    payload: dict[str, Any] | None = None
+    wakeable: bool = True

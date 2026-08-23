@@ -6,9 +6,13 @@ Tests cover:
 - run_invoke() synchronous wrapper
 - CLI command `map host invoke` parameter parsing
 - Error handling (missing prompt, waker running)
+
+host invoke 可观测性 v1 (5a50c841): A1 timeout / A2 follow / A3 session-state
+lines are covered in TestHostOrchestrator and TestHostInvokeCommand below.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +20,7 @@ import pytest
 from typer.testing import CliRunner
 
 from cli.commands.host import host_app
+from cli.orchestrator import InvokeResult
 
 runner = CliRunner()
 
@@ -176,6 +181,109 @@ class TestHostOrchestrator:
             assert client3 is not client1
             assert mock_client_cls.call_count == 2
 
+    # --- 5a50c841 A3: session-state line ---
+
+    @pytest.mark.asyncio
+    async def test_invoke_session_state_running_when_resuming(self, tmp_path):
+        """A3: resuming an existing session reports session_state='running'."""
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client()
+        mock_client.state = {"claude_session_id": "existing-session-9"}
+
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+
+        result = await orchestrator.invoke("participant", "hello")
+
+        assert result.session_state == "running"
+
+    @pytest.mark.asyncio
+    async def test_invoke_session_state_waiting_for_new_session(self, tmp_path):
+        """A3: no session id means a new session is about to start."""
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client()
+        mock_client.state = {}
+
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+
+        result = await orchestrator.invoke("participant", "hello")
+
+        assert result.session_state == "waiting-for-session"
+
+    # --- 5a50c841 A1: timeout ---
+
+    @pytest.mark.asyncio
+    async def test_invoke_timeout_returns_friendly_timeout(self, tmp_path):
+        """A1: a hung wake_up should return status='timeout' with metadata."""
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client()
+
+        async def _hang(*args, **kwargs):
+            await asyncio.sleep(30)
+
+        mock_client.wake_up = AsyncMock(side_effect=_hang)
+
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+
+        result = await orchestrator.invoke("participant", "slow task", timeout=0.05)
+
+        assert result.status == "timeout"
+        assert result.timed_out is True
+        assert result.waited_seconds == 0.05
+        assert result.session_state in ("waiting-for-session", "running")
+        # friendly message includes the wait ceiling and session state, no stack
+        assert "exceeded 0.05s and was cancelled" in (result.error or "")
+        assert "target session state=" in (result.error or "")
+
+    # --- 5a50c841 A2: --follow streaming ---
+
+    @pytest.mark.asyncio
+    async def test_invoke_follow_forwards_events_to_stream(self, tmp_path):
+        """A2: follow=True should forward streamed events to on_stream."""
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client(
+            response_text="streamed text",
+            session_id="sess-1",
+        )
+
+        streamed: list[dict[str, Any]] = []
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+
+        result = await orchestrator.invoke(
+            "participant",
+            "task",
+            follow=True,
+            on_stream=streamed.append,
+        )
+
+        assert result.status == "ok"
+        event_types = [e["type"] for e in streamed]
+        assert "text" in event_types
+        assert "result" in event_types
+        assert any(e.get("content") == "streamed text" for e in streamed)
+
+    @pytest.mark.asyncio
+    async def test_invoke_no_follow_does_not_stream(self, tmp_path):
+        """A2: without follow, on_stream should not be called."""
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client(response_text="x", session_id="s2")
+        on_stream = MagicMock()
+
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+
+        await orchestrator.invoke("participant", "task", follow=False, on_stream=on_stream)
+
+        on_stream.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # run_invoke synchronous wrapper tests
@@ -227,6 +335,38 @@ class TestRunInvoke:
         assert result.status == "ok"
         assert result.response_text == "sync response"
         assert result.session_id == "sid-1"
+
+    def test_run_invoke_forwards_timeout_and_stream(self, tmp_path):
+        """run_invoke should forward timeout / follow / on_stream kwargs."""
+        from cli.orchestrator import run_invoke
+
+        on_stream = MagicMock()
+        with patch("cli.orchestrator.HostOrchestrator") as mock_cls:
+            mock_orch = MagicMock()
+            mock_orch.invoke = AsyncMock(
+                return_value=InvokeResult(
+                    persona="participant",
+                    status="ok",
+                    response_text="ok",
+                    session_state="waiting-for-session",
+                )
+            )
+            mock_orch.disconnect_all = AsyncMock()
+            mock_cls.return_value = mock_orch
+
+            run_invoke(
+                persona="participant",
+                prompt="p",
+                project_root=tmp_path,
+                timeout=7.5,
+                follow=True,
+                on_stream=on_stream,
+            )
+
+        invoke_kwargs = mock_orch.invoke.call_args.kwargs
+        assert invoke_kwargs["timeout"] == 7.5
+        assert invoke_kwargs["follow"] is True
+        assert invoke_kwargs["on_stream"] is on_stream
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +520,100 @@ class TestHostInvokeCommand:
         assert call_kwargs["new_session"] is True
         assert call_kwargs["model"] == "claude-sonnet-4-20250514"
         assert call_kwargs["ignore_waker"] is True
+
+    def test_timeout_and_follow_forwarded_to_run_invoke(self):
+        """--timeout/--follow should forward to run_invoke with a stream cb."""
+        with patch("cli.orchestrator.run_invoke") as mock_run:
+            mock_run.return_value = InvokeResult(
+                persona="participant",
+                status="ok",
+                response_text="ok",
+            )
+
+            runner.invoke(
+                host_app,
+                [
+                    "invoke",
+                    "--persona", "participant",
+                    "--prompt", "test",
+                    "--timeout", "5",
+                    "--follow",
+                ],
+            )
+
+        call_kwargs = mock_run.call_args.kwargs
+        assert call_kwargs["timeout"] == 5.0
+        assert call_kwargs["follow"] is True
+        assert callable(call_kwargs["on_stream"])
+
+    def test_timeout_exits_nonzero_and_dispatches_cancel(self):
+        """A1: timed_out result should exit 1, print friendly error, dispatch."""
+        with (
+            patch("cli.orchestrator.run_invoke") as mock_run,
+            patch("cli.commands.host._dispatch_cancel_notification") as mock_dispatch,
+        ):
+            mock_run.return_value = InvokeResult(
+                persona="participant",
+                status="timeout",
+                response_text="",
+                timed_out=True,
+                waited_seconds=5.0,
+                session_state="waiting-for-session",
+                error=(
+                    "waiting for 'participant' exceeded 5s and was cancelled; "
+                    "target session state=waiting-for-session"
+                ),
+            )
+
+            result = runner.invoke(
+                host_app,
+                ["invoke", "--persona", "participant", "--prompt", "t", "--timeout", "5"],
+            )
+
+        assert result.exit_code == 1
+        assert "cancelled" in (result.stderr or "")
+        assert mock_dispatch.call_count == 1
+
+    def test_dispatch_cancel_notification_sends_wakeable(self, tmp_path, monkeypatch):
+        """A1: cancel notification should be a wakeable dispatch to target."""
+        from types import SimpleNamespace
+
+        from cli.commands.host import _dispatch_cancel_notification
+
+        sent: dict[str, Any] = {}
+
+        class _FakeClient:
+            def get_me(self):
+                return SimpleNamespace(id="me-id", project_id="proj-id")
+
+            def list_agents(self, *, project_id=None):
+                return [
+                    SimpleNamespace(
+                        id="part-id",
+                        name="multi-agents-platform-participant",
+                    )
+                ]
+
+            def dispatch_notification(self, **kwargs):
+                sent.update(kwargs)
+
+        fake = _FakeClient()
+        monkeypatch.setattr("map_client.project_config.resolve_client", lambda **kw: fake)
+
+        result = InvokeResult(
+            persona="participant",
+            status="timeout",
+            timed_out=True,
+            waited_seconds=4.0,
+            session_state="waiting-for-session",
+        )
+        _dispatch_cancel_notification("participant", result, tmp_path)
+
+        assert sent["recipient_agent_id"] == "part-id"
+        assert sent["event"] == "host.invoke.cancelled"
+        assert sent["wakeable"] is True
+        assert "4s" in sent["summary"] or "4" in sent["summary"]
+        assert "waiting-for-session" in sent["summary"]
 
 
 # ---------------------------------------------------------------------------

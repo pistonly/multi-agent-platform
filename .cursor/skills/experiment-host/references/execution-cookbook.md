@@ -71,11 +71,55 @@ map --persona host host invoke --persona reviewer \
 | `--prompt-file` | 从文件读取长 prompt |
 | `--json` | 以 JSON 格式输出（含 response + session_id） |
 | `--new-session` | 强制开启新 session（默认等待进行中会话结束） |
+| `--timeout <秒>` | 等待上限；到点输出**友好报错**（含已等待时长 + 目标 session 状态、无堆栈），并自动向被调方发一条 `host.invoke.cancelled` 的 **wakeable 取消通知**（语义是「告知对方会话已被放弃」，不是强杀进程；被调方 session 仍挂在其 persona 侧，收到通知后自行决定收尾） |
+| `--follow` | 流式：阶段性事件（text / tool_use / tool_result）实时打到 **stderr**，stdout 仍只在结束时含最终结果（stdout=数据 / stderr=人类可读） |
 | `--ignore-waker` | 在 waker 运行时强制调用（可能冲突） |
+
+**启动状态行**：invoke 启动即向 stderr 输出一行目标 session 状态——`waiting-for-session`（将新建会话）或 `running`（复用既有会话），用于第一次判断「会不会触发 session 冲突」。
+
+**Prompt 首段对象引用约定（A4）**：invoke 的 prompt **第一段固定放对象引用**——topic slug / experiment-id / skill 名，让被调方无需猜测上下文。正文再给任务描述：
+
+```bash
+map --persona host host invoke --persona participant \
+    --prompt "topic=<topic-slug>; skill=map-project-collab
+请参与该话题 Round N 讨论：...（正文）"
+```
 
 **适用场景**：`submit-review` 后主动通知 reviewer 评审、`complete` 后主动通知 reviewer 审批结果、需要快速获得 reviewer 反馈而不等待 waker 轮询。
 
 **注意**：调用后仍需通过 `map experiment status` 核实 reviewer 是否已提交评审；reviewer agent 的回复文本在 stdout，但其实际操作（如 `experiment review add`）是通过 `map --persona reviewer` CLI 写入 MAP 平台的。
+
+### 双 invoke 后台并发 + 汇合点模式（A5）
+
+需要 reviewer 与 participant **并行**工作时，把两个 invoke 放后台，然后用**平台对象**做汇合点查询（`map work` / `topic show` / `experiment status`），**不要**在 shell 里拼文件作为唯一事实源：
+
+```bash
+# 1) 两个 invoke 后台并行（各自 stderr 进度落文件，便于诊断）
+map --persona host host invoke --persona reviewer \
+    --prompt "experiment=<exp-uuid>; skill=experiment-reviewer
+请评审计划并提交结构化评审。" \
+    --follow 2> /tmp/exp-<id>-reviewer.follow.log &
+INVOKE_R=$!
+
+map --persona host host invoke --persona participant \
+    --prompt "topic=<topic-slug>; skill=map-project-collab
+请参与话题讨论发表观点。" \
+    --follow 2> /tmp/exp-<id>-participant.follow.log &
+INVOKE_P=$!
+
+# 2) 汇合点 = 平台对象，轮询直到两侧真实落库（里程碑），而非等进程退出
+until map --persona host experiment review list --id <exp-uuid> | grep -q "已提交评审的标记"; do sleep 10; done
+until map --persona host topic show --slug <topic-slug> | grep -q "participant 评论标记"; do sleep 10; done
+
+# 3) 收尾：等两个后台 invoke 结束，检查失败日志
+wait $INVOKE_R; wait $INVOKE_P
+tail -50 /tmp/exp-<id>-reviewer.follow.log
+```
+
+要点：
+- **汇合点查询走平台对象**（`map work` / `topic show` / `experiment status` 等），这是 MAP 的事实源；`--follow` 的 stderr 日志只用于诊断「卡在哪一步」，不作为完成判定。
+- 任一 invoke 失败（后台 job 非零退出）会静默丢失——补 `wait` 后检查两 job 的退出码。
+- 需要强约束时可加各自 `--timeout`，超时方自动收到取消通知，不拖住汇合点。
 
 ## 结果审批命令（reviewer / admin 执行，host 禁止自审）
 

@@ -128,6 +128,7 @@ from .inbound_event import (
     InboundEventRecordResult,
 )
 from .notification import (
+    NotificationDispatchCreate,
     NotificationListRead,
     NotificationRead,
 )
@@ -302,6 +303,7 @@ __all__ = [
     "TodoRead",
     "NotificationRead",
     "NotificationListRead",
+    "NotificationDispatchCreate",
     "AgentWorkRead",
     "BucketVisibility",
     "SummaryBucketKind",

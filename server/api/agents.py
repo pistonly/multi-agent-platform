@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from server.api.deps import get_current_agent, get_optional_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent, AgentRole, Experiment, Project
+from server.domain.models import Agent, AgentRole, Experiment, Notification, Project
 from server.domain.schemas import (
     AgentCreate,
     AgentCreateResponse,
@@ -22,6 +22,7 @@ from server.domain.schemas import (
     InboundEventCreate,
     InboundEventRead,
     InboundEventRecordResult,
+    NotificationDispatchCreate,
     NotificationListRead,
     NotificationRead,
     TodoRead,
@@ -380,6 +381,59 @@ def mark_all_notifications_read(
 ) -> dict[str, int]:
     count = notification_service.mark_all_read(db, agent)
     return {"marked": count}
+
+
+@agents_router.post(
+    "/me/notifications/dispatch",
+    response_model=NotificationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def dispatch_my_notification(
+    payload: NotificationDispatchCreate,
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> NotificationRead:
+    """Send an in-app notification to another agent in the same project.
+
+    This is the agent→agent notification channel used by host-orchestrated
+    ``host invoke --timeout``: when an invoke times out, the host dispatches a
+    (typically wakeable) notification to the target persona so it knows its
+    session was orphaned — the notification is the "cancel" signal, not a
+    process kill. ``wakeable`` selects whether the waker surfaces it as a
+    wakeable item (True) or it stays visible only in the recipient's
+    notification stream (False).
+    """
+    recipient = db.get(Agent, payload.recipient_agent_id)
+    if recipient is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="recipient agent not found",
+        )
+    if recipient.project_id != agent.project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="recipient agent is not in the same project",
+        )
+    notification_ids = notification_service.enqueue_for_agents(
+        db,
+        recipient_agent_ids=[payload.recipient_agent_id],
+        project_id=agent.project_id,
+        actor_id=agent.id,
+        event=payload.event,
+        summary=payload.summary,
+        target_type=payload.target_type,
+        target_id=payload.target_id,
+        payload=payload.payload,
+        wakeable=payload.wakeable,
+    )
+    if not notification_ids:
+        # enqueue_for_agents excludes the actor; dispatching to self is a no-op
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot dispatch notification to self",
+        )
+    notification = db.get(Notification, notification_ids[0])
+    return NotificationRead.model_validate(notification)
 
 
 @agents_router.post(

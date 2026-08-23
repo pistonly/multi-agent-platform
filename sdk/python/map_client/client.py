@@ -1065,6 +1065,39 @@ class MAPClient:
     def mark_all_notifications_read(self) -> dict[str, int]:
         return cast(dict[str, int], self._json("POST", "/agents/me/notifications/read-all"))
 
+    def dispatch_notification(
+        self,
+        *,
+        recipient_agent_id: uuid.UUID,
+        event: str,
+        summary: str,
+        target_type: str = "experiment",
+        target_id: uuid.UUID | None = None,
+        payload: dict[str, Any] | None = None,
+        wakeable: bool = True,
+    ) -> NotificationRead:
+        """Send an in-app notification to another agent in the same project.
+
+        Used by host-orchestrated ``host invoke --timeout`` as the cancellation
+        channel: when an invoke times out, the host dispatches a wakeable
+        notification to the target persona instead of silently killing the
+        orphaned session.
+
+        Raises :class:`MAPHTTPError` for missing/mis-project recipient or a
+        self-dispatch (400/403/404 shape described on the server endpoint).
+        """
+        body: dict[str, Any] = {
+            "recipient_agent_id": str(recipient_agent_id),
+            "event": event,
+            "summary": summary,
+            "target_type": target_type,
+            "target_id": str(target_id) if target_id is not None else None,
+            "payload": payload,
+            "wakeable": wakeable,
+        }
+        data = self._json("POST", "/agents/me/notifications/dispatch", json=body)
+        return NotificationRead.model_validate(data)
+
     # --- inbound events (runtime-waker dedup gate; D6) ---
 
     def record_inbound_event(

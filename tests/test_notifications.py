@@ -133,3 +133,67 @@ def test_digest_notifications_are_aggregated_by_object(client, auth_headers, rev
     assert len(rows) == 1
     assert rows[0]["event_count"] == 2
     assert rows[0]["category"] == "digest"
+
+
+def test_dispatch_notification_agent_to_agent(client, auth_headers, reviewer, project):
+    """5a50c841 A1: POST /agents/me/notifications/dispatch delivers a wakeable
+    notification to another agent in the same project."""
+    sender_id = client.get("/api/v1/agents/me", headers=auth_headers).json()["id"]
+    reviewer_id = client.get("/api/v1/agents/me", headers=reviewer["headers"]).json()["id"]
+    assert sender_id != reviewer_id
+
+    res = client.post(
+        "/api/v1/agents/me/notifications/dispatch",
+        headers=auth_headers,
+        json={
+            "recipient_agent_id": reviewer_id,
+            "event": "host.invoke.cancelled",
+            "summary": "host invoke 等待超过 5s 已取消;target session state=waiting-for-session",
+            "target_type": "experiment",
+            "wakeable": True,
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["recipient_agent_id"] == reviewer_id
+    assert body["event"] == "host.invoke.cancelled"
+    assert body["category"] == "wakeable"
+
+    recv = client.get(
+        "/api/v1/agents/me/notifications",
+        headers=reviewer["headers"],
+        params={"unread_only": True, "category": "wakeable"},
+    ).json()
+    assert recv["items"][0]["event"] == "host.invoke.cancelled"
+    assert "已取消" in recv["items"][0]["summary"]
+
+
+def test_dispatch_notification_self_rejected(client, auth_headers, project):
+    """Dispatch to self is a no-op for the service (actor excluded) → 400."""
+    sender_id = client.get("/api/v1/agents/me", headers=auth_headers).json()["id"]
+    res = client.post(
+        "/api/v1/agents/me/notifications/dispatch",
+        headers=auth_headers,
+        json={
+            "recipient_agent_id": sender_id,
+            "event": "host.invoke.cancelled",
+            "summary": "self dispatch should fail",
+        },
+    )
+    assert res.status_code == 400
+
+
+def test_dispatch_notification_unknown_recipient(client, auth_headers, project):
+    """Unknown recipient agent → 404."""
+    import uuid as uuid_lib
+
+    res = client.post(
+        "/api/v1/agents/me/notifications/dispatch",
+        headers=auth_headers,
+        json={
+            "recipient_agent_id": str(uuid_lib.uuid4()),
+            "event": "host.invoke.cancelled",
+            "summary": "nobody home",
+        },
+    )
+    assert res.status_code == 404
