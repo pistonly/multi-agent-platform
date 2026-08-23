@@ -995,6 +995,7 @@ class MAPClient:
         *,
         notification_limit: int = 50,
         notification_category: NotificationCategory | str | None = "wakeable",
+        client: str | None = None,
     ) -> AgentWorkRead:
         params: dict[str, Any] = {"notification_limit": notification_limit}
         if notification_category is None or notification_category == "all":
@@ -1003,6 +1004,8 @@ class MAPClient:
             params["notification_category"] = notification_category.value
         else:
             params["notification_category"] = notification_category
+        if client is not None:
+            params["client"] = client
         return AgentWorkRead.model_validate(self._json("GET", "/agents/me/work", params=params))
 
     def get_agent_work_summary(
