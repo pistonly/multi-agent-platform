@@ -23,7 +23,7 @@ def test_default_port_and_paths() -> None:
 
 
 def test_db_url_under_home() -> None:
-    url = server_cmd._db_url(18400)
+    url = server_cmd._default_db_url()
     assert url.startswith("sqlite:///")
     assert url.endswith("/.map/data/map.db")
 
@@ -60,7 +60,6 @@ def test_spawn_background_writes_pid_and_state(monkeypatch, tmp_path) -> None:
     assert (tmp_path / f"18400.{server_cmd._PID_FILE}").read_text() == "4242"
     state = server_cmd._read_state(18400)
     assert state["port"] == 18400
-    assert state["database_url"] == server_cmd._db_url(18400)
 
 
 def test_spawn_foreground_returns_returncode(monkeypatch, tmp_path) -> None:

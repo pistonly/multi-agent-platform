@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
@@ -8,6 +9,18 @@ from server.db.base import Base
 
 settings = get_settings()
 
+
+def _ensure_sqlite_dir(database_url: str) -> None:
+    """SQLite 不会自建父目录；启动前先补齐，避免 ``unable to open database file``。"""
+    if not database_url.startswith("sqlite:///"):
+        return
+    db_path = database_url[len("sqlite:///"):].split("?", 1)[0]
+    if not db_path or db_path == ":memory:":
+        return
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+
+_ensure_sqlite_dir(settings.database_url)
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 engine = create_engine(settings.database_url, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -64,5 +77,5 @@ def verify_schema_matches_models() -> None:
             "数据库 schema 落后于当前代码版本（"
             + "；".join(problems)
             + "）。请先备份数据并执行迁移后再启动，例如: "
-            "cp data/map.db data/map.db.bak && alembic upgrade head"
+            f"cp {settings.database_url} {settings.database_url}.bak && alembic upgrade head"
         )

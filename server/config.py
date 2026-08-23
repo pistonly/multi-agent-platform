@@ -1,12 +1,17 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 用户级锚点：与 `~/.map/`（persona / daemon 状态）同一家目录，避免把库
+# 落到启动时的 CWD。CLI 的 `map server` 守护进程也不再覆盖此默认值。
+_DEFAULT_DB_URL = f"sqlite:///{(Path.home() / '.map' / 'data' / 'map.db')}"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MAP_", env_file=".env", extra="ignore")
 
-    database_url: str = "sqlite:///./data/map.db"
+    database_url: str = _DEFAULT_DB_URL
     api_prefix: str = "/api/v1"
     # 8000/8001 是开发端口重灾区（uvicorn/Django 默认口 + 最常见备选口，
     # 也常被 IDE 端口转发占用）。默认改用不常用的 18400（与 MCP 常用

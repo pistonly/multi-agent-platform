@@ -32,12 +32,20 @@ _STATE_DIR_NAME = ".map"
 _STATE_FILE = "server.yaml"
 _PID_FILE = "server.pid"
 _LOG_FILE = "server.log"
-_DB_REL = "data/map.db"
 _HEALTH_TIMEOUT_S = 60
 
 
 def _state_dir() -> Path:
     return Path.home() / _STATE_DIR_NAME
+
+
+def _default_db_url() -> str:
+    """用户级库文件位置（仅供展示）。
+
+    守护进程本身**不**再覆盖 ``MAP_DATABASE_URL``，直接继承
+    ``server.config`` 的默认值，此处只用于 status/start 的输出。
+    """
+    return f"sqlite:///{_state_dir() / 'data' / 'map.db'}"
 
 
 def _state_path(port: int) -> Path:
@@ -50,10 +58,6 @@ def _log_path(port: int) -> Path:
 
 def _pid_path(port: int) -> Path:
     return _state_dir() / f"{port}.{_PID_FILE}"
-
-
-def _db_url(port: int) -> str:
-    return f"sqlite:///{_state_dir() / _DB_REL}"
 
 
 def _health_url(port: int) -> str:
@@ -126,8 +130,9 @@ def _find_running_port(preferred: int) -> int | None:
 
 def _daemon_env(port: int) -> dict[str, str]:
     env = os.environ.copy()
+    # 库文件路径不再在此覆盖：守护进程继承 server.config 的用户级默认值
+    # （~/.map/data/map.db），与裸 map-server / uvicorn 直启保持一致。
     env.setdefault("MAP_PORT", str(port))
-    env.setdefault("MAP_DATABASE_URL", _db_url(port))
     return env
 
 
@@ -135,7 +140,6 @@ def _spawn(
     port: int, *, background: bool
 ) -> subprocess.Popen[Any] | subprocess.CompletedProcess[Any]:
     _state_dir().mkdir(parents=True, exist_ok=True)
-    (_state_dir() / _DB_REL).parent.mkdir(parents=True, exist_ok=True)
     if background:
         # Popen 已把 fd 复制给子进程,退出 with 块关闭父侧句柄即达分离效果。
         with open(_log_path(port), "ab") as log_handle:
@@ -153,7 +157,6 @@ def _spawn(
             {
                 "pid": proc.pid,
                 "port": port,
-                "database_url": _daemon_env(port)["MAP_DATABASE_URL"],
                 "log": str(_log_path(port)),
             },
         )
@@ -212,7 +215,7 @@ def server_start(
         typer.echo(f"MAP server started at http://localhost:{port}")
         typer.echo(f"  board : http://localhost:{port}/")
         typer.echo(f"  log   : {_log_path(port)}")
-        typer.echo(f"  db    : {_db_url(port)}")
+        typer.echo(f"  db    : {_default_db_url()}")
         typer.echo("Connect a project with: map server bootstrap --key <project-key>")
         return
 
@@ -255,7 +258,7 @@ def server_status(
         "healthy": _is_healthy(running_port or port) if running_port else False,
         "url": f"http://localhost:{running_port or port}",
         "pid": _read_pid(running_port or port) if running_port else _read_pid(port),
-        "database_url": state.get("database_url") or _db_url(port),
+        "database_url": state.get("database_url") or _default_db_url(),
         "log": str(_log_path(port)),
     }
     if opts["format"] == "json":
