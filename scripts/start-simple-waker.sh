@@ -11,6 +11,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# 固定读取项目级 LLM 凭证 .map/.claude-env,覆盖启动 shell 可能残留的 ANTHROPIC_*
+# (否则 waker 会落到错误端点/账号,如 z.ai 的 5 小时 429 用量上限)。set -a 确保
+# source 出的变量全部 export 给后续 exec 的 python 进程。
+map_env="$ROOT/.map/.claude-env"
+if [[ -f "$map_env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$map_env"
+  set +a
+fi
+
 PERSONA="${MAP_SIMPLE_PERSONA:-${MAP_RUNTIME_PERSONA:-host}}"
 ACTIVE_INTERVAL="${MAP_SIMPLE_ACTIVE_INTERVAL:-${MAP_RUNTIME_INTERVAL:-30}}"
 IDLE_INTERVAL="${MAP_SIMPLE_IDLE_INTERVAL:-300}"
