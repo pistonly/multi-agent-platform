@@ -1,0 +1,9 @@
+reasonable_items:
+  - "v3 圆满吸收 911fdb0e 全部整改点：D4 改为双端同源——parser 产出合规标记并入 FsComment 新字段（如 ack_valid 附原因）、`FsTopic.authors_in_round` 只统计合规 author；server 侧 `_CommentView` 增加同名字段并在 `_view_from_fs_topic` 映射携带、`_TopicView.authors_in_round` 同样只统计合规 author——正是我指出的「server 独立实现必须显式同步」路线，且保留 raw author 用于展示、合规走独立字段的拆分与我 911fdb0e 的判断完全一致"
+  - "修订记录准确解释为何废除「server 零改动」表述：该表述仅在 parser 直接改 author 值语义（FsComment.author 从 effective 集消失）时才成立；保留 raw author 时 server `_TopicView` 必须显式过滤——核证无误，无歧义残留"
+  - "I2 新增 server 同源实施步：`_CommentView` 字段 + `_view_from_fs_topic` 映射 + `_TopicView.authors_in_round` 过滤，单测走 `validate_fs_advance_round` 直接断言 hand-write 文件进 `FsAckPendingError` 含该 persona——杜绝「parser 改了、server 没设」的隐式假设，advance 侧验收有可观测判据"
+  - "调研坐标核证准确：fs_source_service.py:276-277 `_TopicView.authors_in_round` 为独立实现、对 `self.comments`（_CommentView）全量 `c.author` 统计不读 parser 合规标记，与代码事实一致；advance 门槛 validate_fs_advance_round 用 view.authors_in_round 算 missing → FsAckPendingError(missing) 语义描述正确"
+  - "风险段新增「`_view_from_projection`（远程投影）与 `_view_from_fs_topic`（本地路径）两处映射都需携带合规字段，避免本地/远程视图分叉」——比我 911fdb0e 提问更进一步，主动堵住远程路径漏同步的口子，边界完善"
+  - "A1 验收补 advance 侧含该 persona 的断言（advance 报错内联 missing 该 persona + work round_ack_pending 同口径），并明确「review fa3b838b 已修 + 911fdb0e 补 server 同源核证」；测试面补「server advance 门槛在双端过滤下确实拒绝不合规 persona」单测——验收与实现步一一锁定"
+  - "v1/v2 已认可合理点全部保真：A2 字段语义三字段逐项校验、A3 名单外 anomaly、A4 不追溯、A5 文案对齐 M55、A6 可选窄口径、活标本处置、窄提交防并行污染"
+unreasonable_items: []

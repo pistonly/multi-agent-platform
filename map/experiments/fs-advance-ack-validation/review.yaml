@@ -1,0 +1,10 @@
+reasonable_items:
+  - "调研事实准确可核证：parser.py 文档注释「ack 即文件存在」（行 15-18）、participants=declared∪speakers∪creator（99-115 行）、comment immutable 的 FileExistsError（492 行）、missing 计算 `[p for p in participants if p != persona and p not in authors]`（578 行）——与计划引用逐条吻合，背景判断（advance 只看文件物理存在、comment 按 immutable 拒绝）真实成立"
+  - "计划内部自洽（关键核证）：CLI `topic comment` 实际写入的合规 round 文件 frontmatter 含 `author`/`round`/`posted_at`（parser.py:497-502，round=写入轮次、posted_at=UTC isoformat），与 D2 三字段校验完全对齐——合规文件天然满足「author 与文件名 persona 一致 / round 与文件名轮次一致 / posted_at 存在可解析」，A2「严格校验」与 A4「正常 comment 文件回退不误伤」无冲突、posted_at 必填不会误伤合规路径"
+  - "修复落点收窄合理：纯客户端 sdk/python/map_fs/parser.py 解析层、不涉 server 状态机，测试接入 fs_source/parser 测试文件；「只 stage 自身文件、不混提交」已声明防并行脏工作树污染窄提交"
+  - "不追溯边界清晰：fast-gate 存量手写文件保留 + 结题注明，已推进轮次不回溯（A4），避免历史遗留混入本实验验收"
+  - "D3 定位准确不冗余：missing 计算现状已从 participants 名单出发（578 行），D3 的增量价值是「名单外 persona round 文件单独 anomaly 报告」（暴露没登记却在发言 + 防无关文件凑数），而非重复既有名单过滤"
+  - "A5 文案对齐 M55 actionable error 形态（文件名:原因），对 missing/409 输出可 grep 核证；A6 preflight 显式标注可选、评估后裁决、不阻塞主验收——范围收窄克制"
+  - "活标本处置与主题一致：waker-heartbeat / fast-gate 手写旁路文件作为真实案例入背景，触发人群不只 host（participant 也会先写内容再调 CLI）的判断已坐实"
+unreasonable_items:
+  - "「missing 列表」界面归属 + advance 收紧后 work/advance 判据分叉定义缺失：A1 验收写「该 persona 进 missing 列表（带原因）」，未指明指哪一界面——advance 报错内联列表、还是 `map work` 的 round_ack_pending 视图（parser.py:578，host 视角日常用 work 自查）。现状 parser 对 frontmatter 全程宽容（author `or persona`、round `or round_number`、posted_at `or mtime`，278-305 行），`derive_work` 的 round_ack_pending/pending_topic_reply 均基于 raw authors_in_round。若只收紧 advance 路径而不同步/不声明 derive_work 语义，将出现「host 的 `map work` 显示本轮已交齐、advance-round 却报 missing 拒绝」——这正是本实验要消除的判据分叉问题的镜像（把 comment-vs-advance 换成 work-vs-advance），且 participant 侧 work 不再提示疑似未表态者导致其不知补交。请 plan revise：a) 明确 A1 的「missing 列表」指 advance 报错、work 视图或两者；b) 声明快速收紧时是否把「合规后的 effective ack authors」抽成共享计算供 derive_work 与 advance 同源——若不同步，至少在风险/边界补一句「work 视图暂按 raw authors（宽容），推进门禁以 advance 严格判定为准，差异作为已知口径由后续话题承接」，以免 A1 验收措辞无法判定实验是否做了正确的事。"
