@@ -548,3 +548,78 @@ def test_render_validate_error_action_items_open(capsys: pytest.CaptureFixture) 
     out = capsys.readouterr().err
     assert "零尾款" in out
     assert "#2 合并主分支" in out
+
+
+# A7 (50cddb7e): action-item add 对 closed 话题校验——closed=零尾款 invariant
+# 实证场景来自管道审计：4 个 closed 话题曾被成功写入 open 执行项。
+# ---------------------------------------------------------------------------
+
+
+def test_action_item_add_on_closed_topic_rejects(tmp_path: Path, monkeypatch) -> None:
+    """closed 话题拒绝写入 open 执行项，action-items.yaml 不被触碰。"""
+    from typer.testing import CliRunner
+
+    import cli.commands.fs as fs_cli
+    from cli.main import app as cli_app
+
+    write_topic_index(
+        tmp_path,
+        "ai-closed",
+        title="AI Closed",
+        creator="host",
+        status="closed",
+    )
+    monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "topic",
+            "action-item",
+            "add",
+            "--topic",
+            "ai-closed",
+            "--owner",
+            "participant",
+            "--title",
+            "新增执行项",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "已 closed" in result.output
+    assert "closed=零尾款" in result.output
+    assert not (tmp_path / "map" / "topics" / "ai-closed" / "action-items.yaml").exists()
+
+
+def test_action_item_add_on_open_topic_writes(tmp_path: Path, monkeypatch) -> None:
+    """open 话题照常写入（A7 门禁不误伤正常收敛路径）。"""
+    from typer.testing import CliRunner
+
+    import cli.commands.fs as fs_cli
+    from cli.main import app as cli_app
+
+    write_topic_index(tmp_path, "ai-open", title="AI Open", creator="host")
+    monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "topic",
+            "action-item",
+            "add",
+            "--topic",
+            "ai-open",
+            "--owner",
+            "participant",
+            "--title",
+            "新执行项",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    items, err = parse_action_items_file(
+        tmp_path / "map" / "topics" / "ai-open" / "action-items.yaml"
+    )
+    assert err is None
+    assert len(items) == 1
+    assert items[0].status == "open"
+    assert items[0].title == "新执行项"
