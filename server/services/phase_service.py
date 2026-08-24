@@ -30,7 +30,11 @@ from server.services.evidence_service import EVIDENCE_METADATA_KEYS, metadata_ha
 from server.services.log_service import append_log
 from server.services.phase_owner_resolver import owner_for
 from server.services.project_service import get_experiment
-from server.services.review_service import assert_approve_eligibility
+from server.services.review_service import (
+    assert_approve_eligibility,
+    has_review_on_current_plan_version,
+    has_review_on_older_plan_version,
+)
 
 
 def _sync_phase_owner(experiment) -> None:
@@ -339,6 +343,23 @@ def complete_experiment(
         experiment.log_file_path = payload.log_file_path
 
     log_content = payload.content_md or f"See file: {payload.log_file_path}"
+
+    # 实验 bd9b21f6 A5: complete 版本核对红旗（兜底，非阻塞）。当前 plan 版本
+    # 无评审覆盖、但存在更旧版本评审 ⇒ 评审通过后 plan 又改过而未回 review——
+    # 对疑似「架构级修订漏标 breaking」的 last-line 防线。A3 合法非 breaking
+    # 修订同样满足该形态，故红旗只提示核对不挡路（A3 不打断执行流）；评审覆盖
+    # 当前版本（A7 解除链路）则无红旗。
+    if (
+        not has_review_on_current_plan_version(db, experiment)
+        and has_review_on_older_plan_version(db, experiment)
+    ):
+        log_content += (
+            "\n\n## ⚠ breaking 漏标红旗（实验 bd9b21f6 A5 兜底）\n"
+            f"complete 时当前 plan v{experiment.current_plan_version} 无评审覆盖"
+            f"（最后评审见更旧 plan 版本）。若非 breaking 修订可忽略本红旗；"
+            "若实为架构级修订却未标 --breaking-audit，请 reviewer 在 result_review"
+            " 指出——本应回 pending_review 重评后再 complete。"
+        )
 
     is_direct = experiment.mode == ExperimentMode.direct.value
 

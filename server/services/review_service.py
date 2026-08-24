@@ -155,6 +155,26 @@ def has_review_on_older_plan_version(db: Session, experiment) -> bool:
     return (db.scalar(stmt) or 0) > 0
 
 
+def has_review_on_current_plan_version(db: Session, experiment) -> bool:
+    """True when a non-archived review covers the current plan version.
+
+    实验 bd9b21f6 A5: complete 版本核对红旗依赖此判定——``pending_review``
+    解除（A7）或正常 review 相位都会为当前 plan_version 落评审，评审覆盖
+    当前版本 ⇒ breaking 门禁已走完整条重评链路；反之若 plan 改过（存在更旧
+    版本评审）而当前版本无评审覆盖 ⇒ 疑似架构级修订漏标 breaking。
+    """
+    stmt = (
+        select(func.count())
+        .select_from(Review)
+        .where(
+            Review.experiment_id == experiment.id,
+            Review.plan_version == experiment.current_plan_version,
+            Review.archived_at.is_(None),
+        )
+    )
+    return (db.scalar(stmt) or 0) > 0
+
+
 def count_open_status_unreasonable_for_experiment(
     db: Session, experiment_id: uuid.UUID
 ) -> int:
