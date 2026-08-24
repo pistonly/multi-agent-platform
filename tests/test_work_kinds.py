@@ -7,12 +7,11 @@ diff 属 I3）。
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
-from server.services.work_kinds import WORK_ITEM_KINDS, get_kind_spec
+from server.services.work_kinds import WORK_ITEM_KINDS, get_kind_spec, render_kinds_md
 
 WAKE_MD = (
     Path(__file__).resolve().parents[1]
@@ -39,24 +38,29 @@ def test_get_kind_spec_hit_and_miss() -> None:
 
 
 def test_registry_matches_wake_md_dispatch_table() -> None:
-    """registry kind 集合 == wake.md 分发表首列 kind 集合（合并行全提取）。"""
+    """wake.md 标记块内表格 == render_kinds_md() 渲染（A3/D8 整行逐字符 diff）。
+
+    块缺失视为漂移（fail-safe），不允许静默跳过。
+    """
     text = WAKE_MD.read_text(encoding="utf-8")
-    start = text.index("## kind → 清理动作")
-    end = text.index("### FS 话题速查")
-    section = text[start:end]
-
-    table_kinds: set[str] = set()
-    for cell in re.findall(r"^\|([^|]+)\|", section, flags=re.MULTILINE):
-        # 去掉括号内修饰（如 `（FS 话题，reason=`fs_file_missing`）`），
-        # 只留并列 kind 项（`pending_reviews` / `pending_result_reviews` ...）
-        cell_wo_paren = re.sub(r"（[^）]*）|\([^)]*\)", "", cell)
-        table_kinds.update(re.findall(r"`([a-z_]+)`", cell_wo_paren))
-
-    assert table_kinds, "wake.md 分发表解析为空，表结构可能已变"
-    registry_kinds = {spec.kind for spec in WORK_ITEM_KINDS}
-    assert registry_kinds == table_kinds, (
-        f"registry 与 wake.md 表 drift：仅 registry={sorted(registry_kinds - table_kinds)} "
-        f"仅 wake.md={sorted(table_kinds - registry_kinds)}"
+    begin = "<!-- BEGIN:kind-dispatch"
+    end = "<!-- END:kind-dispatch -->"
+    assert begin in text and end in text, (
+        "wake.md 缺 kind-dispatch 生成标记块（被删/被挪即漂移，恢复见 "
+        "map work --kinds --kinds-format md）"
+    )
+    section = text[text.index(begin) : text.index(end) + len(end)]
+    # 标记行之间的块体
+    body_lines = [
+        line
+        for line in section.splitlines()
+        if not line.strip().startswith("<!--")
+    ]
+    rendered_lines = render_kinds_md().splitlines()
+    assert body_lines == rendered_lines, (
+        "registry 渲染与 wake.md 标记块 drift："
+        f"\n仅渲染={sorted(set(rendered_lines) - set(body_lines))}"
+        f"\n仅 wake.md={sorted(set(body_lines) - set(rendered_lines))}"
     )
 
 

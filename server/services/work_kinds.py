@@ -131,3 +131,21 @@ def get_kind_spec(kind: str) -> WorkItemKindSpec | None:
         if spec.kind == kind:
             return spec
     return None
+
+
+def render_kinds_md() -> str:
+    """渲染 wake.md 分发表标记块内容（A3/D8 唯一渲染形态）。
+
+    消费方：CLI ``map work --kinds --kinds-format md`` 输出、tests 对
+    wake.md ``BEGIN/END:kind-dispatch`` 标记块的整行 diff——同一函数保证
+    三处逐字符一致。
+    """
+    lines = [
+        "| kind | 清理动作 | 下一步 Skill | 说明 |",
+        "|------|----------|--------------|------|",
+    ]
+    for spec in WORK_ITEM_KINDS:
+        action = spec.clear_action.replace("|", "\\|")
+        note = spec.note.replace("|", "\\|")
+        lines.append(f"| `{spec.kind}` | {action} | {spec.skill} | {note} |")
+    return "\n".join(lines)

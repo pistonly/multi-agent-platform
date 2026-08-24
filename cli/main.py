@@ -1223,14 +1223,25 @@ def map_todos() -> None:
     _run(lambda c: c.get_todos())
 
 
-def _print_work_kinds(explain: str | None) -> None:
+def _print_work_kinds(explain: str | None, fmt: str = "list") -> None:
     """``map work --kinds`` / ``--explain <kind>``：输出 server 侧 KINDS registry。
 
     实验 d559f431（work-kind-dispatch-single-source）A2 方向 A 过渡：wake.md
     分发表以此输出为静态引用基准，CI 逐行一致校验（A3）消费同一 registry。
+    ``fmt="md"`` 输出 ``render_kinds_md()`` 渲染形态（与 wake.md 标记块
+    逐字符一致的对照基准）。
     """
     # 延迟 import：避免 CLI 启动路径拖入 server 依赖（先例 simple_waker 的 server_config）
-    from server.services.work_kinds import WORK_ITEM_KINDS, get_kind_spec
+    from server.services.work_kinds import (
+        WORK_ITEM_KINDS,
+        get_kind_spec,
+        render_kinds_md,
+    )
+
+    if fmt == "md" and explain is None:
+        typer.echo(render_kinds_md())
+        return
+
 
     if explain is not None:
         spec = get_kind_spec(explain)
@@ -1264,6 +1275,11 @@ def map_work(
         None,
         "--explain",
         help="输出单个 kind 的分发规格（如 --explain mentions；未登记 kind 退出码 2）",
+    ),
+    kinds_format: str = typer.Option(
+        "list",
+        "--kinds-format",
+        help="kinds 输出形态：list（逐条人类可读）或 md（wake.md 标记块对照基准，实验 d559f431 A3）",
     ),
     notification_limit: int = typer.Option(50, "--notification-limit", min=1, max=200),
     notification_category: str = typer.Option(
@@ -1308,7 +1324,7 @@ def map_work(
     visibility.
     """
     if kinds or explain is not None:
-        _print_work_kinds(explain)
+        _print_work_kinds(explain, fmt=kinds_format)
         return
 
     if summary:

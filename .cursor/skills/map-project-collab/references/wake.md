@@ -13,18 +13,27 @@
 
 话题命令统一入口 `map topic`：`--id` 接受 DB uuid、FS uuid5 id 或 slug（uuid → DB 优先、404 后本地反查 FS；slug → FS 优先、未命中查 DB slug；同名冲突时 `--storage fs|db` 显式指定）。无需先判别话题类型。
 
-| kind | 清理动作 | 下一步 Skill |
-|------|----------|--------------|
-| `mentions` | `map mention dismiss --id <uuid>`（mention 功能保留；实验评论仍产生，话题域来源已随 DB 写路径退役枯竭） | 按内容选 |
-| `pending_topic_replies`（FS 话题，reason=`fs_file_missing`） | 写本轮发言文件：`map topic comment --id <slug> --file <md>`（即写 `map/topics/<slug>/round<N>-<persona>.md`，文件存在即消失）；存量 DB 话题只读，需 host 先 `topic migrate` | [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
-| `round_ack`（FS 话题，仅 host） | 参与者交齐文件后 `map topic advance-round --id <slug>`（服务端校验写回 index.md；等价 `fs advance-round --topic <slug>`） | [topic-host](../../topic-host/SKILL.md) |
-| `pending_advance_rounds`（存量 DB 话题） | 读路径保留；推进已退役——请 host `topic migrate --id <uuid>` 迁 FS 后用 `topic advance-round --id <slug>` | [topic-host](../../topic-host/SKILL.md) |
-| `pending_round_acks` | FS 话题=写本轮自己的发言文件（发言文件即表态）；存量 DB 话题=只读（迁移后表态），DB `--ack` 命令已退役 | [topic-participant](../../topic-participant/SKILL.md) / [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
-| `pending_reviews` / `pending_result_reviews` / `pending_replies` | 完成评审 / `accept-result` / `reject-result` / 回复 | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
-| `my_open_experiments` | 实验 phase 推进（`complete` 等） | [experiment-host](../../experiment-host/SKILL.md) |
-| `stale_open_topics` | 复盘推进；**FS 话题**（仅 creator/host 可见）久未推进→ `map topic close --id <slug> --note` 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 `map topic dismiss --id <uuid>` | [topic-host](../../topic-host/SKILL.md) |
-| `my_open_topics`（且无动作） | 推进话题或 `map topic dismiss --id <uuid>`（与 UI ✕ 相同） | [topic-host](../../topic-host/SKILL.md) |
-| `action_items`（FS 话题，kind 同构于 stale nudge，来源 `action-items.yaml`） | 完成: `map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"`；放弃: `map topic action-item cancel --topic <slug> --id <n> --reason "..."`。清零后话题才可 close（closed = 零尾款） | [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
+<!-- BEGIN:kind-dispatch (generated: map work --kinds --kinds-format md) -->
+| kind | 清理动作 | 下一步 Skill | 说明 |
+|------|----------|--------------|------|
+| `mentions` | map mention dismiss --id <uuid> | map-project-collab | mention 功能保留；实验评论仍产生，话题域来源已随 DB 写路径退役枯竭 |
+| `pending_topic_replies` | 写本轮发言文件：map topic comment --id <slug> --file <md>（即写 map/topics/<slug>/round<N>-<persona>.md，文件存在即消失）；存量 DB 话题只读，需 host 先 topic migrate | topic-host | FS 话题 reason=fs_file_missing；participant 视角见 topic-participant |
+| `round_ack` | 参与者交齐文件后 map topic advance-round --id <slug>（服务端校验写回 index.md；等价 fs advance-round --topic <slug>） | topic-host | 仅 host；FS 话题 |
+| `pending_advance_rounds` | 读路径保留；推进已退役——host 先 topic migrate --id <uuid>迁 FS 后用 topic advance-round --id <slug> | topic-host | 存量 DB 话题 |
+| `pending_round_acks` | FS 话题=写本轮自己的发言文件（发言文件即表态）；存量 DB 话题=只读（迁移后表态），DB --ack 命令已退役 | topic-participant | reviewer 视角见 experiment-reviewer |
+| `pending_reviews` | 完成评审（experiment review add） | experiment-reviewer |  |
+| `pending_result_reviews` | accept-result / reject-result | experiment-reviewer |  |
+| `pending_replies` | 回复 | experiment-reviewer |  |
+| `my_open_experiments` | 实验 phase 推进（complete 等） | experiment-host |  |
+| `stale_open_topics` | 复盘推进；FS 话题（仅 creator/host 可见）久未推进→ map topic close --id <slug> --note 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 map topic dismiss --id <uuid> | topic-host |  |
+| `my_open_topics` | 推进话题或 map topic dismiss --id <uuid>（与 UI ✕ 相同） | topic-host | 且无动作时 |
+| `action_items` | 完成: map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"；放弃: map topic action-item cancel --topic <slug> --id <n> --reason "..."。清零后话题才可 close（closed = 零尾款） | topic-host | FS 话题，kind 同构于 stale nudge，来源 action-items.yaml；participant 亦可为 owner |
+<!-- END:kind-dispatch -->
+
+> **新增 kind 落地 checklist（强制，实验 d559f431 A5）**：新增 kind 必须同时改
+> ① `server/services/work_kinds.py` registry ② wake.md 标记块（用
+> `map work --kinds --kinds-format md` 重新生成）③ `tests/test_work_kinds.py`
+> 的一致性用例自然覆盖——漏改任一处，CI（pytest 整行 diff）即红。 [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
 | 未读通知 | `map notification read --id <uuid>` | 按通知类型 |
 
 ### FS 话题速查（map/ 文件夹事实源）
