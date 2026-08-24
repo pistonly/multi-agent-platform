@@ -215,7 +215,10 @@ def _did_you_mean_hint(
     if match:
         target = "--id" if "--id" in known_opts else "--topic"
         return f"你是不是想用 {target} {match.group(1)}"
-    match = re.search(r"no such option:\s*(\S+)", message, re.IGNORECASE)
+    # click >=8.0 原生 no-such-option 消息带引号无冒号
+    # (``No such option '--sumary'. Did you mean '--summary'?``)，旧形态
+    # ``No such option: --sumary`` 亦需兼容——两种都归一到 token 提取。
+    match = re.search(r"no such option\s*[:']?\s*'?(\S+)", message, re.IGNORECASE)
     if match:
         bad = match.group(1)
         close = get_close_matches(bad, known_opts, n=1, cutoff=0.5)

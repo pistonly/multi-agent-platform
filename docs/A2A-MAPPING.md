@@ -45,7 +45,7 @@
 | MAP 对象 | A2A Task 概念 | 映射规则 |
 |----------|---------------|----------|
 | topic round | Task | 话题 `open` = `working`；`closed` = `completed`；每轮产物文件（`round<N>-<persona>.md`）= artifact |
-| experiment lifecycle | Task state | `draft` = `submitted`；`review` / `approved` / `running` / `result_review` = `working`；`done` = `completed`；`cancelled` = `failed` |
+| experiment lifecycle | Task state | `draft` = `submitted`；`review` / `approved` / `running` / `pending_review` / `result_review` = `working`；`done` = `completed`；`cancelled` = `failed` |
 | `map work` | Task 查询 | `GET /api/v1/agents/{id}/tasks` 投影为只读 Task 列表（每 persona 视角） |
 
 ### Task 投影 JSON 示例

@@ -62,6 +62,7 @@ EXPERIMENT_TASK_STATE: dict[ExperimentPhase, str] = {
     ExperimentPhase.review: "working",
     ExperimentPhase.approved: "working",
     ExperimentPhase.running: "working",
+    ExperimentPhase.pending_review: "working",
     ExperimentPhase.result_review: "working",
     ExperimentPhase.done: "completed",
     ExperimentPhase.cancelled: "failed",
