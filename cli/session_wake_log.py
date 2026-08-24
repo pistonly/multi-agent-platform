@@ -101,7 +101,7 @@ def tool_use_summary(
             if tool_input.get(key) is not None:
                 return f"{name}: {_scalar_preview(tool_input[key], max_chars=max_chars)}"
         for value in tool_input.values():
-            if isinstance(value, (str, int, float, bool)):
+            if isinstance(value, str | int | float | bool):
                 return f"{name}: {_scalar_preview(value, max_chars=max_chars)}"
         return str(name)
     return f"{name}: {_scalar_preview(tool_input, max_chars=max_chars)}"

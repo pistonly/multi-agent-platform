@@ -25,7 +25,6 @@ from __future__ import annotations
 import os
 import uuid
 
-from alembic.config import Config as AlembicConfig
 from map_types import ReviewArchivedReason
 from map_types.enums import ReviewSubstituteKind
 from map_types.schemas import ReviewRead
@@ -33,6 +32,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from alembic import command
+from alembic.config import Config as AlembicConfig
 from server.domain.models import Review
 
 
