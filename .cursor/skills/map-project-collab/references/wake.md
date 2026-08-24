@@ -22,7 +22,7 @@
 | `pending_round_acks` | FS 话题=写本轮自己的发言文件（发言文件即表态）；存量 DB 话题=只读（迁移后表态），DB `--ack` 命令已退役 | [topic-participant](../../topic-participant/SKILL.md) / [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
 | `pending_reviews` / `pending_result_reviews` / `pending_replies` | 完成评审 / `accept-result` / `reject-result` / 回复 | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
 | `my_open_experiments` | 实验 phase 推进（`complete` 等） | [experiment-host](../../experiment-host/SKILL.md) |
-| `stale_open_topics` | 复盘推进；纯等待他人则 `map topic dismiss --id <uuid>` | [topic-host](../../topic-host/SKILL.md) |
+| `stale_open_topics` | 复盘推进；**FS 话题**（仅 creator/host 可见）久未推进→ `map topic close --id <slug> --note` 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 `map topic dismiss --id <uuid>` | [topic-host](../../topic-host/SKILL.md) |
 | `my_open_topics`（且无动作） | 推进话题或 `map topic dismiss --id <uuid>`（与 UI ✕ 相同） | [topic-host](../../topic-host/SKILL.md) |
 | `action_items` | 完成工作后在来源话题写发言 / 请 host 在话题结论中更新（`topic close --note`） | [topic-host](../../topic-host/SKILL.md) |
 | 未读通知 | `map notification read --id <uuid>` | 按通知类型 |
