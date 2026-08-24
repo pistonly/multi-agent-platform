@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import uuid
@@ -18,13 +19,17 @@ from map_client.project_config import find_map_dir, load_project_map_config, res
 # arch experiment (0519e2a3) PR1: shared SDK umbrella. Later PRs move
 # shared helpers here (see plan). The CLI must stay importable even
 # when ``map_sdk`` is unavailable, so we don't gate startup on it.
-from map_sdk.evidence import (
-    EVIDENCE_METADATA_KEYS,
-    metadata_has_completion_evidence,
-)
 from map_types.enums import AgentRole
 from map_types.schemas import TopicResolve
 from pydantic import BaseModel, ConfigDict
+
+# re-export(测试/历史引用走 cli.main 路径;实现已随 file/metadata helpers
+# 搬至 cli.commands.experiment)
+with contextlib.suppress(ImportError):  # map_sdk 可选,不阻塞 CLI 启动
+    from map_sdk.evidence import (  # noqa: F401
+        EVIDENCE_METADATA_KEYS,
+        metadata_has_completion_evidence,
+    )
 
 # arch experiment (0519e2a3) PR3/PR5: agent / notification /
 # inbound-event / audit sub-app splits. Each module only exports the
@@ -37,7 +42,15 @@ from cli.commands.agent import agent_app
 from cli.commands.audit import audit_app
 from cli.commands.auth import auth_app
 from cli.commands.docs import docs_app
-from cli.commands.experiment import experiment_app
+from cli.commands.experiment import (  # noqa: F401 — re-export 保持 cli.main._* 兼容引用
+    _load_complete_metadata,
+    _load_review_verdict_file,
+    _print_complete_metadata_schema_and_exit,
+    _print_review_verdict_schema_and_exit,
+    _read_text_file,
+    _read_yaml_file,
+    experiment_app,
+)
 from cli.commands.feedback import feedback_app
 from cli.commands.fs import fs_app
 from cli.commands.host import host_app
@@ -1275,142 +1288,6 @@ def map_work(
         )
 
     _run(action, detect_deprecated=True)
-
-
-def _read_text_file(path: Path, *, kind: str) -> str:
-    """Read a required ``--file``/``--metadata`` argument.
-
-    Converts missing-file and not-a-file OS errors into a clean CLI error
-    (exit code 2) instead of letting Python emit a raw traceback, so that
-    user-facing mistakes like ``--metadata ./missing.yaml`` stay legible.
-    """
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        typer.echo(f"Error: {kind} file not found: {path}", err=True)
-        raise typer.Exit(2) from None
-    except IsADirectoryError:
-        typer.echo(f"Error: {kind} path is a directory, not a file: {path}", err=True)
-        raise typer.Exit(2) from None
-
-
-def _read_yaml_file(path: Path | None, *, kind: str = "metadata") -> Any:
-    if path is None:
-        return None
-    return yaml.safe_load(_read_text_file(path, kind=kind))
-
-
-def _load_complete_metadata(path: Path | None, *, allow_missing_evidence: bool) -> dict | None:
-    metadata = _read_yaml_file(path)
-    if allow_missing_evidence:
-        if not isinstance(metadata, dict):
-            metadata = {}
-        metadata["allow_missing_evidence"] = True
-        return metadata
-    if not metadata_has_completion_evidence(metadata):
-        keys = ", ".join(sorted(EVIDENCE_METADATA_KEYS))
-        # T3-S1 (cli-hygiene-batch / A6): 错误前置给出 accepted keys + 示例
-        # JSON 片段——避免「complete 还要再传一遍 metadata」的要求只有在
-        # 失败后才知道,试探式重试。完整模板见 `--schema`。
-        typer.echo(
-            "Error: experiment complete now requires --metadata with deployment/test evidence "
-            f"(accepted keys include: {keys}). Use --allow-missing-evidence only for explicit exceptions.\n"
-            "  example: {\n"
-            '    "api_health": "ok",\n'
-            '    "pytest_summary": {"total": 35, "passed": 35, "failed": 0}\n'
-            "  }\n"
-            "  schema: docs/cli-schemas.md#experiment-complete-metadata\n"
-            "  full template: `map experiment complete --schema`",
-            err=True,
-        )
-        raise typer.Exit(2)
-    return metadata
-
-
-def _load_review_verdict_file(path: Path | None):
-    """Load and validate a --review-verdict-file YAML against ReviewVerdictFile.
-
-    Returns ``None`` when path is omitted (legacy free-text path). Surface a
-    clean CLI error (exit 2) on malformed YAML or schema validation failure —
-    never let raw Pydantic tracebacks leak to the reviewer.
-    """
-    if path is None:
-        return None
-    from map_types.schemas import ReviewVerdictFile
-
-    raw = _read_yaml_file(path, kind="review-verdict")
-    try:
-        return ReviewVerdictFile.model_validate(raw)
-    except Exception as exc:
-        typer.echo(
-            f"Error: invalid --review-verdict-file {path}: {exc}\n"
-            "  schema: sdk/python/map_types/schemas.py:ReviewVerdictFile "
-            "(also see docs/cli-schemas.md#review-verdict-file)",
-            err=True,
-        )
-        raise typer.Exit(2) from None
-
-
-# --- schema discovery (cli-ux PR1) ------------------------------------------
-# `map experiment accept-result --schema` / `map experiment complete --schema`
-# print a copy-paste-ready YAML template with field-level hints. This is the
-# cheapest fix for "I don't know what fields the SDK wants" — the same
-# information as grepping the SDK, but in 200ms via the CLI.
-_REVIEW_VERDICT_SCHEMA_YAML = """\
-# Review verdict file — schema: sdk/python/map_types/schemas/experiment.py:ReviewVerdictFile
-# (also docs/cli-schemas.md#review-verdict-file)
-#
-# review_id: REQUIRED — UUID from `map experiment review list --id <exp-id>`
-# verdicts:  list of per-item verdicts; one verdict per review item
-# invariants: optional list of verification checks (item_id, verified, note)
-review_id: 00000000-0000-0000-0000-000000000000  # <-- replace
-verdicts:
-  - item_id: 00000000-0000-0000-0000-000000000000  # <-- replace with review item UUID
-    verdict: passed  # accepted values: passed | failed | waived
-    # CLI also accepts aliases: accept|reject|dismiss (mapped to canonical values)
-    # reason: REQUIRED only when verdict == waived (50-1000 chars)
-invariants:
-  - item_id: 00000000-0000-0000-0000-000000000000  # <-- replace
-    verified: true
-    # note: optional, max 1000 chars
-"""
-
-_COMPLETE_METADATA_SCHEMA_YAML = """\
-# Experiment complete --metadata file —
-#   schema: docs/cli-schemas.md#experiment-complete-metadata
-#   helper: `map experiment complete --schema` reprints this template
-#
-# At least ONE of the following keys MUST be present (else --allow-missing-evidence).
-# Accepted keys: api_health | alembic_current | pytest_summary | test_summary |
-#                smoke | smoke_result | image_digest | health | acceptance
-api_health: ok
-alembic_current:
-  head: "<revision>"  # alembic current revision id
-  upgrade_clean: true
-pytest_summary:
-  total: 0
-  passed: 0
-  failed: 0
-  skipped: 0
-smoke:
-  api_health: ok
-  notes: "..."
-"""
-
-
-def _print_review_verdict_schema_and_exit() -> None:
-    """cli-ux PR1: print the review verdict file template + exit 0.
-
-    Lets a reviewer / host learn the schema without grepping the SDK.
-    """
-    typer.echo(_REVIEW_VERDICT_SCHEMA_YAML.rstrip())
-    raise typer.Exit(0)
-
-
-def _print_complete_metadata_schema_and_exit() -> None:
-    """cli-ux PR1: print the experiment-complete metadata template + exit 0."""
-    typer.echo(_COMPLETE_METADATA_SCHEMA_YAML.rstrip())
-    raise typer.Exit(0)
 
 
 @app.command("status")
