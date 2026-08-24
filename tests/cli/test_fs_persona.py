@@ -99,7 +99,7 @@ def test_render_ack_error_lists_missing_with_reasons(capsys: pytest.CaptureFixtu
             },
         },
     )
-    fs_cli._render_ack_error(exc)  # type: ignore[arg-type]
+    fs_cli._render_validate_error(exc)  # type: ignore[arg-type]
     out = capsys.readouterr().err
     assert "round ack pending" in out
     assert "- participant: round1-participant.md: frontmatter author missing" in out
@@ -112,5 +112,5 @@ def test_render_ack_error_ignores_non_ack(capsys: pytest.CaptureFixture) -> None
     import cli.commands.fs as fs_cli
 
     exc = SimpleNamespace(status_code=404, detail="fs topic not found")
-    fs_cli._render_ack_error(exc)  # type: ignore[arg-type]
+    fs_cli._render_validate_error(exc)  # type: ignore[arg-type]
     assert capsys.readouterr().err == ""

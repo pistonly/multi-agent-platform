@@ -122,20 +122,23 @@ map --persona host topic advance-round --id <slug> \
 
 ## 话题结论承载（topic close --note）
 
-DB 时代的 `topic resolve` payload 由 `topic close --note` 的 note 字段承载（YAML/结构化文本均可）：
+DB 时代的 `topic resolve` payload 由 `topic close --note` 的 note 字段承载（YAML/结构化文本均可）。
+
+> **v3 变更（A6）**：`action_items` 不再放 close_note——轻量执行项收敛时
+> 结构化落 `map/topics/<slug>/action-items.yaml`（见 host-checklist §3b），
+> close 门禁校验清零（closed = 零尾款）。下面模板的 `action_items:`
+> 段已废弃，仅作历史参照；note 只保留 decision / rationale / rejected_options。
 
 ```yaml
 decision: "采用方案 A：Skill 驱动 + simple-waker 唤醒"
 rationale: "讨论已收敛（默认两轮）；bridge 路径已停用"
 rejected_options: "继续依赖 host bridge 自动编排"
-open_questions: "action_items 是否需要独立 wake event"
-action_items:
-  - title: "补 waker 对 action_items 的 wake"
-    description: "assignee 在 todos 中非空时应被唤醒"
-    owner: "<agent_name 全名>"        # map persona list 中的 agent_name
-  - title: "同步 .codex/.claude skills"
-    owner: "<another-agent-name>"
-    linked_experiment: null             # 可选：关联已有实验
+# （废弃，仅历史参照）action_items:
+#   - title: "补 waker 对 action_items 的 wake"
+#     owner: "<agent_name 全名>"
+#   - title: "同步 .codex/.claude skills"
+#     owner: "<another-agent-name>"
+#     linked_experiment: null
 ```
 
 无明确决策时可用 `no_decision_reason` 代替 `decision`（例如关话题而不开实验）。`topic close` 的 `--reason` 是简短关闭理由（列表/通知用），`--note` 是完整结论。

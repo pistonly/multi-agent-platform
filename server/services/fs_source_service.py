@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from map_fs import (
+    FsActionItem,
     FsComment,
     FsPlane,
     FsTopic,
@@ -38,6 +39,7 @@ from map_fs import (
 from map_types.enums import ExperimentPhase, TopicCommentKind, TopicStatus
 from map_types.schemas.content_source import ContentSourceMeta
 from map_types.schemas.fs import (
+    FsActionItemRead,
     FsCommentRead,
     FsExperimentRead,
     FsPlaneStatusRead,
@@ -96,6 +98,25 @@ class FsAckPendingError(Exception):
         super().__init__(f"round ack pending: {', '.join(missing)}")
         self.missing = missing
         self.missing_reasons = missing_reasons or {}
+
+
+class FsOpenActionItemsError(Exception):
+    """action-items.yaml 存在 open 项或格式错漏，close 被拦（D2 唯一防线）。
+
+    ``items`` 携带未清零条目（id/title/owner）供 409 逐条展示；格式错漏
+    场景 items 为空、``detail`` 携解析错误文案（A1 不静默）。
+    """
+
+    def __init__(
+        self, items: list[FsActionItem] | None = None, *, detail: str = ""
+    ) -> None:
+        self.items = items or []
+        self.detail = detail
+        if self.items:
+            joined = ", ".join(f"#{i.id} {i.title}" for i in self.items)
+            super().__init__(f"action items open: {joined}")
+        else:
+            super().__init__(f"action items unparseable: {detail}")
 
 
 class FsStateError(Exception):
@@ -283,6 +304,8 @@ class _TopicView:
     participants: list[str] = field(default_factory=list)
     ack_participants: list[str] = field(default_factory=list)
     comments: list[_CommentView] = field(default_factory=list)
+    action_items: list[FsActionItem] = field(default_factory=list)
+    action_items_error: str | None = None
 
     def authors_in_round(self, round_number: int) -> set[str]:
         """effective ack authors：与 parser ``FsTopic.authors_in_round`` 同源，
@@ -333,6 +356,8 @@ def _view_from_fs_topic(topic: FsTopic) -> _TopicView:
             )
             for c in topic.comments
         ],
+        action_items=list(topic.action_items),
+        action_items_error=topic.action_items_error,
     )
 
 
@@ -375,6 +400,19 @@ def _view_from_projection(detail: FsTopicDetailRead) -> _TopicView:
         participants=list(detail.participants),
         ack_participants=[detail.creator] + [p for p in declared if p != detail.creator],
         comments=comments,
+        action_items=[
+            FsActionItem(
+                id=a.id,
+                title=a.title,
+                owner=a.owner,
+                status=a.status,
+                evidence=a.evidence,
+                reason=a.reason,
+                created_at=a.created_at,
+            )
+            for a in detail.action_items
+        ],
+        action_items_error=detail.action_items_error,
     )
 
 
@@ -417,6 +455,8 @@ def _view_as_fs_topic(view: _TopicView) -> FsTopic:
         ],
         declared_participants=_declared_of(view.creator, list(view.ack_participants))
         or _declared_of(view.creator, list(view.participants)),
+        action_items=list(view.action_items),
+        action_items_error=view.action_items_error,
     )
 
 
@@ -477,6 +517,19 @@ def fs_topic_detail(view: _TopicView) -> FsTopicDetailRead:
             )
             for c in view.comments
         ],
+        action_items=[
+            FsActionItemRead(
+                id=a.id,
+                title=a.title,
+                owner=a.owner,
+                status=a.status,
+                evidence=a.evidence,
+                reason=a.reason,
+                created_at=a.created_at,
+            )
+            for a in view.action_items
+        ],
+        action_items_error=view.action_items_error,
     )
 
 
@@ -1147,34 +1200,64 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
         mine = [c for c in view.comments if c.author == persona]
         my_last = mine[-1] if mine else None
         derived = derive_work(_view_as_fs_topic(view), persona)
-        if derived:
-            work_items = [
+        derived_items = [
+            TopicWorkItemRead(
+                kind=_FS_KIND_MAP[d.kind][0],
+                priority="obligation",
+                topic_id=view.id,
+                topic_title=view.title,
+                source_comment_id=None,
+                thread_root_id=None,
+                required_agent_id=agent.id,
+                reason="fs_file_missing",
+                idempotency_key=f"fs:{_FS_KIND_MAP[d.kind][0]}:{view.slug}:round{d.round}",
+                clear_action=_FS_KIND_MAP[d.kind][1],
+                excerpt=d.detail,
+                created_at=view.updated_at or now,
+                discussion_round=view.round,
+            )
+            for d in derived
+        ]
+        # 收敛即入义务（A2）:open action_items → kind=action_items obligation，
+        # owner persona 精确路由（他人不可见），与 stale nudge 同处 work_items
+        # 通道、waker 零新逻辑。yaml 格式错漏时不投影（close 门禁会 409 兜底）。
+        action_items_out: list[TopicWorkItemRead] = []
+        if view.action_items_error is None:
+            action_items_out = [
                 TopicWorkItemRead(
-                    kind=_FS_KIND_MAP[d.kind][0],
+                    kind="action_items",
                     priority="obligation",
                     topic_id=view.id,
                     topic_title=view.title,
                     source_comment_id=None,
                     thread_root_id=None,
                     required_agent_id=agent.id,
-                    reason="fs_file_missing",
-                    idempotency_key=f"fs:{_FS_KIND_MAP[d.kind][0]}:{view.slug}:round{d.round}",
-                    clear_action=_FS_KIND_MAP[d.kind][1],
-                    excerpt=d.detail,
+                    reason="fs_action_item_open",
+                    idempotency_key=f"fs:action_item:{view.slug}:{item.id}",
+                    clear_action="complete_or_cancel_action_item",
+                    excerpt=f"行动项 #{item.id}: {item.title}",
                     created_at=view.updated_at or now,
                     discussion_round=view.round,
                 )
-                for d in derived
+                for item in view.action_items
+                if item.status == "open" and item.owner == persona
             ]
-        elif (
-            persona == view.creator
+        # 久未推进的开放话题 → 对齐 DB todo 桶 stale_open_topics 语义
+        # （waker 对该 kind 有关注 & wake.md 有路由）。清理 = close 落结论
+        # （done-experiment 话题应 close）或推动轮次；FS 话题 dismiss 是 no-op。
+        # 只在**无其他义务源**时发 stale:尚有 open action_items（或 yaml 损坏）
+        # 时 close 会被门禁 409 拦截，催 close 会变无法清理的死义务——执行项
+        # 清零后 stale 自然接管。
+        stale_items: list[TopicWorkItemRead] = []
+        if (
+            not derived_items
+            and not action_items_out
+            and view.action_items_error is None
+            and persona == view.creator
             and view.id not in active_exp_topic_ids
             and (view.updated_at is None or view.updated_at <= stale_cutoff)
         ):
-            # 久未推进的开放话题 → 对齐 DB todo 桶 stale_open_topics 语义
-            # （waker 对该 kind 有关注 & wake.md 有路由）。清理 = close 落结论
-            # （done-experiment 话题应 close）或推动轮次；FS 话题 dismiss 是 no-op。
-            work_items = [
+            stale_items = [
                 TopicWorkItemRead(
                     kind="stale_open_topics",
                     priority="obligation",
@@ -1192,8 +1275,7 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
                     stale_since=view.updated_at or now,
                 )
             ]
-        else:
-            work_items = []
+        work_items = [*derived_items, *action_items_out, *stale_items]
         if not work_items:
             continue
         results.append(
@@ -1514,6 +1596,14 @@ def validate_fs_close(
     if view.status == "closed":
         raise FsStateError(f"fs topic '{slug}' is already closed")
 
+    # D2 唯一防线（plan v3）:closed = 零尾款。action-items.yaml 存在 open 项
+    # （或格式错漏无法判定）→ 拦 close;全 done/cancelled 或无 yaml 话题放行。
+    if view.action_items_error is not None:
+        raise FsOpenActionItemsError(detail=view.action_items_error)
+    open_items = [item for item in view.action_items if item.status == "open"]
+    if open_items:
+        raise FsOpenActionItemsError(open_items)
+
     fields: dict[str, str] = {"status": "closed"}
     if close_reason:
         fields["close_reason"] = close_reason
@@ -1601,6 +1691,7 @@ _NO_DB: Session = _NullSession()  # type: ignore[assignment]
 
 __all__ = [
     "FsAckPendingError",
+    "FsOpenActionItemsError",
     "FsPlaneUnavailableError",
     "FsProjectionTooLargeError",
     "FsStateError",

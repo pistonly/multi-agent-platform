@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import ast
+import json
 import re
 import uuid
 from pathlib import Path
@@ -306,7 +308,7 @@ def fs_work(persona: str | None = typer.Option(None, "--persona")) -> None:
 
 def fs_topic_to_detail_read(topic: Any) -> Any:
     """parser FsTopic → FsTopicDetailRead（evidence / push 投影共用）。"""
-    from map_types.schemas.fs import FsCommentRead, FsTopicDetailRead
+    from map_types.schemas.fs import FsActionItemRead, FsCommentRead, FsTopicDetailRead
 
     return FsTopicDetailRead(
         id=topic.id,
@@ -341,6 +343,19 @@ def fs_topic_to_detail_read(topic: Any) -> Any:
             )
             for c in topic.comments
         ],
+        action_items=[
+            FsActionItemRead(
+                id=a.id,
+                title=a.title,
+                owner=a.owner,
+                status=a.status,
+                evidence=a.evidence,
+                reason=a.reason,
+                created_at=a.created_at,
+            )
+            for a in topic.action_items
+        ],
+        action_items_error=topic.action_items_error,
     )
 
 
@@ -479,7 +494,7 @@ def validated_write_flow(
     try:
         verdict = validate_call(c, pid, evidence, base_revision)
     except MAPHTTPError as exc:
-        _render_ack_error(exc)
+        _render_validate_error(exc)
         raise
     update_topic_index(
         workspace, topic, content_root=_content_root_name(workspace), **verdict.fields
@@ -562,15 +577,47 @@ def fs_advance_round(
     )
 
 
-def _render_ack_error(exc: MAPHTTPError) -> None:
-    """advance-round 409 round_ack_pending → 逐行列出 missing 且带文件名+原因（A5）。"""
+def _render_validate_error(exc: MAPHTTPError) -> None:
+    """验证型写 409 → 逐行列出可操作依据（ack pending / 执行项未清零）。"""
     detail = getattr(exc, "detail", None)
-    if not isinstance(detail, dict) or detail.get("error") != "round_ack_pending":
-        return  # 非 ack 错误交由上层统一渲染
-    typer.echo("Error 409: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
-    for persona in detail.get("missing", []):
-        reason = detail.get("missing_reasons", {}).get(persona) or "缺文件（未发言）"
-        typer.echo(f"  - {persona}: {reason}", err=True)
+    if isinstance(detail, str) and detail.strip().startswith("{"):
+        # map_client 把 error body 的 detail 统一 str()（client.py:183），
+        # 结构化 409 的 dict 因此以 Python/repr 字符串形态到达；还原后再分支。
+        try:
+            parsed = json.loads(detail.strip())
+        except ValueError:
+            try:
+                parsed = ast.literal_eval(detail.strip())
+            except (ValueError, SyntaxError):
+                parsed = None
+        if isinstance(parsed, dict):
+            detail = parsed
+    if not isinstance(detail, dict):
+        return  # 非结构化错误交由上层统一渲染
+    if detail.get("error") == "round_ack_pending":
+        # advance-round 409 → 缺/无效表态，带文件名+原因（A5）
+        typer.echo("Error 409: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
+        for persona in detail.get("missing", []):
+            reason = detail.get("missing_reasons", {}).get(persona) or "缺文件（未发言）"
+            typer.echo(f"  - {persona}: {reason}", err=True)
+        return
+    if detail.get("error") == "action_items_open":
+        # close 409 → 执行项未清零 / yaml 损坏（D2 唯一防线，A3）
+        items = detail.get("items") or []
+        if items:
+            typer.echo("Error 409: action items 未清零 — 无法关闭（closed = 零尾款）", err=True)
+            for item in items:
+                typer.echo(
+                    f"  - #{item['id']} {item['title']} (owner: {item['owner']}) — "
+                    "用 `map topic action-item complete/cancel` 清零后再 close",
+                    err=True,
+                )
+        else:
+            typer.echo(f"Error 409: action-items.yaml 无法解析 — {detail.get('detail') or '未知原因'}", err=True)
+            typer.echo(
+                "  修复 action-items.yaml 后再 close（命令见 `map topic action-item --help`）",
+                err=True,
+            )
 
 
 @fs_app.command("close")

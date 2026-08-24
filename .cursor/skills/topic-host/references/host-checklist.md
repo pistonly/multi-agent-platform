@@ -70,13 +70,43 @@ map --persona host experiment create \
   --plan-file-path map/experiments/<slug>/plan.md \
   --topic-id <topic-ref>
 
-# 后关话题：close_note 承载 decision / rationale / action_items 与实验 id
+# 后关话题：close_note 只承载 decision / rationale 与实验 id
+# （执行项 NOT 写进 close_note —— 它们在收敛时就落进 action-items.yaml，见 §3b）
 # payload 结构见 experiment-gate-rubric.md
+#
+#   没有挂实验的轻量执行项：
+map --persona host topic action-item add --topic <slug> --owner <persona> --title "..."
+#   owner 完成后带证据关单 / 显式放弃：
+map --persona host topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"
+map --persona host topic action-item cancel --topic <slug> --id <n> --reason "..."
+#
+#   挂实验的项走实验（my_open_experiments/pending_reviews 义务已覆盖，防双催，D7）
 map --persona host topic close --id <slug> \
-  --reason experiment_ready --note "decision: ...; rationale: ...; action_items: [{item, owner}]; 实验 <exp-id>"
+  --reason experiment_ready --note "decision: ...; rationale: ...; 实验 <exp-id>"
+#   close 门禁（D2）:action-items.yaml 仍有 status: open 项 → 409 拦下
+#   （closed = 零尾款）；全 done/cancelled 或无执行项即放行。
 
 # 实验生命周期移交给 experiment-host Skill
 ```
+
+## 3b. 执行项(轻量)落 action-items.yaml，不塞 close_note（plan v3 D1）
+
+**结构化时点 = 话题收敛时（Round Summary / ready），不是 close 时。**
+
+- 载体：`map/topics/<slug>/action-items.yaml`（列表文档，无 front-matter 围栏）。
+- 每项字段：`id`（可省，手写按顺序 1-based 兜底）、`title`、`owner`
+  （persona 短名 host/participant/reviewer）、`status`（open|done|cancelled）、
+  `evidence`（done 必填：commit hash / pytest 摘要 / 文件路径）、
+  `reason`（cancelled 必填）、`created_at`。
+- 收敛时 host 落盘 open 项（`map topic action-item add`），owner 在
+  `map work` 义务（kind=action_items）督促下执行，完成后
+  `map topic action-item complete --evidence ...` 关单；
+  明确不做则 `cancel --reason ...`。
+- **close 门禁**：`map topic close` 时 server 校验 action-items.yaml 无
+  `status: open` 项才放行；有则 409 并列出各项 title/owner 引导清零。
+  closed = 零尾款是平台 invariant，**先清零再 close**。
+- 旧 close_note 里写 action_items 文本的约定**已废弃**（A6）——存量已 close
+  话题不回填不重解析，改了文档即拦截新写法。
 
 关闭并开实验后动作参见 [experiment-host](../../experiment-host/SKILL.md)。
 

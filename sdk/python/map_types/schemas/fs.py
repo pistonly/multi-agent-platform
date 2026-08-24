@@ -57,8 +57,22 @@ class FsTopicSummaryRead(BaseModel):
     dir_path: str
 
 
+class FsActionItemRead(BaseModel):
+    """一条执行项 = action-items.yaml 中的一项（收敛时落盘，close 门禁清零）。"""
+
+    id: int
+    title: str
+    owner: str  # persona 短名（host/participant），投影义务精确路由到人
+    status: str = "open"  # open | done | cancelled
+    evidence: str = ""  # done 必填（commit/pytest/文件路径）
+    reason: str = ""  # cancelled 必填（显式放弃理由）
+    created_at: datetime | None = None
+
+
 class FsTopicDetailRead(FsTopicSummaryRead):
     comments: list[FsCommentRead] = Field(default_factory=list)
+    action_items: list[FsActionItemRead] = Field(default_factory=list)
+    action_items_error: str | None = None  # yaml 存在但格式错漏（A1，不静默）
 
 
 class FsExperimentRead(BaseModel):
@@ -301,7 +315,14 @@ class FsProjectionDeltaResult(FsProjectionMetaRead):
 def _canonical_topic_dict(topic: FsTopicDetailRead) -> dict[str, Any]:
     data = topic.model_dump(
         mode="json",
-        exclude={"created_at", "updated_at", "dir_path", "comments"},
+        exclude={
+            "created_at",
+            "updated_at",
+            "dir_path",
+            "comments",
+            "action_items",
+            "action_items_error",
+        },
     )
     data["comments"] = [
         comment.model_dump(mode="json", exclude={"posted_at", "file_path"})
@@ -309,6 +330,11 @@ def _canonical_topic_dict(topic: FsTopicDetailRead) -> dict[str, Any]:
             topic.comments, key=lambda item: (item.round, item.author, item.comment_seq)
         )
     ]
+    data["action_items"] = [
+        item.model_dump(mode="json", exclude={"created_at"})
+        for item in sorted(topic.action_items, key=lambda item: item.id)
+    ]
+    data["action_items_error"] = topic.action_items_error
     return data
 
 

@@ -1,0 +1,14 @@
+# plan v3 验收证据（A1-A7）
+pytest_summary:
+  total: 150
+  passed: 150
+  failed: 0
+  # 新增 tests/test_fs_action_items.py 20 用例（A1-A7）+ 11 文件合并回归
+  # （fs_source / remote / routing / projection / archive / todos /
+  #   simple_waker / topic_work_items / persona）0 回归；ruff all-checks
+smoke_result: |-
+  live mini fixture 全链走通（throwaway server 18401 + 独立 sqlite）：
+  收敛落盘 action-items.yaml → owner work 快照出现 kind=action_items
+  （idempotency_key fs:action_item:e2e-ai-gate:1/2）→ close 409
+  action_items_open（逐项列 title/owner）→ 带证据 complete → 空 evidence 拒绝
+  → 义务清零 → close 放行 status=closed

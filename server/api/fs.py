@@ -298,6 +298,18 @@ def _validate_error_http(exc: Exception) -> HTTPException:
                 "missing_reasons": exc.missing_reasons,
             },
         )
+    if isinstance(exc, fs_svc.FsOpenActionItemsError):
+        return HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "error": "action_items_open",
+                "items": [
+                    {"id": item.id, "title": item.title, "owner": item.owner}
+                    for item in exc.items
+                ],
+                "detail": exc.detail,
+            },
+        )
     if isinstance(exc, fs_svc.FsStateError | ConflictError):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     if isinstance(exc, ForbiddenError):
@@ -621,6 +633,9 @@ def fs_close_topic(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(err)) from err
     except fs_svc.FsStateError as err:
         raise HTTPException(status.HTTP_409_CONFLICT, str(err)) from err
+    except fs_svc.FsOpenActionItemsError as err:
+        # D2 门禁唯一防线：action-items.yaml 有 open 项 → 409 带 title/owner（A3）
+        raise _validate_error_http(err) from err
     emit(
         db,
         agent,

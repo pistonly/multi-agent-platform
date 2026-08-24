@@ -46,8 +46,13 @@ map topic create --title "..." --slug <name> --participants participant,reviewer
 # --description 可选；--participants 白名单内 persona 才收到 FS 待办
 # 高级入口：map fs topic-create --title "..." --slug <name>
 
-# 关闭（验证型写：服务端校验后写回 index.md status=closed）
-map topic close --id <slug> --reason no_experiment_needed --note "结论（decision / rationale / action_items 见 topic-host）"
+# 轻量执行项（收敛时落 action-items.yaml，close 门禁校验清零，见 topic-host §3b）：
+map topic action-item add --topic <slug> --owner <persona> --title "..."
+map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"
+map topic action-item cancel --topic <slug> --id <n> --reason "..."
+
+# 关闭（验证型写：服务端校验 ack 与执行项清零后写回 index.md status=closed）
+map topic close --id <slug> --reason no_experiment_needed --note "结论（decision / rationale 见 topic-host；执行项在 action-items.yaml）"
 # 等价 advanced 入口：map fs close --topic <slug> --reason ... --note ...
 ```
 
@@ -59,7 +64,7 @@ map topic close --id <slug> --reason no_experiment_needed --note "结论（decis
 |-----------|---------|
 | `topic rollback-round` | 删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性 |
 | `topic reopen` | 手改 `index.md` 的 `status` 并在 close note 或新发言中说明原因 |
-| `topic resolve` | 由 `topic close --note` 承载 decision / rationale / action_items |
+| `topic resolve` | 由 `topic close --note` 承载 decision / rationale；轻量执行项走 `action-items.yaml`（`map topic action-item ...`，close 门禁校验清零） |
 | `topic archive` | 移动 `map/topics/<slug>/` 目录到 `map/archive/topics/`（或项目约定的归档位置） |
 
 **存量 DB 话题处置**：读（`topic show --id <uuid>`）永久保留；继续讨论先迁移：
@@ -149,6 +154,6 @@ map notification read --id <notification-uuid>
 map notification read-all
 ```
 
-行动项负责人在完成工作后，应在来源话题写发言、开关联实验，或请 host 在话题结论中更新 action_items（FS 话题由 `topic close --note` 承载；CLI 无单独 resolve 命令）。
+行动项负责人在完成工作后，应在来源话题写发言、开关联实验；轻量执行项（`action-items.yaml`）用 `map topic action-item complete --evidence ...` / `cancel --reason ...` 清零，close 门禁校验无 open 才放行（CLI 无单独 resolve 命令）。
 
 @ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。该机制保留于实验评论域（comment 走 API）；FS 话题发言（纯本地写）中的 `@` 仅是视觉提示，不产生 mention 待办。
