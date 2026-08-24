@@ -52,6 +52,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "host_app": ("host",),
     "auth_app": ("auth",),
     "server_app": ("server",),
+    "doctor_app": ("doctor",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -122,6 +123,8 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     # 部署矩阵握手：只读（本地扫描 + GET /fs/status）。
     ("fs", "status"),
     ("fs", "diff"),
+    # 3b7c2b44 A1：config 对账诊断——只读 .map/ + GET authority，不改状态。
+    ("doctor", "config"),
     ("sync", "pull"),
     ("sync", "status"),
     ("sync", "topic"),

@@ -382,7 +382,11 @@ def fs_status(
     project_key: str | None = typer.Option(None, "--project-key"),
 ) -> None:
     """部署矩阵握手：本地 plane 概览 + server 可达性（local-fs / projection-cache / detached）。"""
-    from cli.main import _resolve_project, _run
+    from cli.commands.doctor import warn_config_divergence
+    from cli.main import _cli_options, _resolve_project, _run
+
+    if _cli_options.get("format") in (None, "yaml"):
+        warn_config_divergence(project_root=_cli_options.get("project_root"))
 
     workspace = _workspace()
 

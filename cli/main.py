@@ -42,6 +42,7 @@ from cli.commands.agent import agent_app
 from cli.commands.audit import audit_app
 from cli.commands.auth import auth_app
 from cli.commands.docs import docs_app
+from cli.commands.doctor import doctor_app
 from cli.commands.experiment import (  # noqa: F401 — re-export 保持 cli.main._* 兼容引用
     _load_complete_metadata,
     _load_review_verdict_file,
@@ -108,6 +109,7 @@ app.add_typer(mention_app, name="mention")
 app.add_typer(todo_app, name="todo")
 app.add_typer(action_app, name="action")
 app.add_typer(feedback_app, name="feedback")
+app.add_typer(doctor_app, name="doctor")
 app.add_typer(fs_app, name="fs")
 app.add_typer(docs_app, name="docs")
 app.add_typer(e2e_app, name="e2e")

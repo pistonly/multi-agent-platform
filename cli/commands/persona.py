@@ -48,6 +48,11 @@ def persona_whoami(
     if project_root is not None:
         _cli_options["project_root"] = project_root
 
+    from cli.commands.doctor import warn_config_divergence
+
+    if _cli_options.get("format") in (None, "yaml"):
+        warn_config_divergence(project_root=_cli_options.get("project_root"))
+
     def action(c: MAPClient):
         me = c.get_me()
         payload = me.model_dump(mode="json")
