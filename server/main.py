@@ -237,7 +237,7 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "version": __version__}
 
     return app
 
@@ -274,6 +274,16 @@ def _self_check(port: int, server: uvicorn.Server, *, timeout: float = 15.0) -> 
 def run() -> None:
     settings = get_settings()
     logger = logging.getLogger("map-server")
+    # uvicorn 的 logging config 在 server.run() 时才应用,在这之前 INFO 级消息
+    # 会撞上 root 的 lastResort(WARNING) 被丢弃——给自身 logger 配 handler,
+    # 保证启动版本行在任何启动方式下都可见。
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+    logger.info("MAP server v%s starting on http://0.0.0.0:%s", __version__, settings.port)
     if settings.debug:
         # reload 模式依赖 uvicorn 的重载进程管理，跳过自检。
         uvicorn.run("server.main:app", host="0.0.0.0", port=settings.port, reload=True)

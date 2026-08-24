@@ -88,7 +88,9 @@ def test_spa_does_not_swallow_api_or_health(tmp_path: Path) -> None:
 
     health = client.get("/health")
     assert health.status_code == 200
-    assert health.json() == {"status": "ok"}
+    body = health.json()
+    assert body["status"] == "ok"
+    assert isinstance(body.get("version"), str) and body["version"]
 
     missing = client.get("/api/v1/definitely-not-a-route")
     assert missing.status_code == 404
@@ -149,7 +151,7 @@ def test_missing_dist_is_api_only(tmp_path: Path) -> None:
     app = create_app(init_db_on_startup=False, serve_web=True, web_dist=tmp_path)
     client = TestClient(app)
     assert client.get("/").status_code == 404
-    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/health").json()["status"] == "ok"
 
 
 def test_pyproject_declares_web_dist_package_data() -> None:
