@@ -35,14 +35,26 @@ def test_map_sdk_does_not_import_server():
 
     The plan's PR1 acceptance: ``grep -r 'from server' map_sdk/`` 零
     结果. We run the grep from Python so the test fails on regression
-    in any environment with grep available.
+    in any environment with grep available. 50cddb7e I2: the bare
+    pattern matched non-import matches too (evidence.py:9 docstring
+    documents this very gate, and ``__pycache__/*.pyc`` embeds the
+    string) — anchor to real top-level import statements and only scan
+    ``.py`` sources.
     """
     repo_root = Path(__file__).resolve().parents[1]
     map_sdk_dir = repo_root / "sdk" / "python" / "map_sdk"
     assert map_sdk_dir.is_dir(), f"map_sdk package missing at {map_sdk_dir}"
 
     result = subprocess.run(
-        ["grep", "-r", "-l", "from server", str(map_sdk_dir)],
+        [
+            "grep",
+            "-r",
+            "-l",
+            "-E",
+            r"^(from|import) server([. ]|$)",
+            "--include=*.py",
+            str(map_sdk_dir),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -68,7 +80,10 @@ def test_cli_imports_with_map_sdk_present():
     the path. Catches missing-package + circular-import regressions."""
     import cli.main  # noqa: F401  (import side effect is the test)
 
-    # Optional: the version alias should be a string when CLI loads.
-    from cli.main import _map_sdk_version
+    # The version hook prefers ``map_sdk.__version__`` (in-tree source of
+    # truth) — assert it is a string when CLI loads. 50cddb7e I2: the old
+    # ``_map_sdk_version`` alias was removed from cli.main; anchor the live
+    # ``_cli_version()`` instead.
+    from cli.main import _cli_version
 
-    assert isinstance(_map_sdk_version, str)
+    assert isinstance(_cli_version(), str)
