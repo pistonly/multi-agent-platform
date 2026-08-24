@@ -369,6 +369,58 @@ def test_build_remind_prompt_lists_buckets() -> None:
     assert "topic progress" in prompt
 
 
+def test_build_wake_context_topk_limits_and_prioritizes() -> None:
+    """top-K 配额:批量话题义务涌入时,单次 context 只保留前 K 个。
+
+    排序 = obligation 优先 → 义务时间老→新;超出部分计入 deferred,
+    prompt 中注明「下轮自动到」。"""
+    from cli.simple_waker import build_remind_prompt, build_wake_context
+
+    def _item(tid: str, priority: str, created: str) -> dict[str, Any]:
+        return {
+            "topic_id": tid,
+            "topic_title": f"topic-{tid}",
+            "discussion_round": "round1",
+            "new_comment_count": 0,
+            "work_items": [{"kind": "pending_topic_reply", "priority": priority, "created_at": created}],
+        }
+
+    data = {
+        "items": [
+            _item("new-obligation", "obligation", "2026-08-24T10:00:00+00:00"),
+            _item("oldest-obligation", "obligation", "2026-08-23T08:00:00+00:00"),
+            _item("mid-obligation", "obligation", "2026-08-23T20:00:00+00:00"),
+            _item("contextual-1", "contextual", "2026-08-23T01:00:00+00:00"),
+            _item("contextual-2", "contextual", "2026-08-24T09:00:00+00:00"),
+        ],
+        "total": 5,
+    }
+
+    context = build_wake_context(topic_progress_data=data, todos={}, max_prompt_topics=3)
+    assert len(context.topic_progress) == 3
+    assert context.topic_deferred_count == 2
+    # obligation 全部优先于 contextual;obligation 内按时间老→新
+    assert [e.topic_id for e in context.topic_progress] == [
+        "oldest-obligation",
+        "mid-obligation",
+        "new-obligation",
+    ]
+    prompt = build_remind_prompt("participant", context)
+    assert "另有 2 个话题义务本轮未列出" in prompt
+
+    # K=0 / None = 不限制(旧行为)
+    unlimited = build_wake_context(topic_progress_data=data, todos={}, max_prompt_topics=0)
+    assert len(unlimited.topic_progress) == 5
+    assert unlimited.topic_deferred_count == 0
+
+    # 数量未超 K 时零 deferred,行为与旧版一致
+    small = build_wake_context(
+        topic_progress_data={"items": data["items"][:2], "total": 2}, todos={}, max_prompt_topics=3
+    )
+    assert len(small.topic_progress) == 2
+    assert small.topic_deferred_count == 0
+
+
 def test_next_sleep_seconds_active_vs_idle() -> None:
     config = SimpleWakerConfig(active_interval=30.0, idle_interval=300.0)
     busy = summarize_pending_work({"mentions": [{"id": "m1"}]})

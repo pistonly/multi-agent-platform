@@ -72,6 +72,10 @@ class TopicProgressEntry:
     new_comment_count: int
     new_comments: tuple[dict[str, Any], ...]
     work_item_kinds: tuple[str, ...]
+    # top-K 配额排序键:obligation 优先、义务越老越先(批量涌入时单次
+    # wake 只推前 K 个,余量下轮自动到——防一次 remind 塞爆 session)。
+    has_obligation: bool = False
+    oldest_work_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,9 @@ class WakeContext:
     open_topic_count: int = 0
     open_topic_samples: tuple[dict[str, Any], ...] = ()
     drain_topics: bool = False
+    # top-K 截断后被推迟、留待下轮 remind 的话题义务数(prompt 中注明,
+    # 不计入本轮 total_items——本轮是否 wake 由截断后的余量决定)。
+    topic_deferred_count: int = 0
 
     @property
     def topic_update_count(self) -> int:
@@ -137,6 +144,10 @@ class SimpleWakerConfig:
     runtime_home: Path | None = None
     min_remind_seconds: float = 30.0
     drain_topics: bool = False
+    # top-K 配额:单次 remind prompt 最多推送的话题义务数(obligation 优先、
+    # 越老越先),余量下轮自动到。0/None = 不限制(旧行为)。CLI flag
+    # --max-prompt-topics 或 env MAP_SIMPLE_MAX_PROMPT_TOPICS。
+    max_prompt_topics: int = 3
     # f873c287 I1(g): CLI flag → env var → server settings. When set,
     # the waker exports ``MAP_STALE_OPEN_TOPIC_THRESHOLD_MINUTES`` so
     # subprocess ``map work`` invocations and any in-process server
@@ -214,10 +225,19 @@ def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntr
             new_comments = []
         work_items = raw.get("work_items") or []
         kinds: list[str] = []
+        has_obligation = False
+        work_times: list[datetime] = []
         if isinstance(work_items, list):
             for item in work_items:
-                if isinstance(item, dict) and item.get("kind"):
-                    kinds.append(str(item["kind"]))
+                if not (isinstance(item, dict) and item.get("kind")):
+                    continue
+                kinds.append(str(item["kind"]))
+                if item.get("priority") == "obligation":
+                    has_obligation = True
+                for time_field in ("stale_since", "created_at"):
+                    parsed = _parse_datetime(item.get(time_field) if isinstance(item.get(time_field), str) else None)
+                    if parsed is not None:
+                        work_times.append(parsed)
         entries.append(
             TopicProgressEntry(
                 topic_id=str(topic_id),
@@ -231,6 +251,8 @@ def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntr
                 new_comment_count=int(raw.get("new_comment_count") or len(new_comments)),
                 new_comments=tuple(c for c in new_comments if isinstance(c, dict)),
                 work_item_kinds=tuple(kinds),
+                has_obligation=has_obligation,
+                oldest_work_at=min(work_times) if work_times else None,
             )
         )
     return tuple(entries)
@@ -302,6 +324,7 @@ def build_wake_context(
     persona: str | None = None,
     drain_topics: bool = False,
     open_topics: list[dict[str, Any]] | None = None,
+    max_prompt_topics: int | None = None,
 ) -> WakeContext:
     filtered_progress = _filter_topic_progress_for_persona(
         persona,
@@ -311,8 +334,23 @@ def build_wake_context(
     deduped_notifications, event_count_sum, dropped = _dedupe_notifications_by_group_key(
         notifications
     )
+    topic_progress = parse_topic_progress(filtered_progress)
+    deferred = 0
+    if max_prompt_topics is not None and max_prompt_topics > 0 and len(topic_progress) > max_prompt_topics:
+        # obligation 优先,同层按义务时间老→新;None 时间戳垫底。
+        _epoch = datetime.min.replace(tzinfo=timezone.utc)
+        ordered = sorted(
+            topic_progress,
+            key=lambda e: (
+                0 if e.has_obligation else 1,
+                e.oldest_work_at or _epoch,
+            ),
+        )
+        kept, dropped_entries = ordered[:max_prompt_topics], ordered[max_prompt_topics:]
+        topic_progress = tuple(kept)
+        deferred = len(dropped_entries)
     return WakeContext(
-        topic_progress=parse_topic_progress(filtered_progress),
+        topic_progress=topic_progress,
         todo_buckets=summarize_actionable_todos(todos),
         notification_count=len(deduped_notifications),
         notification_event_count_sum=event_count_sum,
@@ -320,6 +358,7 @@ def build_wake_context(
         open_topic_count=len(open_topics or []) if drain_topics and persona == "host" else 0,
         open_topic_samples=tuple((open_topics or [])[:10]) if drain_topics and persona == "host" else (),
         drain_topics=drain_topics,
+        topic_deferred_count=deferred,
     )
 
 
@@ -479,6 +518,11 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
                 lines.append(f"  - @{author}: {_clip(str(excerpt))}")
             if len(entry.new_comments) > 3:
                 lines.append(f"  - … 另有 {len(entry.new_comments) - 3} 条，请 `topic show --id {entry.topic_id}`")
+        if context.topic_deferred_count > 0:
+            lines.append(
+                f"- 另有 {context.topic_deferred_count} 个话题义务本轮未列出（批量涌入时按 obligation 优先、"
+                "越老越先排队）——**只处理上面列出的项即可**，排队项下轮提醒自动到达，不要主动去 `map work` 清全量。"
+            )
         lines.append("")
 
     if context.todo_buckets or context.notification_count:
@@ -634,6 +678,7 @@ class SimpleWaker:
             persona=self.config.persona,
             drain_topics=self.config.drain_topics,
             open_topics=open_topics,
+            max_prompt_topics=self.config.max_prompt_topics,
         )
         if context.has_work:
             stats.polls_with_work = 1
@@ -904,6 +949,17 @@ def run(
             "the override via server.config.Settings (f873c287 I1(g))."
         ),
     ),
+    max_prompt_topics: int = typer.Option(
+        3,
+        "--max-prompt-topics",
+        min=0,
+        help=(
+            "Top-K quota: max topic obligations listed per remind prompt "
+            "(obligation first, oldest first). Excess items are deferred to "
+            "the next remind automatically. 0 = unlimited (legacy behavior). "
+            "Env fallback: MAP_SIMPLE_MAX_PROMPT_TOPICS."
+        ),
+    ),
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
@@ -925,6 +981,18 @@ def run(
         except Exception:
             pass
     client = MapCommandClient(persona=persona, project_root=root, map_cmd=map_cmd)
+    # env fallback：不带 flag 启动（如 scripts/start-simple-waker.sh 直传旧参数）
+    # 时仍可经 MAP_SIMPLE_MAX_PROMPT_TOPICS 调配额。
+    if max_prompt_topics == 3:
+        env_value = os.environ.get("MAP_SIMPLE_MAX_PROMPT_TOPICS")
+        if env_value:
+            try:
+                max_prompt_topics = max(0, int(env_value))
+            except ValueError:
+                typer.echo(
+                    f"[simple-waker] ignore invalid MAP_SIMPLE_MAX_PROMPT_TOPICS={env_value!r}",
+                    err=True,
+                )
     config = SimpleWakerConfig(
         persona=persona,
         project_root=root,
@@ -939,6 +1007,7 @@ def run(
         runtime_home=resolved_runtime_home,
         min_remind_seconds=min_remind_seconds,
         drain_topics=drain_topics,
+        max_prompt_topics=max_prompt_topics,
         stale_threshold_minutes=stale_threshold_minutes,
     )
     waker = SimpleWaker(client=client, config=config)
