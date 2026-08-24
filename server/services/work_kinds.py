@@ -133,6 +133,25 @@ def get_kind_spec(kind: str) -> WorkItemKindSpec | None:
     return None
 
 
+def resolve_kind(name: str) -> str:
+    """Canonical kind string with a fail-fast registry guard.
+
+    实验 d559f431 R1: 产 kind 的 service 一律经此取复数码——名字未在
+    ``WORK_ITEM_KINDS`` 登记即抛 KeyError（service 产未登记/改名 kind 立即
+    红，配合 tests/test_work_kind_registry_consistency.py 静态收集测试构成
+    service→registry 方向机器防线；A3 的 registry↔wake.md 整行 diff 只防
+    registry→渲染方向）。
+    """
+    if get_kind_spec(name) is None:
+        raise KeyError(
+            f"work item kind {name!r} not registered in WORK_ITEM_KINDS; "
+            "register it in server/services/work_kinds.py (kind/clear_action/"
+            "skill/note 四字段) and sync the wake.md kind-dispatch block "
+            "(checklist 强制项)"
+        )
+    return name
+
+
 def render_kinds_md() -> str:
     """渲染 wake.md 分发表标记块内容（A3/D8 唯一渲染形态）。
 

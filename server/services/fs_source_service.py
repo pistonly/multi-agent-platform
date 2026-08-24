@@ -70,6 +70,7 @@ from server.domain.schemas import (
     TopicWorkItemRead,
 )
 from server.services.errors import ConflictError, ForbiddenError
+from server.services.work_kinds import resolve_kind
 
 _PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
 _ROUND_STR_RE = re.compile(r"^round(\d+)$")
@@ -1225,7 +1226,7 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
         if view.action_items_error is None:
             action_items_out = [
                 TopicWorkItemRead(
-                    kind="action_items",
+                    kind=resolve_kind("action_items"),
                     priority="obligation",
                     topic_id=view.id,
                     topic_title=view.title,
@@ -1259,7 +1260,7 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
         ):
             stale_items = [
                 TopicWorkItemRead(
-                    kind="stale_open_topics",
+                    kind=resolve_kind("stale_open_topics"),
                     priority="obligation",
                     topic_id=view.id,
                     topic_title=view.title,

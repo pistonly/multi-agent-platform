@@ -26,13 +26,20 @@ from server.services import notification_service, todo_service, topic_progress_s
 from server.services import project_service as svc
 from server.services import topic_work_item_service as work_items
 
+# 实验 d559f431 R3: 以下键是 SummaryBucketKind（/work 摘要卡片的内部聚合桶
+# 标签），**不是**交付给 map work/waker/wake.md 的对外 work item kind。
+# 部分桶标签采用单数（mention / pending_reply）与 registry（server/services/
+# work_kinds.py 的 mentions / pending_topic_replies 复数码）不同形——这是
+# 有意的内部显示桶命名，经 todo_service / topic_work_item_service 由对外
+# work item kind 聚合而来；对外 kind 一律以 registry 复数码为唯一真相
+# （map work --kinds 输出、wake.md 分发表、R1 resolve_kind 接线同源）。
 _BUCKET_KIND_VISIBILITY: dict[SummaryBucketKind, BucketVisibility] = {
-    "mention": "all",
+    "mention": "all",  # 桶 ← registry `mentions`（对外 kind 聚合）
     "round_ack": "all",
-    "pending_reply": "all",
+    "pending_reply": "all",  # 桶 ← registry `pending_topic_replies`
     "explicit_only": "host_only",
     "informational_only": "host_only",
-    "action_items": "host_only",
+    "action_items": "host_only",  # 桶 ← registry `action_items`（同名）
 }
 
 
