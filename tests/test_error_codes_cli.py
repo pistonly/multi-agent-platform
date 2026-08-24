@@ -28,7 +28,11 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-import cli.main as cli_main
+from cli.commands.docs import (
+    _ERROR_CODES_SEARCH_FIELDS,
+    _match_error_code,
+    _search_keywords_to_list,
+)
 from cli.main import app
 
 
@@ -134,7 +138,7 @@ def test_docs_error_codes_search_multi_keyword_and_repeat(runner):
 
     def _haystack(entry: dict) -> str:
         parts = []
-        for field in cli_main._ERROR_CODES_SEARCH_FIELDS:
+        for field in _ERROR_CODES_SEARCH_FIELDS:
             v = entry.get(field)
             if v is not None:
                 parts.append(str(v))
@@ -160,7 +164,7 @@ def test_docs_error_codes_search_multi_keyword_and_comma_split(runner):
 
     def _haystack(entry: dict) -> str:
         parts = []
-        for field in cli_main._ERROR_CODES_SEARCH_FIELDS:
+        for field in _ERROR_CODES_SEARCH_FIELDS:
             v = entry.get(field)
             if v is not None:
                 parts.append(str(v))
@@ -199,7 +203,7 @@ def test_docs_error_codes_json_with_search_filters(runner):
     for entry in parsed["codes"]:
         haystack = "\n".join(
             str(entry.get(field) or "")
-            for field in cli_main._ERROR_CODES_SEARCH_FIELDS
+            for field in _ERROR_CODES_SEARCH_FIELDS
         ).lower()
         assert "review" in haystack
 
@@ -265,22 +269,22 @@ def test_docs_error_codes_normalizes_search_dedupe_and_strip(runner):
 def test_docs_error_codes_module_helpers_exposed():
     """Pure helpers are importable + produce stable results for direct callers."""
     # Pure matcher: empty keywords matches everything.
-    assert cli_main._match_error_code({"code": "x"}, []) is True
+    assert _match_error_code({"code": "x"}, []) is True
     # Substring across any of the configured fields (case-insensitive).
-    assert cli_main._match_error_code(
+    assert _match_error_code(
         {"code": "REVIEW_X", "category": "review", "description": "longer text"},
         ["review"],
     ) is True
-    assert cli_main._match_error_code(
+    assert _match_error_code(
         {"code": "REVIEW_X", "category": "review", "description": "longer text"},
         ["REVIEW", "nonexistent"],
     ) is False
     # AND semantics: both keywords must hit.
-    assert cli_main._match_error_code(
+    assert _match_error_code(
         {"code": "A_B", "description": "alpha beta"},
         ["alpha", "beta"],
     ) is True
-    assert cli_main._match_error_code(
+    assert _match_error_code(
         {"code": "A_B", "description": "alpha"},
         ["alpha", "beta"],
     ) is False
@@ -288,7 +292,7 @@ def test_docs_error_codes_module_helpers_exposed():
 
 def test_docs_error_codes_search_keywords_to_list_dedupes_and_preserves_order():
     """Comma split + strip + dedupe preserves first-seen order."""
-    out = cli_main._search_keywords_to_list(
+    out = _search_keywords_to_list(
         ["REVIEW", "review,state", "  state_machine  ", "", "review"]
     )
     assert out == ["REVIEW", "review", "state", "state_machine"]

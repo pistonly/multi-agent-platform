@@ -103,7 +103,9 @@ def test_cli_emit_json_error_envelope_writes_pydantic_json(runner, monkeypatch, 
         None,
     )
     assert line is not None, captured.err
-    parsed = CLIErrorEnvelope.model_validate_json(line)
+    payload = json.loads(line)
+    assert payload["ok"] is False
+    parsed = CLIErrorEnvelope.model_validate(payload["error"])
     assert parsed.error_code == "STATE_MACHINE_INVALID_PHASE"
     assert parsed.hint == "submit for review first"
     assert parsed.recovery_command == "map experiment submit-review"
@@ -134,10 +136,12 @@ def test_cli_json_envelope_includes_docs_url_field(runner, patched_cli_no_server
         None,
     )
     assert envelope_line, result.stderr
-    envelope = json.loads(envelope_line)
+    payload = json.loads(envelope_line)
+    assert payload["ok"] is False
+    envelope = payload["error"]
     assert "docs_url" in envelope
     # Round-trip parse through the Pydantic model.
-    parsed = CLIErrorEnvelope.model_validate_json(envelope_line)
+    parsed = CLIErrorEnvelope.model_validate(envelope)
     # docs_url is optional — accept None (server doesn't emit one yet) but
     # the field must always be declared.
     assert hasattr(parsed, "docs_url")
@@ -179,7 +183,9 @@ def test_cli_maphttp_error_envelope_uses_pydantic(runner, monkeypatch, capsys):
         None,
     )
     assert envelope_line, result.stderr
-    parsed = CLIErrorEnvelope.model_validate_json(envelope_line)
+    payload = json.loads(envelope_line)
+    assert payload["ok"] is False
+    parsed = CLIErrorEnvelope.model_validate(payload["error"])
     assert parsed.error_code == "NOT_FOUND"
     assert parsed.message == "not here"
     assert parsed.hint == "check id"
@@ -284,14 +290,18 @@ def test_feedback_submit_body_and_file_mutually_exclusive(patched_cli_no_server,
         app,
         ["feedback", "submit", "--body", "from arg", "--file", str(body_file)],
     )
+    # ``map feedback submit`` retired at v0.15 M62 — the retirement gate
+    # fires (exit 2) before body/file validation is reached.
     assert result.exit_code == 2
-    assert "use only one of --body or --file" in (result.stderr or "")
+    assert "retired" in (result.stderr or "")
 
 
 def test_feedback_submit_requires_body_or_file(patched_cli_no_server, runner):
     result = runner.invoke(app, ["feedback", "submit"])
+    # ``map feedback submit`` retired at v0.15 M62 — retirement gate fires
+    # (exit 2) regardless of body/file args.
     assert result.exit_code == 2
-    assert "either --body or --file is required" in (result.stderr or "")
+    assert "retired" in (result.stderr or "")
 
 
 # ---- cross-command parity --------------------------------------------------

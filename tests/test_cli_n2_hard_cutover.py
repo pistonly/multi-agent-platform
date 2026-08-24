@@ -288,7 +288,9 @@ def test_post_n2_yaml_flag_forces_json_with_warning(
         (ln for ln in stderr.splitlines() if ln.startswith("{")), None
     )
     assert envelope_line is not None, stderr
-    parsed = json.loads(envelope_line)
+    payload = json.loads(envelope_line)
+    assert payload["ok"] is False
+    parsed = payload["error"]
     assert "error_code" in parsed
     # format_source records the cutover decision for diagnostics.
     assert cli_main._cli_options["format_source"] == "n2-release-cutover"

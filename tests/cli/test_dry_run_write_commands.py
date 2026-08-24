@@ -38,6 +38,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "notification_app": ("notification",),
     "inbound_event_app": ("inbound-event",),
     "topic_app": ("topic",),
+    "action_item_app": ("topic", "action-item"),
     "mention_app": ("mention",),
     "todo_app": ("todo",),
     "action_app": ("action",),
@@ -71,6 +72,12 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("notification", "list"),
     ("persona", "list"),
     ("persona", "whoami"),
+    # plan v3 I4: FS 话题执行项子组——同 fs.comment 语义，纯本地写
+    # action-items.yaml + maybe_auto_sync，不改 MAP API 状态。
+    ("topic", "action-item", "list"),
+    ("topic", "action-item", "add"),
+    ("topic", "action-item", "complete"),
+    ("topic", "action-item", "cancel"),
     ("topic", "list"),
     ("topic", "show"),
     ("topic", "progress"),

@@ -149,6 +149,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "mark-seen",
         "archive",
         "migrate",
+        # plan v3 I4: FS 话题执行项子组（topic_app.add_typer(action_item_app)）
+        "action-item",
     ],
     "mention": ["dismiss", "list", "dismiss-all", "reconcile-stale"],
     "todo": ["clear"],

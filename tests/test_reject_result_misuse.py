@@ -224,7 +224,7 @@ def test_rebut_single_item_during_review_phase_still_succeeds(
     reviewer_resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={
+        json={
             "name": "happy-reviewer",
             "role": "agent",
             "project_key": project["project_key"],

@@ -1,7 +1,11 @@
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    # 50cddb7e I3: /health 增加 version 字段——从 exact-dict 放宽为字段级断言，
+    # 允许后续加监控字段而不破坏契约测试。
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "version" in body
 
 
 def test_register_agent_and_me(client, auth_headers, project):

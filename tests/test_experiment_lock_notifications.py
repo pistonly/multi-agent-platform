@@ -208,7 +208,7 @@ def test_stalled_lock_scan_endpoint_host_scopes_to_own_project(
     host_a_resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={
+        json={
             "name": "multi-agent-platform-host",
             "role": "agent",
             "project_key": project_a["project_key"],
