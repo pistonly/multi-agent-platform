@@ -53,6 +53,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "auth_app": ("auth",),
     "server_app": ("server",),
     "doctor_app": ("doctor",),
+    "version_app": ("version",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -125,6 +126,10 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("fs", "diff"),
     # 3b7c2b44 A1：config 对账诊断——只读 .map/ + GET authority，不改状态。
     ("doctor", "config"),
+    # 3b7c2b44 A6 P3-1：版本/对照范围——只读本仓 bundled skills 清单。
+    ("version", "info"),
+
+
     ("sync", "pull"),
     ("sync", "status"),
     ("sync", "topic"),

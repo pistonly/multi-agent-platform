@@ -483,7 +483,9 @@ def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
 
 @topic_app.command("create")
 def topic_create(
-    title: str = typer.Option(..., "--title"),
+    title: str = typer.Option(
+        ..., "--title", show_default=False, help="Map topic title."
+    ),
     project: uuid.UUID | None = typer.Option(
         None, "--project", help="Ignored; create always writes the local workspace map/ folder."
     ),

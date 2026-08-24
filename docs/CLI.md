@@ -30,6 +30,11 @@ map --persona host persona whoami
 --version       打印 CLI 版本号并退出（版本源：map_sdk.__version__，与 pyproject 同步）
 ```
 
+版本与 skills 对照（3b7c2b44 A6 P3-1）：`map version info` 输出 CLI 版本 +
+关键命令集（fs/topic/bootstrap/review）依赖的 bundled skills 版本对照范围，
+`--json` 结构化为 `{"cli": {...}, "scope": {...}}`；全量漂移仍看
+`map skill list --installed`，本命令不建第二张全量漂移表。
+
 ## 常用流程
 
 ```bash

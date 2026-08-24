@@ -63,6 +63,7 @@ from cli.commands.server import server_app
 from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
+from cli.commands.version import version_app
 from cli.e2e_collab import e2e_app
 
 # Persona-compare rendering moved to cli.persona_compare (main.py size
@@ -115,6 +116,7 @@ app.add_typer(docs_app, name="docs")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(sync_app, name="sync")
 app.add_typer(skill_app, name="skill")
+app.add_typer(version_app, name="version")
 app.add_typer(host_app, name="host")
 app.add_typer(auth_app, name="auth")
 app.add_typer(server_app, name="server")
