@@ -39,7 +39,7 @@ from server.services import topic_service
 
 # ``get_project`` 下沉到 ``_lookups`` 以打破 project_service ↔ topic_service 循环 import；
 # 这里 re-export 保持 ``from server.services.project_service import get_project`` 兼容。
-from server.services._lookups import get_project
+from server.services._lookups import ensure_workspace_unique, get_project
 from server.services.acceptance_service import parse_acceptance_status
 from server.services.errors import ConflictError, ForbiddenError, NotFoundError
 
@@ -56,6 +56,12 @@ def create_project(db: Session, payload: ProjectCreate, *, author_agent_id: uuid
     existing = db.scalar(select(Project).where(Project.project_key == payload.project_key))
     if existing is not None:
         raise ConflictError("project_key already exists")
+    # 3b7c2b44 A5：workspace_path + content_root 联合键唯一（同一 repo 不同 content_root 不误伤）
+    ensure_workspace_unique(
+        db,
+        workspace_path=payload.workspace_path,
+        content_root=payload.content_root,
+    )
     project = Project(**payload.model_dump())
     db.add(project)
     db.flush()
@@ -90,6 +96,13 @@ def update_project(db: Session, project_id: uuid.UUID, payload: ProjectUpdate) -
     project = get_project(db, project_id)
     data = payload.model_dump(exclude_unset=True)
     archived = data.pop("archived", None)
+    if "workspace_path" in data or "content_root" in data:
+        ensure_workspace_unique(
+            db,
+            workspace_path=data.get("workspace_path", project.workspace_path),
+            content_root=data.get("content_root", project.content_root),
+            exclude_project_id=project.id,
+        )
     for key, value in data.items():
         setattr(project, key, value)
     if archived is not None:

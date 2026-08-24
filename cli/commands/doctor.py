@@ -35,6 +35,7 @@ def inspect_config_divergences(
         return [], _diagnostic(str(exc))
     if cfg.project_id is None:
         divergences.append(("config", f"{CONFIG_FILE} 缺 project_id（缓存副本未落权威值）"))
+    divergences.extend(_workspace_duplicates(cfg, client))
 
     try:
         c = client if client is not None else cfg.client_for(cfg.default_persona)
@@ -84,7 +85,43 @@ def _diagnostic(reason: str) -> int:
     return EXIT_DIAGNOSTIC
 
 
+def _workspace_duplicates(cfg, client=None) -> list[tuple[str, str]]:
+    """尽力而为的双归属检测：list_projects 按 (workspace_path, content_root) 分组。
+
+    同一 workspace+content_root 被 ≥2 个 project 认领会让聚合操作二义
+    （3b7c2b44 A5 兜底告警）。非 admin 的 list_projects 只回自己 project，
+    跨 project 双归属需 admin 可见性；list/网络异常软跳过（返回 []），
+    不破坏 --check 码表语义。返回 [(category, description)]。
+    """
+    try:
+        c = client if client is not None else cfg.client_for(cfg.default_persona)
+        projects = c.list_projects(include_archived=False)
+    except Exception:
+        return []
+    groups: dict[tuple[str, str], list] = {}
+    for p in projects:
+        groups.setdefault((p.workspace_path, p.content_root), []).append(p)
+    divergences: list[tuple[str, str]] = []
+    for (workspace, content_root), members in groups.items():
+        if len(members) < 2:
+            continue
+        owners = "、".join(
+            f"'{m.project_key}'" for m in sorted(members, key=lambda m: m.project_key)
+        )
+        divergences.append(
+            (
+                "workspace",
+                f"workspace_path+content_root 双归属（{workspace} / {content_root}）"
+                f"被 {owners} 认领；同一 repo 开多 project 需不同 content_root，"
+                "重复绑定需先处置存量（见 docs/WORKSPACE-UNIQUENESS.md）。",
+            )
+        )
+    return divergences
+
+
 def _fix_hint(category: str, msg: str) -> str:
+    if category == "workspace":
+        return "见 docs/WORKSPACE-UNIQUENESS.md：archive 换主或同一 repo 用不同 content_root，先处置存量"
     if "project_id 陈旧" in msg:
         return "map bootstrap --heal（回写权威 project_id，不碰 token）"
     if msg.startswith("project_key"):

@@ -29,13 +29,14 @@ AUTHORITY_ID = "11111111-1111-1111-1111-111111111111"
 
 
 class FakeClient:
-    """最小 authority 替身：只实现 doctor 用到的两个查询方法。"""
+    """最小 authority 替身：只实现 doctor 用到的查询方法。"""
 
-    def __init__(self, project=None, agents=(), get_err=None, list_err=None):
+    def __init__(self, project=None, agents=(), get_err=None, list_err=None, projects=None):
         self.project = project or SimpleNamespace(id=AUTHORITY_ID)
         self.agents = list(agents)
         self.get_err = get_err
         self.list_err = list_err
+        self.projects = list(projects) if projects is not None else []
 
     def get_project_by_key(self, project_key):  # noqa: ARG002
         if self.get_err is not None:
@@ -46,6 +47,11 @@ class FakeClient:
         if self.list_err is not None:
             raise self.list_err
         return self.agents
+
+    def list_projects(self, *, include_archived=False):  # noqa: ARG002
+        if self.list_err is not None:
+            raise self.list_err
+        return self.projects
 
 
 def _agent(name: str) -> SimpleNamespace:
@@ -202,3 +208,63 @@ def test_warn_hook_silent_on_clean(monkeypatch, capsys, tmp_path: Path) -> None:
     )
     warn_config_divergence(project_root=tmp_path)
     assert capsys.readouterr().err == ""
+
+
+# --- 3b7c2b44 A5：workspace_path+content_root 双归属兜底告警 ---
+
+
+def _proj(key: str, workspace: str, root: str = "map") -> SimpleNamespace:
+    return SimpleNamespace(project_key=key, workspace_path=workspace, content_root=root)
+
+
+def test_workspace_duplicate_is_workspace_divergence(tmp_path: Path) -> None:
+    _write_map_dir(tmp_path)
+    client = FakeClient(
+        agents=[_agent("multi-agents-platform-host")],
+        projects=[
+            _proj("p-a", "/repo/ws"),
+            _proj("p-b", "/repo/ws"),
+            _proj("p-c", "/other/ws"),
+        ],
+    )
+    divergences, code = inspect_config_divergences(project_root=tmp_path, client=client)
+    assert code == EXIT_DIVERGED
+    ws = [msg for cat, msg in divergences if cat == "workspace"]
+    assert ws
+    assert "/repo/ws" in ws[0] and "p-a" in ws[0] and "p-b" in ws[0]
+    assert "p-c" not in ws[0]
+
+
+def test_workspace_distinct_content_root_not_flagged(tmp_path: Path) -> None:
+    _write_map_dir(tmp_path)
+    client = FakeClient(
+        agents=[_agent("multi-agents-platform-host")],
+        projects=[
+            _proj("p-a", "/repo/ws", "map"),
+            _proj("p-b", "/repo/ws", "docs"),  # 不同 content_root 合法，不报
+        ],
+    )
+    divergences, code = inspect_config_divergences(project_root=tmp_path, client=client)
+    assert not any(cat == "workspace" for cat, _ in divergences)
+
+
+def test_workspace_is_also_clean_if_unique(tmp_path: Path) -> None:
+    _write_map_dir(tmp_path)
+    client = FakeClient(
+        agents=[_agent("multi-agents-platform-host")],
+        projects=[_proj("p-only", "/repo/ws")],
+    )
+    divergences, code = inspect_config_divergences(project_root=tmp_path, client=client)
+    assert not any(cat == "workspace" for cat, _ in divergences)
+    assert code == EXIT_CLEAN
+
+
+def test_workspace_list_failure_soft_skip(tmp_path: Path) -> None:
+    _write_map_dir(tmp_path)
+    client = FakeClient(
+        agents=[_agent("multi-agents-platform-host")],
+        list_err=MAPHTTPError(403, "nope"),
+    )
+    divergences, code = inspect_config_divergences(project_root=tmp_path, client=client)
+    # list 失败软跳过：不破坏码表语义，agent 查询也走 list_err → 诊断态
+    assert not any(cat == "workspace" for cat, _ in divergences)

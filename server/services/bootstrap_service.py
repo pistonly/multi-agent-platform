@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from server.domain.models import Agent, AgentRole, Project
 from server.services import auth as auth_service
 from server.services import project_status_service as status_doc_service
+from server.services._lookups import ensure_workspace_unique
 from server.services.errors import ConflictError
 
 # Mirror of ``map_client.bootstrap.DEFAULT_PERSONAS`` — the 3 personas every
@@ -90,7 +91,14 @@ def run_bootstrap(
                 f"`map auth reissue --key {project_key} --name {agent_name}`."
             )
 
-    # 3. 创建 project（flush 拿 id，不 commit）
+    # 3. workspace_path+content_root 联合键唯一（A5：同 workspace 重复 bootstrap 拒绝）
+    ensure_workspace_unique(
+        db,
+        workspace_path=workspace_path,
+        content_root=content_root,
+    )
+
+    # 4. 创建 project（flush 拿 id，不 commit）
     project = Project(
         project_key=project_key,
         name=project_name,
@@ -102,7 +110,7 @@ def run_bootstrap(
     db.add(project)
     db.flush()
 
-    # 4. 创建 3 个 persona agent（flush 拿 id，不 commit）
+    # 5. 创建 3 个 persona agent（flush 拿 id，不 commit）
     created: list[tuple[str, Agent, str]] = []
     first_agent_id: uuid.UUID | None = None
     for persona_key, agent_name in persona_specs:
@@ -120,13 +128,13 @@ def run_bootstrap(
             first_agent_id = agent.id
         created.append((persona_key, agent, token))
 
-    # 5. 创建 initial status version（用第一个 agent 作为 author）
+    # 6. 创建 initial status version（用第一个 agent 作为 author）
     assert first_agent_id is not None
     status_doc_service.create_initial_status(
         db, project=project, author_agent_id=first_agent_id
     )
 
-    # 6. 统一 commit —— 全部成功才持久化
+    # 7. 统一 commit —— 全部成功才持久化
     db.commit()
     db.refresh(project)
     for _pk, agent, _token in created:
