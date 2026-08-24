@@ -1,0 +1,8 @@
+reasonable_items:
+  - "v2 圆满吸收 0641c52c 全部整改点：D5 明确 alembic 051 弃 `topic_action_items.decision_id`/`topic_id` 两条 FK 并改 nullable（仿 046 Experiment.topic_id 先例，FS 建行 topic_id 存 FS uuid5、decision_id 存 NULL）——正是我指出的「需要新增建行上下文」路线，且给出既有迁移先例使范围可信"
+  - "调研坐标核证准确：046 迁移 `alembic/versions/046_experiment_topic_fk_retirement.py` 存在且 051 尚不存在（将新增）；todo_service.py:553-572 `joinedload(TopicActionItem.topic)` + null 兜底属实；waker escalation `cli/action_item_escalation.py:129` 只消费 todos payload 不 join topic；topic_action_item_ops.py:290 `_action_item_source_topic` 对无 DB 行 topic_id 走 `db.get` 返回 None → NotFound——A8/I5 需兜底的所有依据核对一致"
+  - "I0 模块级预检先迁移后建行、A7「无 topics/decisions 行空库 close 建行 flush 不抛 IntegrityError」单测——FK 弃用被做成可观测验收而非隐式假设，杜绝 schema 漂移风险（风险段亦主动标注 alembic/dogfood 核对）"
+  - "I5 deliver 兜底完整：`_action_item_source_topic` 对 FS uuid5 反查 `find_fs_topic_by_id`、反查失败降级不要求 DB 行 + audit 记 fs-source；complete/cancel 回归不动（核证 complete_action_item:342 确实不查 source topic，只需 _ensure_action_item_accessor）——边界封闭且最小"
+  - "A4/A8 消费者回归覆盖完整：todos 桶 null 兜底、waker 升级走 payload 时间线、序列化回归、`list_stale_open_action_items` inner join 不牵连 FS 项（迁移工具边界已声明可接受并预留 left-join 分支）"
+  - "v1 已认可合理点全部保真：根因定位、D1/D2/D3 方案分层、A6 保护纯结论 close、applied_fields 携带 close_note（schema 实证）、存量处置克制、窄提交防污染"
+unreasonable_items: []
