@@ -358,10 +358,13 @@ def experiment_pre_complete(
     # complete 命令行——--id/--metadata 按本次入参填好,--summary 与
     # --log-file-path 是 complete 侧必填、pre-complete 未接收的参数,作为
     # 显式占位交给 host 补全(M55 recovery_command 形态)。
+    # 走 stderr:json 模式下 stdout 只含一份信封(docs/cli-json-output.md),
+    # 人类提示行不得污染 stdout(tests/test_cli_json_schema.py 护栏)。
     typer.echo(
         "\nNext (copy-paste, fill in <summary> and <log.md>):\n"
         f"  experiment complete --id {resolved_id} --metadata {metadata_file} "
-        "--summary '<summary>' --log-file-path <log.md>"
+        "--summary '<summary>' --log-file-path <log.md>",
+        err=True,
     )
 
 

@@ -122,8 +122,13 @@ def stub_env(monkeypatch):
 
 
 def _envelope(result) -> dict:
-    """Parse the single JSON document the CLI must have put on stdout."""
-    return json.loads(result.output)
+    """Parse the single JSON document the CLI must have put on stdout.
+
+    用 ``result.stdout`` 而非 ``result.output``：click 8.4 的
+    ``Result.output`` 混含 stderr，契约只约束 stdout（docs/cli-json-output.md
+    "stdout 只含这一份 JSON"），stderr 的人类提示行不应使解析失败。
+    """
+    return json.loads(result.stdout)
 
 
 # ---- success envelope + schema round-trips ----------------------------------
