@@ -15,8 +15,8 @@ from server.domain.models import Agent
 feedback_router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 _HINT = (
-    "bug report → open a GitHub issue (repo link in README, attach repro steps); "
-    "improvement idea / dogfood feedback → ask the host to open a MAP topic. "
+    "bug / tool improvement → run `map feedback` (generates a prefilled GitHub issue link); "
+    "dogfood feedback (inside a MAP project) → ask the host to open a MAP topic. "
     "Historical feedback records are preserved read-only in the platform DB."
 )
 
