@@ -86,7 +86,9 @@ def test_map_cli_format_legacy_with_explicit_json_emits_json_with_warning(
         (ln for ln in result.stderr.splitlines() if ln.startswith("{")), None
     )
     assert envelope_line is not None, result.stderr
-    parsed = json.loads(envelope_line)
+    payload = json.loads(envelope_line)
+    assert payload["ok"] is False
+    parsed = payload["error"]
     assert parsed["error_code"] is None
     assert parsed["message"] == "Experiment not found"
 
@@ -132,7 +134,9 @@ def test_map_cli_format_json_without_flag_emits_json(
         (ln for ln in stderr.splitlines() if ln.startswith("{")), None
     )
     assert envelope_line is not None, stderr
-    parsed = json.loads(envelope_line)
+    payload = json.loads(envelope_line)
+    assert payload["ok"] is False
+    parsed = payload["error"]
     assert "error_code" in parsed
     assert "docs_url" in parsed
 
@@ -284,7 +288,9 @@ def test_legacy_alias_does_not_break_in_process_testclient(
         (ln for ln in stderr.splitlines() if ln.startswith("{")), None
     )
     assert envelope_line is not None, stderr
-    parsed = json.loads(envelope_line)
+    payload = json.loads(envelope_line)
+    assert payload["ok"] is False
+    parsed = payload["error"]
     assert "error_code" in parsed
     assert "docs_url" in parsed
 

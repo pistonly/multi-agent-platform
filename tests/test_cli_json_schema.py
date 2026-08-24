@@ -123,7 +123,7 @@ def stub_env(monkeypatch):
 
 def _envelope(result) -> dict:
     """Parse the single JSON document the CLI must have put on stdout."""
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 # ---- success envelope + schema round-trips ----------------------------------
@@ -202,7 +202,7 @@ def test_status_json_stdout_is_pure_json(stub_env, runner):
     result = runner.invoke(app, ["experiment", "status", "--id", str(EXP_ID), "--format", "json"])
     assert result.exit_code == 0, result.output
 
-    env = json.loads(result.output)  # ENTIRE stdout — pollution guard
+    env = json.loads(result.stdout)  # ENTIRE stdout — pollution guard
     assert env["ok"] is True
     detail = ExperimentDetailRead.model_validate(env["data"])
     assert detail.id == EXP_ID

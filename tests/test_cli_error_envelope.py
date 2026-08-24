@@ -22,6 +22,7 @@ import uuid
 
 import pytest
 from map_client import project_config
+from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
 from map_client.testing import MAPTestClientTransport
 from map_types.schemas import EscalationTargetRead
@@ -29,7 +30,6 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 from cli.main import app
-from sdk.python.map_client import MAPClient
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def test_cli_format_json_emits_envelope_on_state_machine_error(
 ) -> None:
     """--format json + STATE_MACHINE.* error → JSON envelope on stderr."""
 
-    def fake_start(self, experiment_id):
+    def fake_start(self, experiment_id, executor_agent_id=None):
         raise _state_machine_error()
 
     def fake_escalation(self, experiment_id=None):
@@ -123,7 +123,11 @@ def test_cli_format_json_emits_envelope_on_state_machine_error(
     assert envelope_lines, (
         f"--format json must emit a JSON envelope, got stderr={result.stderr!r}"
     )
-    envelope = json.loads(envelope_lines[-1])
+    payload = json.loads(envelope_lines[-1])
+    # Unified error contract: outer {"ok": false, "error": {...}} mirrors the
+    # success shape {"ok": true, "data": {...}} (cli/main.py unified contract).
+    assert payload["ok"] is False
+    envelope = payload["error"]
     # Schema pins: every field present. ``docs_url`` is the 8a8822b5 (b)
     # optional human-doc-link field; it may be null but must always be
     # declared on the envelope.
@@ -148,7 +152,7 @@ def test_cli_format_yaml_includes_escalation_line(
 ) -> None:
     """--format yaml + STATE_MACHINE.* error → Escalation line on stderr."""
 
-    def fake_start(self, experiment_id):
+    def fake_start(self, experiment_id, executor_agent_id=None):
         raise _state_machine_error()
 
     def fake_escalation(self, experiment_id=None):
@@ -176,7 +180,7 @@ def test_cli_envelope_does_not_break_when_escalation_endpoint_fails(
 ) -> None:
     """--format yaml: if escalation endpoint errors, error still renders."""
 
-    def fake_start(self, experiment_id):
+    def fake_start(self, experiment_id, executor_agent_id=None):
         raise _state_machine_error()
 
     def boom(self, experiment_id=None):
@@ -207,7 +211,7 @@ def test_cli_envelope_json_unaffected_by_escalation_endpoint_failure(
     path does), so the envelope is unaffected — verify explicitly.
     """
 
-    def fake_start(self, experiment_id):
+    def fake_start(self, experiment_id, executor_agent_id=None):
         raise _state_machine_error()
 
     def boom(self, experiment_id=None):
@@ -227,7 +231,9 @@ def test_cli_envelope_json_unaffected_by_escalation_endpoint_failure(
         if line.strip().startswith("{")
     ]
     assert envelope_lines, result.stderr
-    envelope = json.loads(envelope_lines[-1])
+    payload = json.loads(envelope_lines[-1])
+    assert payload["ok"] is False
+    envelope = payload["error"]
     assert set(envelope.keys()) == {
         "error_code",
         "message",
@@ -247,7 +253,7 @@ def test_cli_value_error_envelope_json(
     must still emit a JSON envelope with null fields rather than free-text.
     """
 
-    def fake_start(self, experiment_id):
+    def fake_start(self, experiment_id, executor_agent_id=None):
         raise ValueError("experiment id is malformed")
 
     monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
@@ -263,7 +269,17 @@ def test_cli_value_error_envelope_json(
         if line.strip().startswith("{")
     ]
     assert envelope_lines, result.stderr
-    envelope = json.loads(envelope_lines[-1])
+    payload = json.loads(envelope_lines[-1])
+    assert payload["ok"] is False
+    envelope = payload["error"]
+    assert set(envelope.keys()) == {
+        "error_code",
+        "message",
+        "hint",
+        "docs_url",
+        "retryable",
+        "recovery_command",
+    }
     assert envelope["error_code"] is None
     assert envelope["hint"] is None
     assert envelope["retryable"] is None
