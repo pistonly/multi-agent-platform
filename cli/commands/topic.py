@@ -1396,7 +1396,20 @@ def action_item_add(
 
     workspace = _workspace()
     root = _content_root_name(workspace)
-    _ai_local_topic(workspace, root, topic)
+    parsed = _ai_local_topic(workspace, root, topic)
+    # A7（50cddb7e）：closed=零尾款 invariant——closed 话题不应再写入 open 执行项，
+    # 否则 close 门禁保证的「零 open」被破（管道审计实证：4 个 closed 话题被写入 open 项）。
+    if parsed.status == "closed":
+        typer.echo(
+            f"Error: 话题 {topic} 已 closed——closed 话题不能再写入 open 执行项"
+            "（closed=零尾款 invariant）",
+            err=True,
+        )
+        typer.echo(
+            "  后续事项请用 topic comment 记录；确需执行项的场合先处理话题的 close 态",
+            err=True,
+        )
+        raise typer.Exit(1)
     items = _ai_load(workspace, root, topic)
     new_id = max((item.id for item in items), default=0) + 1
     items.append(
