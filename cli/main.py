@@ -1223,8 +1223,48 @@ def map_todos() -> None:
     _run(lambda c: c.get_todos())
 
 
+def _print_work_kinds(explain: str | None) -> None:
+    """``map work --kinds`` / ``--explain <kind>``：输出 server 侧 KINDS registry。
+
+    实验 d559f431（work-kind-dispatch-single-source）A2 方向 A 过渡：wake.md
+    分发表以此输出为静态引用基准，CI 逐行一致校验（A3）消费同一 registry。
+    """
+    # 延迟 import：避免 CLI 启动路径拖入 server 依赖（先例 simple_waker 的 server_config）
+    from server.services.work_kinds import WORK_ITEM_KINDS, get_kind_spec
+
+    if explain is not None:
+        spec = get_kind_spec(explain)
+        if spec is None:
+            typer.echo(
+                f"未登记的 kind: {explain}（registry 漂移信号，见 server/services/work_kinds.py）",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        specs = (spec,)
+    else:
+        specs = WORK_ITEM_KINDS
+
+    for spec in specs:
+        typer.echo(f"kind: {spec.kind}")
+        typer.echo(f"  clear_action: {spec.clear_action}")
+        typer.echo(f"  skill: {spec.skill}")
+        if spec.note:
+            typer.echo(f"  note: {spec.note}")
+        typer.echo()
+
+
 @app.command("work")
 def map_work(
+    kinds: bool = typer.Option(
+        False,
+        "--kinds",
+        help="输出 work item kind 分发 registry（清理动作+归属 Skill+说明；server 侧单一真相，实验 d559f431 方向 A）",
+    ),
+    explain: str | None = typer.Option(
+        None,
+        "--explain",
+        help="输出单个 kind 的分发规格（如 --explain mentions；未登记 kind 退出码 2）",
+    ),
     notification_limit: int = typer.Option(50, "--notification-limit", min=1, max=200),
     notification_category: str = typer.Option(
         "all",
@@ -1267,6 +1307,10 @@ def map_work(
     /work top card; combine with ``--include-all-personas`` for full
     visibility.
     """
+    if kinds or explain is not None:
+        _print_work_kinds(explain)
+        return
+
     if summary:
 
         def action(c: MAPClient):
