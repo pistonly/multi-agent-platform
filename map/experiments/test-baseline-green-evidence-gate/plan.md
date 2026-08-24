@@ -8,7 +8,7 @@ acceptance:
   - "A5 fast-gate 存量打标：存量真 slow/integration 用例显式打标（与 fast-gate 实验 eb291c4b 的 A4 验收口径对齐）；fast-gate 正常集仍绿"
   - "A6 probe 分口径（participant round2 补充）：`test_zz_fastgate_probe.py` 是验证探针而非被测债，与 26 红清单**分开标注**——绿的标准明确为「26 红清零 + fast-gate 正常集」，probe 只作附注，不混入验收口径"
   - "A7 顺带小洞（管道审计指派并入）：`action-item add` 对 closed 话题加校验——closed=零尾款 invariant 下拒绝或显著警告；本批 4 个 closed 话题被成功写入 open 项即为实证；补单测覆盖"
-  - "测试面：evidence 校验、action-item closed 校验的新增单测全绿；`ruff check` 通过"
+  - "测试面：evidence 校验、action-item closed 校验的新增单测全绿；`ruff check` **全绿（v3 定稿基线=当前 4 预存红一并清零：UP038 @ cli/session_wake_log.py:104 + I001×3 @ tests/test_049_project_fs_content_config.py / test_review_archived_metadata.py / test_review_item_state_closed_migration.py；I001 可 ruff --fix 自动修）**——不留执行期自由裁量，4 红进 I0 基线，清零进本实验验收"
 evidence_keys:
   - "实测输出：执行首日 pytest 失败基线**原始输出落盘**（机器生成完整清单=清零对照基准；若与手工盘点 25 有出入以实测为准并注明差项）（A1）"
   - "pytest 全绿输出：机器清单用例全绿 + fast-gate 正常集（与 CI 对照），probe 仅附注（A1+A5+A6）"
@@ -48,7 +48,7 @@ fast-gate 实验（eb291c4b）刚 done 而 26 红仍在：26 红是真实失败�
 
 ## 实施顺序（建议，评审可调）
 
-1. **I0 基线收集**（A1 验收基准）：pytest 全量实跑收集失败基线，原始输出落 evidence——机器清单即清零对照基准（与手工盘点 25 的差项在此步显形并注明）
+1. **I0 基线收集**（A1 验收基准）：pytest 全量实跑收集失败基线 + `ruff check` 失败基线（4 预存红）双收集，原始输出落 evidence——机器清单即清零对照基准（与手工盘点 25 的差项在此步显形并注明；ruff 4 红同入清零范围，I001×3 自动修 + UP038 一行改写）
 2. **I1 CLI format/envelope 族清零**（9 红，同根因 JSONDecodeError Extra data——输出在 JSON 后多段内容）
 3. **I2 map_sdk_skeleton 误报清零**（2 红：evidence.py 注释含 "from server" 被 grep 误报；_map_sdk_version 已不在 cli.main——修 grep 或修测试锚点）
 4. **I3 零散三组 + 两只碎红清零**（error_codes_cli / error_envelope_and_file_options 同族 10 红、lock_notifications、reject_result_misuse、review_list_archived_filter）
@@ -67,3 +67,8 @@ fast-gate 实验（eb291c4b）刚 done 而 26 红仍在：26 红是真实失败�
 ## v2 修订说明（回应评审 a3354e7b）
 
 - 计数口径定稿：A1 验收基准从「发起帖 26 个」改为「执行首日 pytest 实跑机器清单（原始输出落 evidence，多退少补）」；手工枚举 25 项保留为编写时盘点并标注与话题口径 26 的差 1 属人工盘点误差；新增 I0 基线收集步骤与 evidence_keys 首条原始输出要求；后续步骤编号顺延
+
+
+## v3 修订说明（回应评审 1e06bb6a）
+
+- ruff 基线口径定稿（择一写死，不留自由裁量）：本实验测试面的 ruff check 全绿=当前 4 预存红一并清零（UP038 cli/session_wake_log.py:104 + I001×3 三个 tests 文件）——I001 走 ruff --fix 自动修，UP038 单行改写；4 红并入 I0 基线收集与清零验收，不做豁免登记。理由：契合「测试债清偿」主旨，124e9a00 结果审批亦建议本实验一并清点
