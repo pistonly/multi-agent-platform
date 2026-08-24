@@ -1,0 +1,7 @@
+- id: 1
+  title: 开实验:退役脚本 stub 化 + CI 防回潮(按 close_note 两阶段口径)
+  owner: host
+  status: done
+  evidence: '实验已创建并提交评审 124e9a00 (phase=review)'
+  reason: null
+  created_at: '2026-08-24T14:41:26.455809+00:00'

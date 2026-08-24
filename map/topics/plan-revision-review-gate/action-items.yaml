@@ -1,0 +1,7 @@
+- id: 1
+  title: 开实验:breaking revise 回 pending_review + complete 门禁版本核对(按 close_note 口径)
+  owner: host
+  status: done
+  evidence: '实验已创建并提交评审 bd9b21f6 (phase=review)'
+  reason: null
+  created_at: '2026-08-24T14:41:24.919281+00:00'

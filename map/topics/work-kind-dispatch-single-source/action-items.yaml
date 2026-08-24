@@ -1,0 +1,7 @@
+- id: 1
+  title: 开实验:kind 分发单一真相化(KINDS registry → 渲染 → CI 校验,按 close_note 方向 B)
+  owner: host
+  status: done
+  evidence: '实验已创建并提交评审 d559f431 (phase=review)'
+  reason: null
+  created_at: '2026-08-24T14:41:23.365688+00:00'
