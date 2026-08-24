@@ -394,6 +394,12 @@ def experiment_complete(
         "--allow-missing-evidence",
         help="Bypass metadata evidence check for non-deployment experiments.",
     ),
+    known_failures: list[str] = typer.Option(
+        None,
+        "--known-failures",
+        help="50cddb7e I4 (A3): known-failure debt ref(s) waiving the "
+        "pytest_summary.failed>0 hard gate. Repeatable.",
+    ),
     schema: bool = typer.Option(
         False,
         "--schema",
@@ -433,6 +439,7 @@ def experiment_complete(
         content_md=content_md,
         metadata=metadata,
         log_file_path=log_file_path,
+        known_failures=known_failures or [],
     )
     _run(lambda c: c.complete_experiment(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 

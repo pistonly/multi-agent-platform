@@ -317,6 +317,114 @@ def _legacy_accept_result_metadata(payload_metadata: dict[str, Any] | None) -> d
     return fragment
 
 
+# --- 50cddb7e I4 (A3/A4): pytest_summary 机器校验的门禁接线 --------------------
+
+
+def _validation_metadata(validation) -> dict[str, Any]:
+    """Persistable form of ``PytestSummaryValidation`` (log metadata_json)."""
+    return {
+        "status": "exempted" if validation.exempted else "passed",
+        "known_failures": (
+            list(validation.exempted_known_failures)
+            if validation.exempted
+            else []
+        ),
+        "warnings": list(validation.warnings),
+    }
+
+
+def _format_pytest_summary_validation(validation) -> str:
+    """Human-readable lines appended to the completion log (reviewer-visible)."""
+    lines = ["", "## pytest_summary 机器校验（50cddb7e I4 A3）"]
+    lines.append(f"- status: {'exempted' if validation.exempted else 'passed'}")
+    if validation.exempted:
+        refs = " ".join(validation.exempted_known_failures)
+        lines.append(f"- known_failures 豁免: {refs}")
+    for warn in validation.warnings:
+        lines.append(f"- [WARN] {warn}")
+    return "\n".join(lines)
+
+
+def _apply_pytest_summary_gate(
+    payload: ExperimentComplete,
+) -> tuple[Any, dict[str, Any] | None] | None:
+    """Run the complete-time pytest_summary machine check.
+
+    Returns ``(validation, enriched_metadata)`` when ``metadata`` carries a
+    ``pytest_summary``; raises ``StateTransitionError`` on ``failed > 0``
+    without ``known_failures`` exemption. Returns None when there is no
+    ``pytest_summary`` to machine-check.
+    """
+    if not isinstance(payload.metadata, dict):
+        return None
+    if payload.metadata.get("pytest_summary") is None:
+        return None
+    from server.config import get_settings  # lazy: avoid import cycle
+    from server.services.evidence_service import validate_pytest_summary
+
+    validation = validate_pytest_summary(
+        payload.metadata["pytest_summary"],
+        known_failures=payload.known_failures,
+        ci_baseline_total=get_settings().ci_test_total,
+    )
+    if validation.reject_reason:
+        raise StateTransitionError(validation.reject_reason)
+    # 只要门禁跑过就落 marker（绿灯 passed 也可见，A4 reviewer 视角统一）。
+    enriched = {
+        **(payload.metadata or {}),
+        "pytest_summary_validation": _validation_metadata(validation),
+    }
+    return (validation, enriched)
+
+
+def _recheck_pytest_summary_for_accept(
+    db: Session, experiment_id: uuid.UUID
+) -> tuple[str, dict[str, Any]] | None:
+    """Re-run the pytest_summary machine check at accept time (A4).
+
+    Reads the experiment's most recent log that carries a structured
+    ``pytest_summary`` in ``metadata_json``, re-validates it, and returns
+    ``(reviewer-visible verdict line, pytest_summary_validation metadata)``.
+    Returns None when no such evidence exists (nothing to recheck).
+    """
+    from server.domain.models import ExperimentLog
+
+    rows = db.scalars(
+        select(ExperimentLog)
+        .where(ExperimentLog.experiment_id == experiment_id)
+        .order_by(ExperimentLog.created_at.desc(), ExperimentLog.id.desc())
+        .limit(20)
+    ).all()
+    summary: Any = None
+    for row in rows:
+        meta = row.metadata_json or {}
+        if isinstance(meta, dict) and meta.get("pytest_summary") is not None:
+            summary = meta["pytest_summary"]
+            break
+    if summary is None:
+        return None
+
+    from server.config import get_settings  # lazy: avoid import cycle
+    from server.services.evidence_service import validate_pytest_summary
+
+    validation = validate_pytest_summary(
+        summary,
+        known_failures=[],  # 豁免决策已在 complete 时记录；accept 复显当前灯
+        ci_baseline_total=get_settings().ci_test_total,
+    )
+    status = "exempted" if validation.exempted else "passed"
+    lines = [
+        "## pytest_summary 机器校验（50cddb7e I4 A4 · accept 复校）",
+        f"- status: {status}",
+    ]
+    for warn in validation.warnings:
+        lines.append(f"- [WARN] {warn}")
+    return (
+        "\n".join(lines),
+        {"pytest_summary_validation": {"status": status, "warnings": list(validation.warnings)}},
+    )
+
+
 def complete_experiment(
     db: Session,
     experiment_id: uuid.UUID,
@@ -343,6 +451,15 @@ def complete_experiment(
         experiment.log_file_path = payload.log_file_path
 
     log_content = payload.content_md or f"See file: {payload.log_file_path}"
+
+    # 50cddb7e I4 (A3): pytest_summary 机器校验——failed>0 且无 --known-failures
+    # 豁免 → 拒绝 complete（硬门禁）；豁免/警告追加进 completion log + metadata，
+    # reviewer 在 result_review 侧可直接可见（A4 complete 路径展示）。
+    enriched_metadata = payload.metadata
+    gate = _apply_pytest_summary_gate(payload)
+    if gate is not None:
+        validation, enriched_metadata = gate
+        log_content += _format_pytest_summary_validation(validation)
 
     # 实验 bd9b21f6 A5: complete 版本核对红旗（兜底，非阻塞）。当前 plan 版本
     # 无评审覆盖、但存在更旧版本评审 ⇒ 评审通过后 plan 又改过而未回 review——
@@ -381,7 +498,7 @@ def complete_experiment(
             ExperimentLogCreate(
                 summary=payload.summary,
                 content_md=log_content,
-                metadata=payload.metadata,
+                metadata=enriched_metadata,
             ),
         )
         # A2 cascade: mark linked open action_items as done (same as
@@ -437,7 +554,7 @@ def complete_experiment(
         ExperimentLogCreate(
             summary=payload.summary,
             content_md=log_content,
-            metadata=payload.metadata,
+            metadata=enriched_metadata,
         ),
     )
     experiment.phase = ExperimentPhase.result_review
@@ -486,13 +603,24 @@ def accept_result(
     else:
         merged_metadata = _legacy_accept_result_metadata(payload.metadata)
 
+    # 50cddb7e I4 (A4): accept 路径复显 pytest_summary 机器校验——从实验最近
+    # 一条携带 pytest_summary 的 log 取回 evidence，重跑校验并把当前红/绿灯
+    # 追加进 accept log（content + metadata），reviewer 结果处直接可见。
+    accept_recheck = _recheck_pytest_summary_for_accept(db, experiment_id)
+    if accept_recheck:
+        verdict_line, recheck_metadata = accept_recheck
+        merged_metadata = {**merged_metadata, **recheck_metadata}
+        content_md = (payload.content_md or "") + "\n\n" + verdict_line
+    else:
+        content_md = payload.content_md
+
     append_log(
         db,
         experiment_id,
         actor,
         ExperimentLogCreate(
             summary=payload.summary,
-            content_md=payload.content_md,
+            content_md=content_md,
             metadata=merged_metadata,
         ),
     )

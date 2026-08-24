@@ -310,6 +310,14 @@ class ExperimentComplete(BaseModel):
     # MAP slimming: when set, the log MD lives at this local path and
     # ``content_md`` may be omitted. Stored on the Experiment row.
     log_file_path: str | None = None
+    # 50cddb7e I4 (A3): scored-test debt refs (issue/债条目) that exempt
+    # a ``pytest_summary.failed > 0`` hard gate at complete time. Strings
+    # reference a registered debt entry — minimal form, no schema beyond "查
+    # 得到即可".
+    known_failures: list[str] = Field(
+        default_factory=list,
+        description="Known-failure refs that waive the failed>0 pytest_summary gate.",
+    )
 
     @model_validator(mode="after")
     def _require_content_or_path(self) -> "ExperimentComplete":

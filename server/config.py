@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # 否则跨进程签发的 commit token 无法验证。
     fs_write_token_secret: str | None = None
 
+    # 50cddb7e I4 (A3)：CI 全量测试总数为参考基线。complete 时对比
+    # ``metadata["pytest_summary"]["total"]``，不符 → warning（不阻断），
+    # 避免单机收集数与 CI 环境差异误杀。None=未配置跳过该核对。
+    # 可覆盖：``MAP_CI_TEST_TOTAL=1794``。
+    ci_test_total: int | None = None
+
     # Serve the bundled React SPA from map-server (same origin as /api).
     # Disable with MAP_SERVE_WEB=false when another process (Vite / nginx)
     # already serves the board. MAP_WEB_DIST overrides the packaged
