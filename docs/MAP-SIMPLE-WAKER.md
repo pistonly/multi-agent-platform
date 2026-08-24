@@ -208,3 +208,14 @@ simple-waker 是 FS 话题轮次推进后的主唤醒链路，但 waker 状态�
   `TODO_BUCKET_UI_LABELS` 已迁至 `cli/wake_backend.py`
 - 既有 `from cli.runtime_waker import ...` 仍可用（re-export），新代码请直接
   导入新模块
+
+## Deprecated 脚本 stub 与第二阶段删除纪律（实验 124e9a00）
+
+`start-*-bridge*.sh` 四个 deprecated 启动脚本已 stub 化（exit 1 + 指引
+simple-waker 替代），`scripts/check-deprecated.sh` 在 CI 执行两条防回潮规则
+（stub 内容校验 + 声明处登记校验），登记单一真相为
+`docs/LEGACY-ENTRY-MATRIX.md`。
+
+第二阶段物理删除纪律：删除 deprecated 脚本前须走**显式 diff 评审**——
+host 之外至少一人（participant/reviewer 或用户）看过删除清单并表态；
+观察期内若发现隐藏引用（cron/systemd/习惯路径）先登记再裁决，不盲删。

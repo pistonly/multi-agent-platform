@@ -36,10 +36,10 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 | `scripts/start-all-wakers.sh` | 主路径 | 三 persona simple-waker（默认） |
 | `scripts/start-all-simple-wakers.sh` | 主路径 | 同上（被 start-all-wakers 调用） |
 | `scripts/start-simple-waker.sh` | 主路径 | 单 persona simple-waker |
-| `scripts/start-participant-bridge.sh` | deprecated | 旧 bridge 启动脚本 |
-| `scripts/start-participant-bridge-claude.sh` | deprecated | 旧 bridge（Claude runner） |
-| `scripts/start-reviewer-bridge.sh` | deprecated | 旧 bridge 启动脚本 |
-| `scripts/start-reviewer-bridge-claude.sh` | deprecated | 旧 bridge（Claude runner） |
+| `scripts/start-participant-bridge.sh` | deprecated | **stub**：exit 1 + 指引 simple-waker 替代（实验 124e9a00 第一阶段） |
+| `scripts/start-participant-bridge-claude.sh` | deprecated | **stub**：同上（Claude runner 变体） |
+| `scripts/start-reviewer-bridge.sh` | deprecated | **stub**：exit 1 + 指引 simple-waker 替代 |
+| `scripts/start-reviewer-bridge-claude.sh` | deprecated | **stub**：同上（Claude runner 变体） |
 
 ## 文档
 
@@ -60,6 +60,8 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 ## CI manifest（check-deprecated.sh）
 
 以下 **deprecated** 条目在 Phase 1 必须仍存在（标注不删）。若删除须同步更新本清单与文档。
+
+check-deprecated.sh 同时执行两条防回潮规则（实验 124e9a00 A3）：manifest 中 `scripts/*.sh` 必须保持 stub（改回真脚本 → CI fail）；退役声明处（CLAUDE.md / Skill wake.md）引用的启动路径必须在本矩阵 scripts 节登记（未登记 → CI fail）。**本文件的 scripts 表格与 DEPRECATED 清单是登记单一真相，改格式前先过 CI。**
 
 DEPRECATED: scripts/start-participant-bridge.sh
 DEPRECATED: scripts/start-participant-bridge-claude.sh

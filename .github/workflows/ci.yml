@@ -20,6 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Legacy entry matrix checks (stub + registration)
+        # 实验 124e9a00 A3 防回潮：deprecated 启动脚本必须保持 stub；
+        # 退役声明处引用的启动路径必须在 LEGACY-ENTRY-MATRIX 登记。
+        run: bash scripts/check-deprecated.sh
+
       - name: Install uv
         # eng experiment (55634575) PR1: pin uv to a fixed version so
         # local + CI + Dockerfile all agree. Bump in lockstep.
