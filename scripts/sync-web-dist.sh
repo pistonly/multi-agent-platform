@@ -50,4 +50,25 @@ if [[ ! -f "$DEST/index.html" ]]; then
   exit 1
 fi
 
+# Record the exact source this bundle was built from. check-release.sh
+# --require-tag fails a publish whose server/web_dist predates the latest
+# web/ source (the incident class where a fix landed in source but the
+# shipped board kept the old behaviour).
+build_info="$DEST/build-info.json"
+git_sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+version="$(python3 -c '
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^\[project\].*?^version\s*=\s*\"([^\"]+)\"", text, re.M | re.S)
+print(m.group(1) if m else "unknown")
+' "$ROOT/pyproject.toml")"
+cat > "$build_info" <<EOF
+{
+  "git_sha": "$git_sha",
+  "version": "$version",
+  "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+echo "check-release: wrote $build_info (git $git_sha, version $version)"
+
 echo "OK: $DEST (from web/dist)"

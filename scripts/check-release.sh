@@ -15,6 +15,10 @@
 #   2. with --require-tag: git tag v<version> exists and points at HEAD
 #      AND server/web_dist/index.html exists (run scripts/sync-web-dist.sh
 #      first so the wheel ships the board)
+#   3. with --require-tag: server/web_dist/build-info.json records that the
+#      bundle was built from the current HEAD at the current version —
+#      catches the incident class where a web/ source fix never reached a
+#      rebuilt bundle (e.g. the TopicPage FS mark-read guard)
 #
 # Usage:
 #   scripts/check-release.sh                # version consistency only
@@ -65,6 +69,23 @@ if [[ "${1:-}" == "--require-tag" ]]; then
   web_index="$ROOT/server/web_dist/index.html"
   if [[ ! -f "$web_index" ]]; then
     echo "check-release: missing $web_index — run scripts/sync-web-dist.sh before publish so map-server ships the board" >&2
+    exit 1
+  fi
+  build_info="$ROOT/server/web_dist/build-info.json"
+  if [[ ! -f "$build_info" ]]; then
+    echo "check-release: missing $build_info — run scripts/sync-web-dist.sh before publish so the board provably matches this source" >&2
+    exit 1
+  fi
+  built_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["git_sha"])' "$build_info")"
+  built_ver="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$build_info")"
+  head_sha="$(git -C "$ROOT" rev-parse HEAD)"
+  if [[ "$built_sha" != "$head_sha" || "$built_ver" != "$ver_pyproject" ]]; then
+    cat >&2 <<EOF
+check-release: server/web_dist was built from ${built_sha:-<none>} (version ${built_ver:-<none>}),
+but this release is HEAD=$head_sha version=$ver_pyproject. The shipped board may predate a
+web/ source change whose fix never reached the bundle.
+Run: scripts/sync-web-dist.sh   # rebuilds web/dist -> server/web_dist + build-info.json
+EOF
     exit 1
   fi
   tag="v$ver_pyproject"
