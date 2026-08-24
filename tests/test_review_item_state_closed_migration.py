@@ -21,11 +21,11 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from alembic.config import Config as AlembicConfig
 from map_types.enums import ResolutionReason, ReviewItemStatus
 from sqlalchemy import create_engine, inspect
 
 from alembic import command
-from alembic.config import Config as AlembicConfig
 from server.domain.state_machine import (
     ReviewItemTransitionContext,
     validate_review_item_transition,
