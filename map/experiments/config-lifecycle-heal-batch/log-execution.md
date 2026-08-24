@@ -35,3 +35,12 @@
 - **测试**：`test_bootstrap_conflict_triage.py` 3 例（三出路文案 / 本地已存在 ValueError 含分流 / CLI server 409 输出分流）+ `test_auth_reissue.py` 2 例（默认不修 config 字节不变回归 / `--rewrite-config` 时 heal 恰好一次并输出「project_id 已回写」）。相关 30 例全绿，ruff 全绿。
 - **live 实测（2026-08-25）**：`map bootstrap --key multi-agents-platform` → `已存在（或 .map/ 已初始化）。按意图分流：…reissue … --heal … archive…` 三出路齐全；`map auth reissue --help` → `--rewrite-config` 选项可见。
 - **commit**：`a1a869a map exp 3b7c2b44 I3(A3+A4): bootstrap 409 分流文案 + auth reissue --rewrite-config 边界`
+### I4（A5）workspace_path+content_root 联合键唯一 + doctor 双归属兜底
+
+- **共享 helper**（server/services/_lookups.py）：新增 `ensure_workspace_unique(db, *, workspace_path, content_root, exclude_project_id=None)`——命中已有 project 即抛 `ConflictError(409)` 且 detail 指明「已被 project '<name>' (key=<key>) 认领」，并指向 `docs/WORKSPACE-UNIQUENESS.md` 处置指引；`exclude_project_id` 支持 update 排除自身。
+- **三处接入**：`project_service.create_project`（project_key 检查后）、`project_service.update_project`（仅当 payload 涉及 workspace_path/content_root 字段时，排除自身）、`bootstrap_service.run_bootstrap`（project_key/agent name 检查后）。同一 repo 不同 content_root 开多 project 不被误伤。
+- **doctor 双归属兜底**（cli/commands/doctor.py `_workspace_duplicates`）：`inspect_config_divergences` 末尾调用 `c.list_projects(include_archived=False)`，按 `(workspace_path, content_root)` 分组，同组 ≥2 个认领者 → 追加 `("workspace", …双归属…列全署名)` divergence（`--check` 归入 1）；list 失败**软跳过**（返回 []，不破坏码表语义；非 admin 的 list_projects 仅见自己 project，跨 project 双归属需 admin 可见性，硬约束仍靠 create/bootstrap 409）。`_fix_hint` 增 workspace 类别 → 指向处置文档。
+- **处置文档**：`docs/WORKSPACE-UNIQUENESS.md`——约束规则（create/register/update 409、content_root 区分合法多 project）+ 存量双归属两条标准路径（retired-surface 清理 / archive 换主）+ 验证（doctor clean(0)/diverged(1)）。
+- **测试**：`tests/test_workspace_unique.py` 5 例（create 同键 409+指明归属 / 不同 content_root 201 / bootstrap 同 workspace 409 / update 排除自身 200 / update 改到已占用 409）；`tests/test_doctor_config.py` 增 4 例（双归属 workspace divergence 列全认领者、不同 content_root 不误报、单一 project clean、list 失败软跳过）。相关 51 例全绿（bootstrap/projects/heal/triage/doctor/workspace），ruff 全绿。
+- **live 实测（2026-08-25）**：`map bootstrap --key a5-live-dup … --path <repo根>`（临时 project-root）→ **Error 409: workspace_path+content_root 已被 project 'Multi Agents Platform' (key=multi-agents-platform) 认领；…见 docs/WORKSPACE-UNIQUENESS.md。** 且系统 cat 到 A3 分流文案（三出路齐全）；`map doctor config --check` → `diverged (1)` 仅报预存 agent 分叉（无 workspace 误报）；daemon 已带真实 DB URL 重启。
+- **commit**：`e95fec2 map exp 3b7c2b44 I4(A5): workspace_path+content_root 联合键唯一 + doctor 双归属兜底`（7 文件窄提交）
