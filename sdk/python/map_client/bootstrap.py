@@ -456,12 +456,7 @@ def bootstrap_project_map(
     local_path = map_dir / AGENTS_LOCAL_FILE
 
     if local_path.is_file() and not force:
-        raise ValueError(
-            f"{local_path} already exists. Remove it or pass --force "
-            "(re-registering does not recover existing tokens; use "
-            f"`map auth reissue --key {project_key} --name <agent-name>` "
-            "to recover them)."
-        )
+        raise ValueError(bootstrap_conflict_triage(project_key))
 
     resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:18400").rstrip("/")
 
@@ -566,6 +561,22 @@ def bootstrap_project_map(
     )
 
     return BootstrapResult(config=cfg, created_project=created_project, skipped_agent_names=skipped)
+
+
+def bootstrap_conflict_triage(project_key: str) -> str:
+    """bootstrap 遇「key / .map/ 已存在」时按用户意图分流（3b7c2b44 A3）。
+
+    三种意图各有出路：丢 token → reissue；config 陈旧 → heal；想整体重做 →
+    archive + 换 key 重建。文案在 SDK 层集中定义，CLI 409 catch 与本地
+    already-exists 路径共用，避免两处分叉。
+    """
+    return (
+        f"project_key '{project_key}' 已存在（或 .map/ 已初始化）。按意图分流：\n"
+        f"  丢 token      → map auth reissue --key {project_key} --name <agent-name>"
+        "（恢复后用 `map doctor config --check` 复查）\n"
+        f"  config 陈旧   → map bootstrap --heal（不 create、project_id/agent_name 回写权威、不碰 token）\n"
+        "  想整体重做    → 先 archive 旧 project 或换新 key，再重新 map bootstrap\n"
+    )
 
 
 def heal_project_map_config(

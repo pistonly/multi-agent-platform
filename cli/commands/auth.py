@@ -49,6 +49,12 @@ def auth_reissue(
         help="Bearer token for the reissue call (explicit, or falls back to "
         "MAP_ADMIN_TOKEN, then any surviving token in .map/agents.local.yaml).",
     ),
+    rewrite_config: bool = typer.Option(
+        False,
+        "--rewrite-config",
+        help="3b7c2b44 A4：仅显式开启时，reissue 成功后顺带把 .map/config.yaml 的 "
+        "project_id 回写服务端权威。默认不修 config，保持 token 丢失恢复语义（避免误用吊销被 waker 缓存的其他 token）。",
+    ),
 ) -> None:
     """Reissue an agent's API token and write it back to .map/agents.local.yaml.
 
@@ -63,6 +69,7 @@ def auth_reissue(
     Examples:
         map auth reissue --key my-project --name my-project-host
         map auth reissue --name my-project-host          # from .map/config.yaml
+        map auth reissue --name my-project-host --rewrite-config  # 顺带修 config project_id
     """
     from cli.main import _cli_options
 
@@ -84,6 +91,23 @@ def auth_reissue(
         typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
         raise typer.Exit(1) from exc
 
+    healed: bool = False
+    if rewrite_config:
+        # 默认不启用：A4 边界。仅用户显式 --rewrite-config 时，把 config.yaml
+        # 的 project_id 顺带回写权威（reissue 已把新 token 写回 agents.local.yaml，
+        # heal 用存活 token 鉴权，零额外 create/reissue）。
+        from map_client.bootstrap import heal_project_map_config
+
+        try:
+            heal_result = heal_project_map_config(
+                project_key=key,
+                project_root=Path(root) if root else None,
+                api_url=api_url,
+            )
+            healed = heal_result.config_rewritten
+        except (ValueError, MAPHTTPError) as exc:
+            typer.echo(f"[WARN] --rewrite-config 顺带修复未完成: {exc}", err=True)
+
     if fmt == "json":
         import json
 
@@ -98,6 +122,7 @@ def auth_reissue(
                         "api_url": result.api_url,
                         "wrote_back": str(result.local_path),
                         "previous_token_revoked": True,
+                        "config_rewritten": healed,
                     },
                 },
                 ensure_ascii=False,
@@ -108,6 +133,9 @@ def auth_reissue(
 
     typer.echo(f"Reissued token for agent '{result.agent_name}' ({result.agent_id})")
     typer.echo(f"Previous token revoked. Wrote back: {result.local_path}")
+    if rewrite_config:
+        status = "已回写" if healed else "与权威一致/回写后无需改动"
+        typer.echo(f"--rewrite-config: config.yaml project_id {status}")
     if result.persona_key:
         typer.echo(f"Try: map --persona {result.persona_key} persona whoami")
     else:

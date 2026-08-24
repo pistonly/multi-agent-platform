@@ -12,8 +12,19 @@ from pathlib import Path
 import httpx
 import pytest
 import yaml
-from map_client.bootstrap import reissue_map_token
+from map_client.bootstrap import HealResult, ReissueResult, reissue_map_token
 from map_client.exceptions import MAPHTTPError
+from typer.testing import CliRunner
+
+from cli.commands.auth import auth_app
+
+FAKE_REISSUE = ReissueResult(
+    persona_key="host",
+    agent_name="demo-host",
+    agent_id="11111111-1111-1111-1111-111111111111",
+    api_url="http://localhost:18400",
+    local_path=Path("/tmp/x/.map/agents.local.yaml"),
+)
 
 
 def _init_map_dir(root: Path, *, agent_names: dict[str, str] | None = None) -> None:
@@ -147,3 +158,67 @@ def test_reissue_custom_agent_without_persona_entry(tmp_path: Path) -> None:
         (tmp_path / ".map" / "agents.local.yaml").read_text(encoding="utf-8")
     )
     assert local["personas"]["custom-bot"]["token"] == "new-token-xyz"
+
+
+# --- 3b7c2b44 A4：--rewrite-config 边界（默认不修 config，显式才一并修） ---
+
+
+def test_reissue_cli_default_keeps_config_untouched(tmp_path: Path, monkeypatch) -> None:
+    """默认 reissue 只写 token，不碰 config.yaml（token 丢失恢复语义回归）。"""
+    _init_map_dir(tmp_path)
+    config_path = tmp_path / ".map" / "config.yaml"
+    before = config_path.read_bytes()
+    heal_calls: list[dict] = []
+
+    monkeypatch.setattr(
+        "cli.commands.auth.reissue_map_token",
+        lambda **kw: FAKE_REISSUE,
+    )
+    monkeypatch.setattr(
+        "map_client.bootstrap.heal_project_map_config",
+        lambda **kw: heal_calls.append(kw),
+    )
+
+    # auth_app 单命令组在 root 展平：不写 "reissue" token
+    result = CliRunner().invoke(
+        auth_app, ["--name", "demo-host", "--project-root", str(tmp_path)]
+    )
+    assert result.exit_code == 0
+    assert heal_calls == []  # 默认绝不触发 heal / 不修 config
+    assert config_path.read_bytes() == before
+
+
+def test_reissue_cli_rewrite_config_calls_heal_once(tmp_path: Path, monkeypatch) -> None:
+    """仅显式 --rewrite-config 时顺带修 config；heal 恰好一次。"""
+    _init_map_dir(tmp_path)
+    heal_calls: list[dict] = []
+
+    monkeypatch.setattr(
+        "cli.commands.auth.reissue_map_token",
+        lambda **kw: FAKE_REISSUE,
+    )
+
+    def fake_heal(**kw) -> HealResult:
+        heal_calls.append(kw)
+        return HealResult(
+            project_key="demo-key",
+            project_id="11111111-1111-1111-1111-111111111111",
+            api_url="http://localhost:18400",
+            map_dir=tmp_path / ".map",
+            config_rewritten=True,
+            agents_rewritten=False,
+        )
+
+    monkeypatch.setattr("map_client.bootstrap.heal_project_map_config", fake_heal)
+
+    result = CliRunner().invoke(
+        auth_app,
+        [
+            "--name", "demo-host",
+            "--project-root", str(tmp_path),
+            "--rewrite-config",
+        ],
+    )
+    assert result.exit_code == 0
+    assert len(heal_calls) == 1
+    assert "config.yaml project_id 已回写" in result.output

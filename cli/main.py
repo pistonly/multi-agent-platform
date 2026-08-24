@@ -1209,6 +1209,13 @@ def map_bootstrap(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
     except MAPHTTPError as exc:
+        if exc.status_code == 409:
+            # A3：自服务路径 server 已存在 key 的 409 → 按意图分流
+            from map_client.bootstrap import bootstrap_conflict_triage
+
+            typer.echo(f"Error 409: {exc.detail}", err=True)
+            typer.echo(bootstrap_conflict_triage(key), err=True)
+            raise typer.Exit(1) from exc
         typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
         raise typer.Exit(1) from exc
 
