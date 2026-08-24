@@ -1,0 +1,973 @@
+..........F..FF................................................F........ [  5%]
+........................................................................ [ 10%]
+........................................................................ [ 15%]
+...............................FFFFFF.F......F.......F.................. [ 20%]
+..................F..........F.......................................... [ 25%]
+........................................................................ [ 30%]
+........................................................................ [ 35%]
+......FF.F....FF.....FFF....FF.......................................... [ 40%]
+.....................F.................................................. [ 45%]
+........................................................................ [ 50%]
+.................................................................F.F.... [ 55%]
+........................................................................ [ 60%]
+........................................................................ [ 65%]
+.........................................................F.............. [ 70%]
+.....F................................................................FF [ 75%]
+........................................................................ [ 80%]
+........................................................................ [ 85%]
+........................................................................ [ 90%]
+........................................................................ [ 95%]
+.....................................................................    [100%]
+=================================== FAILURES ===================================
+__________________ test_subapp_commands_match_snapshot[topic] __________________
+
+runner = <typer.testing.CliRunner object at 0x7f0abd81d2d0>, subapp = 'topic'
+expected = ['create', 'list', 'show', 'progress', 'resolve', 'advance-round', ...]
+
+    @pytest.mark.parametrize(
+        ("subapp", "expected"),
+        sorted(EXPECTED_SUBAPP_COMMANDS.items()),
+        ids=sorted(EXPECTED_SUBAPP_COMMANDS),
+    )
+    def test_subapp_commands_match_snapshot(
+        runner: CliRunner, subapp: str, expected: list[str]
+    ) -> None:
+        """Each sub-app exposes the expected command surface (no silent drop / rename)."""
+        result = runner.invoke(app, [subapp, "--help"])
+        assert result.exit_code == 0, result.stdout
+        actual = _parse_commands_block(result.stdout)
+>       assert sorted(actual) == sorted(expected), (
+            f"sub-app {subapp!r} command drift: "
+            f"expected {sorted(expected)}, got {sorted(actual)}"
+        )
+E       AssertionError: sub-app 'topic' command drift: expected ['advance-round', 'archive', 'close', 'comment', 'create', 'dismiss', 'list', 'mark-seen', 'migrate', 'progress', 'read', 'reopen', 'resolve', 'rollback-round', 'show'], got ['action-item', 'advance-round', 'archive', 'close', 'comment', 'create', 'dismiss', 'list', 'mark-seen', 'migrate', 'progress', 'read', 'reopen', 'resolve', 'rollback-round', 'show']
+E       assert ['action-item...'create', ...] == ['advance-rou...dismiss', ...]
+E         
+E         At index 0 diff: 'action-item' != 'advance-round'
+E         Left contains one more item: 'show'
+E         Use -v to get more diff
+
+tests/cli/test_compat.py:173: AssertionError
+__________________ test_every_subgroup_command_is_classified ___________________
+
+    def test_every_subgroup_command_is_classified() -> None:
+        """每个子组命令必须被归为 write 或 read-only，否则新增命令会被无声漏掉。"""
+>       commands = set(_scan_subgroup_commands())
+
+tests/cli/test_dry_run_write_commands.py:150: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _scan_subgroup_commands() -> list[tuple[str, ...]]:
+        """扫描 cli/main.py + cli/commands/*.py + cli/e2e_collab.py 的全部子命令。
+    
+        369ccac 拆分后子命令装饰器已从 main.py 迁至 cli/commands/*.py；
+        只扫 main.py 会得到空集（反射正则失效但无人察觉）。
+        """
+        files = [MAIN_PY, *sorted(COMMANDS_DIR.glob("*.py")), E2E_COLLAB_PY]
+        paths: list[tuple[str, ...]] = []
+        for fp in files:
+            text = fp.read_text(encoding="utf-8")
+            for var, name in _COMMAND_RE.findall(text):
+                prefix = _APP_VAR_TO_PATH.get(var)
+>               assert prefix is not None, (
+                    f"{fp.name} 用 @{var}.command 注册命令，但 _APP_VAR_TO_PATH 未登记该 sub-app，"
+                    "请在 test_dry_run_write_commands.py 补充映射。"
+                )
+E               AssertionError: topic.py 用 @action_item_app.command 注册命令，但 _APP_VAR_TO_PATH 未登记该 sub-app，请在 test_dry_run_write_commands.py 补充映射。
+E               assert None is not None
+
+tests/cli/test_dry_run_write_commands.py:140: AssertionError
+_______________ test_read_only_commands_are_not_flagged_as_write _______________
+
+    def test_read_only_commands_are_not_flagged_as_write() -> None:
+        """只读命令不应被 _is_write_command 误判为写（互斥校验）。"""
+>       real = set(_scan_subgroup_commands())
+
+tests/cli/test_dry_run_write_commands.py:167: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _scan_subgroup_commands() -> list[tuple[str, ...]]:
+        """扫描 cli/main.py + cli/commands/*.py + cli/e2e_collab.py 的全部子命令。
+    
+        369ccac 拆分后子命令装饰器已从 main.py 迁至 cli/commands/*.py；
+        只扫 main.py 会得到空集（反射正则失效但无人察觉）。
+        """
+        files = [MAIN_PY, *sorted(COMMANDS_DIR.glob("*.py")), E2E_COLLAB_PY]
+        paths: list[tuple[str, ...]] = []
+        for fp in files:
+            text = fp.read_text(encoding="utf-8")
+            for var, name in _COMMAND_RE.findall(text):
+                prefix = _APP_VAR_TO_PATH.get(var)
+>               assert prefix is not None, (
+                    f"{fp.name} 用 @{var}.command 注册命令，但 _APP_VAR_TO_PATH 未登记该 sub-app，"
+                    "请在 test_dry_run_write_commands.py 补充映射。"
+                )
+E               AssertionError: topic.py 用 @action_item_app.command 注册命令，但 _APP_VAR_TO_PATH 未登记该 sub-app，请在 test_dry_run_write_commands.py 补充映射。
+E               assert None is not None
+
+tests/cli/test_dry_run_write_commands.py:140: AssertionError
+____________ TestMappingContract.test_every_experiment_phase_mapped ____________
+
+self = <tests.test_a2a.TestMappingContract object at 0x7f0abed4acd0>
+
+    def test_every_experiment_phase_mapped(self):
+        from map_types.enums import ExperimentPhase
+    
+>       assert set(EXPERIMENT_TASK_STATE) == set(ExperimentPhase)
+E       AssertionError: assert {<ExperimentP...review'>, ...} == {<ExperimentP...review'>, ...}
+E         
+E         Extra items in the right set:
+E         <ExperimentPhase.pending_review: 'pending_review'>
+E         Use -v to get more diff
+
+tests/test_a2a.py:185: AssertionError
+__________ test_cli_format_json_emits_envelope_on_state_machine_error __________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7744950>, patched_cli = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7745950>
+
+    def test_cli_format_json_emits_envelope_on_state_machine_error(
+        runner, patched_cli, monkeypatch
+    ) -> None:
+        """--format json + STATE_MACHINE.* error → JSON envelope on stderr."""
+    
+        def fake_start(self, experiment_id):
+            raise _state_machine_error()
+    
+        def fake_escalation(self, experiment_id=None):
+            return _escalation_target(experiment_id)
+    
+        monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+        monkeypatch.setattr(MAPClient, "get_escalation_target", fake_escalation)
+    
+        result = runner.invoke(
+            app,
+            [
+                "--format",
+                "json",
+                "experiment",
+                "start",
+                "--id",
+                str(uuid.uuid4()),
+            ],
+        )
+        assert result.exit_code != 0, (
+            f"expected start to fail; stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        # Find the JSON envelope in stderr (the last JSON-looking line).
+        stderr_lines = [
+            line.strip() for line in result.stderr.splitlines() if line.strip()
+        ]
+        envelope_lines = [line for line in stderr_lines if line.startswith("{")]
+>       assert envelope_lines, (
+            f"--format json must emit a JSON envelope, got stderr={result.stderr!r}"
+        )
+E       AssertionError: --format json must emit a JSON envelope, got stderr=''
+E       assert []
+
+tests/test_cli_error_envelope.py:123: AssertionError
+________________ test_cli_format_yaml_includes_escalation_line _________________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7dfa110>, patched_cli = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7dfa450>
+
+    def test_cli_format_yaml_includes_escalation_line(
+        runner, patched_cli, monkeypatch
+    ) -> None:
+        """--format yaml + STATE_MACHINE.* error → Escalation line on stderr."""
+    
+        def fake_start(self, experiment_id):
+            raise _state_machine_error()
+    
+        def fake_escalation(self, experiment_id=None):
+            return _escalation_target(experiment_id)
+    
+        monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+        monkeypatch.setattr(MAPClient, "get_escalation_target", fake_escalation)
+    
+        result = runner.invoke(
+            app,
+            ["experiment", "start", "--id", str(uuid.uuid4())],
+        )
+        assert result.exit_code != 0, (
+            f"expected start to fail; stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        stderr = result.stderr
+>       assert "Error" in stderr
+E       AssertionError: assert 'Error' in ''
+
+tests/test_cli_error_envelope.py:168: AssertionError
+_______ test_cli_envelope_does_not_break_when_escalation_endpoint_fails ________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7c3dc10>, patched_cli = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7c3df90>
+
+    def test_cli_envelope_does_not_break_when_escalation_endpoint_fails(
+        runner, patched_cli, monkeypatch
+    ) -> None:
+        """--format yaml: if escalation endpoint errors, error still renders."""
+    
+        def fake_start(self, experiment_id):
+            raise _state_machine_error()
+    
+        def boom(self, experiment_id=None):
+            raise RuntimeError("simulated escalation endpoint outage")
+    
+        monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+        monkeypatch.setattr(MAPClient, "get_escalation_target", boom)
+    
+        result = runner.invoke(
+            app,
+            ["experiment", "start", "--id", str(uuid.uuid4())],
+        )
+        # Exit code must still be non-zero (the original error fired).
+        assert result.exit_code != 0
+        # Error rendering still happens.
+>       assert "Error" in result.stderr
+E       assert 'Error' in ''
+E        +  where '' = <Result TypeError("test_cli_envelope_does_not_break_when_escalation_endpoint_fails.<locals>.fake_start() got an unexpected keyword argument 'executor_agent_id'")>.stderr
+
+tests/test_cli_error_envelope.py:195: AssertionError
+_______ test_cli_envelope_json_unaffected_by_escalation_endpoint_failure _______
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7a91390>, patched_cli = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7a90ad0>
+
+    def test_cli_envelope_json_unaffected_by_escalation_endpoint_failure(
+        runner, patched_cli, monkeypatch
+    ) -> None:
+        """--format json: envelope still emitted even if escalation lookup fails.
+    
+        The JSON path doesn't call the escalation endpoint (only the YAML
+        path does), so the envelope is unaffected — verify explicitly.
+        """
+    
+        def fake_start(self, experiment_id):
+            raise _state_machine_error()
+    
+        def boom(self, experiment_id=None):
+            raise RuntimeError("simulated escalation outage")
+    
+        monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+        monkeypatch.setattr(MAPClient, "get_escalation_target", boom)
+    
+        result = runner.invoke(
+            app,
+            ["--format", "json", "experiment", "start", "--id", str(uuid.uuid4())],
+        )
+        assert result.exit_code != 0
+        envelope_lines = [
+            line.strip()
+            for line in result.stderr.splitlines()
+            if line.strip().startswith("{")
+        ]
+>       assert envelope_lines, result.stderr
+E       AssertionError: 
+E       assert []
+
+tests/test_cli_error_envelope.py:229: AssertionError
+______________________ test_cli_value_error_envelope_json ______________________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7d74750>, patched_cli = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0abd5a4e10>
+
+    def test_cli_value_error_envelope_json(
+        runner, patched_cli, monkeypatch
+    ) -> None:
+        """--format json + ValueError (no MAPHTTPError) still emits envelope.
+    
+        The CLI catches ValueError too (used for argument validation) and
+        must still emit a JSON envelope with null fields rather than free-text.
+        """
+    
+        def fake_start(self, experiment_id):
+            raise ValueError("experiment id is malformed")
+    
+        monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+    
+        result = runner.invoke(
+            app,
+            ["--format", "json", "experiment", "start", "--id", str(uuid.uuid4())],
+        )
+        assert result.exit_code != 0
+        envelope_lines = [
+            line.strip()
+            for line in result.stderr.splitlines()
+            if line.strip().startswith("{")
+        ]
+>       assert envelope_lines, result.stderr
+E       AssertionError: 
+E       assert []
+
+tests/test_cli_error_envelope.py:265: AssertionError
+____ test_map_cli_format_legacy_with_explicit_json_emits_json_with_warning _____
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7f705d0>
+patched_cli_maphttp_error = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7f73fd0>
+
+    def test_map_cli_format_legacy_with_explicit_json_emits_json_with_warning(
+        runner, patched_cli_maphttp_error, monkeypatch
+    ):
+        """``MAP_CLI_FORMAT=legacy`` + ``--format json`` → JSON + override warning."""
+        monkeypatch.setenv("MAP_CLI_FORMAT", "legacy")
+        result = runner.invoke(
+            app,
+            [
+                "--format",
+                "json",
+                "experiment",
+                "show",
+                "--id",
+                str(uuid.uuid4()),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "explicit --format=json overrides MAP_CLI_FORMAT=legacy" in (result.stderr or "")
+        envelope_line = next(
+            (ln for ln in result.stderr.splitlines() if ln.startswith("{")), None
+        )
+        assert envelope_line is not None, result.stderr
+        parsed = json.loads(envelope_line)
+>       assert parsed["error_code"] is None
+E       KeyError: 'error_code'
+
+tests/test_cli_format_priority.py:90: KeyError
+_______________ test_map_cli_format_json_without_flag_emits_json _______________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7f48410>
+patched_cli_maphttp_error = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7f4b910>
+
+    def test_map_cli_format_json_without_flag_emits_json(
+        runner, patched_cli_maphttp_error, monkeypatch
+    ):
+        """``MAP_CLI_FORMAT=json`` alone → json error envelope (no warning)."""
+        monkeypatch.setenv("MAP_CLI_FORMAT", "json")
+        result = runner.invoke(
+            app,
+            ["experiment", "show", "--id", str(uuid.uuid4())],
+        )
+        assert result.exit_code != 0
+        stderr = result.stderr or ""
+        # No deprecation / override warning.
+        assert "deprecated" not in stderr
+        assert "overrides" not in stderr
+        # JSON envelope present.
+        envelope_line = next(
+            (ln for ln in stderr.splitlines() if ln.startswith("{")), None
+        )
+        assert envelope_line is not None, stderr
+        parsed = json.loads(envelope_line)
+>       assert "error_code" in parsed
+E       AssertionError: assert 'error_code' in {'error': {'docs_url': None, 'error_code': None, 'hint': None, 'message': 'Experiment not found', ...}, 'ok': False}
+
+tests/test_cli_format_priority.py:136: AssertionError
+____________ test_legacy_alias_does_not_break_in_process_testclient ____________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7a636d0>
+patched_cli_404 = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0abd444150>
+
+    def test_legacy_alias_does_not_break_in_process_testclient(
+        runner, patched_cli_404, monkeypatch
+    ):
+        """End-to-end: legacy env + flag = json works against the in-process TestClient.
+    
+        This is the happy-path sanity check that plan (f) does not regress the
+        pre-existing in-process test harness (``MAPTestClientTransport``).
+        """
+        monkeypatch.setenv("MAP_CLI_FORMAT", "legacy")
+        result = runner.invoke(
+            app,
+            [
+                "--format",
+                "json",
+                "experiment",
+                "show",
+                "--id",
+                str(uuid.uuid4()),
+            ],
+        )
+        assert result.exit_code != 0
+        stderr = result.stderr or ""
+        assert "explicit --format=json overrides MAP_CLI_FORMAT=legacy" in stderr
+        envelope_line = next(
+            (ln for ln in stderr.splitlines() if ln.startswith("{")), None
+        )
+        assert envelope_line is not None, stderr
+        parsed = json.loads(envelope_line)
+>       assert "error_code" in parsed
+E       AssertionError: assert 'error_code' in {'error': {'docs_url': None, 'error_code': None, 'hint': None, 'message': 'Invalid API token', ...}, 'ok': False}
+
+tests/test_cli_format_priority.py:288: AssertionError
+___________________ test_pre_complete_data_has_no_nested_ok ____________________
+
+stub_env = None, runner = <typer.testing.CliRunner object at 0x7f0ab7a683d0>
+tmp_path = PosixPath('/tmp/pytest-of-AI02/pytest-1556/test_pre_complete_data_has_no_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7a690d0>
+
+    def test_pre_complete_data_has_no_nested_ok(stub_env, runner, tmp_path, monkeypatch):
+        """M54C: the envelope carries ``ok``; a data-level ``ok`` collided
+        with the contract (docs/cli-json-output.md)."""
+        # 同上：typer 0.27 CliRunner 无 isolated_filesystem，换 pytest 临时目录。
+        monkeypatch.chdir(tmp_path)
+        with open("meta.yaml", "w") as fh:
+            fh.write("api_health: ok\n")
+        result = runner.invoke(
+            app,
+            [
+                "experiment", "pre-complete", "--id", str(EXP_ID),
+                "--metadata", "meta.yaml", "--format", "json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+    
+>       env = _envelope(result)
+
+/home/AI02/Documents/quantaeye/multi_agents_platform/tests/test_cli_json_schema.py:237: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/AI02/Documents/quantaeye/multi_agents_platform/tests/test_cli_json_schema.py:126: in _envelope
+    return json.loads(result.output)
+/home/AI02/miniconda3/lib/python3.11/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x7f0ac4fda010>
+s = '{\n  "ok": true,\n  "data": {\n    "experiment_id": "f4ef8cb2-a9af-46d1-9259-ca728fd33428",\n    "phase": "running",\...lete --id f4ef8cb2-a9af-46d1-9259-ca728fd33428 --metadata meta.yaml --summary \'<summary>\' --log-file-path <log.md>\n'
+_w = <built-in method match of re.Pattern object at 0x7f0ac4fbce10>
+
+    def decode(self, s, _w=WHITESPACE.match):
+        """Return the Python representation of ``s`` (a ``str`` instance
+        containing a JSON document).
+    
+        """
+        obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+        end = _w(s, end).end()
+        if end != len(s):
+>           raise JSONDecodeError("Extra data", s, end)
+E           json.decoder.JSONDecodeError: Extra data: line 13 column 1 (char 199)
+
+/home/AI02/miniconda3/lib/python3.11/json/decoder.py:340: JSONDecodeError
+_______________ test_post_n2_yaml_flag_forces_json_with_warning ________________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7ba2410>
+patched_cli_maphttp_error = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7ba1ed0>
+
+    def test_post_n2_yaml_flag_forces_json_with_warning(
+        runner, patched_cli_maphttp_error, monkeypatch
+    ):
+        monkeypatch.setenv("MAP_CLI_RELEASE_VERSION", "1.0")
+        result = runner.invoke(
+            app, ["--format", "yaml", "experiment", "show", "--id", str(uuid.uuid4())]
+        )
+        assert result.exit_code != 0
+        stderr = result.stderr or ""
+        assert "yaml output format is removed in N=2" in stderr
+        envelope_line = next(
+            (ln for ln in stderr.splitlines() if ln.startswith("{")), None
+        )
+        assert envelope_line is not None, stderr
+        parsed = json.loads(envelope_line)
+>       assert "error_code" in parsed
+E       AssertionError: assert 'error_code' in {'error': {'docs_url': None, 'error_code': None, 'hint': None, 'message': 'Experiment not found', ...}, 'ok': False}
+
+tests/test_cli_n2_hard_cutover.py:292: AssertionError
+_______________________ test_no_such_option_did_you_mean _______________________
+
+stub_env = <function stub_env.<locals>._install at 0x7f0abd3967a0>
+runner = <typer.testing.CliRunner object at 0x7f0abc112890>
+
+    def test_no_such_option_did_you_mean(stub_env, runner) -> None:
+        """flag 拼错(ex:``--sumary``)→ 近邻匹配到已知 option。"""
+        transport = NoRequestTransport()
+        stub_env(transport)
+    
+        result = runner.invoke(app, ["experiment", "log", "--sumary", "s"])
+        assert result.exit_code == 2
+>       assert "你是不是想用 --summary" in result.output
+E       assert '你是不是想用 --summary' in "Usage: map experiment log [OPTIONS]\nTry 'map experiment log --help' for help.\n\nError: No such option '--sumary'. Did you mean '--summary'?\n"
+E        +  where "Usage: map experiment log [OPTIONS]\nTry 'map experiment log --help' for help.\n\nError: No such option '--sumary'. Did you mean '--summary'?\n" = <Result SystemExit(2)>.output
+
+tests/test_cli_param_routing_aliases.py:180: AssertionError
+____________ test_docs_error_codes_search_multi_keyword_and_repeat _____________
+
+runner = <typer.testing.CliRunner object at 0x7f0abd632dd0>
+
+    def test_docs_error_codes_search_multi_keyword_and_repeat(runner):
+        """Multiple --search flags are AND-combined (intersection)."""
+        result = runner.invoke(
+            app,
+            [
+                "docs",
+                "error-codes",
+                "--search",
+                "review",
+                "--search",
+                "18f1d8f6",
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        payload = _load_repo_index()
+        rendered = _all_codes_from_default_output(result.stdout)
+    
+        def _haystack(entry: dict) -> str:
+            parts = []
+            for field in cli_main._ERROR_CODES_SEARCH_FIELDS:
+                v = entry.get(field)
+                if v is not None:
+                    parts.append(str(v))
+            return "\n".join(parts).lower()
+    
+>       expected = [
+            entry["code"]
+            for entry in payload["codes"]
+            if "review" in _haystack(entry) and "18f1d8f6" in _haystack(entry)
+        ]
+
+tests/test_error_codes_cli.py:143: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_error_codes_cli.py:146: in <listcomp>
+    if "review" in _haystack(entry) and "18f1d8f6" in _haystack(entry)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+entry = {'category': 'state_machine', 'code': 'state_machine_error', 'description': 'Default error_code emitted by StateMachin...ept the requested transition.', 'docs_url': 'https://example.invalid/docs/MAP-ERROR-CODES.md#state_machine_error', ...}
+
+    def _haystack(entry: dict) -> str:
+        parts = []
+>       for field in cli_main._ERROR_CODES_SEARCH_FIELDS:
+E       AttributeError: module 'cli.main' has no attribute '_ERROR_CODES_SEARCH_FIELDS'
+
+tests/test_error_codes_cli.py:137: AttributeError
+__________ test_docs_error_codes_search_multi_keyword_and_comma_split __________
+
+runner = <typer.testing.CliRunner object at 0x7f0abd20eb10>
+
+    def test_docs_error_codes_search_multi_keyword_and_comma_split(runner):
+        """Comma-separated values within one --search flag are AND-combined too."""
+        result = runner.invoke(
+            app,
+            ["docs", "error-codes", "--search", "review,reject"],
+        )
+        assert result.exit_code == 0, result.stdout
+        payload = _load_repo_index()
+        rendered = _all_codes_from_default_output(result.stdout)
+    
+        def _haystack(entry: dict) -> str:
+            parts = []
+            for field in cli_main._ERROR_CODES_SEARCH_FIELDS:
+                v = entry.get(field)
+                if v is not None:
+                    parts.append(str(v))
+            return "\n".join(parts).lower()
+    
+>       expected = [
+            entry["code"]
+            for entry in payload["codes"]
+            if "review" in _haystack(entry) and "reject" in _haystack(entry)
+        ]
+
+tests/test_error_codes_cli.py:169: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_error_codes_cli.py:172: in <listcomp>
+    if "review" in _haystack(entry) and "reject" in _haystack(entry)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+entry = {'category': 'state_machine', 'code': 'state_machine_error', 'description': 'Default error_code emitted by StateMachin...ept the requested transition.', 'docs_url': 'https://example.invalid/docs/MAP-ERROR-CODES.md#state_machine_error', ...}
+
+    def _haystack(entry: dict) -> str:
+        parts = []
+>       for field in cli_main._ERROR_CODES_SEARCH_FIELDS:
+E       AttributeError: module 'cli.main' has no attribute '_ERROR_CODES_SEARCH_FIELDS'
+
+tests/test_error_codes_cli.py:163: AttributeError
+________________ test_docs_error_codes_json_with_search_filters ________________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7c8c290>
+
+    def test_docs_error_codes_json_with_search_filters(runner):
+        """--json + --search returns only matched entries (filtering at JSON level)."""
+        result = runner.invoke(app, ["docs", "error-codes", "--json", "--search", "review"])
+        assert result.exit_code == 0, result.stdout
+        parsed = yaml.safe_load(result.stdout)
+        rendered_codes = [entry["code"] for entry in parsed["codes"]]
+        assert rendered_codes  # at least one match
+        for entry in parsed["codes"]:
+            haystack = "\n".join(
+                str(entry.get(field) or "")
+>               for field in cli_main._ERROR_CODES_SEARCH_FIELDS
+            ).lower()
+E           AttributeError: module 'cli.main' has no attribute '_ERROR_CODES_SEARCH_FIELDS'
+
+tests/test_error_codes_cli.py:202: AttributeError
+_________________ test_docs_error_codes_module_helpers_exposed _________________
+
+    def test_docs_error_codes_module_helpers_exposed():
+        """Pure helpers are importable + produce stable results for direct callers."""
+        # Pure matcher: empty keywords matches everything.
+>       assert cli_main._match_error_code({"code": "x"}, []) is True
+E       AttributeError: module 'cli.main' has no attribute '_match_error_code'
+
+tests/test_error_codes_cli.py:268: AttributeError
+__ test_docs_error_codes_search_keywords_to_list_dedupes_and_preserves_order ___
+
+    def test_docs_error_codes_search_keywords_to_list_dedupes_and_preserves_order():
+        """Comma split + strip + dedupe preserves first-seen order."""
+>       out = cli_main._search_keywords_to_list(
+            ["REVIEW", "review,state", "  state_machine  ", "", "review"]
+        )
+E       AttributeError: module 'cli.main' has no attribute '_search_keywords_to_list'
+
+tests/test_error_codes_cli.py:291: AttributeError
+____________ test_cli_emit_json_error_envelope_writes_pydantic_json ____________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7fe49d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0abe008390>
+capsys = <_pytest.capture.CaptureFixture object at 0x7f0ab7c117d0>
+
+    def test_cli_emit_json_error_envelope_writes_pydantic_json(runner, monkeypatch, capsys):
+        """``_emit_json_error_envelope`` emits a Pydantic-validated JSON line.
+    
+        Captures stderr via ``capsys`` and re-validates with ``CLIErrorEnvelope``
+        so the printed shape is round-trippable as the canonical model.
+        """
+        cli_main._emit_json_error_envelope(
+            error_code="STATE_MACHINE_INVALID_PHASE",
+            message="transition rejected",
+            hint="submit for review first",
+            retryable=False,
+            recovery_command="map experiment submit-review",
+            docs_url=None,
+        )
+        captured = capsys.readouterr()
+        line = next(
+            (ln for ln in captured.err.splitlines() if ln.startswith("{")),
+            None,
+        )
+        assert line is not None, captured.err
+>       parsed = CLIErrorEnvelope.model_validate_json(line)
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for CLIErrorEnvelope
+E       message
+E         Field required [type=missing, input_value={'ok': False, 'error': {'...eriment submit-review'}}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.11/v/missing
+E       ok
+E         Extra inputs are not permitted [type=extra_forbidden, input_value=False, input_type=bool]
+E           For further information visit https://errors.pydantic.dev/2.11/v/extra_forbidden
+E       error
+E         Extra inputs are not permitted [type=extra_forbidden, input_value={'error_code': 'STATE_MAC...periment submit-review'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.11/v/extra_forbidden
+
+tests/test_error_envelope_and_file_options.py:106: ValidationError
+________________ test_cli_json_envelope_includes_docs_url_field ________________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7f9ee10>
+patched_cli_no_server = None
+
+    def test_cli_json_envelope_includes_docs_url_field(runner, patched_cli_no_server):
+        """End-to-end: --format json emits an envelope whose key set pins docs_url.
+    
+        Triggers a 404 against ``map experiment start --id <random>`` and asserts
+        the printed envelope declares ``docs_url`` (may be null). This is the
+        regression test for plan (b).
+        """
+        result = runner.invoke(
+            app,
+            [
+                "--format",
+                "json",
+                "experiment",
+                "start",
+                "--id",
+                str(uuid.uuid4()),
+            ],
+        )
+        assert result.exit_code != 0
+        envelope_line = next(
+            (ln for ln in result.stderr.splitlines() if ln.startswith("{")),
+            None,
+        )
+        assert envelope_line, result.stderr
+        envelope = json.loads(envelope_line)
+>       assert "docs_url" in envelope
+E       AssertionError: assert 'docs_url' in {'error': {'docs_url': None, 'error_code': None, 'hint': None, 'message': 'Invalid API token', ...}, 'ok': False}
+
+tests/test_error_envelope_and_file_options.py:138: AssertionError
+________________ test_cli_maphttp_error_envelope_uses_pydantic _________________
+
+runner = <typer.testing.CliRunner object at 0x7f0ab7701150>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0ab7701190>
+capsys = <_pytest.capture.CaptureFixture object at 0x7f0ab7702bd0>
+
+    def test_cli_maphttp_error_envelope_uses_pydantic(runner, monkeypatch, capsys):
+        """MAPHTTPError path (not ValueError) still emits a Pydantic envelope."""
+    
+        # Build a one-shot MAPClient whose transport raises MAPNotFoundError.
+        class _RaisingTransport:
+            def __init__(self) -> None:
+                self.calls = 0
+    
+            def handle_request(self, request):  # pragma: no cover - exercise only
+                self.calls += 1
+                raise MAPNotFoundError(404, "not here", error_code="NOT_FOUND", hint="check id")
+    
+        transport = _RaisingTransport()
+        monkeypatch.setattr(cli_main, "_transport", transport)
+        monkeypatch.setenv("MAP_TOKEN", "fake")
+        monkeypatch.setenv("MAP_API_URL", "http://test")
+    
+        result = runner.invoke(
+            app,
+            ["--format", "json", "experiment", "show", "--id", str(uuid.uuid4())],
+        )
+        assert result.exit_code != 0
+        envelope_line = next(
+            (ln for ln in result.stderr.splitlines() if ln.startswith("{")),
+            None,
+        )
+        assert envelope_line, result.stderr
+>       parsed = CLIErrorEnvelope.model_validate_json(envelope_line)
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for CLIErrorEnvelope
+E       message
+E         Field required [type=missing, input_value={'ok': False, 'error': {'...y_command': 'check id'}}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.11/v/missing
+E       ok
+E         Extra inputs are not permitted [type=extra_forbidden, input_value=False, input_type=bool]
+E           For further information visit https://errors.pydantic.dev/2.11/v/extra_forbidden
+E       error
+E         Extra inputs are not permitted [type=extra_forbidden, input_value={'error_code': 'NOT_FOUND...ry_command': 'check id'}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.11/v/extra_forbidden
+
+tests/test_error_envelope_and_file_options.py:182: ValidationError
+____________ test_feedback_submit_body_and_file_mutually_exclusive _____________
+
+patched_cli_no_server = None
+runner = <typer.testing.CliRunner object at 0x7f0ab74fa790>
+tmp_path = PosixPath('/tmp/pytest-of-AI02/pytest-1556/test_feedback_submit_body_and_0')
+
+    def test_feedback_submit_body_and_file_mutually_exclusive(patched_cli_no_server, runner, tmp_path):
+        body_file = tmp_path / "feedback.md"
+        body_file.write_text("from file", encoding="utf-8")
+        result = runner.invoke(
+            app,
+            ["feedback", "submit", "--body", "from arg", "--file", str(body_file)],
+        )
+        assert result.exit_code == 2
+>       assert "use only one of --body or --file" in (result.stderr or "")
+E       AssertionError: assert 'use only one of --body or --file' in (('Error: `map feedback submit` is retired (v0.15 M62).\nPlatform feedback was retired in v0.15 M62 (dead-letter box: no... feedback: ask the host to open a MAP topic\nHistorical feedback records are preserved read-only in the platform DB.\n'))
+E        +  where 'Error: `map feedback submit` is retired (v0.15 M62).\nPlatform feedback was retired in v0.15 M62 (dead-letter box: no... feedback: ask the host to open a MAP topic\nHistorical feedback records are preserved read-only in the platform DB.\n' = <Result SystemExit(2)>.stderr
+
+tests/test_error_envelope_and_file_options.py:288: AssertionError
+__________________ test_feedback_submit_requires_body_or_file __________________
+
+patched_cli_no_server = None
+runner = <typer.testing.CliRunner object at 0x7f0ab7dc37d0>
+
+    def test_feedback_submit_requires_body_or_file(patched_cli_no_server, runner):
+        result = runner.invoke(app, ["feedback", "submit"])
+        assert result.exit_code == 2
+>       assert "either --body or --file is required" in (result.stderr or "")
+E       AssertionError: assert 'either --body or --file is required' in (('Error: `map feedback submit` is retired (v0.15 M62).\nPlatform feedback was retired in v0.15 M62 (dead-letter box: no... feedback: ask the host to open a MAP topic\nHistorical feedback records are preserved read-only in the platform DB.\n'))
+E        +  where 'Error: `map feedback submit` is retired (v0.15 M62).\nPlatform feedback was retired in v0.15 M62 (dead-letter box: no... feedback: ask the host to open a MAP topic\nHistorical feedback records are preserved read-only in the platform DB.\n' = <Result SystemExit(2)>.stderr
+
+tests/test_error_envelope_and_file_options.py:294: AssertionError
+__________ test_stalled_lock_scan_endpoint_host_scopes_to_own_project __________
+
+client = <starlette.testclient.TestClient object at 0x7f0ab720c090>
+admin_headers = {'Authorization': 'Bearer QtZgM3lAdvdEaCkVBQQmewrdejidiDTEFASq87ykes8'}
+db_session = <sqlalchemy.orm.session.Session object at 0x7f0ab73afad0>
+
+    def test_stalled_lock_scan_endpoint_host_scopes_to_own_project(
+        client, admin_headers, db_session
+    ):
+        project_a = client.post(
+            "/api/v1/projects",
+            headers=admin_headers,
+            json={"project_key": "scan-a", "name": "Scan A", "workspace_path": "/tmp/scan-a"},
+        ).json()
+        project_b = client.post(
+            "/api/v1/projects",
+            headers=admin_headers,
+            json={"project_key": "scan-b", "name": "Scan B", "workspace_path": "/tmp/scan-b"},
+        ).json()
+        host_a_resp = client.post(
+            "/api/v1/agents",
+            headers=admin_headers,
+            params={
+                "name": "multi-agent-platform-host",
+                "role": "agent",
+                "project_key": project_a["project_key"],
+            },
+        )
+>       assert host_a_resp.status_code == 201
+E       assert 422 == 201
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+
+tests/test_experiment_lock_notifications.py:217: AssertionError
+_____________________ test_map_sdk_does_not_import_server ______________________
+
+    def test_map_sdk_does_not_import_server():
+        """Hard boundary: ``map_sdk`` MUST NOT depend on ``server.*``.
+    
+        The plan's PR1 acceptance: ``grep -r 'from server' map_sdk/`` 零
+        结果. We run the grep from Python so the test fails on regression
+        in any environment with grep available.
+        """
+        repo_root = Path(__file__).resolve().parents[1]
+        map_sdk_dir = repo_root / "sdk" / "python" / "map_sdk"
+        assert map_sdk_dir.is_dir(), f"map_sdk package missing at {map_sdk_dir}"
+    
+        result = subprocess.run(
+            ["grep", "-r", "-l", "from server", str(map_sdk_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+>       assert result.returncode != 0 or not result.stdout.strip(), (
+            "map_sdk must not import from server.* — found:\n"
+            + (result.stdout or "(grep exited 1 but no files listed)")
+        )
+E       AssertionError: map_sdk must not import from server.* — found:
+E         /home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/__pycache__/evidence.cpython-311.pyc
+E         /home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py
+E         
+E       assert (0 != 0 or not '/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/__pycache__/evidence.cpython-311.pyc\n/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py')
+E        +  where 0 = CompletedProcess(args=['grep', '-r', '-l', 'from server', '/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/py...nce.cpython-311.pyc\n/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py\n', stderr='').returncode
+E        +  and   '/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/__pycache__/evidence.cpython-311.pyc\n/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py' = <built-in method strip of str object at 0x7f0ab7df5530>()
+E        +    where <built-in method strip of str object at 0x7f0ab7df5530> = '/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/__pycache__/evidence.cpython-311.pyc\n/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py\n'.strip
+E        +      where '/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/__pycache__/evidence.cpython-311.pyc\n/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py\n' = CompletedProcess(args=['grep', '-r', '-l', 'from server', '/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/py...nce.cpython-311.pyc\n/home/AI02/Documents/quantaeye/multi_agents_platform/sdk/python/map_sdk/evidence.py\n', stderr='').stdout
+
+tests/test_map_sdk_skeleton.py:50: AssertionError
+____________________ test_cli_imports_with_map_sdk_present _____________________
+
+    def test_cli_imports_with_map_sdk_present():
+        """Sanity: ``cli.main`` imports successfully when ``map_sdk`` is on
+        the path. Catches missing-package + circular-import regressions."""
+        import cli.main  # noqa: F401  (import side effect is the test)
+    
+        # Optional: the version alias should be a string when CLI loads.
+>       from cli.main import _map_sdk_version
+E       ImportError: cannot import name '_map_sdk_version' from 'cli.main' (/home/AI02/Documents/quantaeye/multi_agents_platform/cli/main.py)
+
+tests/test_map_sdk_skeleton.py:72: ImportError
+_________________________________ test_health __________________________________
+
+client = <starlette.testclient.TestClient object at 0x7f0ab7829490>
+
+    def test_health(client):
+        response = client.get("/health")
+        assert response.status_code == 200
+>       assert response.json() == {"status": "ok"}
+E       AssertionError: assert {'status': 'o...ion': '0.9.0'} == {'status': 'ok'}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'version': '0.9.0'}
+E         Use -v to get more diff
+
+tests/test_projects.py:4: AssertionError
+__________ test_rebut_single_item_during_review_phase_still_succeeds ___________
+
+client = <starlette.testclient.TestClient object at 0x7f0ab7216b10>
+auth_headers = {'Authorization': 'Bearer TggUwMtDIeby0fGG11fhFc8WAjTa65YEx7OVYlo8A5k'}
+admin_token = ('fb038114-c3b5-4dfd-a480-1eb4cf34fb82', 'JbE9dBVlWY-eB4Yq-stK7zp6o5qF5JKskfKjtmZOZiQ')
+project = {'archived_at': None, 'content_root': 'map', 'created_at': '2026-08-24T18:19:40', 'current_status_version': 1, ...}
+
+    def test_rebut_single_item_during_review_phase_still_succeeds(
+        client,
+        auth_headers,
+        admin_token,
+        project,
+    ):
+        """Happy-path: host rebutting a single item while the experiment is in
+        the review phase keeps working (no subcode)."""
+        _, admin_bearer = admin_token
+        admin_headers = {"Authorization": f"Bearer {admin_bearer}"}
+    
+        experiment = client.post(
+            f"/api/v1/projects/{project['id']}/experiments",
+            headers=auth_headers,
+            json={
+                "title": "rebut happy path",
+                "plan": {"content_md": make_valid_plan(body="## 计划")},
+                "submit_for_review": True,
+            },
+        ).json()
+        exp_id = experiment["id"]
+    
+        reviewer_resp = client.post(
+            "/api/v1/agents",
+            headers=admin_headers,
+            params={
+                "name": "happy-reviewer",
+                "role": "agent",
+                "project_key": project["project_key"],
+            },
+        )
+>       assert reviewer_resp.status_code == 201
+E       assert 422 == 201
+E        +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+
+tests/test_reject_result_misuse.py:233: AssertionError
+____________ test_cli_review_list_default_include_archived_is_true _____________
+
+    def test_cli_review_list_default_include_archived_is_true():
+        """CLI 默认 include_archived=True (N=2 过渡期).
+    
+        该断言 pin 当前 plan 约定的「过渡期默认 include archived」行为；N=2 release 后
+        CLI 的 typer.Option 默认需翻成 False，并同步更新本测试。
+        """
+        import inspect
+    
+        from cli import main as cli_main
+    
+>       src = inspect.getsource(cli_main.review_list)
+E       AttributeError: module 'cli.main' has no attribute 'review_list'
+
+tests/test_review_list_archived_filter.py:242: AttributeError
+_______________ test_cli_review_list_supports_plan_version_flag ________________
+
+    def test_cli_review_list_supports_plan_version_flag():
+        """CLI 提供 --plan-version flag 并向下游透传。"""
+        import inspect
+    
+        from cli import main as cli_main
+    
+>       src = inspect.getsource(cli_main.review_list)
+E       AttributeError: module 'cli.main' has no attribute 'review_list'
+
+tests/test_review_list_archived_filter.py:258: AttributeError
+=========================== short test summary info ============================
+FAILED tests/cli/test_compat.py::test_subapp_commands_match_snapshot[topic]
+FAILED tests/cli/test_dry_run_write_commands.py::test_every_subgroup_command_is_classified
+FAILED tests/cli/test_dry_run_write_commands.py::test_read_only_commands_are_not_flagged_as_write
+FAILED tests/test_a2a.py::TestMappingContract::test_every_experiment_phase_mapped
+FAILED tests/test_cli_error_envelope.py::test_cli_format_json_emits_envelope_on_state_machine_error
+FAILED tests/test_cli_error_envelope.py::test_cli_format_yaml_includes_escalation_line
+FAILED tests/test_cli_error_envelope.py::test_cli_envelope_does_not_break_when_escalation_endpoint_fails
+FAILED tests/test_cli_error_envelope.py::test_cli_envelope_json_unaffected_by_escalation_endpoint_failure
+FAILED tests/test_cli_error_envelope.py::test_cli_value_error_envelope_json
+FAILED tests/test_cli_format_priority.py::test_map_cli_format_legacy_with_explicit_json_emits_json_with_warning
+FAILED tests/test_cli_format_priority.py::test_map_cli_format_json_without_flag_emits_json
+FAILED tests/test_cli_format_priority.py::test_legacy_alias_does_not_break_in_process_testclient
+FAILED tests/test_cli_json_schema.py::test_pre_complete_data_has_no_nested_ok
+FAILED tests/test_cli_n2_hard_cutover.py::test_post_n2_yaml_flag_forces_json_with_warning
+FAILED tests/test_cli_param_routing_aliases.py::test_no_such_option_did_you_mean
+FAILED tests/test_error_codes_cli.py::test_docs_error_codes_search_multi_keyword_and_repeat
+FAILED tests/test_error_codes_cli.py::test_docs_error_codes_search_multi_keyword_and_comma_split
+FAILED tests/test_error_codes_cli.py::test_docs_error_codes_json_with_search_filters
+FAILED tests/test_error_codes_cli.py::test_docs_error_codes_module_helpers_exposed
+FAILED tests/test_error_codes_cli.py::test_docs_error_codes_search_keywords_to_list_dedupes_and_preserves_order
+FAILED tests/test_error_envelope_and_file_options.py::test_cli_emit_json_error_envelope_writes_pydantic_json
+FAILED tests/test_error_envelope_and_file_options.py::test_cli_json_envelope_includes_docs_url_field
+FAILED tests/test_error_envelope_and_file_options.py::test_cli_maphttp_error_envelope_uses_pydantic
+FAILED tests/test_error_envelope_and_file_options.py::test_feedback_submit_body_and_file_mutually_exclusive
+FAILED tests/test_error_envelope_and_file_options.py::test_feedback_submit_requires_body_or_file
+FAILED tests/test_experiment_lock_notifications.py::test_stalled_lock_scan_endpoint_host_scopes_to_own_project
+FAILED tests/test_map_sdk_skeleton.py::test_map_sdk_does_not_import_server - ...
+FAILED tests/test_map_sdk_skeleton.py::test_cli_imports_with_map_sdk_present
+FAILED tests/test_projects.py::test_health - AssertionError: assert {'status'...
+FAILED tests/test_reject_result_misuse.py::test_rebut_single_item_during_review_phase_still_succeeds
+FAILED tests/test_review_list_archived_filter.py::test_cli_review_list_default_include_archived_is_true
+FAILED tests/test_review_list_archived_filter.py::test_cli_review_list_supports_plan_version_flag
+32 failed, 1405 passed, 357 deselected in 838.44s (0:13:58)
