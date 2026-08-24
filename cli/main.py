@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import typer
 import yaml
-from map_client.bootstrap import admin_client, bootstrap_project_map
+from map_client.bootstrap import admin_client, bootstrap_project_map, heal_project_map_config
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
 from map_client.project_config import find_map_dir, load_project_map_config, resolve_client
@@ -1152,11 +1152,48 @@ def map_bootstrap(
     api_url: str | None = typer.Option(None, "--api-url", help="MAP API base URL"),
     project_root: Path | None = typer.Option(None, "--project-root", help="Where to write .map/"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing .map/agents.local.yaml"),
+    heal: bool = typer.Option(
+        False,
+        "--heal",
+        help="非破坏性修复（3b7c2b44 A2）：key 已存在时跳过 create，把 config.yaml 的 "
+        "project_id 与 agents.yaml 的 agent_name 回写服务端权威，不碰 token。",
+    ),
 ) -> None:
     """Register MAP project + persona agents; write .map/ config (requires admin token)."""
     root = (project_root or Path.cwd()).resolve()
     workspace = path or root
     display_name = name or key
+
+    if heal:
+        try:
+            healed = heal_project_map_config(
+                project_key=key,
+                project_root=root,
+                api_url=api_url,
+                transport=_transport,
+            )
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        except MAPHTTPError as exc:
+            typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
+            raise typer.Exit(1) from exc
+        typer.echo(f"heal: project_key={healed.project_key} project_id={healed.project_id}")
+        typer.echo(
+            f"  config.yaml project_id: "
+            f"{'已回写权威值' if healed.config_rewritten else '与权威一致，无需改动'}"
+        )
+        fix_total = len(healed.fixed_agent_names or [])
+        typer.echo(
+            f"  agents.yaml agent_name: "
+            f"{'已回写 ' + str(fix_total) + ' 个约定候选' if healed.agents_rewritten else '无需改动'}"
+        )
+        for persona_key, old, new in healed.fixed_agent_names or []:
+            typer.echo(f"    - {persona_key}: {old} -> {new}")
+        typer.echo("  agents.local.yaml token: 未触碰（该文件 byte 保持不变）")
+        typer.echo("Try: map doctor config --check 复查对账")
+        return
+
     try:
         result = bootstrap_project_map(
             project_key=key,

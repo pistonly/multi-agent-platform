@@ -51,6 +51,22 @@ class BootstrapResult:
 
 
 @dataclass(frozen=True)
+class HealResult:
+    """Outcome of ``map bootstrap --heal`` (3b7c2b44 A2)."""
+
+    project_key: str
+    project_id: str
+    api_url: str
+    map_dir: Path
+    config_rewritten: bool
+    agents_rewritten: bool
+    # 恒 True：heal 的机器断言核心——只修 config/agents.yaml，绝不写
+    # agents.local.yaml、绝不调 server 写接口（不 create / 不 reissue）。
+    agents_local_untouched: bool = True
+    fixed_agent_names: list[tuple[str, str, str]] | None = None
+
+
+@dataclass(frozen=True)
 class ReissueResult:
     """Outcome of ``map auth reissue`` (M52C)."""
 
@@ -550,3 +566,112 @@ def bootstrap_project_map(
     )
 
     return BootstrapResult(config=cfg, created_project=created_project, skipped_agent_names=skipped)
+
+
+def heal_project_map_config(
+    *,
+    project_key: str | None = None,
+    project_root: Path | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    transport: Any = None,
+) -> HealResult:
+    """非破坏性修复 `.map/` 与服务端权威的分叉（3b7c2b44 A2）。
+
+    key 已存在 → **不 create**、不 reissue、不碰 ``agents.local.yaml`` 里的
+    token（机器断言点）；只做两件事：
+
+    - ``config.yaml``：把 ``project_id`` 回写为按 ``project_key`` 解析到的
+      权威 id（陈旧/缺失修复）。
+    - ``agents.yaml``：persona 的 ``agent_name`` 若未在项目权威注册，且按
+      ``{slug}-{persona}`` 约定命中权威 agent，则回写为该权威名；无法
+      确定性匹配的保留原值并由 ``map doctor --config`` 继续列分叉。
+
+    鉴权解析：显式 ``token`` → ``MAP_ADMIN_TOKEN`` → ``agents.local.yaml``
+    首个存活 token。全无则 TypeError→ValueError，提示先 reissue。
+    """
+    root = (project_root or Path.cwd()).resolve()
+    map_dir = root / MAP_DIR_NAME
+    config_path = map_dir / CONFIG_FILE
+    if not config_path.is_file():
+        raise ValueError(
+            f"{map_dir / CONFIG_FILE} not found. Run `map bootstrap` first "
+            "(heal 修复已存在的 config，不负责首次创建)。"
+        )
+
+    config = _read_yaml(config_path) or {}
+    resolved_key = project_key or config.get("project_key")
+    if not resolved_key:
+        raise ValueError(
+            f"project_key not found: pass --key or set project_key in {config_path}."
+        )
+    resolved_api_url = (
+        api_url or config.get("api_url") or os.environ.get("MAP_API_URL") or "http://localhost:18400"
+    ).rstrip("/")
+
+    auth = token or os.environ.get("MAP_ADMIN_TOKEN")
+    if not auth:
+        for entry in _surviving_local_tokens(map_dir):
+            auth = entry
+            break
+    if not auth:
+        raise ValueError(
+            "no auth token to query authority for heal: pass --token / set "
+            "MAP_ADMIN_TOKEN, or keep a surviving persona token in "
+            f"{map_dir / AGENTS_LOCAL_FILE}. (heal 只修 config，不会生成 token；"
+            "token 全丢时先 `map auth reissue` 至少一个。)"
+        )
+
+    client = MAPClient(resolved_api_url, str(auth), transport=transport)
+    try:
+        project = client.get_project_by_key(str(resolved_key))
+    except MAPHTTPError as exc:
+        if exc.status_code == 404:
+            raise ValueError(
+                f"project_key '{resolved_key}' 未在服务端注册：没有权威可对齐。"
+                "如想整体重做，先 archive 旧 project / 换新 key 再 bootstrap。"
+            ) from exc
+        raise
+    authority_id = str(project.id)
+
+    # 1) config.yaml：回写 project_id
+    config_rewritten = False
+    if config.get("project_id") != authority_id:
+        config["project_id"] = authority_id
+        _write_yaml(config_path, config)
+        config_rewritten = True
+
+    # 2) agents.yaml：约定候选回写 agent_name（其余交由 doctor 继续列分叉）
+    fixed: list[tuple[str, str, str]] = []
+    agents_rewritten = False
+    agents_data = _read_yaml(map_dir / AGENTS_FILE)
+    authority_names = {a.name for a in client.list_agents(project_id=project.id)}
+    slug = _slug(str(resolved_key))
+    if isinstance(agents_data, dict) and isinstance(agents_data.get("personas"), dict):
+        personas = agents_data["personas"]
+        changed = False
+        for persona_key, spec in personas.items():
+            if not isinstance(spec, dict):
+                continue
+            current = spec.get("agent_name")
+            if not current or current in authority_names:
+                continue
+            candidate = f"{slug}-{persona_key}"
+            if candidate in authority_names and candidate != current:
+                spec["agent_name"] = candidate
+                fixed.append((str(persona_key), current, candidate))
+                changed = True
+        if changed:
+            _write_yaml(map_dir / AGENTS_FILE, agents_data)
+            agents_rewritten = True
+
+    return HealResult(
+        project_key=str(resolved_key),
+        project_id=authority_id,
+        api_url=resolved_api_url,
+        map_dir=map_dir,
+        config_rewritten=config_rewritten,
+        agents_rewritten=agents_rewritten,
+        agents_local_untouched=True,
+        fixed_agent_names=fixed or None,
+    )
