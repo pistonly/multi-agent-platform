@@ -27,7 +27,16 @@ _STANDARD_ALLOWED: dict[ExperimentPhase, set[ExperimentPhase]] = {
         ExperimentPhase.cancelled,
     },
     ExperimentPhase.approved: {ExperimentPhase.running, ExperimentPhase.cancelled},
-    ExperimentPhase.running: {ExperimentPhase.result_review, ExperimentPhase.cancelled},
+    ExperimentPhase.running: {
+        ExperimentPhase.result_review,
+        # 实验 bd9b21f6 (plan-revision-review-gate) A1: running 中架构级
+        # revise 走 --breaking-audit 显式打回评审队列
+        ExperimentPhase.pending_review,
+        ExperimentPhase.cancelled,
+    },
+    # A7: reviewer 对当前 plan_version 提交无 open unreasonable 项的新评审
+    # 即自动迁回 running（解除 complete 拦截）；仍含则保持 pending_review
+    ExperimentPhase.pending_review: {ExperimentPhase.running, ExperimentPhase.cancelled},
     ExperimentPhase.result_review: {
         ExperimentPhase.done,
         ExperimentPhase.running,

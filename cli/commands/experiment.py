@@ -828,12 +828,19 @@ def plan_revise(
         "--addressed-item",
         help="Unreasonable review item UUID to mark addressed (repeatable).",
     ),
+    breaking_audit: bool = typer.Option(
+        False,
+        "--breaking-audit",
+        help="架构级修订显式标记（实验 bd9b21f6 A1）：running 相位打回 pending_review 重评，"
+        "complete 被真拦截直至重评通过；change_note 必须写明相对上一版改了什么/为什么（缺失即拒绝）",
+    ),
 ) -> None:
     from cli.main import _read_text_file, _run  # lazy: avoid cycle
     payload = PlanRevise(
         content_md=_read_text_file(plan_file, kind="plan"),
         change_note=note,
         addressed_item_ids=list(addressed_item),
+        breaking_audit=breaking_audit,
     )
     _run(lambda c: c.revise_plan(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 

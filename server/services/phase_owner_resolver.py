@@ -44,6 +44,9 @@ _OWNERS: Final[dict[str, str]] = {
     "revise": PhaseOwner.host.value,
     ExperimentPhase.approved.value: PhaseOwner.host.value,
     ExperimentPhase.running.value: PhaseOwner.host.value,
+    # 实验 bd9b21f6: --breaking-audit 打回的重评相位——reviewer 是重评主人，
+    # host 侧 informational（等重评通过自动迁回 running）。
+    ExperimentPhase.pending_review.value: PhaseOwner.reviewer.value,
     ExperimentPhase.result_review.value: PhaseOwner.reviewer.value,
     ExperimentPhase.done.value: PhaseOwner.host.value,
     ExperimentPhase.cancelled.value: PhaseOwner.host.value,

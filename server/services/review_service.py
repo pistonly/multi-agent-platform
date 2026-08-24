@@ -308,8 +308,11 @@ def create_review(
     payload: ReviewCreate,
 ) -> Review:
     experiment = get_experiment(db, experiment_id)
-    if experiment.phase != ExperimentPhase.review:
-        raise StateTransitionError("Reviews can only be submitted during review phase")
+    if experiment.phase not in (ExperimentPhase.review, ExperimentPhase.pending_review):
+        raise StateTransitionError(
+            "Reviews can only be submitted during review phase "
+            "(or pending_review for breaking-audit re-review, 实验 bd9b21f6 A7)"
+        )
     if (
         reviewer.id == experiment.creator_agent_id
         and reviewer.role != AgentRole.admin
@@ -406,6 +409,17 @@ def create_review(
             after_state=item.status.value if item.status is not None else None,
             reason=None,
         )
+
+    # 实验 bd9b21f6 (plan-revision-review-gate) A7: breaking 打回（pending_review）
+    # 期间 reviewer 对当前 plan_version 提交新评审——无 open unreasonable 项即
+    # 解除拦截自动迁回 running；仍含则保持 pending_review（complete 持续被拒，
+    # 报错可见剩余阻塞数）。判定与 count_open_unreasonable 口径一致，同事务
+    # 内完成（review add 与解除判定无竞态）。
+    if (
+        experiment.phase == ExperimentPhase.pending_review
+        and count_open_unreasonable_for_experiment(db, experiment_id) == 0
+    ):
+        experiment.phase = ExperimentPhase.running
 
     db.commit()
     stmt = select(Review).where(Review.id == review.id).options(joinedload(Review.items))

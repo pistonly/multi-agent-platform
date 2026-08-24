@@ -11,6 +11,9 @@ class ExperimentPhase(str, enum.Enum):
     review = "review"
     approved = "approved"
     running = "running"
+    # 实验 bd9b21f6 (plan-revision-review-gate): running 中架构级 revise
+    # 走 --breaking-audit 显式打回的专用相位（区别于初始 review）
+    pending_review = "pending_review"
     result_review = "result_review"
     done = "done"
     cancelled = "cancelled"

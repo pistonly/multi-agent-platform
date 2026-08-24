@@ -322,6 +322,19 @@ def complete_experiment(
     experiment = get_experiment(db, experiment_id)
     _ensure_can_complete(experiment, actor)
 
+    # 实验 bd9b21f6 (plan-revision-review-gate) A2: breaking 打回期间 complete
+    # 一律拒——报错必须 actionable（提示等待重评 plan 版本与剩余阻塞数，
+    # 而非通用 invalid transition）。
+    if experiment.phase == ExperimentPhase.pending_review:
+        from server.services.review_service import count_open_unreasonable_for_experiment
+
+        open_count = count_open_unreasonable_for_experiment(db, experiment_id)
+        raise StateTransitionError(
+            f"breaking revise 待重评: plan v{experiment.current_plan_version} 标记 "
+            f"--breaking-audit 后需 reviewer 重评通过才可 complete; "
+            f"open unreasonable items: {open_count}"
+        )
+
     if payload.log_file_path:
         experiment.log_file_path = payload.log_file_path
 

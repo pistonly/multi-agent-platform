@@ -181,6 +181,25 @@ def revise_plan(
             validate_review_item_transition(current, ReviewItemStatus.addressed, ctx)
             item.status = ReviewItemStatus.addressed
 
+    # 实验 bd9b21f6 (plan-revision-review-gate) A1+A4: running 中架构级 revise
+    # 走显式 --breaking-audit（或 change_note 首行 "breaking:" 前缀）打回
+    # pending_review 评审队列；complete 随之被相位门禁真拦截（A2）。change_note
+    # 是 reviewer 重评的事实基础，缺失即在 revise 入口拒绝（A4 单一处置，
+    # 不设警告分支——警告无机器可判的验收形态）。
+    breaking = payload.breaking_audit or (payload.change_note or "").lstrip().startswith(
+        "breaking:"
+    )
+    if breaking:
+        note = (payload.change_note or "").strip()
+        if len(note) < 10:
+            raise StateTransitionError(
+                "breaking revise requires a change_note explaining what changed "
+                "vs the previous version and why (相对上一版改了什么/为什么两要素); "
+                "revision refused"
+            )
+        if experiment.phase == ExperimentPhase.running:
+            experiment.phase = ExperimentPhase.pending_review
+
     db.commit()
     db.refresh(plan)
     return plan

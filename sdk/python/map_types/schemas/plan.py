@@ -26,6 +26,9 @@ class PlanRevise(BaseModel):
     content_md: str = Field(min_length=1)
     change_note: str | None = Field(default=None, max_length=1024)
     addressed_item_ids: list[uuid.UUID] = Field(default_factory=list)
+    # 实验 bd9b21f6 (plan-revision-review-gate) A1: running 中架构级修订的
+    # 显式 breaking 标记——打回 pending_review 评审队列，complete 被真拦截
+    breaking_audit: bool = Field(default=False)
 
 
 class PlanVersionRead(ORMModel):
