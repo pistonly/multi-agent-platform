@@ -27,3 +27,11 @@
 - **机器断言测试**（tests/test_bootstrap_heal.py 6 例）：heal 前后 `agents.local.yaml` **字节不变**；MockTransport 记录请求方法，断言仅 GET（`["GET","GET"]`，零 create/reissue 写请求）→ server 端 token 亦不变；stale project_id 回写 / stale agent_name 约定修复 / clean 无改动 / 无 token / 缺 config / key 未注册 404 各分支。
 - **live 实测（2026-08-25）**：`map bootstrap --heal --key multi-agents-platform` → `project_id=106216a7…`、「config.yaml project_id: 与权威一致，无需改动」「agents.yaml agent_name: 无需改动」，rc=0；`diff .map/agents.local.yaml` 前后 → **UNCHANGED**（字节一级验证）。
 - **commit**：`50e2c89 map exp 3b7c2b44 I2(A2): map bootstrap --heal 非破坏性修复 + token 不变机器断言`
+
+### I3（A3+A4）bootstrap 409 意图分流 + `auth reissue --rewrite-config` 边界
+
+- **A3 分流文案**：新增 `bootstrap_conflict_triage(project_key)`（sdk/python/map_client/bootstrap.py）——按用户意图三条出路：丢 token → `map auth reissue`；config 陈旧 → `map bootstrap --heal`；想整体重做 → archive/换 key 重建。两条触发路径共用：本地 `agents.local.yaml` 已存在的 `ValueError`（原「Remove or --force」文案替换）与 CLI 对 server 自服务 409 的 catch（cli/main.py `MAPHTTPError.status_code==409` 追加分流）。
+- **A4 `--rewrite-config`**（cli/commands/auth.py）：`auth reissue` 新增 `--rewrite-config` flag，**默认关闭**——仅显式开启时 reissue 成功后顺带 `heal_project_map_config` 回写 `config.yaml` 的 `project_id`，heal 失败仅 `[WARN]` 不阻断（reissue 本身已成功）。默认保持 token 丢失恢复语义、不碰 config（回归测试钉住，避免误用 reissue 吊销/改写）。
+- **测试**：`test_bootstrap_conflict_triage.py` 3 例（三出路文案 / 本地已存在 ValueError 含分流 / CLI server 409 输出分流）+ `test_auth_reissue.py` 2 例（默认不修 config 字节不变回归 / `--rewrite-config` 时 heal 恰好一次并输出「project_id 已回写」）。相关 30 例全绿，ruff 全绿。
+- **live 实测（2026-08-25）**：`map bootstrap --key multi-agents-platform` → `已存在（或 .map/ 已初始化）。按意图分流：…reissue … --heal … archive…` 三出路齐全；`map auth reissue --help` → `--rewrite-config` 选项可见。
+- **commit**：`a1a869a map exp 3b7c2b44 I3(A3+A4): bootstrap 409 分流文案 + auth reissue --rewrite-config 边界`
