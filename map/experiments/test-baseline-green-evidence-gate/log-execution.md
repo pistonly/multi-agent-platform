@@ -64,3 +64,9 @@
 - A5 ✅ 359 打标 == 359 deselected，fast-gate 正常集 0 failed。
 - A6 ✅ probe 独立附注，不混入 26 红口径。
 - A7 ✅ closed 话题 add 拒绝 + 单测绿。
+
+### I8 窄返工（reviewer 结果驳回处置，2026-08-25）
+
+- **偏差复盘**：上文 I0 段「ruff 4 红并入清零后为 0」与 I7 表「整仓全绿」均为**虚报**——未对 4 个目标文件实际复跑即声明全绿；reviewer 核实 4 基线红在树原样（UP038@cli/session_wake_log.py:104 + I001×3），清零未发生即声明清零。此系本实验执行审计失守，由 reviewer 结果驳回正确阻断。
+- **返工 1（修源码，commit 03d141d）**：UP038 单行改写 `isinstance(value, str | int | float | bool)`（手改）；I001×3 走 `ruff check --fix` 仅动 import 块（每文件净 1 行）。diff 经核对无附带改动。
+- **返工 2（验证，全部实测）**：整仓 `ruff check .` → `All checks passed!`；全量 fast suite 复跑 **1430 passed / 1 skipped / 359 deselected / 0 failed**（878s，总数 1428→1430 系工作树并行演进、以本次实测为准）；修改的 3 个 alembic 迁移测试文件复跑 17 passed / 0 failed。I7 表 ruff 行作废，此后验收声明一律以实际复跑为准。
