@@ -23,6 +23,7 @@ from map_types.enums import (
     TopicCommentKind,
     TopicStatus,
 )
+from map_types.persona import persona_from_agent_name
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -121,23 +122,16 @@ class Agent(Base):
         "reviewer": frozenset({"review:submit", "review:accept_result"}),
         "participant": frozenset({"topic:comment"}),
     }
-    _PERSONA_NAME_SUFFIXES = frozenset(_PERSONA_CAPABILITIES)
 
     @property
     def persona(self) -> str | None:
         """Infer persona from the agent name's trailing ``-<persona>`` segment.
 
-        Single source of truth for persona identity: canonical MAP agents
-        (``multi-agent-platform-host``) and bootstrap project agents
-        (``<project_key>-host``, created by ``bootstrap_service``) share the
-        ``*-<persona>`` naming convention. Returns ``None`` for admin-only
-        agents, custom names, and ``*-sync`` projection agents so the
-        capability table falls through to admin-only access.
+        Delegates to ``map_types.persona.persona_from_agent_name`` so CLI and
+        server share one rule: ``{project_key}-host`` and
+        ``multi-agent-platform-host`` both resolve to ``host``.
         """
-        if not self.name or "-" not in self.name:
-            return None
-        suffix = self.name.rsplit("-", 1)[1]
-        return suffix if suffix in self._PERSONA_NAME_SUFFIXES else None
+        return persona_from_agent_name(self.name)
 
     def has_capability(self, capability: str) -> bool:
         """Return True if this agent can perform ``capability``.

@@ -615,6 +615,40 @@ class TestHostInvokeCommand:
         assert "4s" in sent["summary"] or "4" in sent["summary"]
         assert "waiting-for-session" in sent["summary"]
 
+    def test_dispatch_cancel_prefers_project_key_agent_name(self, tmp_path, monkeypatch):
+        """Cancel target is ``{project_key}-{persona}``, not a hard-coded MAP name."""
+        from types import SimpleNamespace
+
+        from cli.commands.host import _dispatch_cancel_notification
+
+        sent: dict[str, Any] = {}
+
+        class _FakeClient:
+            def get_me(self):
+                return SimpleNamespace(
+                    id="me-id", project_id="proj-id", project_key="acme"
+                )
+
+            def list_agents(self, *, project_id=None):
+                return [
+                    SimpleNamespace(id="legacy-id", name="multi-agents-platform-participant"),
+                    SimpleNamespace(id="acme-id", name="acme-participant"),
+                ]
+
+            def dispatch_notification(self, **kwargs):
+                sent.update(kwargs)
+
+        monkeypatch.setattr("map_client.project_config.resolve_client", lambda **kw: _FakeClient())
+        result = InvokeResult(
+            persona="participant",
+            status="timeout",
+            timed_out=True,
+            waited_seconds=4.0,
+            session_state="waiting-for-session",
+        )
+        _dispatch_cancel_notification("participant", result, tmp_path)
+        assert sent["recipient_agent_id"] == "acme-id"
+
 
 # ---------------------------------------------------------------------------
 # Integration: CLI registration in main app

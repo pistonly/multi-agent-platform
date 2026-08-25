@@ -167,6 +167,48 @@ def test_event_in_wakeable_whitelist() -> None:
     assert "topic_close_pending" not in {spec.kind for spec in WORK_ITEM_KINDS}
 
 
+def test_bootstrap_named_host_executor_omits_fragment(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """B3 residual：executor 与 creator 同为 host persona，即使 long name 不是
+    ``multi-agent-platform-host``，文案也不带 executor 片段。"""
+    project = Project(
+        project_key=f"ev-{uuid.uuid4().hex[:8]}",
+        name="Event bridge",
+        workspace_path=str(tmp_path),
+    )
+    db_session.add(project)
+    db_session.flush()
+
+    def _mk(name: str) -> Agent:
+        agent = Agent(
+            name=name, api_token_hash=f"hash-{name}", role="agent", project_id=project.id
+        )
+        db_session.add(agent)
+        db_session.flush()
+        return agent
+
+    host = _mk("acme-host")
+    reviewer = _mk("acme-reviewer")
+    write_topic_index(tmp_path, "acme-demo", title="EV", creator="host")
+    experiment = Experiment(
+        project_id=project.id,
+        creator_agent_id=host.id,
+        title="事件桥实验",
+        phase=ExperimentPhase.result_review,
+        executor_agent_id=host.id,
+        topic_id=topic_id_for_slug("acme-demo"),
+    )
+    db_session.add(experiment)
+    db_session.flush()
+
+    _accept(db_session, experiment, reviewer)
+    rows = _notifications(db_session, experiment)
+    assert len(rows) == 1
+    assert rows[0].recipient_agent_id == host.id
+    assert "executor:" not in rows[0].summary
+
+
 def test_db_topic_falls_back_to_creator_persona(db_session: Session, tmp_path: Path) -> None:
     """B5 降级：DB 存量话题（无 FS 文件夹）→ creator agent 名反推 persona，不 crash。"""
     experiment, host, reviewer = _setup(db_session, tmp_path)

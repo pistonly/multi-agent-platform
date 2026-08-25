@@ -590,23 +590,24 @@ def _notify_topic_close_pending(
         owner_agent_id = (
             db_topic.creator_agent_id if db_topic is not None else experiment.creator_agent_id
         )
-        name_to_persona = {v: k for k, v in notification_service.PERSONA_AGENT_NAMES.items()}
         if db_topic is not None:
             label = (db_topic.title or "")[:40]
         owner_agent = db.get(Agent, owner_agent_id)
-        if owner_agent is not None:
-            persona = name_to_persona.get(owner_agent.name)
-            if persona:
-                personas = [persona]
+        if owner_agent is not None and owner_agent.persona:
+            personas = [owner_agent.persona]
     if not personas:
         return
-    # B3：executor 与话题 creator 分离时才带 executor 名（同人不冗余）；
-    # creator 存 persona 短名，映射回全名比较
-    creator_agent_name = notification_service.PERSONA_AGENT_NAMES.get(personas[0])
+    # B3：executor 与话题 creator 不是同一人时才带 executor 名。
+    # 比较 agent id（及 persona 后缀兜底），不要用写死的 long name 模板。
+    creator_ids = notification_service._resolve_persona_agent_ids(
+        db, experiment.project_id, personas
+    )
+    same_as_creator = (
+        experiment.executor_agent_id is not None
+        and experiment.executor_agent_id in creator_ids
+    )
     executor_fragment = (
-        f"（executor: {executor_name}）"
-        if executor_name and executor_name != creator_agent_name
-        else ""
+        f"（executor: {executor_name}）" if executor_name and not same_as_creator else ""
     )
     notification_service.emit_kind(
         db,

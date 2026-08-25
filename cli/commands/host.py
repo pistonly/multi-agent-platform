@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from map_types.persona import pick_agent_by_persona
 
 from cli.orchestrator import InvokeResult
 
@@ -63,13 +64,11 @@ def _dispatch_cancel_notification(
         return
     try:
         me = client.get_me()
-        target = next(
-            (
-                a
-                for a in client.list_agents(project_id=me.project_id)
-                if a.name == f"multi-agents-platform-{persona}"
-            ),
-            None,
+        agents = client.list_agents(project_id=me.project_id)
+        target = pick_agent_by_persona(
+            agents,
+            persona,
+            project_key=getattr(me, "project_key", None),
         )
         if target is None:
             typer.echo(

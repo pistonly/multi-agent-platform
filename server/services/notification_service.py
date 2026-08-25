@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from map_types.enums import ExperimentPhase, NotificationCategory, NotificationFingerprintVersion
+from map_types.persona import CANONICAL_PERSONAS
 from sqlalchemy import event, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -12,16 +13,10 @@ from server.domain.models import Agent, AgentRole, Experiment, ExperimentLog, No
 from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
 
-# Phase 2 D2: persona agent names used by emit_kind to resolve wake-kind
-# recipients. These are the canonical MAP persona agents bound to a project;
-# the wake kinds (pending_review / pending_result_review / topic_lifecycle /
-# etc.) target one or more of these so the waker can differentiate lifecycle
-# events from generic notifications. Falls back to no recipients if a project
-# has not yet bound a given persona (early onboarding is graceful).
+# Example long names only (docs / fixtures). Recipient matching uses
+# ``Agent.persona`` / ``map_types.persona`` — never these strings as keys.
 PERSONA_AGENT_NAMES: dict[str, str] = {
-    "host": "multi-agent-platform-host",
-    "participant": "multi-agent-platform-participant",
-    "reviewer": "multi-agent-platform-reviewer",
+    persona: f"multi-agent-platform-{persona}" for persona in sorted(CANONICAL_PERSONAS)
 }
 
 """Wakeable 事件显式白名单——v0.9 用以替代显式 runtime feature flag。
@@ -166,15 +161,14 @@ def _resolve_persona_agent_ids(
     """Resolve persona keys to Agent.id within a project.
 
     Persona identity follows ``Agent.persona`` (the trailing
-    ``-<persona>`` name segment), so both canonical MAP agents
+    ``-<persona>`` name segment), so both package-shaped names
     (``multi-agent-platform-host``) and bootstrap project agents
-    (``<project_key>-host``) resolve — a project's wakeable recipients
-    no longer depend on the canonical naming.
+    (``<project_key>-host``) resolve.
 
     Returns an empty list if no persona matches (e.g. project hasn't bound
     that persona yet) so callers can treat it as a no-op rather than a 500.
     """
-    wanted = {p for p in personas if p in PERSONA_AGENT_NAMES}
+    wanted = {p for p in personas if p in CANONICAL_PERSONAS}
     if not wanted:
         return []
     rows = db.scalars(select(Agent).where(Agent.project_id == project_id)).all()

@@ -64,11 +64,30 @@ def test_review_obligations_filtered_by_suffix_persona():
     assert agent_sees_review_obligations(_agent("custom-agent"))
 
 
-def test_persona_short_name_matches_convention():
-    """FS 待办文件名推导（roundN-<persona>.md）对 bootstrap 命名取短名。"""
+def test_persona_from_agent_name_covers_key_and_package_shapes():
+    from map_types.persona import persona_from_agent_name, pick_agent_by_persona
+
+    assert persona_from_agent_name("acme-host") == "host"
+    assert persona_from_agent_name("multi-agent-platform-host") == "host"
+    assert persona_from_agent_name("multi-agents-platform-reviewer") == "reviewer"
+    assert persona_from_agent_name("noise-solver") is None
     assert persona_short_name(_agent("multi-agent-platform-host")) == "host"
     assert persona_short_name(_agent("my-project-host")) == "host"
     assert persona_short_name(_agent("noise-solver")) == "noise-solver"
+
+    class _A:
+        def __init__(self, name: str, id: str) -> None:
+            self.name = name
+            self.id = id
+
+    agents = [
+        _A("multi-agents-platform-participant", "legacy"),
+        _A("acme-participant", "preferred"),
+    ]
+    picked = pick_agent_by_persona(agents, "participant", project_key="acme")
+    assert picked is not None and picked.id == "preferred"
+    fallback = pick_agent_by_persona(agents, "participant")
+    assert fallback is not None and fallback.id == "legacy"
 
 
 def test_resolve_persona_agent_ids_bootstrapped_project(db_session, client):
