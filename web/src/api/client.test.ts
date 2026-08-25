@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type AxiosError } from "axios";
 import {
   api,
   fetchAgents,
@@ -6,11 +7,42 @@ import {
   fetchProjectDecisions,
   fetchProjectExperiments,
   fetchTopics,
+  formatApiError,
   markTopicRead,
   parseTotalCount,
   streamNotifications,
 } from "./client";
 import type { NotificationStreamError } from "./client";
+
+describe("formatApiError", () => {
+  it("appends the M55 hint so plan-frontmatter 422s are actionable", () => {
+    const error = {
+      isAxiosError: true,
+      message: "Request failed with status code 422",
+      response: {
+        data: {
+          detail: "Plan frontmatter is missing",
+          error_code: "STATE_MACHINE_PLAN_MARKER_MISSING",
+          hint: 'Plan must begin with a YAML frontmatter block. Copy this template:\n---\ntitle: "实验标题"\n---',
+        },
+        status: 422,
+      },
+    } as unknown as AxiosError<{ detail?: unknown; hint?: string }>;
+
+    expect(formatApiError(error)).toContain("Plan frontmatter is missing");
+    expect(formatApiError(error)).toContain('title: "实验标题"');
+  });
+
+  it("falls back to detail when hint is absent", () => {
+    const error = {
+      isAxiosError: true,
+      message: "Request failed with status code 400",
+      response: { data: { detail: "bad request" }, status: 400 },
+    } as unknown as AxiosError<{ detail?: unknown; hint?: string }>;
+
+    expect(formatApiError(error)).toBe("bad request");
+  });
+});
 
 describe("parseTotalCount", () => {
   it("reads lowercase x-total-count header", () => {

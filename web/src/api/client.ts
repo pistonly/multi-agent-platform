@@ -60,21 +60,33 @@ export function setApiErrorHandler(handler: ApiErrorHandler | null) {
   apiErrorHandler = handler;
 }
 
-export function formatApiError(error: AxiosError<{ detail?: unknown }>): string {
-  const detail = error.response?.data?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail
+export function formatApiError(
+  error: AxiosError<{ detail?: unknown; hint?: string }>,
+): string {
+  const data = error.response?.data;
+  const detail = data?.detail;
+  let message: string;
+  if (typeof detail === "string") {
+    message = detail;
+  } else if (Array.isArray(detail)) {
+    message = detail
       .map((item) => (typeof item === "object" && item && "msg" in item ? String(item.msg) : String(item)))
       .join("; ");
+  } else if (detail && typeof detail === "object") {
+    message = JSON.stringify(detail);
+  } else {
+    message = error.message || "请求失败";
   }
-  if (detail && typeof detail === "object") return JSON.stringify(detail);
-  return error.message || "请求失败";
+  const hint = typeof data?.hint === "string" ? data.hint.trim() : "";
+  if (hint && !message.includes(hint)) {
+    return `${message}\n${hint}`;
+  }
+  return message;
 }
 
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ detail?: unknown }>) => {
+  (error: AxiosError<{ detail?: unknown; hint?: string }>) => {
     if (axios.isAxiosError(error) && error.response?.status !== 401) {
       apiErrorHandler?.(formatApiError(error));
     }

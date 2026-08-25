@@ -17,11 +17,6 @@ vi.mock("../api/client", async () => {
     ...actual,
     fetchTopic: mocks.fetchTopic,
     markTopicRead: mocks.markTopicRead,
-    closeTopic: vi.fn(),
-    createTopicComment: vi.fn(),
-    reopenTopic: vi.fn(),
-    resolveTopic: vi.fn(),
-    updateTopic: vi.fn(),
   };
 });
 
@@ -135,5 +130,32 @@ describe("TopicPage", () => {
     expect(screen.queryByPlaceholderText(/参与讨论/)).toBeNull();
     expect(screen.queryByText("关闭话题")).toBeNull();
     expect(screen.queryByText("沉淀结论")).toBeNull();
+    expect(screen.getByText(/话题评论、关闭、结论和归档请用 CLI/)).toBeTruthy();
+  });
+
+  it("hides retired DB write controls on fs-local topics and shows CLI commands", async () => {
+    mocks.fetchTopic.mockResolvedValue({
+      ...topicFixture,
+      content_source: "fs-local",
+      slug: "cli-guide",
+    });
+
+    renderTopicPage();
+
+    expect(await screen.findByText(/话题评论、关闭、结论和归档请用 CLI/)).toBeTruthy();
+    expect(screen.getByText(/map --persona host fs comment --topic cli-guide/)).toBeTruthy();
+    expect(screen.queryByText("关闭话题")).toBeNull();
+    expect(screen.queryByPlaceholderText(/参与讨论/)).toBeNull();
+  });
+
+  it("points leftover DB topics at migrate instead of 410 write buttons", async () => {
+    mocks.fetchTopic.mockResolvedValue(topicFixture);
+
+    renderTopicPage();
+
+    expect(await screen.findByText(/存量 DB 话题/)).toBeTruthy();
+    expect(screen.getByText(/map --persona host topic migrate --id topic-1/)).toBeTruthy();
+    expect(screen.queryByText("关闭话题")).toBeNull();
+    expect(screen.queryByPlaceholderText(/参与讨论/)).toBeNull();
   });
 });

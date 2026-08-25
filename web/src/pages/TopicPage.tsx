@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { closeTopic, createTopicComment, fetchTopic, markTopicRead, reopenTopic, resolveTopic, updateTopic } from "../api/client";
+import { fetchTopic, markTopicRead } from "../api/client";
 import type { TopicCommentTreeNode, TopicDecision } from "../api/types";
 import { Modal } from "../components/Modal";
 import { CreateExperimentForm } from "../components/CreateExperimentForm";
@@ -9,8 +9,8 @@ import { MarkdownBody } from "../components/MarkdownBody";
 import { SystemCommentBody } from "../components/SystemCommentBody";
 import { PhaseBadge } from "../components/PhaseStepper";
 import { AgentBadge } from "../components/AgentBadge";
-import { AgentMentionInput, AgentMentionTextarea } from "../components/AgentMentionInput";
 import { CopyableId } from "../components/CopyableId";
+import { TopicWriteGuide } from "../components/TopicWriteGuide";
 import { useAuth } from "../context/AuthContext";
 import { useCommentAnchor } from "../hooks/useCommentAnchor";
 import { useDoc } from "../hooks/useDoc";
@@ -39,9 +39,7 @@ export function TopicPage() {
   const location = useLocation();
   const { agent, isAdmin } = useAuth();
   const queryClient = useQueryClient();
-  const [reply, setReply] = useState("");
   const [showCreateExp, setShowCreateExp] = useState(false);
-  const [showResolve, setShowResolve] = useState(false);
   const markedReadTopicIdRef = useRef<string | null>(null);
 
   const query = useQuery({
@@ -73,33 +71,6 @@ export function TopicPage() {
     markedReadTopicIdRef.current = topicId;
     markRead();
   }, [topicId, query.data?.id, markRead, markReadPending]);
-
-  const commentMutation = useMutation({
-    mutationFn: () => createTopicComment(topicId!, { body: reply.trim() }),
-    onSuccess: () => {
-      setReply("");
-      invalidate();
-    },
-  });
-
-  const statusMutation = useMutation({
-    mutationFn: (action: "close" | "reopen") =>
-      action === "close" ? closeTopic(topicId!) : reopenTopic(topicId!),
-    onSuccess: invalidate,
-  });
-
-  const pinMutation = useMutation({
-    mutationFn: (pinned: boolean) => updateTopic(topicId!, { pinned }),
-    onSuccess: invalidate,
-  });
-
-  const archiveMutation = useMutation({
-    mutationFn: (archived: boolean) => updateTopic(topicId!, { archived }),
-    onSuccess: () => {
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ["topics"] });
-    },
-  });
 
   const anchorCommentId = useMemo(
     () =>
@@ -165,17 +136,6 @@ export function TopicPage() {
           <CopyableId id={topic.id} label="Topic ID" />
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {isTopicHost && !isRemoteFsProjection && (
-            topic.status === "open" ? (
-              <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("close")}>
-                关闭话题
-              </button>
-            ) : (
-              <button type="button" className="btn-secondary" onClick={() => statusMutation.mutate("reopen")}>
-                重新开启
-              </button>
-            )
-          )}
           <button
             type="button"
             className="btn-primary"
@@ -185,39 +145,14 @@ export function TopicPage() {
           >
             从此话题发起实验
           </button>
-          {isTopicHost && !isRemoteFsProjection && (
-            <button type="button" className="btn-secondary" onClick={() => setShowResolve(true)}>
-              {topic.decision ? "修订结论" : "沉淀结论"}
-            </button>
-          )}
-          {isTopicHost && !isRemoteFsProjection && (
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={pinMutation.isPending}
-              onClick={() => pinMutation.mutate(!topic.pinned)}
-            >
-              {topic.pinned ? "取消置顶" : "置顶话题"}
-            </button>
-          )}
-          {isTopicHost && !isRemoteFsProjection && (
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={archiveMutation.isPending}
-              onClick={() => archiveMutation.mutate(!topic.archived_at)}
-            >
-              {topic.archived_at ? "取消归档" : "归档话题"}
-            </button>
-          )}
         </div>
       </div>
 
       {isRemoteFsProjection && (
         <div className="rounded border border-amber-700 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
           <p>
-            这是远程 FS 投影的只读视图。请在项目本地通过 <code>map topic</code> /{" "}
-            <code>map fs sync</code> 写入文件并同步；Web 不会直接修改远程投影。
+            这是远程 FS 投影的只读视图。请在项目本地通过 <code>map fs</code> 写入文件并用{" "}
+            <code>map fs sync</code> 同步；Web 不会直接修改远程投影。
           </p>
           <p className="mt-2 text-amber-50/90">
             来源 {topic.source?.content_source ?? topic.content_source}
@@ -234,6 +169,12 @@ export function TopicPage() {
           )}
         </div>
       )}
+
+      <TopicWriteGuide
+        slug={topic.slug}
+        topicId={topic.id}
+        contentSource={topic.content_source}
+      />
 
       <TopicDecisionPanel decision={decision} />
 
@@ -260,34 +201,10 @@ export function TopicPage() {
       <section className="card">
         <h2 className="mb-4 text-lg font-semibold text-white">讨论</h2>
         {comments.length > 0 ? (
-          <TopicCommentNodes
-            nodes={comments}
-            topicId={topicId!}
-            anchorCommentId={anchorCommentId}
-            onUpdated={invalidate}
-            readOnly={isRemoteFsProjection}
-          />
+          <TopicCommentNodes nodes={comments} anchorCommentId={anchorCommentId} />
         ) : (
           <p className="text-sm text-slate-500">暂无讨论</p>
         )}
-        {!isRemoteFsProjection && <div className="mt-4 border-t border-surface-border pt-4">
-          <AgentMentionTextarea
-            className="min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-            placeholder="参与讨论… 输入 @ 触发 agent 候选"
-            value={reply}
-            onValueChange={setReply}
-          />
-          <div className="mt-2 flex justify-end">
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!reply.trim() || commentMutation.isPending}
-              onClick={() => commentMutation.mutate()}
-            >
-              {commentMutation.isPending ? "发送中…" : "评论"}
-            </button>
-          </div>
-        </div>}
       </section>
 
       {showCreateExp && (
@@ -296,21 +213,9 @@ export function TopicPage() {
             projectId={topic.project_id}
             topicId={topic.id}
             onCancel={() => setShowCreateExp(false)}
-            onCreated={() => setShowCreateExp(false)}
-          />
-        </Modal>
-      )}
-      {showResolve && (
-        <Modal title={decision ? "修订话题结论" : "沉淀话题结论"} onClose={() => setShowResolve(false)}>
-          <ResolveTopicForm
-            topicId={topic.id}
-            decision={decision}
-            onCancel={() => setShowResolve(false)}
-            onSaved={() => {
-              setShowResolve(false);
+            onCreated={() => {
+              setShowCreateExp(false);
               invalidate();
-              queryClient.invalidateQueries({ queryKey: ["project-decisions", topic.project_id] });
-              queryClient.invalidateQueries({ queryKey: ["work"] });
             }}
           />
         </Modal>
@@ -403,110 +308,6 @@ function DecisionSubsection({ title, content }: { title: string; content: string
   );
 }
 
-function ResolveTopicForm({
-  topicId,
-  decision,
-  onCancel,
-  onSaved,
-}: {
-  topicId: string;
-  decision: TopicDecision | null;
-  onCancel: () => void;
-  onSaved: () => void;
-}) {
-  const [decisionText, setDecisionText] = useState(decision?.decision ?? "");
-  const [rationale, setRationale] = useState(decision?.rationale ?? "");
-  const [rejectedOptions, setRejectedOptions] = useState(decision?.rejected_options ?? "");
-  const [openQuestions, setOpenQuestions] = useState(decision?.open_questions ?? "");
-  const [noDecisionReason, setNoDecisionReason] = useState(decision?.no_decision_reason ?? "");
-  const [actionLines, setActionLines] = useState((decision?.action_items ?? []).map((item) => item.title).join("\n"));
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      resolveTopic(topicId, {
-        decision: decisionText.trim() || null,
-        rationale: rationale.trim() || null,
-        rejected_options: rejectedOptions.trim() || null,
-        open_questions: openQuestions.trim() || null,
-        no_decision_reason: noDecisionReason.trim() || null,
-        action_items: actionLines
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((title) => ({ title })),
-      }),
-    onSuccess: onSaved,
-  });
-
-  const hasResolution = !!decisionText.trim() || !!noDecisionReason.trim();
-
-  return (
-    <div className="space-y-3">
-      <label className="block text-sm text-slate-300">
-        结论
-        <textarea
-          className="mt-1 min-h-[96px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={decisionText}
-          onChange={(e) => setDecisionText(e.target.value)}
-        />
-      </label>
-      <label className="block text-sm text-slate-300">
-        无结论原因
-        <textarea
-          className="mt-1 min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={noDecisionReason}
-          onChange={(e) => setNoDecisionReason(e.target.value)}
-        />
-      </label>
-      <label className="block text-sm text-slate-300">
-        依据
-        <textarea
-          className="mt-1 min-h-[72px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={rationale}
-          onChange={(e) => setRationale(e.target.value)}
-        />
-      </label>
-      <label className="block text-sm text-slate-300">
-        未采纳选项
-        <textarea
-          className="mt-1 min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={rejectedOptions}
-          onChange={(e) => setRejectedOptions(e.target.value)}
-        />
-      </label>
-      <label className="block text-sm text-slate-300">
-        开放问题
-        <textarea
-          className="mt-1 min-h-[60px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={openQuestions}
-          onChange={(e) => setOpenQuestions(e.target.value)}
-        />
-      </label>
-      <label className="block text-sm text-slate-300">
-        行动项
-        <textarea
-          className="mt-1 min-h-[72px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={actionLines}
-          onChange={(e) => setActionLines(e.target.value)}
-        />
-      </label>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="btn-secondary" onClick={onCancel} disabled={mutation.isPending}>
-          取消
-        </button>
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={!hasResolution || mutation.isPending}
-          onClick={() => mutation.mutate()}
-        >
-          {mutation.isPending ? "保存中…" : "保存结论"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function TopicCommentContent({ filePath, fallback }: { filePath?: string | null; fallback: string }) {
   const { agent } = useAuth();
   const docQuery = useDoc(agent?.project_id ?? null, filePath);
@@ -526,39 +327,15 @@ function TopicCommentContent({ filePath, fallback }: { filePath?: string | null;
 
 interface TopicCommentNodesProps {
   nodes: TopicCommentTreeNode[];
-  topicId: string;
   anchorCommentId: string | null;
-  onUpdated: () => void;
-  readOnly?: boolean;
   depth?: number;
 }
 
-function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, readOnly = false, depth = 0 }: TopicCommentNodesProps) {
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState<string | null>(null);
-  // Only the root render runs the anchor hook (deeper recursion passes
-  // anchorCommentId but does not invoke the hook to avoid duplicate scroll
-  // attempts). `nodes.length` is passed as `resetKey` so a refresh triggered
-  // by invalidation / reply re-checks the anchor against the freshest tree.
+function TopicCommentNodes({ nodes, anchorCommentId, depth = 0 }: TopicCommentNodesProps) {
   const { highlightedId } = useCommentAnchor(
     depth === 0 ? anchorCommentId : null,
     depth === 0 ? nodes.length : undefined,
   );
-
-  async function handleReply(commentId: string) {
-    const body = replyText[commentId]?.trim();
-    if (!body) return;
-    setLoading(commentId);
-    try {
-      await createTopicComment(topicId, { body, parent_id: commentId });
-      setReplyText((prev) => ({ ...prev, [commentId]: "" }));
-      setReplyingTo(null);
-      onUpdated();
-    } finally {
-      setLoading(null);
-    }
-  }
 
   return (
     <div className="space-y-2">
@@ -590,51 +367,10 @@ function TopicCommentNodes({ nodes, topicId, anchorCommentId, onUpdated, readOnl
                 <TopicCommentContent filePath={n.file_path} fallback={n.body} />
               )}
             </div>
-            {!readOnly && <button
-              type="button"
-              className="mb-2 text-xs text-accent hover:underline"
-              onClick={() => setReplyingTo((id) => (id === n.id ? null : n.id))}
-            >
-              回复
-            </button>}
-            {!readOnly && replyingTo === n.id ? (
-              <div className="mb-3 flex flex-wrap gap-2">
-                <AgentMentionInput
-                  className="min-w-[200px] flex-1 rounded border border-surface-border bg-surface px-2 py-1 text-sm text-white"
-                  placeholder="写下回复… 输入 @ 触发 agent 候选"
-                  value={replyText[n.id] ?? ""}
-                  onValueChange={(next) =>
-                    setReplyText((prev) => ({ ...prev, [n.id]: next }))
-                  }
-                />
-                <button
-                  type="button"
-                  className="btn-secondary py-1 text-xs"
-                  disabled={!replyText[n.id]?.trim() || loading === n.id}
-                  onClick={() => handleReply(n.id)}
-                >
-                  {loading === n.id ? "发送中…" : "发送"}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary py-1 text-xs"
-                  disabled={loading === n.id}
-                  onClick={() => {
-                    setReplyingTo(null);
-                    setReplyText((prev) => ({ ...prev, [n.id]: "" }));
-                  }}
-                >
-                  取消
-                </button>
-              </div>
-            ) : null}
             {(n.children ?? []).length > 0 && (
               <TopicCommentNodes
                 nodes={n.children ?? []}
-                topicId={topicId}
                 anchorCommentId={anchorCommentId}
-                onUpdated={onUpdated}
-                readOnly={readOnly}
                 depth={depth + 1}
               />
             )}

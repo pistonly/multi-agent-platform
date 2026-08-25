@@ -1,42 +1,28 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { createTopic } from "../api/client";
+import { useMemo, useState } from "react";
+import { CopyableCommand } from "./CopyableCommand";
+import { slugifyTopicTitle, topicCreateCommand } from "../utils/topicFsCommands";
 
 interface CreateTopicFormProps {
-  projectId: string;
-  onCreated?: () => void;
   onCancel?: () => void;
 }
 
-export function CreateTopicForm({ projectId, onCreated, onCancel }: CreateTopicFormProps) {
-  const queryClient = useQueryClient();
+export function CreateTopicForm({ onCancel }: CreateTopicFormProps) {
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-
-  const createMutation = useMutation({
-    mutationFn: () =>
-      createTopic(projectId, {
-        title: title.trim(),
-        description: description.trim() || null,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["topics", projectId] });
-      onCreated?.();
-    },
-  });
+  const [slug, setSlug] = useState("");
+  const derivedSlug = slugifyTopicTitle(title);
+  const command = useMemo(
+    () => topicCreateCommand(title, slug.trim() || derivedSlug),
+    [title, slug, derivedSlug],
+  );
 
   return (
-    <form
-      className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        createMutation.mutate();
-      }}
-    >
+    <div className="space-y-3">
+      <p className="text-sm text-slate-300">
+        平台不再接收「发布话题」API。填好标题后复制命令，在仓库根目录执行。
+      </p>
       <div>
         <label className="mb-1 block text-xs text-slate-400">标题</label>
         <input
-          required
           className="w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -44,24 +30,22 @@ export function CreateTopicForm({ projectId, onCreated, onCancel }: CreateTopicF
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs text-slate-400">描述（可选）</label>
-        <textarea
-          className="min-h-[80px] w-full rounded border border-surface-border bg-surface px-3 py-2 text-sm text-white"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
+        <label className="mb-1 block text-xs text-slate-400">slug（文件夹名，可选）</label>
+        <input
+          className="w-full rounded border border-surface-border bg-surface px-3 py-2 font-mono text-sm text-white"
+          value={slug}
+          onChange={(e) => setSlug(e.target.value)}
+          placeholder={derivedSlug || "my-topic"}
         />
       </div>
-      {createMutation.isError && <p className="text-sm text-red-400">创建失败</p>}
-      <div className="flex justify-end gap-2 pt-1">
-        {onCancel && (
+      <CopyableCommand command={command} label="在仓库根目录执行" />
+      {onCancel && (
+        <div className="flex justify-end pt-1">
           <button type="button" className="btn-secondary" onClick={onCancel}>
-            取消
+            关闭
           </button>
-        )}
-        <button type="submit" className="btn-primary" disabled={createMutation.isPending}>
-          {createMutation.isPending ? "创建中…" : "发布话题"}
-        </button>
-      </div>
-    </form>
+        </div>
+      )}
+    </div>
   );
 }

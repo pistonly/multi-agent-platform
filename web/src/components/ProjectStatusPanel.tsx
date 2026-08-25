@@ -132,12 +132,8 @@ export function ProjectStatusPanel({ projectId, isAdmin, showHeader = true }: Pr
       />
 
       {showCreateTopic && (
-        <Modal title="发布话题" onClose={() => setShowCreateTopic(false)}>
-          <CreateTopicForm
-            projectId={projectId}
-            onCancel={() => setShowCreateTopic(false)}
-            onCreated={() => setShowCreateTopic(false)}
-          />
+        <Modal title="用 CLI 发布话题" className="max-w-xl" onClose={() => setShowCreateTopic(false)}>
+          <CreateTopicForm onCancel={() => setShowCreateTopic(false)} />
         </Modal>
       )}
       {showCreateExperiment && (
