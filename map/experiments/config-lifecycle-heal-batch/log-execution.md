@@ -56,3 +56,19 @@
     1. `test_compat.py::test_cli_commands_directory_inventory`——`EXPECTED_SUBAPP_FILES` 自 doctor.py（本实验 A1 新 sub-app）就漏登记一直红；补 `doctor.py` + `version.py`（A6 P3-1 新 sub-app）。
     2. `test_a2a.py::TestAgentCards::test_card_cross_project_forbidden` / `TestTaskProjection::test_tasks_cross_project_forbidden`——两测试用**同一** `workspace_path=/tmp/a2a-demo` 建第二个 project，触发 A5 联合键唯一性 409（此前无约束时 201 通过）。修法：`_bootstrap` 增 `workspace` 覆盖参数，a2a-one/a2a-two 各用独立 workspace，跨项目 403 断言意图不变。分模块复跑 `test_compat.py + test_a2a.py` → **24 passed**，ruff 对新改两文件全绿。
   - **终轮全量复跑（以实际复跑为准，同上命令重跑全仓）**：**1471 passed, 1 skipped, 359 deselected, 0 failed**（869s，exit code 0）。达成 plan I5「0 errors / 0 failed」。
+
+## 风险
+
+- A5 唯一性硬约束可能误伤「同一 repo 多 project」——以联合键（workspace_path + content_root）缓解，不同 content_root 开多 project 不受影响；存量「同 workspace 多 project 双归属」不自动迁移、不阻断，走处置文档（docs/WORKSPACE-UNIQUENESS.md）两条标准路径（retired-surface 清理 / archive 换主）。
+- A4 `--rewrite-config` 默认关闭，仅显式开启才回写 config——避免「误用 reissue 吊销/改写」陷阱；默认语义由回归测试钉住。
+- fast suite 首轮 3 红（CLI 快照 doctor.py/version.py 漏登记 + a2a 跨项目同 workspace 撞 A5 约束）均**本实验引入**，已逐一定因修复清零；终轮 1471 passed / 0 failed 为同一命令的权威全量复跑，非推算。
+
+## acceptance
+
+- A1 ✅ doctor --config 分叉对账 + whoami/fs status 告警 + --check 码表 0/1/2 进单测锚点；live 实测 diverged(1)/diagnostic-error(2) 两码。
+- A2 ✅ bootstrap --heal 非破坏性回写；agents.local.yaml 前后**字节不变** + 请求仅 GET（token 不变机器断言）；live diff UNCHANGED。
+- A3 ✅ bootstrap 已存在 key 三出路分流（reissue / --heal / archive 重建）live 实测三出路齐全，CLI 与 server 两条触发路径同盖。
+- A4 ✅ auth reissue --rewrite-config 默认不修 config 回归 + 显式开启时 heal 恰好一次。
+- A5 ✅ 联合键唯一（create/register/update 409 指明认领者）+ 不同 content_root 合法 201 + doctor 双归属兜底列全认领者 + 处置文档；「新建双归属被拒」+「存量双归属被列清单」两端同盖。
+- A6 ✅ P4-1 help snapshot 两版本一致无 object 泄漏；P3-1 map version info --json 四命令集对照范围不建第二张全量漂移表；P2-1 archive 规划语义（dormant/dry-run/unarchive 无损）。
+- 测试面 ✅ 本实验新增单测全绿；`ruff check` 整仓 **All checks passed**；fast suite 终轮 **1471 passed, 1 skipped, 0 failed**（869s EXIT=0，以实际复跑为准）。
