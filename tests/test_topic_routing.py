@@ -296,6 +296,28 @@ class _RecordingStub(_StubClient):
         self.calls.append(("cancel_experiment", experiment_id))
         return {"id": str(experiment_id), "phase": "cancelled"}
 
+    def get_experiment(self, experiment_id):
+        """远端 M56D 重构后 _run_lifecycle 的 preflight / after 刷新调用面。
+
+        cancel 命令在调 cancel_experiment 前先 get_experiment(rid) 取
+        from_phase（preflight_index），调完因返回 dict 无 phase 属性再取
+        一次 after。返回带 phase/plan_file_path/executor_agent_id 的最小
+        实验 shape，两条路径都能走通。
+        """
+        self.calls.append(("get_experiment", experiment_id))
+        return SimpleNamespace(
+            id=experiment_id,
+            title="stub experiment",
+            phase="running",
+            plan_file_path=None,
+            executor_agent_id=None,
+            creator_agent_id=uuid.uuid4(),
+        )
+
+    def get_me(self):
+        """executor persona 推断（after.executor_agent_id is None → host）。"""
+        return SimpleNamespace(id=uuid.uuid4(), persona="host")
+
 
 def _patch_client(monkeypatch: pytest.MonkeyPatch, client: _RecordingStub) -> None:
     import cli.main as cli_main
@@ -501,7 +523,13 @@ class TestExperimentCancelCli:
         _patch_client(monkeypatch, client)
         result = runner.invoke(experiment_app, ["cancel", "--id", str(exp_id)])
         assert result.exit_code == 0, result.output
-        assert client.calls == [("cancel_experiment", exp_id)]
+        # M56D 重构后 lifecycle 命令先 get_experiment 取 from_phase、
+        # 调 API 后再 get_experiment 刷新 after（cancel 返回 dict 无 phase）。
+        assert client.calls == [
+            ("get_experiment", exp_id),
+            ("cancel_experiment", exp_id),
+            ("get_experiment", exp_id),
+        ]
         assert "cancelled" in result.output
 
     def test_cancel_state_machine_rejection_passthrough(

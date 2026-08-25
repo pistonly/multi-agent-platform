@@ -56,6 +56,7 @@
 
 ### 运维 / 兼容
 
+- [OPTIMIZATION-TASKS.md](OPTIMIZATION-TASKS.md) — 优化任务清单（2026-08 审查，可勾选跟踪）
 - [LEGACY-ENTRY-MATRIX.md](LEGACY-ENTRY-MATRIX.md) — 旧入口分类（已退役入口索引）
 - `runbooks/` — 故障排查手册（独立目录，按场景分子目录）
 - `probes/` — 探针脚本（独立目录）
