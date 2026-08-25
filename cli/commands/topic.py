@@ -28,11 +28,17 @@ from map_client.client import MAPClient
 
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
+# create/comment/advance-round/close + retired DB writes: keep callable, hide
+# from `map topic --help` so discovery goes to `map fs` (Web CLI 指引同源).
+_TOPIC_WRITE_HIDDEN = True
+
 topic_app = typer.Typer(
     help=(
-        "Topic commands (v0.13 M58: FS-only writes). Reads (show/list/progress) and "
-        "migrate/dismiss stay DB-id based; write commands route FS targets to file writes "
-        "and reject retired DB paths with guidance."
+        "Topic reads, migrate, and action-items (v0.13 M58: FS-only writes). "
+        "list/show/progress/history merge local map/ with leftover DB topics; "
+        "migrate/dismiss/read/mark-seen stay available. "
+        "Writes live under `map fs` (topic-create/comment/advance-round/close/archive); "
+        "`map topic` write subcommands remain as hidden compatibility aliases."
     ),
     rich_markup_mode=None,
 )
@@ -416,8 +422,8 @@ def _fs_projection_noop(command: str, slug: str) -> NoReturn:
 _DB_WRITE_RETIRED_HINTS: dict[str, str] = {
     "create": (
         "create FS topics instead: "
-        "`map topic create --title ... --slug <name> --participants <a,b>` "
-        "(or `map fs topic-create`)"
+        "`map fs topic-create --title ... --slug <name> --participants <a,b>` "
+        "(hidden alias: `map topic create`)"
     ),
     "resolve": (
         "decisions are carried by the FS close note: "
@@ -481,7 +487,7 @@ def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
 # ---------------------------------------------------------------------------
 
 
-@topic_app.command("create")
+@topic_app.command("create", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_create(
     title: str = typer.Option(
         ..., "--title", show_default=False, help="Map topic title."
@@ -505,7 +511,7 @@ def topic_create(
     ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
-    """Create ``map/topics/<slug>/`` + index.md (FS source of truth; no API write)."""
+    """Create map/topics/<slug>/ + index.md (hidden alias of ``map fs topic-create``)."""
     from cli.commands.fs import write_new_fs_topic
     from cli.fs_projection import maybe_auto_sync
 
@@ -703,7 +709,7 @@ def topic_progress() -> None:
     _run(lambda c: c.get_topic_progress())
 
 
-@topic_app.command("resolve")
+@topic_app.command("resolve", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_resolve(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
@@ -725,7 +731,7 @@ def topic_resolve(
     _run(action)
 
 
-@topic_app.command("advance-round")
+@topic_app.command("advance-round", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_advance_round(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
@@ -812,7 +818,7 @@ def topic_advance_round(
     _run(action)
 
 
-@topic_app.command("rollback-round")
+@topic_app.command("rollback-round", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_rollback_round(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
@@ -829,7 +835,7 @@ def topic_rollback_round(
     _run(action)
 
 
-@topic_app.command("comment")
+@topic_app.command("comment", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_comment(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
@@ -955,7 +961,7 @@ def _write_fs_comment(
         raise typer.Exit(0)
 
 
-@topic_app.command("close")
+@topic_app.command("close", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_close(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
@@ -1008,7 +1014,7 @@ def topic_close(
     _run(action)
 
 
-@topic_app.command("reopen")
+@topic_app.command("reopen", hidden=_TOPIC_WRITE_HIDDEN)
 def topic_reopen(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
@@ -1090,6 +1096,7 @@ def topic_mark_seen(
 
 @topic_app.command(
     "archive",
+    hidden=_TOPIC_WRITE_HIDDEN,
     epilog="(Retired v0.13 M58) FS archiving = moving map/topics/<slug>/ to map/archive/topics/.",
 )
 def topic_archive(

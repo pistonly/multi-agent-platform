@@ -29,7 +29,14 @@ from map_client.exceptions import MAPHTTPError
 
 from cli.table_render import render_table, truncate
 
-fs_app = typer.Typer(help="map/ folder source-of-truth commands", rich_markup_mode=None)
+fs_app = typer.Typer(
+    help=(
+        "map/ folder source-of-truth writes and projection sync. "
+        "Daily topic writes: topic-create / comment / advance-round / close / archive. "
+        "`map topic` keeps hidden compatibility aliases for the same writes."
+    ),
+    rich_markup_mode=None,
+)
 
 _ROUND_FILE_RE = re.compile(r"^round(\d+)-([A-Za-z0-9_.\-]+)\.md$")
 
@@ -163,7 +170,7 @@ def fs_topic_create(
     ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
-    """离线创建话题文件夹 + index.md（不调 API）。高级入口；日常用 ``map topic create``。"""
+    """离线创建话题文件夹 + index.md（不调 API）。日常写入口；map topic create 为隐藏兼容别名。"""
     index = write_new_fs_topic(
         title=title,
         slug=slug,

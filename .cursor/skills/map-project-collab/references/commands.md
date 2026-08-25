@@ -4,19 +4,19 @@
 
 ## `topic --id` 统一路由（M51）
 
-`map topic show / comment / advance-round / close` 的 `--id` 接受三种形式：
+`map topic show` 的 `--id` 接受三种形式：
 
 - **DB uuid** → 平台 API 话题（uuid 格式时 DB 优先，404 后本地反查 FS uuid5）
 - **FS uuid5 id** → `map/topics/<slug>/` 文件夹话题（由 CLI 路由层解析）
 - **slug** → FS 优先（`map/topics/<slug>/` 存在即 FS），未命中按 DB slug 匹配
 
-同名冲突或想显式指定时加 `--storage fs | db`。FS 话题的 comment 为纯本地写（`round<N>-<persona>.md`，不支持 `--parent` / `--file-path`）。
+同名冲突或想显式指定时加 `--storage fs | db`。
 
-其余 topic 子命令：`dismiss / read / mark-seen / migrate` 保留（按 DB uuid；migrate 是存量话题唯一续命路径）；`resolve / rollback-round / reopen / archive` 已退役（v0.13 M58 起，见下节）。`topic create` 写 `map/topics/<slug>/`。
+**写操作发现入口是 `map fs`**（与看板可复制命令一致）：`topic-create` / `comment` / `advance-round` / `close` / `archive`。`map topic create/comment/advance-round/close` 仍可用，但不出现在 `map topic --help`（隐藏兼容别名）。`map fs comment --topic` 与 `--id` 双轨别名均可用。
 
-**`map fs` 子命令为 advanced 入口**：纯离线场景（无网络 / 批量本地写）用 `map fs list / show / comment / work`；日常创建、发言、清单、验证型写一律 `map topic ...`。远程/容器部署用 `map fs status` / `map fs diff` / `map fs sync`（`push` 为 `--full` 兼容别名）。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
+其余 topic 子命令：`list / show / progress / history / dismiss / read / mark-seen / migrate / action-item` 出现在 `map topic --help`；`resolve / rollback-round / reopen / archive` 已退役（v0.13 M58 起，help 中隐藏，调用仍给引导）。远程/容器部署用 `map fs status` / `map fs diff` / `map fs sync`（`push` 为 `--full` 兼容别名）。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
 
-> **v0.13 M58 起 DB 话题写路径退役**：`topic resolve / rollback-round / reopen / archive` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2）；`topic create / list / show` 已是 FS 兼容入口。`dismiss / migrate` 不受影响。
+> **v0.13 M58 起 DB 话题写路径退役**：`topic resolve / rollback-round / reopen / archive` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2）。`dismiss / migrate` 不受影响。
 
 ## 项目状态与话题清单
 
@@ -42,9 +42,9 @@ map --persona host project status revise --file docs/status-md-v11.md --note "�
 
 ```bash
 # 创建：离线写 map/topics/<slug>/ + index.md（不调 API）
-map topic create --title "..." --slug <name> --participants participant,reviewer
+map fs topic-create --title "..." --slug <name> --participants participant,reviewer
 # --description 可选；--participants 白名单内 persona 才收到 FS 待办
-# 高级入口：map fs topic-create --title "..." --slug <name>
+# 隐藏兼容别名：map topic create --title "..." --slug <name>
 
 # 轻量执行项（收敛时落 action-items.yaml，close 门禁校验清零，见 topic-host §3b）：
 map topic action-item add --topic <slug> --owner <persona> --title "..."
@@ -52,8 +52,8 @@ map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytes
 map topic action-item cancel --topic <slug> --id <n> --reason "..."
 
 # 关闭（验证型写：服务端校验 ack 与执行项清零后写回 index.md status=closed）
-map topic close --id <slug> --reason no_experiment_needed --note "结论（decision / rationale 见 topic-host；执行项在 action-items.yaml）"
-# 等价 advanced 入口：map fs close --topic <slug> --reason ... --note ...
+map fs close --topic <slug> --reason no_experiment_needed --note "结论（decision / rationale 见 topic-host；执行项在 action-items.yaml）"
+# 隐藏兼容别名：map topic close --id <slug> --reason ... --note ...
 ```
 
 话题关闭前若有 linked experiment，需等实验 done/cancelled；实验处于 `draft`/`review`/`approved`/`running`/`result_review` 时**不要**关闭源话题，等待期间 `topic dismiss` 降噪。
@@ -77,12 +77,12 @@ map --persona host topic migrate --id <topic-uuid> --slug <name>             # F
 ## 参与讨论（participant / host）
 
 ```bash
-map --persona participant topic comment --id <slug> --body "短评（Markdown）"
+map --persona participant fs comment --topic <slug> --body "短评（Markdown）"
 # 长内容用文件（即写 map/topics/<slug>/round<N>-participant.md，推荐）
-map --persona participant topic comment --id <slug> --file ./my-opinion.md
+map --persona participant fs comment --topic <slug> --file ./my-opinion.md
 ```
 
-slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。无网时可用高级入口 `map fs comment --topic <slug>`（T2-P2：`--topic` 与 `--id` 双轨别名均可用）。
+slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。`map topic comment --id <slug>` 为隐藏兼容别名。
 
 ## 实验创建（仅 host）
 

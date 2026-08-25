@@ -248,6 +248,7 @@ class TestCommentFsRouting:
 
 _TRI_STATE_COMMANDS = {
     "show",
+    "history",
     "resolve",
     "advance-round",
     "rollback-round",

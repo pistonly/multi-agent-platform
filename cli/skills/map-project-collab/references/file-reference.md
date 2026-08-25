@@ -16,16 +16,17 @@
 
 ## FS 事实源（推荐，新范式）
 
-话题 = `map/topics/<slug>/` 文件夹，发言 = 直接写 `round<N>-<persona>.md`（每轮每人一个文件，默认 immutable）。日常入口是 `map topic`；`map fs` 只是同约定的离线封装：
+话题 = `map/topics/<slug>/` 文件夹，发言 = 直接写 `round<N>-<persona>.md`（每轮每人一个文件，默认 immutable）。**写操作发现入口是 `map fs`**；`map topic` 负责 list/show/migrate，写子命令为隐藏兼容别名：
 
 | 动作 | 命令 | 说明 |
 |------|------|------|
-| 创建话题 | `map topic create --slug <name> --title "..."` | 写 index.md；远程模式下默认自动 sync |
-| 发言 | `map topic comment --id <slug> --file ./opinion.md` | 写 round 文件；远程模式下默认自动 sync（`--no-sync` 可关） |
+| 创建话题 | `map fs topic-create --slug <name> --title "..."` | 写 index.md；远程模式下默认自动 sync |
+| 发言 | `map fs comment --topic <slug> --file ./opinion.md` | 写 round 文件；远程模式下默认自动 sync（`--no-sync` 可关） |
 | 查看 | `map topic list` / `map topic show --id <slug>` | list 合并本地 map/ + API 存量；show 优先读本地文件夹 |
 | 我的待办 | `map work`（离线可用 `map fs work --persona <name>`） | 文件存在性推导（无我的文件 = pending） |
-| 推进轮次 | `map topic advance-round --id <slug>` | 验证型写：API 校验 host + ack 后由 CLI 写回 index.md（commit 审计） |
-| 关闭话题 | `map topic close --id <slug> --reason ...` | 同上 |
+| 推进轮次 | `map fs advance-round --topic <slug>` | 验证型写：API 校验 host + ack 后由 CLI 写回 index.md（commit 审计） |
+| 关闭话题 | `map fs close --topic <slug> --reason ...` | 同上 |
+| 归档 | `map fs archive --topic <slug>` | closed 话题 `git mv` 到 `map/archive/topics/` |
 | 投影同步 | `map fs sync` / `map fs diff` / `map fs status` | 远程部署：增量 CAS + 显式 tombstone；`push` 为 `--full` 兼容别名 |
 | 可达性握手 | `map fs status` | 本地 hash + server revision/publisher + in-sync/local-ahead/divergent/detached/stale |
 

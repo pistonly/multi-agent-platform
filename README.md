@@ -143,20 +143,17 @@ map experiment pre-complete --id <exp-id> --metadata evidence.yaml
 map experiment complete --id <exp-id> --summary "提交结果" --file log.md --metadata evidence.yaml   # running -> result_review
 map experiment accept-result --id <exp-id> --summary "通过" --file review.md
 map experiment reject-result --id <exp-id> --summary "驳回" --file review.md
-map topic resolve --id <topic-id> --file decision.md
-map topic archive --id <topic-id>               # v0.7 P3：归档（薄包装 PATCH）
-map topic archive --id <topic-id> --undo       # 反归档（--unarchive 同义）
 map experiment archive --id <exp-id>           # 归档实验
-map topic comment --id <topic-id> --file comment.md
-map topic comment --id <topic-id> --body "..." --round-summary   # 标记 Round Summary（触发 ack 流）
-map topic advance-round --id <topic-id>                          # roundN → roundN+1
-map topic advance-round --id <topic-id> --ready                  # 标记 ready（可开实验）
-map topic advance-round --id <topic-id> --ack accept|reject|dismiss   # participant 表态
-map topic advance-round --id <topic-id> --waive-ack --waive-reason "参与者离线，结论已收敛"
-map topic rollback-round --id <topic-id>                         # 回退一轮
-map topic close --id <topic-id> --reason no_experiment_needed --note "讨论后决定不开实验"
-map topic dismiss --id <topic-id>                                # 退出话题（与 UI ✕ 相同）
-map topic mark-seen --id <topic-id>                              # 清 contextual unread，不清 reply/ack/mention
+map fs topic-create --title "..." --slug <name>
+map fs comment --topic <slug> --file comment.md
+map fs comment --topic <slug> --body "..." --round-summary   # 标记 Round Summary（触发 ack 流）
+map fs advance-round --topic <slug>                          # roundN → roundN+1
+map fs advance-round --topic <slug> --ready                  # 标记 ready（可开实验）
+map fs advance-round --topic <slug> --waive-ack --waive-reason "参与者离线，结论已收敛"
+map fs close --topic <slug> --reason no_experiment_needed --note "讨论后决定不开实验"
+map fs archive --topic <slug>                                # 归档 closed 话题
+map topic dismiss --id <topic-id>                            # 退出话题（与 UI ✕ 相同）
+map topic mark-seen --id <topic-id>                          # 清 contextual unread，不清 reply/ack/mention
 map project decisions
 map action list --mine
 map action mark-wake-sent --id <action-item-id>                  # waker 升级：标记 WAKE 已发

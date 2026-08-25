@@ -3,7 +3,7 @@
 M50 修复了文档与 CLI / 部署事实之间的漂移；本文件用可执行断言把
 关键约定钉住，防止同类漂移再次合入：
 
-* M50A QUICKSTART 中 ``topic create`` 示例参数与 CLI 定义一致（``--description``）
+* M50A QUICKSTART 中 ``fs topic-create`` 示例参数与 CLI 定义一致（``--title`` / ``--slug``）
 * M50B 文档默认端口唯一：本仓 Docker override 恒生效，API 宿主端口为 ``8001``
 * M50C ``docs/INDEX.md`` 与根 ``README.md`` 的「现行版本」指向与
   ``docs/prd/README.md`` 解析出的现行草案一致
@@ -96,20 +96,20 @@ class TestQuickstartMatchesCli:
     """M50A：QUICKSTART 示例参数与 CLI 定义一致。"""
 
     def test_topic_create_uses_description_not_body(self) -> None:
-        """QUICKSTART 话题创建演示走 ``map topic create``（FS 文件夹，统一入口）。"""
+        """QUICKSTART 话题创建演示走 ``map fs topic-create``（FS 写入口）。"""
         text = _read(REPO_ROOT / "docs" / "QUICKSTART.md")
         create_lines = [
             line.strip()
             for line in text.splitlines()
-            if re.search(r"map[^\n]*\btopic create\b", line)
+            if re.search(r"map[^\n]*\bfs topic-create\b", line)
         ]
-        assert create_lines, "QUICKSTART should demonstrate `map topic create`"
+        assert create_lines, "QUICKSTART should demonstrate `map fs topic-create`"
         for line in create_lines:
             assert "--body" not in line, (
-                f"`topic create` has no --body param (use --title/--slug/--participants): {line}"
+                f"`topic-create` has no --body param (use --title/--slug/--participants): {line}"
             )
             assert "--title" in line and "--slug" in line, (
-                f"`topic create` example missing --title/--slug: {line}"
+                f"`fs topic-create` example missing --title/--slug: {line}"
             )
 
     def test_bootstrap_api_url_uses_default_port(self) -> None:
