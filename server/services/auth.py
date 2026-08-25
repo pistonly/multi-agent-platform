@@ -1,3 +1,5 @@
+import hashlib
+import logging
 import secrets
 import uuid
 
@@ -7,7 +9,14 @@ from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, AgentRole
 
+logger = logging.getLogger(__name__)
+
 TOKEN_PREFIX_LEN = 8
+
+# T02：legacy（空 prefix / 未回填 sha256）候选集上限，防随机 token 触发
+# 服务端 N 次 bcrypt 的 CPU DoS 放大。正常部署 legacy agent 数量远小于此值；
+# 命中上限仍未匹配时告警提示运维 reissue token 收敛 legacy 池。
+LEGACY_CANDIDATE_LIMIT = 256
 
 
 def hash_token(token: str) -> str:
@@ -18,8 +27,23 @@ def verify_token(token: str, token_hash: str) -> bool:
     return bcrypt.checkpw(token.encode(), token_hash.encode())
 
 
+def token_sha256(token: str) -> str:
+    """sha256(token) 十六进制，用于认证快路径等值索引查找。
+
+    token 由 ``secrets.token_urlsafe(32)`` 生成（256-bit 随机），无字典 /
+    暴力破解面，sha256 足够（bcrypt 的慢哈希防暴力场景在此不适用）。
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def token_prefix(token: str) -> str:
     return token[:TOKEN_PREFIX_LEN]
+
+
+def _backfill_token_sha256(db: Session, agent: Agent, digest: str) -> None:
+    """Legacy agent 首次成功 bcrypt 登录后回填 sha256，此后走快路径。"""
+    agent.api_token_sha256 = digest
+    db.commit()
 
 
 def create_agent(
@@ -38,6 +62,7 @@ def create_agent(
         name=name,
         api_token_hash=hash_token(token),
         api_token_prefix=token_prefix(token),
+        api_token_sha256=token_sha256(token),
         role=role,
         project_id=project_id,
     )
@@ -48,21 +73,61 @@ def create_agent(
 
 
 def get_agent_by_token(db: Session, token: str) -> Agent | None:
+    """Resolve an agent from its API token.
+
+    快路径（T01）：sha256(token) 唯一索引等值查找，O(微秒)。所有由
+    ``create_agent`` / ``bootstrap`` / ``reissue_agent_token`` 签发的 token
+    都同时写入 sha256，直接命中。
+
+    慢路径（legacy，T02）：仅对 ``api_token_sha256 IS NULL`` 的行做 bcrypt
+    校验——该集合随每次成功登录的惰性回填单调收缩到空。候选集有硬上限，
+    防随机 token 触发 N 次 bcrypt 的 CPU DoS 放大。
+    """
     if not token:
         return None
 
+    digest = token_sha256(token)
+    agent = db.scalar(select(Agent).where(Agent.api_token_sha256 == digest))
+    if agent is not None:
+        return agent
+
+    legacy_candidates = 0
     if len(token) >= TOKEN_PREFIX_LEN:
         prefix = token_prefix(token)
-        stmt = select(Agent).where(Agent.api_token_prefix == prefix)
-        for agent in db.scalars(stmt):
-            if verify_token(token, agent.api_token_hash):
-                return agent
+        prefix_stmt = select(Agent).where(
+            Agent.api_token_prefix == prefix,
+            Agent.api_token_sha256.is_(None),
+        )
+        for legacy in db.scalars(prefix_stmt):
+            legacy_candidates += 1
+            if verify_token(token, legacy.api_token_hash):
+                _backfill_token_sha256(db, legacy, digest)
+                return legacy
 
     # Legacy agents created before api_token_prefix migration (empty prefix).
-    legacy_stmt = select(Agent).where(Agent.api_token_prefix == "")
-    for agent in db.scalars(legacy_stmt):
-        if verify_token(token, agent.api_token_hash):
-            return agent
+    # 上限截断：超过 LEGACY_CANDIDATE_LIMIT 的 legacy 池不再无条件全量
+    # bcrypt——随机 token 每次请求最多触发 LIMIT 次慢哈希。
+    legacy_stmt = (
+        select(Agent)
+        .where(
+            Agent.api_token_prefix == "",
+            Agent.api_token_sha256.is_(None),
+        )
+        .limit(LEGACY_CANDIDATE_LIMIT)
+    )
+    for legacy in db.scalars(legacy_stmt):
+        legacy_candidates += 1
+        if verify_token(token, legacy.api_token_hash):
+            _backfill_token_sha256(db, legacy, digest)
+            return legacy
+
+    if legacy_candidates >= LEGACY_CANDIDATE_LIMIT:
+        logger.warning(
+            "legacy token candidates hit limit (%d) without a match; "
+            "consider reissuing tokens for legacy agents to shrink the "
+            "bcrypt-only pool (map admin reissue-token)",
+            legacy_candidates,
+        )
     return None
 
 
@@ -108,6 +173,7 @@ def reissue_agent_token(
     token = secrets.token_urlsafe(32)
     agent.api_token_hash = hash_token(token)
     agent.api_token_prefix = token_prefix(token)
+    agent.api_token_sha256 = token_sha256(token)
     db.commit()
     db.refresh(agent)
     return agent, token

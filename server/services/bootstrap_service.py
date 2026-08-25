@@ -119,6 +119,7 @@ def run_bootstrap(
             name=agent_name,
             api_token_hash=auth_service.hash_token(token),
             api_token_prefix=auth_service.token_prefix(token),
+            api_token_sha256=auth_service.token_sha256(token),
             role=AgentRole.agent,
             project_id=project.id,
         )

@@ -584,6 +584,9 @@ class SimpleWaker:
         )
         self._state_dirty = False
         self._inflight = False
+        # T03：本周期解析出的 persona 身份（work 快照的 agent 字段）。
+        # 缓存后 action_item escalation 等下游消费点不再重复调 whoami 子进程。
+        self._me: dict[str, Any] | None = None
         self.backend = backend or PersonaAgentWakeBackend(
             project_root=self.config.project_root,
             persona=self.config.persona,
@@ -657,10 +660,13 @@ class SimpleWaker:
         return asyncio.run(self._run_once_async())[0]
 
     async def _run_once_async(self) -> tuple[SimpleWakerStats, float]:
-        self._ensure_identity()
         stats = SimpleWakerStats(cycles=1)
         self._scan_stalled_experiment_locks(stats)
         work = self.client.work() or {}
+        # T03：work 快照本身含完整 agent 身份（AgentWorkRead.agent），且认证
+        # 失败时 work 子进程同样非零退出——身份直接从快照取，省掉每周期一次
+        # 独立的 whoami 子进程（完整 Python + Typer 冷启动）。
+        self._ensure_identity(work)
         topic_progress_data = work.get("topic_progress") or {}
         todos = work.get("todos") or {}
         notifications_payload = work.get("notifications") or {}
@@ -815,9 +821,10 @@ class SimpleWaker:
         items = todos.get("action_items") if isinstance(todos, dict) else None
         if not isinstance(items, list) or not items:
             return
-        # 取 persona agent_id 用于 owner 过滤。whoami 已在 _ensure_identity 调过，
-        # 这里复用 client 缓存。测试 mock 可能不实现 whoami，跳过即可。
-        me = getattr(self.client, "whoami", lambda: {})() or {}
+        # 取 persona agent_id 用于 owner 过滤。身份已在 _run_once_async 的
+        # _ensure_identity 从 work 快照解析并缓存（T03），这里直接复用，
+        # 不再每周期多起一次 whoami 子进程。测试 mock 可能未初始化，兜底空。
+        me = self._me or {}
         persona_agent_id = str(me.get("id") or "") or None
         decisions = scan_pending_action_items(
             items,
@@ -854,13 +861,22 @@ class SimpleWaker:
                 typer.echo(f"[simple-waker:mark-wake-sent] {exc}", err=True)
                 stats.action_items_errors += 1
 
-    def _ensure_identity(self) -> None:
-        me = self.client.whoami()
+    def _ensure_identity(self, work: dict[str, Any] | None = None) -> None:
+        """Resolve the persona agent identity, preferring the work snapshot.
+
+        快路径取 ``work["agent"]``；仅当快照缺身份（老版本 server / 测试
+        mock）时回退独立 whoami 子进程。结果缓存在 ``self._me`` 供本周期
+        下游消费（action_item escalation 的 owner 过滤）。
+        """
+        me = (work or {}).get("agent")
+        if not me or not me.get("id"):
+            me = self.client.whoami()
         if not me or not me.get("id"):
             raise WorkerError(
                 f"Could not resolve {self.config.persona} identity; run "
                 f"`map --persona {self.config.persona} persona whoami` first"
             )
+        self._me = me
 
     def _persona_state(self, persona: str) -> dict[str, Any]:
         personas = self.state.setdefault("personas", {})

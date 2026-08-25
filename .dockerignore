@@ -1,0 +1,48 @@
+# T04（2026-08）：缩小 build context、防止宿主产物污染镜像层。
+# Dockerfile.api / Dockerfile.mcp 仅 COPY：pyproject.toml README.md server/
+# cli/ sdk/ alembic/ alembic.ini MANIFEST.in web/（源码）。
+
+# VCS / CI / 本地工具
+.git
+.github
+.gitignore
+.idea
+.vscode
+.cursor
+.DS_Store
+
+# Python 构建产物与虚拟环境（本地残留，绝不能进镜像）
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.uv-cache/
+uv.lock
+
+# Node 产物：web stage 自己 npm ci，宿主 node_modules 平台可能与容器不一致
+node_modules/
+web/node_modules/
+web/dist/
+web/coverage/
+web/.vite/
+
+# 运行时状态与密钥（.map/ 含 persona token，严禁打进镜像）
+.map/
+.claude/
+*.db
+*.db.bak
+*.sqlite3
+
+# 镜像不需要的仓库内容
+docs/
+tests/
+reports/
+scripts/
+reference/
+map/
+test_project/
+server-pkg/
+.multi_agent_platform/

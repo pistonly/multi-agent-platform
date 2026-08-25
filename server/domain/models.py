@@ -91,6 +91,11 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     api_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     api_token_prefix: Mapped[str] = mapped_column(String(8), nullable=False, default="", index=True)
+    # T01（2026-08）：sha256(token) 十六进制等值查询列。token 本身是 256-bit
+    # 随机数，无暴力破解面，bcrypt 慢哈希属过度防御且让每个请求付出 ~200ms；
+    # 此列将认证退化为 O(微秒) 唯一索引查找。NULL = legacy bcrypt-only 行，
+    # 由 get_agent_by_token 在首次成功 bcrypt 校验后惰性回填。
+    api_token_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     role: Mapped[AgentRole] = mapped_column(Enum(AgentRole), default=AgentRole.agent, nullable=False)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

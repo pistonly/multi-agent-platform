@@ -25,14 +25,20 @@ jobs:
         # 退役声明处引用的启动路径必须在 LEGACY-ENTRY-MATRIX 登记。
         run: bash scripts/check-deprecated.sh
 
-      - name: Install uv
-        # eng experiment (55634575) PR1: pin uv to a fixed version so
-        # local + CI + Dockerfile all agree. Bump in lockstep.
-        run: pip install "uv==0.8.14"
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Install uv (cached)
+        # eng experiment (55634575) PR1: pin uv to a fixed version so
+        # local + CI + Dockerfile all agree. Bump in lockstep.
+        # T05（2026-08）：setup-uv enable-cache 替代裸 `pip install uv`——
+        # 依赖包缓存以 uv.lock 为 key 恢复，三个 matrix leg 不再每次全量下载。
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.14"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Sync dependencies (frozen)
         # uv.lock is the source of truth; --frozen fails the build if
