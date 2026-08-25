@@ -21,7 +21,7 @@ description: >-
 - 以 **host** 身份主持话题、发布 Round Summary、推进/回退轮次（`topic advance-round` / rollback 约定见下）
 - 被唤醒处理 `pending_topic_replies` / `pending_advance_rounds` / `stale_open_topics`
 - 判断话题是否收敛、是否开实验（四门 Rubric）
-- 沉淀结论并关闭话题（`topic close --note` 承载结论与行动项）
+- 沉淀结论并关闭话题（`topic close --note` 承载结论；轻量执行项收敛时落 `action-items.yaml`）
 
 ## Waker 唤醒路径（本仓库标准）
 
@@ -48,13 +48,13 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 | 我看到 | 我该做 |
 |--------|--------|
 | `pending_topic_replies` 非空 | 读 thread 上下文，逐条回复（[checklist §2](references/host-checklist.md)） |
-| Round 已收敛 + participant 已表态 | 发 Round Summary（`topic comment --id <slug> --round-summary`）→ 等发言补齐 → `topic advance-round --id <slug>` |
-| 四门 Rubric 全过 | `topic close --id <slug> --note`（承载结论）→ `experiment create`（[rubric](references/experiment-gate-rubric.md)） |
+| Round 已收敛 + participant 已表态 | 发 Round Summary（`fs comment --topic <slug> --round-summary`）→ 等发言补齐 → `fs advance-round --topic <slug>` |
+| 四门 Rubric 全过 | 收敛时把轻量执行项落 `action-items.yaml`（`topic action-item add`）→ `fs close --topic <slug> --note`（门禁校验执行项清零）→ `experiment create`（[rubric](references/experiment-gate-rubric.md)） |
 | 只需等他人发言 | `topic dismiss` 降噪 |
 
 ## 硬性规则
 
-1. 实验**必须**由 host 创建（`creator_agent_id` 门禁）；`topic close --note` 承载的 action_items owner 须是 `map persona list` 中的真实 agent
+1. 实验**必须**由 host 创建（`creator_agent_id` 门禁）；`action-items.yaml` 的 owner 须是 `map persona list` 中的真实 agent（persona 短名），owner 完成/取消后 close 门禁才放行（closed = 零尾款）
 2. `topic advance-round` 前须等参与者本轮发言补齐；`--waive-ack` 必须配非空理由
 3. ack 类表态在 FS 模型里即「写本轮发言文件」——host 不代写、不催「收到」短评（读了即处理，否则制造新噪音）
 4. 收敛用 `--ready`，与未满员推进互斥；rollback 后须核对 index 一致性（见下约定）
@@ -63,10 +63,10 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 
 **FS 话题（`map/topics/<slug>/` 存在，新话题默认走此路径）**：
 
-1. **建**：`map topic create --slug <name> --title "..."`（纯写 index.md）；发起帖 `map topic comment --id <slug> --file <md>`
+1. **建**：`map fs topic-create --slug <name> --title "..."`（纯写 index.md）；发起帖 `map fs comment --topic <slug> --file <md>`
 2. **读**：`map topic list` / `map topic show --id <slug>`（list 合并本地 map/ + API；show 优先读文件夹）
-3. **敛**：参与者交齐本轮文件后 `map topic advance-round --id <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--ready`
-4. **断/清**：`map topic close --id <slug> --reason ...`；实验仍走 `map experiment create`（DB 生命周期）
+3. **敛**：参与者交齐本轮文件后 `map fs advance-round --topic <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--ready`
+4. **断/清**：收敛时把轻量执行项落 `map topic action-item add`、owner 用 `map topic action-item complete --evidence ...` / `cancel --reason ...` 清零 → `map fs close --topic <slug> --reason ...`（门禁:action-items.yaml 无 open 项才放行，409 时先清零再 close）；实验仍走 `map experiment create`（DB 生命周期）
 
 **存量话题处置（v0.13 M58 起 DB 写路径已退役）**：
 
@@ -81,7 +81,7 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 
 - **rollback-round**：删除本轮次参与者的 round 文件（`round<N>-<persona>.md`），随后核对 `index.md` 的 `round` 计数与 participants 一致性（以 `map topic show --id <slug>` 为准，必要时修正 index frontmatter）
 - **reopen**：把 `index.md` frontmatter 的 `status` 改回讨论中，并在 index 或下一轮 round 文件说明重开原因
-- **resolve 结论承载**：无独立 resolve——结论沉淀合并进 `topic close --note`（close_note 承载 decision / rationale / action_items，格式见 host-checklist）
+- **resolve 结论承载**：无独立 resolve——结论沉淀合并进 `topic close --note`（close_note 承载 decision / rationale；轻量执行项走 `action-items.yaml`，格式见 host-checklist §3b）
 
 命令细节（回复三模式 / ack 噪音 / 轮次推进与回退 / resolve payload / 关闭归档 / 体验优化话题模板）见 [references/host-checklist.md](references/host-checklist.md)。
 

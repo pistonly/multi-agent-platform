@@ -2,13 +2,13 @@
   "phase": "fs-scan-plane",
   "iterations": 50,
   "counts": {
-    "topics": 19,
-    "experiments": 19
+    "topics": 0,
+    "experiments": 32
   },
-  "p50_seconds": 0.041964054107666016,
-  "p95_seconds": 0.043530941009521484,
-  "p99_seconds": 0.07715797424316406,
-  "mean_seconds": 0.04278135776519775,
-  "captured_at": "2026-08-23T07:11:39.923266+00:00",
+  "p50_seconds": 0.01832413673400879,
+  "p95_seconds": 0.023640871047973633,
+  "p99_seconds": 0.023873090744018555,
+  "mean_seconds": 0.019876728057861327,
+  "captured_at": "2026-08-25T14:50:43.247667+00:00",
   "note": "full-repo scan_plane (per-request full parse, no cache by design). Optimization trigger (see scan_plane docstring): topics > 500 or p95 > 100ms -> re-measure this baseline before introducing mtime-incremental scanning. Counts snapshot travels with the file so future diffs can tell scale-driven drift from code-driven drift."
 }

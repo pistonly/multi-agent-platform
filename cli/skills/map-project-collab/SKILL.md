@@ -92,7 +92,7 @@ map --persona <name> work --notification-category wakeable
 | `pending_reviews` / `pending_result_reviews` | 待我评审计划 / 审批结果（后者 reviewer） |
 | `pending_replies` | 实验争议待回复 |
 | `mentions` | @提及（须用 `map persona list` 的 **agent_name 全名**）；实验评论仍产生，话题域来源随 DB 写路径退役枯竭 |
-| `action_items` | 分配给我的 open 行动项（来自话题结论 `topic close --note`；存量 DB 话题待迁移后收尾） |
+| `action_items` | 分配给我的 open 行动项（FS 话题=话题文件夹 `action-items.yaml`，owner 完成 `map topic action-item complete --evidence ...` / 取消 `cancel --reason ...`；存量 DB 话题待迁移后收尾） |
 | `pending_round_acks` | **participant/reviewer**；FS 话题=写本轮自己的发言文件即表态；存量 DB 话题=只读（迁移后表态） |
 
 语义：`pending_*`、`mentions`、`action_items` 及 `actions` 非空的 `my_open_experiments` 通常是 obligation；`phase=result_review` 且 `actions=[]` 表示等 reviewer，host 不自审。

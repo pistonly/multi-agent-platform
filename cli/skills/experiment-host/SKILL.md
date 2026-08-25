@@ -45,7 +45,7 @@ git status --short
 5. `complete` 只表示**提交结果待审批**（`running -> result_review`）；host 禁止自审结果
 6. `running` 产生仓库改动时，默认必须提交**窄 git commit**；无法安全区分当前实验改动与其他 dirty worktree 时，停下并在 `experiment log` 记录 blocker，不要继续下一个实验
 7. 收尾必须：提交当前实验改动（若有）→ release lock（若已 acquire）→ 刷新 `experiment status` 和 `work`
-8. **日志纪律（v0.12 M55F，E5 教训）**：create / revise / submit 等任何一次失败后重试成功，都必须补一条 `experiment log` 记录失败原文（422/409 的 error_code 与 hint）与修复动作——踩坑只存在日志里，不依赖会话记忆；同轮日志被状态机拒绝时（如 review 阶段不能写 log），把日志文件落 FS（`map/experiments/<slug>/log-rN.md`）并在进入下一阶段后立即补记
+8. **日志纪律（v0.12 M55F，E5 教训）**：create / revise / submit 等任何一次失败后重试成功，都必须补一条 `experiment log` 记录失败原文（422/409 的 error_code 与 hint）与修复动作——踩坑只存在日志里，不依赖会话记忆（log 白名单已放宽到 draft/review/approved 全阶段，阶段拒绝路径已随 cli-hygiene-batch A3 删除）
 
 ## 执行锁（并发防护）
 

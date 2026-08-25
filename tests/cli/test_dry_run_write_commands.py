@@ -65,6 +65,9 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("experiment", "status"),
     ("experiment", "logs"),
     ("experiment", "pre-complete"),
+    # M1：index.md 本地契约校验 / DB↔FS 对账；当前 sync 仅 --check，不改写文件
+    ("experiment", "index-validate"),
+    ("experiment", "sync"),
     # v0.15 M62：四命令均为 exit 2 引导 stub（不调 API）
     ("feedback", "get"),
     ("feedback", "list"),

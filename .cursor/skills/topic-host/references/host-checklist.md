@@ -2,7 +2,7 @@
 
 > 从 [topic-host SKILL.md](../SKILL.md) 下沉的命令大全。执行具体主持动作时按节查阅；开实验四门判断与防死等策略见 [experiment-gate-rubric.md](experiment-gate-rubric.md)。文件引用模式（`--file-path`）详见 [map-project-collab file-reference](../../map-project-collab/references/file-reference.md)。
 >
-> **v0.13 M58 起话题写操作 FS 单轨化**：日常入口是 `map topic ...`（写 `map/topics/<slug>/`）。对 DB uuid 的写命令已退役，调用返回引导性错误。`map fs` 为离线高级入口。
+> **写操作发现入口是 `map fs`**（与看板 / `map topic --help` 一致）：`topic-create` / `comment` / `advance-round` / `close` / `archive`。`map topic` 对应写子命令仍可用（隐藏兼容别名）。对 DB uuid 的写命令已退役，调用返回引导性错误。
 
 ## 1. 拉待办与话题状态
 
@@ -21,14 +21,14 @@ map --persona host work                             # 统一快照：whoami + to
 
 ```bash
 # 短发言：内联 body
-map --persona host topic comment --id <slug> --body "回复内容"
+map --persona host fs comment --topic <slug> --body "回复内容"
 
 # 长发言 / Round Summary：本地 MD 文件（推荐）
 # 路径约定：map/topics/<slug>/round<N>-host.md（同轮覆盖需 --force，遵守 immutable 约定）
-map --persona host topic comment --id <slug> --file map/topics/<slug>/round1-host.md
+map --persona host fs comment --topic <slug> --file map/topics/<slug>/round1-host.md
 
 # 发布 Round Summary（显式标记，平台据此可靠识别）
-map --persona host topic comment --id <slug> --file map/topics/<slug>/round1-summary-host.md --round-summary
+map --persona host fs comment --topic <slug> --file map/topics/<slug>/round1-summary-host.md --round-summary
 ```
 
 @ 必须用 `map persona list` 的 **agent_name 全名**（如 `@multi-agent-platform-participant`）；FS 评论 @ 提及只起视觉提示作用（唤醒依赖 `topic advance-round` 事件与待办投影，见 2c）。
@@ -41,12 +41,12 @@ FS 模型里 participant 的表态即「写本轮发言文件」。host **无需
 
 ```bash
 # 参与者本轮发言补齐后推进轮次
-map --persona host topic advance-round --id <slug>
+map --persona host fs advance-round --topic <slug>
 # 未满员 409 会列出 missing agents；确需推进：
-map --persona host topic advance-round --id <slug> --waive-ack --waive-reason "参与者离线，结论已收敛"
+map --persona host fs advance-round --topic <slug> --waive-ack --waive-reason "参与者离线，结论已收敛"
 
 # 讨论已收敛：推进并标记 ready（进入开实验门禁）
-map --persona host topic advance-round --id <slug> --ready
+map --persona host fs advance-round --topic <slug> --ready
 ```
 
 - Summary 正文末尾 **@ 所有需表态的 agent 全名**（视觉锚点；实际唤醒走事件与投影）
@@ -81,7 +81,7 @@ map --persona host topic action-item complete --topic <slug> --id <n> --evidence
 map --persona host topic action-item cancel --topic <slug> --id <n> --reason "..."
 #
 #   挂实验的项走实验（my_open_experiments/pending_reviews 义务已覆盖，防双催，D7）
-map --persona host topic close --id <slug> \
+map --persona host fs close --topic <slug> \
   --reason experiment_ready --note "decision: ...; rationale: ...; 实验 <exp-id>"
 #   close 门禁（D2）:action-items.yaml 仍有 status: open 项 → 409 拦下
 #   （closed = 零尾款）；全 done/cancelled 或无执行项即放行。
@@ -102,7 +102,7 @@ map --persona host topic close --id <slug> \
   `map work` 义务（kind=action_items）督促下执行，完成后
   `map topic action-item complete --evidence ...` 关单；
   明确不做则 `cancel --reason ...`。
-- **close 门禁**：`map topic close` 时 server 校验 action-items.yaml 无
+- **close 门禁**：`map fs close` 时 server 校验 action-items.yaml 无
   `status: open` 项才放行；有则 409 并列出各项 title/owner 引导清零。
   closed = 零尾款是平台 invariant，**先清零再 close**。
 - 旧 close_note 里写 action_items 文本的约定**已废弃**（A6）——存量已 close
@@ -114,13 +114,13 @@ map --persona host topic close --id <slug> \
 
 ```bash
 # FS 话题关闭（--reason/--note 可选；结论放 note）
-map --persona host topic close --id <slug> --reason no_experiment_needed --note "讨论后决定不开实验"
+map --persona host fs close --topic <slug> --reason no_experiment_needed --note "讨论后决定不开实验"
 
 # 重开（FS 等价约定）：把 index.md frontmatter 的 status 改回讨论中，
 # 并在 index 或下一轮 round 文件开头说明重开原因
 
-# 归档（FS 等价约定）：把 map/topics/<slug>/ 目录移动到 map/archive/topics/<slug>/，
-# 列表默认隐藏、show 仍可见（archive ≠ delete）；反向移动即撤销归档
+# 归档：map fs archive --topic <slug>
+# 列表默认隐藏、show 仍可见（archive ≠ delete）；--undo 撤销归档
 
 # 等他人发言时降噪（保留命令，与 Web UI ✕ 相同，双视图同时消失）
 map --persona host topic dismiss --id <topic-uuid>
@@ -136,8 +136,8 @@ map --persona host topic migrate --id <topic-uuid>
 用户反馈 MAP 平台体验问题时，用体验优化话题模板（而非普通话题）创建：
 
 ```bash
-map --persona host topic create --slug <name> --title "体验优化：<一句话主题>"
-map --persona host topic comment --id <slug> --file ./init.md   # 描述用户反馈的原始问题，含场景与期望
+map --persona host fs topic-create --slug <name> --title "体验优化：<一句话主题>"
+map --persona host fs comment --topic <slug> --file ./init.md   # 描述用户反馈的原始问题，含场景与期望
 ```
 
 正文评论附复现步骤与影响面；这类话题收敛后的产物通常是对 MAP 平台的改进项（v0.15 M62 起 `map feedback` 已退役：bug 开 GitHub issue、改进想法开 MAP 话题，或直接开实验），而不是对本仓库业务代码的直接修改。

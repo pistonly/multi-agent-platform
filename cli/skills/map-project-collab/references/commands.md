@@ -46,8 +46,13 @@ map fs topic-create --title "..." --slug <name> --participants participant,revie
 # --description 可选；--participants 白名单内 persona 才收到 FS 待办
 # 隐藏兼容别名：map topic create --title "..." --slug <name>
 
-# 关闭（验证型写：服务端校验后写回 index.md status=closed）
-map fs close --topic <slug> --reason no_experiment_needed --note "结论（decision / rationale / action_items 见 topic-host）"
+# 轻量执行项（收敛时落 action-items.yaml，close 门禁校验清零，见 topic-host §3b）：
+map topic action-item add --topic <slug> --owner <persona> --title "..."
+map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"
+map topic action-item cancel --topic <slug> --id <n> --reason "..."
+
+# 关闭（验证型写：服务端校验 ack 与执行项清零后写回 index.md status=closed）
+map fs close --topic <slug> --reason no_experiment_needed --note "结论（decision / rationale 见 topic-host；执行项在 action-items.yaml）"
 # 隐藏兼容别名：map topic close --id <slug> --reason ... --note ...
 ```
 
@@ -59,7 +64,7 @@ map fs close --topic <slug> --reason no_experiment_needed --note "结论（decis
 |-----------|---------|
 | `topic rollback-round` | 删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性 |
 | `topic reopen` | 手改 `index.md` 的 `status` 并在 close note 或新发言中说明原因 |
-| `topic resolve` | 由 `topic close --note` 承载 decision / rationale / action_items |
+| `topic resolve` | 由 `topic close --note` 承载 decision / rationale；轻量执行项走 `action-items.yaml`（`map topic action-item ...`，close 门禁校验清零） |
 | `topic archive` | 移动 `map/topics/<slug>/` 目录到 `map/archive/topics/`（或项目约定的归档位置） |
 
 **存量 DB 话题处置**：读（`topic show --id <uuid>`）永久保留；继续讨论先迁移：
@@ -82,11 +87,12 @@ slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-sum
 ## 实验创建（仅 host）
 
 ```bash
-map experiment create --title "..." --plan-file ./plan.md --topic-id <topic-uuid>
+# --topic-id 接受 DB uuid 或 FS 话题 slug（T2-P1 双路由，slug → 确定性 uuid5）
+map experiment create --title "..." --plan-file ./plan.md --topic-id <topic-ref>
 # 创建并直接提交评审
 map experiment create --title "..." --plan-file ./plan.md --submit-for-review
 # 文件引用模式：只存计划路径
-map experiment create --title "..." --plan-file-path map/experiments/<slug>/plan.md --topic-id <topic-uuid>
+map experiment create --title "..." --plan-file-path map/experiments/<slug>/plan.md --topic-id <topic-ref>
 ```
 
 ## 实验生命周期（host）
@@ -148,6 +154,18 @@ map notification read --id <notification-uuid>
 map notification read-all
 ```
 
-行动项负责人在完成工作后，应在来源话题写发言、开关联实验，或请 host 在话题结论中更新 action_items（FS 话题由 `topic close --note` 承载；CLI 无单独 resolve 命令）。
+行动项负责人在完成工作后，应在来源话题写发言、开关联实验；轻量执行项（`action-items.yaml`）用 `map topic action-item complete --evidence ...` / `cancel --reason ...` 清零，close 门禁校验无 open 才放行（CLI 无单独 resolve 命令）。
 
 @ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。该机制保留于实验评论域（comment 走 API）；FS 话题发言（纯本地写）中的 `@` 仅是视觉提示，不产生 mention 待办。
+
+## 用户反馈（MAP 工具 bug / 改进建议）
+
+MAP 工具本身的反馈走 GitHub issue（旧平台 inbox 已于 v0.15 M62 退役，`feedback submit/list/get/update` 均 exit 2）：
+
+```bash
+map feedback --type bug --title "..." --body "复现步骤..."   # 生成预填 issue 链接
+map feedback --type idea --title "..."                       # 改进建议
+map feedback --open                                          # 直接拉起浏览器
+```
+
+离线命令（不连 API），自动附环境信息（map 版本 / Python / OS / api_url）；私有 fork 用 `--repo owner/name` 覆盖。Agent 拿到 URL 后转交人类提交。项目内部 dogfood 反馈仍走 MAP 话题（由 host 开）。

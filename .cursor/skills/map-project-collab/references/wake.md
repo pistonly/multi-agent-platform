@@ -33,8 +33,9 @@
 > **新增 kind 落地 checklist（强制，实验 d559f431 A5）**：新增 kind 必须同时改
 > ① `server/services/work_kinds.py` registry ② wake.md 标记块（用
 > `map work --kinds --kinds-format md` 重新生成）③ `tests/test_work_kinds.py`
-> 的一致性用例自然覆盖——漏改任一处，CI（pytest 整行 diff）即红。 [topic-host](../../topic-host/SKILL.md) / [topic-participant](../../topic-participant/SKILL.md) |
-| 未读通知 | `map notification read --id <uuid>` | 按通知类型 |
+> 的一致性用例自然覆盖——漏改任一处，CI（pytest 整行 diff）即红。
+>
+> 未读通知：`map notification read --id <uuid>`（按通知类型处理）。
 
 ### FS 话题速查（map/ 文件夹事实源）
 

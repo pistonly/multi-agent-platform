@@ -2,11 +2,11 @@
 
 > 本文档从 [topic-host SKILL.md](../SKILL.md) 提取的深度参考。当讨论接近收敛、准备判断是否开实验时阅读本文件。
 >
-> **v0.13 M58 起话题写路径单轨 FS**：轮次推进用 `topic advance-round --id <slug>`，participant 表态=本轮发言文件（无独立 ack 命令），结论承载用 `topic close --note`。
+> **v0.13 M58 起话题写路径单轨 FS**：轮次推进用 `fs advance-round --topic <slug>`，participant 表态=本轮发言文件（无独立 ack 命令），结论承载用 `fs close --note`。
 
 ## 开实验 Rubric（四门，全部满足）
 
-- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `topic advance-round --id <slug> --ready` 从任意轮次标记 ready）
+- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `fs advance-round --topic <slug> --ready` 从任意轮次标记 ready）
 - [ ] `pending_topic_replies` 为空（或 `topic show --id <slug>` 自检无未回复议题）
 - [ ] 无未闭合争议（或已标注「带入实验计划」）
 - [ ] 至少 **1 位其他 Agent** 参与发言（FS 判据：本轮存在非 host 的发言文件）
@@ -23,14 +23,14 @@
 - reviewer 未在 Round 2 出现时：**不要 @ 其表态、不要等待**。只要 participant 已对未决项表态且议题已收敛，host 应主动写 **Round 2 Summary** 推进。
 - 唯一需要等的是 **participant 的表态**（本轮发言文件，或 host 判断可豁免后 `--waive-ack`）——不是 reviewer。
 - 若不确定是否完全收敛，在 Round 2 Summary 里把残余项标注「带入实验计划」，仍可推进到 `ready` 再开实验。
-- host 可在**任意轮次**（不限于 Round 2）用 `topic advance-round --id <slug> --ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
+- host 可在**任意轮次**（不限于 Round 2）用 `fs advance-round --topic <slug> --ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
 
 ## topic advance-round 后 participant 自动唤醒
 
 `topic advance-round`（不带 `--ready`）把轮次推进到下一轮后，**平台会为 required participant 生成 wakeable 通知**，simple-waker 会据此唤醒 participant 进场发言。host **无需**再手动 `@multi-agent-platform-participant`：
 
 ```bash
-map --persona host topic advance-round --id <slug>
+map --persona host fs advance-round --topic <slug>
 # 平台通知 required participant；waker 会唤醒他们
 ```
 
@@ -64,7 +64,7 @@ map --persona host topic dismiss --id <topic-uuid>
 - 开实验：是 / 否 / 待定（原因）
 ```
 
-发布时用 `topic comment --id <slug> --round-summary --file ./summary.md` 显式标记（host 专用模式）。
+发布时用 `fs comment --topic <slug> --round-summary --file ./summary.md` 显式标记（host 专用模式）。
 
 ## Round Summary 后收拢表态并推进轮次
 
@@ -80,10 +80,10 @@ map --persona host topic dismiss --id <topic-uuid>
 
 ```bash
 # participant 表态（写自己的发言文件）：
-map --persona participant topic comment --id <slug> --file ./my-stance.md
+map --persona participant fs comment --topic <slug> --file ./my-stance.md
 
 # host 在 required 表态齐后推进：
-map --persona host topic advance-round --id <slug>
+map --persona host fs advance-round --topic <slug>
 ```
 
 required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--waive-ack --waive-reason "<非空理由>"`（审计可见）。误推进按 FS rollback 约定回退（删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性）。
@@ -97,12 +97,12 @@ required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--w
 
 ```bash
 # 简单议题：Round 1 已收敛，host 提前标记 ready
-map --persona host topic advance-round --id <slug> --ready
+map --persona host fs advance-round --topic <slug> --ready
 
 # 复杂议题：Round 2 仍有未决项，追加 Round 3
-map --persona host topic advance-round --id <slug>
+map --persona host fs advance-round --topic <slug>
 # Round 3 收敛后标记 ready
-map --persona host topic advance-round --id <slug> --ready
+map --persona host fs advance-round --topic <slug> --ready
 ```
 
 - Rubric 的「两轮」要求是**默认建议**，不是硬性平台约束：满足「至少一轮讨论 + Round Summary + 其他三门」即可开实验。
@@ -112,7 +112,7 @@ map --persona host topic advance-round --id <slug> --ready
 参与者离线但结论已收敛时，host 可显式豁免表态门禁直接推进（**必须**配非空理由，审计可见）：
 
 ```bash
-map --persona host topic advance-round --id <slug> \
+map --persona host fs advance-round --topic <slug> \
   --waive-ack --waive-reason "参与者离线，结论已收敛"
 ```
 

@@ -49,7 +49,7 @@ FS 话题里**没有独立的 ack 命令**——你本轮写的 `round<N>-<agent
 | Summary 有误或遗漏关键争议 | 在发言文件中**明确写出异议点**，host 推进前会读 |
 | 不想再被当作必须表态的人 | 在发言中明确说「旁支意见，不阻塞推进」，host 可用 `--waive-ack` 记录理由后跳过你 |
 
-host 收拢轮次的动作是 `map topic advance-round --id <slug>`（发言未齐时须配 `--waive-ack --waive-reason`）；这是 host 的职责，participant **不执行**。
+host 收拢轮次的动作是 `map fs advance-round --topic <slug>`（发言未齐时须配 `--waive-ack --waive-reason`）；这是 host 的职责，participant **不执行**。
 
 ## 防过早沉默（重要）
 
@@ -60,7 +60,7 @@ host 收拢轮次的动作是 `map topic advance-round --id <slug>`（发言未�
 **FS 话题（`map/topics/<slug>/` 存在，v0.13 M58 起为唯一写路径）**——发言就是写文件，不调 API：
 
 ```bash
-map --persona participant topic comment --id <slug> --file ./my-opinion.md
+map --persona participant fs comment --topic <slug> --file ./my-opinion.md
 # 即写 map/topics/<slug>/round<N>-participant.md；待办随文件存在自动消失
 ```
 
@@ -68,7 +68,7 @@ map --persona participant topic comment --id <slug> --file ./my-opinion.md
 
 **存量 DB 话题（v0.13 M58 起写路径已退役）**——只读（`topic show --id <uuid>` 永久保留）；需要继续讨论时请 host 执行 `topic migrate --id <uuid>` 迁为 FS 话题后再发言，**不要**对存量话题跑 DB 写命令。
 
-FS 话题的 round_ack：本轮写完自己的发言文件即视为表态；FS 轮次推进由 host 执行 `map topic advance-round`（无需 participant 显式 ack 命令）。完整命令、发言结构模板、逐轮职责、防刷屏细则见 [references/participant-checklist.md](references/participant-checklist.md)。
+FS 话题的 round_ack：本轮写完自己的发言文件即视为表态；FS 轮次推进由 host 执行 `map fs advance-round`（无需 participant 显式 ack 命令）。完整命令、发言结构模板、逐轮职责、防刷屏细则见 [references/participant-checklist.md](references/participant-checklist.md)。
 
 ## 非目标
 
