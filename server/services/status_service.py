@@ -1,3 +1,5 @@
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +13,45 @@ from server.domain.schemas import (
     WakerHeartbeatRead,
 )
 from server.services.project_service import build_projects_status, get_project, list_projects
+
+# T10（2026-08）：``GET /status`` 短 TTL 进程内缓存。看板每次刷新都会
+# 触发跨项目聚合计数 + recent10 + 全部 agent 心跳扫描；缓存把高频刷新
+# 摊到一次构建。TTL 由 ``MAP_STATUS_CACHE_TTL_SECONDS`` 控制（默认 5s，
+# 0 = 关闭）。GlobalStatusRead 是只读快照模型，FastAPI 每请求仅做序列化
+# 不会改动缓存实例；多 worker 部署各进程独立缓存，TTL 即最大陈旧窗口。
+_status_cache: dict[uuid.UUID | None, tuple[float, GlobalStatusRead]] = {}
+_status_cache_lock = threading.Lock()
+
+
+def reset_status_cache() -> None:
+    """清空 /status 缓存（测试隔离钩子，也可供运维脚本调用）。"""
+    with _status_cache_lock:
+        _status_cache.clear()
+
+
+def _cached_status(project_id: uuid.UUID | None) -> GlobalStatusRead | None:
+    from server.config import get_settings
+
+    ttl = get_settings().status_cache_ttl_seconds
+    if ttl <= 0:
+        return None
+    with _status_cache_lock:
+        hit = _status_cache.get(project_id)
+    if hit is None:
+        return None
+    stored_at, payload = hit
+    if time.monotonic() - stored_at >= ttl:
+        return None
+    return payload
+
+
+def _store_status(project_id: uuid.UUID | None, payload: GlobalStatusRead) -> None:
+    from server.config import get_settings
+
+    if get_settings().status_cache_ttl_seconds <= 0:
+        return
+    with _status_cache_lock:
+        _status_cache[project_id] = (time.monotonic(), payload)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -61,6 +102,22 @@ def build_waker_heartbeats(
 
 
 def get_global_status(db: Session, *, project_id: uuid.UUID | None = None) -> GlobalStatusRead:
+    """全局看板快照（T10：短 TTL 进程内缓存包装）。
+
+    命中缓存直接返回快照；未命中或过期才走 ``_build_global_status`` 的
+    全量构建（跨项目聚合 + recent10 + agent 心跳扫描）。
+    """
+    cached = _cached_status(project_id)
+    if cached is not None:
+        return cached
+    payload = _build_global_status(db, project_id=project_id)
+    _store_status(project_id, payload)
+    return payload
+
+
+def _build_global_status(
+    db: Session, *, project_id: uuid.UUID | None = None
+) -> GlobalStatusRead:
     if project_id is not None:
         project = get_project(db, project_id)
         project_status = build_projects_status(db, [project])[0]

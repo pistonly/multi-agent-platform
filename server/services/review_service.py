@@ -193,6 +193,31 @@ def count_open_status_unreasonable_for_experiment(
     return db.scalar(stmt) or 0
 
 
+def open_status_unreasonable_count_by_experiment(
+    db: Session, experiment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """Batch mirror of :func:`count_open_status_unreasonable_for_experiment` (T07).
+
+    ``status=open`` only — plan-revision obligation. One GROUP BY for all
+    experiments; the map fills zeros so callers can index directly.
+    """
+    if not experiment_ids:
+        return {}
+    stmt = (
+        select(Review.experiment_id, func.count())
+        .join(ReviewItem, ReviewItem.review_id == Review.id)
+        .where(
+            Review.experiment_id.in_(experiment_ids),
+            Review.archived_at.is_(None),
+            ReviewItem.kind == ReviewItemKind.unreasonable,
+            ReviewItem.status == ReviewItemStatus.open,
+        )
+        .group_by(Review.experiment_id)
+    )
+    found = {eid: int(count) for eid, count in db.execute(stmt).all()}
+    return {eid: found.get(eid, 0) for eid in experiment_ids}
+
+
 def _prior_version_fully_resolved_from_reviews(
     prior_reviews: list[Review],
     *,

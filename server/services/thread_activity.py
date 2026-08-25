@@ -94,53 +94,18 @@ def _is_reply_in_thread_to(
     return False
 
 
-def comment_after(
-    db: Session,
+def _evaluated_comment_after(
     *,
     mention: Mention,
     agent_id: uuid.UUID,
+    comments: list[TopicComment] | list[Comment],
 ) -> bool:
-    """True when ``agent_id`` posted in the same container after the mention source."""
-    if mention.source_type == MentionSourceType.topic and mention.topic_id is not None:
-        topic = db.get(Topic, mention.topic_id)
-        if topic is None:
-            return False
-        return (
-            db.scalar(
-                select(TopicComment.id)
-                .where(
-                    TopicComment.topic_id == mention.topic_id,
-                    TopicComment.author_agent_id == agent_id,
-                    TopicComment.created_at >= topic.created_at,
-                )
-                .order_by(*topic_comment_order_clauses())
-                .limit(1)
-            )
-            is not None
-        )
+    """Pure per-mention evaluation over a preloaded container comment list.
 
-    if mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
-        comments = list(
-            db.scalars(
-                select(TopicComment)
-                .where(TopicComment.topic_id == mention.topic_id)
-                .order_by(*topic_comment_order_clauses())
-            )
-        )
-    elif (
-        mention.source_type == MentionSourceType.experiment_comment
-        and mention.experiment_id is not None
-    ):
-        comments = list(
-            db.scalars(
-                select(Comment)
-                .where(Comment.experiment_id == mention.experiment_id)
-                .order_by(Comment.created_at.asc(), Comment.id.asc())
-            )
-        )
-    else:
-        return False
-
+    T07（2026-08）：从 ``comment_after`` 拆出——单条路径与批量路径共享
+    完全相同的判定语义（ack 过滤、线程回溯、seq/id 兜底比较），批量版
+    只是预取容器评论列表，不再逐 mention 发 SELECT。
+    """
     by_id = {comment.id: comment for comment in comments}
     source = by_id.get(mention.source_id)
     if source is None:
@@ -170,6 +135,144 @@ def comment_after(
         if comment.id > source.id:
             return True
     return False
+
+
+def comment_after(
+    db: Session,
+    *,
+    mention: Mention,
+    agent_id: uuid.UUID,
+) -> bool:
+    """True when ``agent_id`` posted in the same container after the mention source."""
+    if mention.source_type == MentionSourceType.topic and mention.topic_id is not None:
+        topic = db.get(Topic, mention.topic_id)
+        if topic is None:
+            return False
+        return (
+            db.scalar(
+                select(TopicComment.id)
+                .where(
+                    TopicComment.topic_id == mention.topic_id,
+                    TopicComment.author_agent_id == agent_id,
+                    TopicComment.created_at >= topic.created_at,
+                )
+                .order_by(*topic_comment_order_clauses())
+                .limit(1)
+            )
+            is not None
+        )
+
+    if mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
+        comments: list[TopicComment] | list[Comment] = list(
+            db.scalars(
+                select(TopicComment)
+                .where(TopicComment.topic_id == mention.topic_id)
+                .order_by(*topic_comment_order_clauses())
+            )
+        )
+    elif (
+        mention.source_type == MentionSourceType.experiment_comment
+        and mention.experiment_id is not None
+    ):
+        comments = list(
+            db.scalars(
+                select(Comment)
+                .where(Comment.experiment_id == mention.experiment_id)
+                .order_by(Comment.created_at.asc(), Comment.id.asc())
+            )
+        )
+    else:
+        return False
+
+    return _evaluated_comment_after(mention=mention, agent_id=agent_id, comments=comments)
+
+
+def replied_after_batch(
+    db: Session,
+    *,
+    mentions: list[Mention],
+    agent_id: uuid.UUID,
+) -> dict[uuid.UUID, bool]:
+    """Batch ``replied_after`` for many mentions polled by ONE agent (T07).
+
+    按容器分组（topic_comment 按 topic_id、experiment_comment 按
+    experiment_id、topic 按 topic_id），每组一条 IN 查询预取评论列表，
+    再用与单条路径相同的纯评估逐 mention 判定。原先 get_todos 的
+    mention 循环每个 mention 各发 1 条评论查询（同容器也重复查），
+    现在无论 mention 数量多少，查询数只与 distinct 容器数线性相关
+    且同容器共享一次加载。
+    """
+    results: dict[uuid.UUID, bool] = {}
+    topic_mentions: list[Mention] = []
+    by_topic: dict[uuid.UUID, list[Mention]] = {}
+    by_experiment: dict[uuid.UUID, list[Mention]] = {}
+    for mention in mentions:
+        if mention.source_type == MentionSourceType.topic and mention.topic_id is not None:
+            topic_mentions.append(mention)
+        elif mention.source_type == MentionSourceType.topic_comment and mention.topic_id is not None:
+            by_topic.setdefault(mention.topic_id, []).append(mention)
+        elif (
+            mention.source_type == MentionSourceType.experiment_comment
+            and mention.experiment_id is not None
+        ):
+            by_experiment.setdefault(mention.experiment_id, []).append(mention)
+        else:
+            results[mention.id] = False
+
+    if topic_mentions:
+        # 与单条路径的存在性查询等价：topics 一次 IN 取齐，该 agent 在
+        # 相关 topic 的评论一次 IN 取齐，Python 侧按 topic.created_at 判定。
+        topic_ids = {m.topic_id for m in topic_mentions if m.topic_id is not None}
+        topics = {t.id: t for t in db.scalars(select(Topic).where(Topic.id.in_(topic_ids)))}
+        replies_by_topic: dict[uuid.UUID, list[TopicComment]] = {}
+        for row in db.scalars(
+            select(TopicComment).where(
+                TopicComment.topic_id.in_(topic_ids),
+                TopicComment.author_agent_id == agent_id,
+            )
+        ):
+            replies_by_topic.setdefault(row.topic_id, []).append(row)
+        for mention in topic_mentions:
+            topic = topics.get(mention.topic_id) if mention.topic_id is not None else None
+            if topic is None:
+                results[mention.id] = False
+                continue
+            results[mention.id] = any(
+                comment.created_at >= topic.created_at
+                for comment in replies_by_topic.get(topic.id, [])
+            )
+
+    if by_topic:
+        grouped: dict[uuid.UUID, list[TopicComment]] = {}
+        for row in db.scalars(
+            select(TopicComment)
+            .where(TopicComment.topic_id.in_(by_topic.keys()))
+            .order_by(*topic_comment_order_clauses())
+        ):
+            grouped.setdefault(row.topic_id, []).append(row)
+        for topic_id, group in by_topic.items():
+            comments: list[TopicComment] | list[Comment] = grouped.get(topic_id, [])
+            for mention in group:
+                results[mention.id] = _evaluated_comment_after(
+                    mention=mention, agent_id=agent_id, comments=comments
+                )
+
+    if by_experiment:
+        grouped_exp: dict[uuid.UUID, list[Comment]] = {}
+        for row in db.scalars(
+            select(Comment)
+            .where(Comment.experiment_id.in_(by_experiment.keys()))
+            .order_by(Comment.created_at.asc(), Comment.id.asc())
+        ):
+            grouped_exp.setdefault(row.experiment_id, []).append(row)
+        for experiment_id, group in by_experiment.items():
+            exp_comments: list[TopicComment] | list[Comment] = grouped_exp.get(experiment_id, [])
+            for mention in group:
+                results[mention.id] = _evaluated_comment_after(
+                    mention=mention, agent_id=agent_id, comments=exp_comments
+                )
+
+    return results
 
 
 def replied_after(

@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from map_types.enums import ExperimentPhase, NotificationCategory, NotificationFingerprintVersion
 from map_types.persona import CANONICAL_PERSONAS
-from sqlalchemy import event, func, or_, select
+from sqlalchemy import and_, event, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -638,30 +638,47 @@ def mark_agent_mentioned_notifications_read_no_commit(
     mentions: list[Any],
     now: datetime | None = None,
 ) -> int:
-    """Mark ``agent.mentioned`` notifications read when their mention is dismissed."""
+    """Mark ``agent.mentioned`` notifications read when their mention is dismissed.
+
+    T14（2026-08）：批量单条 UPDATE。原实现每个 mention 各发一条 SELECT
+    再逐行赋值 ``read_at``（M 个 mention = M 条 SELECT + K 条 UPDATE）；
+    现在先去重 (mentioned_agent_id, source_id) 对，再合成一条按
+    ``event + 未读 + (recipient, target) 任一匹配`` 的核心 UPDATE，行数
+    从 ``rowcount`` 取。不 commit，与调用方 ``_apply_mention_dismiss_cascade``
+    的事务边界保持一致。
+    """
     from server.domain.models import Mention
 
     if not mentions:
         return 0
     now = now or datetime.now(timezone.utc)
-    touched = 0
+    # dict 充当有序去重集合：同一 (recipient, source) 的多条 mention 只留一个条件。
+    pairs: dict[tuple[uuid.UUID, uuid.UUID], None] = {}
     for mention in mentions:
         if not isinstance(mention, Mention):
             continue
-        rows = list(
-            db.scalars(
-                select(Notification).where(
-                    Notification.recipient_agent_id == mention.mentioned_agent_id,
-                    Notification.event == "agent.mentioned",
-                    Notification.read_at.is_(None),
-                    Notification.target_id == mention.source_id,
-                )
+        pairs[(mention.mentioned_agent_id, mention.source_id)] = None
+    if not pairs:
+        return 0
+    match_any = or_(
+        *(
+            and_(
+                Notification.recipient_agent_id == recipient,
+                Notification.target_id == source,
             )
+            for recipient, source in pairs
         )
-        for row in rows:
-            row.read_at = now
-            touched += 1
-    return touched
+    )
+    result = db.execute(
+        update(Notification)
+        .where(
+            Notification.event == "agent.mentioned",
+            Notification.read_at.is_(None),
+            match_any,
+        )
+        .values(read_at=now)
+    )
+    return int(result.rowcount or 0)
 
 
 def mark_read(db: Session, agent: Agent, notification_id: uuid.UUID) -> Notification:
@@ -678,20 +695,25 @@ def mark_read(db: Session, agent: Agent, notification_id: uuid.UUID) -> Notifica
 
 
 def mark_all_read(db: Session, agent: Agent) -> int:
+    """Mark every unread notification of the agent read; return the count.
+
+    T13（2026-08）：改为单条核心 UPDATE。原实现把全部未读行加载成 ORM
+    对象再逐行赋值 ``read_at``，未读量大时内存与 SQL 双放大（N 行 =
+    1 SELECT + N UPDATE）。核心 UPDATE 由数据库一次完成，行数从
+    ``result.rowcount`` 取。commit 后 session 内已加载的 ORM 实例统一
+    expire，同请求后续读取自动重载新值。
+    """
     now = datetime.now(timezone.utc)
-    rows = list(
-        db.scalars(
-            select(Notification).where(
-                Notification.recipient_agent_id == agent.id,
-                Notification.read_at.is_(None),
-            )
+    result = db.execute(
+        update(Notification)
+        .where(
+            Notification.recipient_agent_id == agent.id,
+            Notification.read_at.is_(None),
         )
+        .values(read_at=now)
     )
-    for row in rows:
-        row.read_at = now
-    if rows:
-        db.commit()
-    return len(rows)
+    db.commit()
+    return int(result.rowcount or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -829,10 +851,21 @@ def _aware(value: datetime | None) -> datetime | None:
     return value
 
 
-def _latest_experiment_log_at(db: Session, experiment_id: uuid.UUID) -> datetime | None:
-    return db.scalar(
-        select(func.max(ExperimentLog.created_at)).where(ExperimentLog.experiment_id == experiment_id)
+def _latest_experiment_log_at_batch(
+    db: Session, experiment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, datetime | None]:
+    """T15：一条分组查询取多个实验的最新日志时间（替代逐实验 SELECT）。"""
+    if not experiment_ids:
+        return {}
+    stmt = (
+        select(ExperimentLog.experiment_id, func.max(ExperimentLog.created_at))
+        .where(ExperimentLog.experiment_id.in_(experiment_ids))
+        .group_by(ExperimentLog.experiment_id)
     )
+    latest: dict[uuid.UUID, datetime | None] = {}
+    for row in db.execute(stmt):
+        latest[cast(uuid.UUID, row[0])] = cast(datetime | None, row[1])
+    return latest
 
 
 def _project_agent_ids(db: Session, project_id: uuid.UUID, *, exclude: set[uuid.UUID]) -> list[uuid.UUID]:
@@ -862,6 +895,12 @@ def notify_stalled_experiment_locks(
 
     Notification grouping keeps repeated scans from creating many rows; wakeable
     upserts still bump ``wake_version`` so waker fingerprints can advance.
+
+    T15（2026-08）：消循环内 N+1。原先每个实验各发一条 max(created_at)
+    SELECT 与一条 project agent SELECT；现在第一遍先在 Python 里按
+    ``progress_threshold`` 过滤出候选，再一条分组 IN 查询取齐全部候选的
+    最新日志时间，project agent 列表每 project 只查一次（holder 排除改
+    在 Python 侧做，缓存的是无排除的原始列表）。
     """
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
@@ -875,6 +914,9 @@ def notify_stalled_experiment_locks(
     if project_id is not None:
         filters.append(Experiment.project_id == project_id)
     experiments = db.scalars(select(Experiment).where(*filters)).all()
+
+    # Pass 1：纯 Python 过滤（锁字段都在 experiment 行上），定出候选集。
+    candidates: list[tuple[Experiment, datetime, int, float]] = []
     for experiment in experiments:
         acquired_at = _aware(experiment.lock_acquired_at)
         if acquired_at is None:
@@ -886,7 +928,17 @@ def notify_stalled_experiment_locks(
         ratio = elapsed / ttl_seconds
         if ratio < progress_threshold:
             continue
-        last_log_at = _aware(_latest_experiment_log_at(db, experiment.id))
+        candidates.append((experiment, acquired_at, ttl_seconds, ratio))
+
+    # Pass 1.5：一条分组查询取齐候选的最新日志时间（T15 消 N+1）。
+    latest_log_at = _latest_experiment_log_at_batch(
+        db, [experiment.id for experiment, _, _, _ in candidates]
+    )
+    # project agent 列表每 project 查一次；holder 排除在 Python 侧做。
+    project_agents: dict[uuid.UUID, list[uuid.UUID]] = {}
+
+    for experiment, acquired_at, ttl_seconds, ratio in candidates:
+        last_log_at = _aware(latest_log_at.get(experiment.id))
         if last_log_at is not None and last_log_at > acquired_at:
             continue
         payload: dict[str, object] = {
@@ -917,7 +969,12 @@ def notify_stalled_experiment_locks(
                     commit=False,
                 )
             )
-        digest_recipients = _project_agent_ids(db, experiment.project_id, exclude=set(holder_ids))
+        members = project_agents.get(experiment.project_id)
+        if members is None:
+            members = _project_agent_ids(db, experiment.project_id, exclude=set())
+            project_agents[experiment.project_id] = members
+        holder_set = set(holder_ids)
+        digest_recipients = [member for member in members if member not in holder_set]
         emitted.extend(
             enqueue_for_agents(
                 db,

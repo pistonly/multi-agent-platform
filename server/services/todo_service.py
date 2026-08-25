@@ -292,8 +292,12 @@ def _experiment_summary_with_open_unreasonable(
 
 
 def list_pending_plan_revisions(db: Session, agent: Agent) -> list[PendingPlanRevisionRead]:
-    """Host/creator experiments in review with open unreasonable items needing plan revise."""
-    from server.services.review_service import count_open_status_unreasonable_for_experiment
+    """Host/creator experiments in review with open unreasonable items needing plan revise.
+
+    T07（2026-08）：循环内逐实验 count 改一条 GROUP BY 批查询
+    （``open_status_unreasonable_count_by_experiment``）。
+    """
+    from server.services.review_service import open_status_unreasonable_count_by_experiment
 
     stmt = (
         select(Experiment)
@@ -307,9 +311,13 @@ def list_pending_plan_revisions(db: Session, agent: Agent) -> list[PendingPlanRe
     if not perm.is_admin(agent):
         stmt = stmt.where(Experiment.project_id == agent.project_id)
 
+    experiments = list(db.scalars(stmt))
+    open_counts = open_status_unreasonable_count_by_experiment(
+        db, [experiment.id for experiment in experiments]
+    )
     pending: list[PendingPlanRevisionRead] = []
-    for experiment in db.scalars(stmt):
-        open_count = count_open_status_unreasonable_for_experiment(db, experiment.id)
+    for experiment in experiments:
+        open_count = open_counts.get(experiment.id, 0)
         if open_count <= 0:
             continue
         pending.append(
@@ -506,20 +514,39 @@ def get_todos(
     mention_work_items = [item for item in all_work_items if item.kind == "mention"]
     mentions = work_items.mentions_from_work_items(db, agent.id, mention_work_items)
     topic_mention_ids = {m.id for m in mentions}
-    for m in mention_service.list_mentions_for_agent(db, agent.id):
-        if m.id in topic_mention_ids:
+    # T07（2026-08）：mention 分支双 N+1 批量化。get_todos 是 simple-waker
+    # 每 tick 的热点路径，原先每个候选 mention 各发 1 条回复判定查询
+    # （同容器重复加载全部评论）+ 1 条 Agent.name 查询；现在回复判定走
+    # ``agents_replied_after_mentions``（按容器一条 IN 预取），author 名
+    # 一次 IN 预取成 map。
+    from server.domain.models import Mention as MentionModel
+
+    candidate_mentions: list[MentionModel] = [
+        m
+        for m in mention_service.list_mentions_for_agent(db, agent.id)
+        if m.id not in topic_mention_ids and m.experiment_id is not None
+    ]
+    replied_map: dict[uuid.UUID, bool] = {}
+    author_names: dict[uuid.UUID, str] = {}
+    if candidate_mentions:
+        replied_map = mention_service.agents_replied_after_mentions(
+            db, mentions=candidate_mentions, agent_id=agent.id
+        )
+        # 复用 topic_helpers 的批量名预取（与 work-item 路径同一实现，不新增副本）。
+        from server.services.topic_helpers import _agent_names_by_ids
+
+        author_names = _agent_names_by_ids(
+            db, {m.author_agent_id for m in candidate_mentions}
+        )
+    for m in candidate_mentions:
+        if replied_map.get(m.id, False):
             continue
-        if m.experiment_id is None:
-            continue
-        if mention_service.agent_replied_after_mention(db, mention=m, agent_id=agent.id):
-            continue
-        author_name = db.scalar(select(Agent.name).where(Agent.id == m.author_agent_id))
         mentions.append(
             MentionTodoRead(
                 id=m.id,
                 mentioned_agent_id=m.mentioned_agent_id,
                 author_agent_id=m.author_agent_id,
-                author_name=author_name,
+                author_name=author_names.get(m.author_agent_id),
                 source_type=m.source_type.value,
                 source_id=m.source_id,
                 project_id=m.project_id,

@@ -131,6 +131,21 @@ def skip_claude_runtime_if_unavailable(request):
         pytest.skip(f"claude_runtime unavailable: {reason}")
 
 
+@pytest.fixture(autouse=True)
+def reset_status_cache():
+    """T10：每个测试前清空 /status 进程内 TTL 缓存。
+
+    测试用内存库 + savepoint 回滚，但 status_service 的缓存是模块级
+    字典、不随事务回滚——不复位会把上个测试的快照泄漏进下一个测试
+    （尤其 project_id=None 的全局键跨测试复用）。
+    """
+    from server.services import status_service
+
+    status_service.reset_status_cache()
+    yield
+    status_service.reset_status_cache()
+
+
 @pytest.fixture
 def claude_cli_env() -> dict[str, str]:
     """供 claude_cli 测试使用的子进程环境（已合并 .map/.claude-env）。"""

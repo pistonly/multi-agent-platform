@@ -1,9 +1,8 @@
 from functools import lru_cache
 
+from map_client.user_paths import default_sqlite_url
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from map_client.user_paths import default_sqlite_url
 
 # 用户级锚点：与 `~/.map/`（persona / daemon 状态）同一家目录，避免把库
 # 落到启动时的 CWD。``~`` 按登录 home 展开（见 map_client.user_paths），
@@ -41,6 +40,12 @@ class Settings(BaseSettings):
     # agents report ``never`` (not WARN). Same shape as
     # ``stale_open_topic_threshold_minutes`` above.
     waker_stale_threshold_minutes: int = 15
+
+    # T10（2026-08）：全局看板 ``GET /status`` 的进程内 TTL 缓存秒数。
+    # 看板每次刷新都会触发跨项目聚合计数 + recent10 + 全部 agent 心跳
+    # 扫描，短 TTL 缓存让高频刷新摊到一次构建。多 worker 部署各进程
+    # 独立缓存，TTL 即最大陈旧窗口。0 = 关闭（测试或强一致场景）。
+    status_cache_ttl_seconds: int = 5
 
     # c9281d86 PR3: Fernet key for at-rest encryption of sensitive
     # columns (currently ``Webhook.secret``). Must be a 32-byte

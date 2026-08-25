@@ -598,6 +598,20 @@ def agent_replied_after_mention(
     return thread_activity.replied_after(db, mention=mention, agent_id=agent_id)
 
 
+def agents_replied_after_mentions(
+    db: Session,
+    *,
+    mentions: list[Mention],
+    agent_id: uuid.UUID,
+) -> dict[uuid.UUID, bool]:
+    """Batch mirror of :func:`agent_replied_after_mention` for one polled agent.
+
+    T07（2026-08）：get_todos 的 mention 循环改用本批接口——按容器分组
+    一条 IN 查询预取评论，同容器多个 mention 共享一次加载。
+    """
+    return thread_activity.replied_after_batch(db, mentions=mentions, agent_id=agent_id)
+
+
 def auto_dismiss_mentions_for_author_in_thread(
     db: Session,
     *,
