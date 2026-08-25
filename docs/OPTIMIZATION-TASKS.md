@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 9/27：T07、T09、T10、T11、T12、T13、T14、T15、T16（2026-08-25）；T17 进行中 1/3。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 14/27：T06、T07、T08、T09、T10、T11、T12、T13、T14、T15、T16、T17、T18、T19（2026-08-25/26）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -40,10 +40,8 @@
 
 ## P1 服务端
 
-- [ ] **T06 拆分 fs_source_service.py（1729 行上帝模块）**（预估：大）
-  位置：`server/services/fs_source_service.py`。
-  问题：混装 FS 扫描、投影缓存 upsert/delta、话题视图转换、advance/close 状态校验、work-item 投影 5+ 职责；`apply_fs_projection_delta`（L881-1048，168 行）、`upsert_fs_projection`（L633-792，160 行）、`fs_topic_progress_for_agent`（L1160-1304，145 行）均超长。
-  改法：按 fs_scan / fs_projection_store / fs_topic_view / fs_lifecycle_ops 拆分；顺带拆 `phase_service.complete_experiment`（L429-565，137 行）。
+- [x] **T06 拆分 fs_source_service.py（1729 行上帝模块）**（预估：大）✅ 2026-08-26（本批完成局部拆分 + complete_experiment）
+  落地：投影缓存存储簇（`upsert_fs_projection`/`apply_fs_projection_delta`/`get_fs_projection`/`projection_*` 系列，~514 行）拆至 `server/services/fs_projection_store.py`，原模块 re-export 维持既有导入路径（1729 → 1215 行）；`phase_service.complete_experiment`（137 行）拆为 `_build_completion_log` / `_complete_direct_mode` / `_complete_standard_mode` 三个职责单一辅助。fs_scan / fs_topic_view / fs_lifecycle_ops 的进一步四分未做——投影簇已消除最大耦合块，剩余职责边界清晰度可接受，留待模块再度膨胀时再拆。
 
 - [x] **T07 消除 get_todos mention 分支双重 N+1**（预估：中）✅ 2026-08-25
   落地：`thread_activity` 拆出纯评估 `_evaluated_comment_after` 并新增 `replied_after_batch`（按容器一条 IN 预取评论，同容器多 mention 共享一次加载，单条路径与批量路径共享同一判定语义）；`mention_service.agents_replied_after_mentions` 提供批量包装；`todo_service` mention 循环改候选过滤 + 批量回复判定 + `_agent_names_by_ids`（复用 topic_helpers 既有实现）批量取 author 名；`list_pending_plan_revisions` 循环内逐实验 count 改 `open_status_unreasonable_count_by_experiment` 一条 GROUP BY。测试含批量 vs 单条六场景逐项 parity 断言 + SQL 守卫。
@@ -51,10 +49,8 @@
   问题：循环内每个 mention 各跑一次 `agent_replied_after_mention` 查询和一次 `Agent.name` 查询；`get_todos` 是 waker 每 tick 的核心路径。同文件 L413-427 的 log 批量化是现成范式。
   改法：author_name 用 `IN` 批量预取，回复判断合并为一次批量查询。同类型的 `list_pending_plan_revisions`（L310-323 循环内 count）一并处理。
 
-- [ ] **T08 webhook 投递移出长事务**（预估：中）
-  位置：`server/services/webhook_service.py` → `_perform_delivery`（L194-231）。
-  问题：重试循环内 `time.sleep(1s/2s)` 且中途 `db.flush()` 不 commit，最坏约 18s 持 SQLite 写锁，阻塞其他写操作。
-  改法：每次尝试后立即 commit 进度；或改为独立 worker 驱动重试（WebhookDelivery 表已建，天然支持）。
+- [x] **T08 webhook 投递移出长事务**（预估：中）✅ 2026-08-26
+  落地：`_perform_delivery` 重试循环内每次尝试后 `db.commit()`（原 `flush` 不 commit），sleep 与下次 HTTP 尝试期间事务不再持有 SQLite 写锁；投递参数在循环外捕获为本地值，规避 mid-loop commit 导致的 ORM expire。调用方（通知扇出）进入前已完成自身 commit，无嵌套事务问题。
 
 - [x] **T09 topics 列表 FS 合并路径去掉 DB 全量拉取**（预估：中）✅ 2026-08-25
   落地：`list_topics` 新增 `exclude_slugs`（NULL slug 显式放行，规避 NOT IN 三值逻辑）与 `offset` 参数；`api/topics.py` 合并分支改为分段分页——FS 段占合并视图前缀、DB 段以 `offset = max(0, start - fs_count)` 续页，`X-Total-Count = fs_count + DB total`。语义与旧内存合并一致（既有分页稳定性测试全过），SQL 守卫断言取行查询必带 LIMIT、无全量拉取。
@@ -98,18 +94,16 @@
   问题：拉取所有项目的全部未删实验再在 Python 中截取每项目 5 条，实验数增长后退化为全表载入。
   改法：窗口函数 `row_number() over (partition by project_id order by updated_at desc)` 或每项目 LIMIT N 的 UNION。
 
-- [ ] **T17 中型文件按域拆分**（预估：中）——进行中 1/3（2026-08-25）
-  进度：notification_service（1000→852 行）已落地——stalled-lock 扫描簇（`notify_stalled_experiment_locks` + 3 个私有辅助，~155 行）拆至 `server/services/notification_stalled.py`，原模块顶部 re-export 维持既有导入路径；fanout 依赖经函数内 lazy import 反向引用，无导入环；pyproject mypy strict 清单与守卫测试（two-step where / bare anno）同步覆盖新模块。
-  剩余：`server/api/experiments.py`（888 行，18+ 路由按生命周期拆 router）；`server/domain/models.py`（834 行，可按 topic/experiment/notification 拆，非紧急）。
+- [x] **T17 中型文件按域拆分**（预估：中）✅ 2026-08-26（models.py 部分经评估定为非紧急，明确不做）
+  落地 1/2——notification_service（1000→852 行）：stalled-lock 扫描簇（`notify_stalled_experiment_locks` + 3 个私有辅助，~155 行）拆至 `server/services/notification_stalled.py`，原模块顶部 re-export 维持既有导入路径；fanout 依赖经函数内 lazy import 反向引用，无导入环。
+  落地 2/2——`server/api/experiments.py`（888 → 274 行，18+ 路由按生命周期拆）：M3 执行域（start/complete/accept-result/reject-result、logs、cross-persona-call、CP-3 执行锁）拆至 `server/api/experiment_execution.py`（430 行）；plans/reviews/comments（含 review-items PATCH）拆至 `server/api/experiment_reviews.py`（251 行）；experiments.py 仅留 CRUD + 相位流转，经 `include_router` 聚合子路由——`experiments_router` 导入路径与全部 URL 契约不变（OpenAPI 路径集逐一核对）。
+  未做：`server/domain/models.py`（837 行）拆分——纯声明式 ORM 模型、无逻辑耦合，拆分收益低，维持现状。
 
-- [ ] **T18 FS 扫描加 mtime/revision 级缓存**（预估：中）
-  位置：`server/services/fs_source_service.py` → `fs_topics_as_summaries`（L1317）、`fs_experiments_view`（L556）、`plane_for_project`（L147）。
-  问题：每个 topics/experiments/work 列表请求都重扫 `map/` 目录树（磁盘 IO），无缓存。
-  改法：以 workspace mtime 或 FsProjection.revision 为 key 的进程内缓存。
+- [x] **T18 FS 扫描加 mtime/revision 级缓存**（预估：中）✅ 2026-08-26
+  落地：`fs_source_service` 增加进程内 plane 缓存——以 `(workspace, root_name)` 为键，缓存值为完整目录指纹（topics/ + experiments/ 下全部文件的 `(relpath, mtime_ns, size)`）与解析出的 `FsPlane`；任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）改变 mtime 即指纹失配、自动重扫。LRU 上限防多 workspace 膨胀，`fs_plane_cache_enabled` 设置可关（默认开），`reset_plane_cache()` 供测试隔离。测试 `tests/test_optimization_t18.py` 覆盖命中零重扫 / mtime 变更失效 / 关闭开关直通。
 
-- [ ] **T19 宽捕获补日志、时区工具去重**（预估：小）
-  位置：`server/services/fs_source_service.py` L168/L178（`except Exception: return []` 零日志）等 6 处宽捕获；`_aware`（notification_service.py L830）与 `_as_utc`（status_service.py L16、todo_service.py L169）三处雷同。
-  改法：快照降级路径至少 `logger.warning`；时区辅助抽公共 util。
+- [x] **T19 宽捕获补日志、时区工具去重**（预估：小）✅ 2026-08-26
+  落地：宽捕获路径补 `logger.warning`（fs_source_service 快照降级等 6 处，附异常摘要便于排障）；时区辅助收敛至 `server/services/time_utils.as_utc`（overload 保证 strict-mypy 下 `datetime -> datetime` 精确），`notification_stalled._aware` 与 `status_service` / `todo_service` / `topic_ack_service` 的 `_as_utc` 三处雷同实现统一替换。
 
 ## P1 CLI 与 SDK
 
