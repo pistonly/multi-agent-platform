@@ -178,7 +178,8 @@ def test_limit_defaults_match_documented_spec():
         "list_audit_for_target": (50, 200),
     }
     from server.api import audit as audit_api
-    from server.api import experiments as exp_api
+    from server.api import experiment_execution as exec_api
+    from server.api import experiment_reviews as reviews_api
     from server.api import projects as projects_api
     from server.api import topics as topics_api
 
@@ -191,10 +192,10 @@ def test_limit_defaults_match_documented_spec():
         return int(m.group(1)), int(m.group(2))
 
     actual = {
-        "list_comments": _parse(exp_api.list_comments),
-        "list_logs": _parse(exp_api.list_logs),
-        "list_plans": _parse(exp_api.list_plans),
-        "list_reviews": _parse(exp_api.list_reviews),
+        "list_comments": _parse(reviews_api.list_comments),
+        "list_logs": _parse(exec_api.list_logs),
+        "list_plans": _parse(reviews_api.list_plans),
+        "list_reviews": _parse(reviews_api.list_reviews),
         "list_topic_comments": _parse(topics_api.list_topic_comments),
         "list_project_status_versions": _parse(projects_api.list_project_status_versions),
         "list_audit_for_target": _parse(audit_api.list_audit_for_target),
