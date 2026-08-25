@@ -1,11 +1,33 @@
 import json
+import threading
+import time
 import uuid
-from queue import Empty
+from asyncio import QueueEmpty
 
 import pytest
 
 from server.services import notification_stream
 from tests._frontmatter import make_valid_plan
+
+
+def _drain(queue) -> None:
+    """排空队列（asyncio.Queue 无同步 get(timeout)，用 get_nowait 轮询）。"""
+    while True:
+        try:
+            queue.get_nowait()
+        except QueueEmpty:
+            break
+
+
+def _poll_get(queue, timeout: float) -> str:
+    """同步轮询取一帧；超时抛 QueueEmpty（对齐旧 queue.get(timeout) 语义）。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            return queue.get_nowait()
+        except QueueEmpty:
+            time.sleep(0.02)
+    raise QueueEmpty
 
 
 def _parse_sse_frame(frame: str) -> tuple[int | None, dict]:
@@ -28,13 +50,53 @@ def test_notification_stream_publish_subscribe():
             agent_id,
             {"type": "notification.created", "event": "test.event", "notification_id": "n1"},
         )
-        payload = queue.get(timeout=1)
+        payload = _poll_get(queue, timeout=1)
         event_id, data = _parse_sse_frame(payload)
         assert event_id == 1  # 第一个事件 id 从 1 开始
         assert data["type"] == "notification.created"
         assert data["event"] == "test.event"
     finally:
         notification_stream.unsubscribe(agent_id, queue)
+
+
+def test_publish_bridges_from_sync_thread_to_subscriber_loop():
+    """T12：无 loop 订阅（测试线程）→ 直接 put；真实生产路径为
+    SSE generator 事件循环内订阅 + 请求线程 publish——本测试还原后者：
+    订阅在事件循环内、publish 来自普通线程，必须经 call_soon_threadsafe
+    桥接后仍能被 await 到。"""
+    agent_id = uuid.uuid4()
+    received: list[str] = []
+    publish_error: list[BaseException] = []
+
+    async def scenario():
+        import asyncio
+
+        queue = notification_stream.subscribe(agent_id)
+        # 从非 loop 线程模拟同步请求线程的 publish。
+        def _publish_from_thread():
+            try:
+                notification_stream.publish(
+                    agent_id,
+                    {"type": "notification.created", "event": "thread.pub", "notification_id": "n1"},
+                )
+            except BaseException as exc:  # pragma: no cover - 防御记录
+                publish_error.append(exc)
+
+        thread = threading.Thread(target=_publish_from_thread)
+        thread.start()
+        frame = await asyncio.wait_for(queue.get(), timeout=2)
+        received.append(frame)
+        thread.join()
+        notification_stream.unsubscribe(agent_id, queue)
+
+    import asyncio
+
+    asyncio.run(scenario())
+    assert publish_error == []
+    assert received, "publish from sync thread must reach the subscriber loop"
+    event_id, data = _parse_sse_frame(received[0])
+    assert event_id == 1
+    assert data["event"] == "thread.pub"
 
 
 def test_sse_replay_after_reconnect():
@@ -98,19 +160,15 @@ def test_digest_enqueue_does_not_publish_sse_frame(
             json={"title": "Digest SSE suppression", "plan": {"content_md": make_valid_plan(body="# p")}},
         ).json()
         # Drain any frame from experiment creation.
-        while True:
-            try:
-                queue.get_nowait()
-            except Empty:
-                break
+        _drain(queue)
         # experiment.phase_changed is a digest event by default.
         client.post(
             f"/api/v1/experiments/{exp['id']}/submit-review", headers=auth_headers
         )
 
         # No SSE frame should arrive for a digest event.
-        with pytest.raises(Empty):
-            queue.get(timeout=0.5)
+        with pytest.raises(QueueEmpty):
+            _poll_get(queue, timeout=0.5)
     finally:
         notification_stream.unsubscribe(reviewer_id, queue)
 
@@ -147,7 +205,7 @@ def test_wakeable_enqueue_publishes_sse_frame_with_v2_fingerprint(
             exclude_actor=False,
         )
 
-        payload = queue.get(timeout=2)
+        payload = _poll_get(queue, timeout=2)
         _event_id, data = _parse_sse_frame(payload)
         assert data["type"] == "notification.created"
         assert data["event"] == "experiment.lifecycle.withdrawn"
