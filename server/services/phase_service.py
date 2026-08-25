@@ -426,36 +426,19 @@ def _recheck_pytest_summary_for_accept(
     )
 
 
-def complete_experiment(
-    db: Session,
-    experiment_id: uuid.UUID,
-    actor: Agent,
-    payload: ExperimentComplete,
-) -> None:
-    experiment = get_experiment(db, experiment_id)
-    _ensure_can_complete(experiment, actor)
+def _build_completion_log(
+    db: Session, experiment, payload: ExperimentComplete
+) -> tuple[str, dict[str, Any] | None]:
+    """组装 completion log 内容与增强 metadata（T06 从 complete_experiment 拆出）。
 
-    # 实验 bd9b21f6 (plan-revision-review-gate) A2: breaking 打回期间 complete
-    # 一律拒——报错必须 actionable（提示等待重评 plan 版本与剩余阻塞数，
-    # 而非通用 invalid transition）。
-    if experiment.phase == ExperimentPhase.pending_review:
-        from server.services.review_service import count_open_unreasonable_for_experiment
-
-        open_count = count_open_unreasonable_for_experiment(db, experiment_id)
-        raise StateTransitionError(
-            f"breaking revise 待重评: plan v{experiment.current_plan_version} 标记 "
-            f"--breaking-audit 后需 reviewer 重评通过才可 complete; "
-            f"open unreasonable items: {open_count}"
-        )
-
+    三段拼接：基础 log（``content_md`` 或文件指针）→ pytest_summary 机器
+    校验（50cddb7e I4 A3：failed>0 且无豁免已在 gate 处硬拒，这里只追加
+    校验结果）→ breaking 漏标红旗（bd9b21f6 A5 兜底，非阻塞）。
+    """
     if payload.log_file_path:
         experiment.log_file_path = payload.log_file_path
 
     log_content = payload.content_md or f"See file: {payload.log_file_path}"
-
-    # 50cddb7e I4 (A3): pytest_summary 机器校验——failed>0 且无 --known-failures
-    # 豁免 → 拒绝 complete（硬门禁）；豁免/警告追加进 completion log + metadata，
-    # reviewer 在 result_review 侧可直接可见（A4 complete 路径展示）。
     enriched_metadata = payload.metadata
     gate = _apply_pytest_summary_gate(payload)
     if gate is not None:
@@ -478,67 +461,88 @@ def complete_experiment(
             "若实为架构级修订却未标 --breaking-audit，请 reviewer 在 result_review"
             " 指出——本应回 pending_review 重评后再 complete。"
         )
+    return log_content, enriched_metadata
 
-    is_direct = experiment.mode == ExperimentMode.direct.value
 
-    if is_direct:
-        # v0.10 direct mode: running → done (skip result_review).
-        # Evidence metadata is a soft warning, not a hard gate.
-        validate_phase_transition(
-            experiment.phase, ExperimentPhase.done, mode=experiment.mode
-        )
-        if not metadata_has_completion_evidence(payload.metadata):
-            logging.warning(
-                "direct-mode experiment %s completed without evidence metadata",
-                experiment_id,
-            )
-        append_log(
-            db,
+def _complete_direct_mode(
+    db: Session,
+    experiment,
+    *,
+    experiment_id: uuid.UUID,
+    actor: Agent,
+    payload: ExperimentComplete,
+    log_content: str,
+    enriched_metadata: dict[str, Any] | None,
+) -> None:
+    """v0.10 direct mode: running → done（跳过 result_review）。
+
+    Evidence metadata 是软警告不是硬门禁；A2 cascade 把关联 open
+    action_items 一并置 done（与 standard 的 accept_result 相同）。
+    """
+    validate_phase_transition(experiment.phase, ExperimentPhase.done, mode=experiment.mode)
+    if not metadata_has_completion_evidence(payload.metadata):
+        logging.warning(
+            "direct-mode experiment %s completed without evidence metadata",
             experiment_id,
-            actor,
-            ExperimentLogCreate(
-                summary=payload.summary,
-                content_md=log_content,
-                metadata=enriched_metadata,
-            ),
         )
-        # A2 cascade: mark linked open action_items as done (same as
-        # accept_result in standard mode).
-        open_items = db.scalars(
-            select(TopicActionItem).where(
-                TopicActionItem.linked_experiment_id == experiment_id,
-                TopicActionItem.status == TopicActionItemStatus.open,
-            )
-        ).all()
-        cascaded: list[dict[str, Any]] = []
-        for item in open_items:
-            cascaded.append(
-                topic_service._complete_action_item_no_commit(
-                    db,
-                    item,
-                    triggered_by=f"experiment.completed:{experiment_id}",
-                )
-            )
-        experiment.phase = ExperimentPhase.done
-        _sync_phase_owner(experiment)
-        audit_service.log_no_commit(
-            db,
-            action="experiment.completed",
-            target_type="experiment",
-            target_id=experiment_id,
-            agent_id=actor.id,
-            project_id=experiment.project_id,
-            summary=f"实验完成「{experiment.title}」(direct)",
-            payload={
-                "experiment_id": str(experiment_id),
-                "mode": "direct",
-                "cascaded_action_items": cascaded,
-            },
+    append_log(
+        db,
+        experiment_id,
+        actor,
+        ExperimentLogCreate(
+            summary=payload.summary,
+            content_md=log_content,
+            metadata=enriched_metadata,
+        ),
+    )
+    open_items = db.scalars(
+        select(TopicActionItem).where(
+            TopicActionItem.linked_experiment_id == experiment_id,
+            TopicActionItem.status == TopicActionItemStatus.open,
         )
-        db.commit()
-        return
+    ).all()
+    cascaded: list[dict[str, Any]] = []
+    for item in open_items:
+        cascaded.append(
+            topic_service._complete_action_item_no_commit(
+                db,
+                item,
+                triggered_by=f"experiment.completed:{experiment_id}",
+            )
+        )
+    experiment.phase = ExperimentPhase.done
+    _sync_phase_owner(experiment)
+    audit_service.log_no_commit(
+        db,
+        action="experiment.completed",
+        target_type="experiment",
+        target_id=experiment_id,
+        agent_id=actor.id,
+        project_id=experiment.project_id,
+        summary=f"实验完成「{experiment.title}」(direct)",
+        payload={
+            "experiment_id": str(experiment_id),
+            "mode": "direct",
+            "cascaded_action_items": cascaded,
+        },
+    )
+    db.commit()
 
-    # --- standard mode (unchanged) ---
+
+def _complete_standard_mode(
+    db: Session,
+    experiment,
+    *,
+    experiment_id: uuid.UUID,
+    actor: Agent,
+    payload: ExperimentComplete,
+    log_content: str,
+    enriched_metadata: dict[str, Any] | None,
+) -> None:
+    """standard mode: running → result_review，等 reviewer 验收。
+
+    Evidence metadata 是硬门禁（与 direct 的软警告不同）。
+    """
     validate_phase_transition(
         experiment.phase, ExperimentPhase.result_review, mode=experiment.mode
     )
@@ -561,6 +565,53 @@ def complete_experiment(
     experiment.phase = ExperimentPhase.result_review
     _sync_phase_owner(experiment)
     db.commit()
+
+
+def complete_experiment(
+    db: Session,
+    experiment_id: uuid.UUID,
+    actor: Agent,
+    payload: ExperimentComplete,
+) -> None:
+    experiment = get_experiment(db, experiment_id)
+    _ensure_can_complete(experiment, actor)
+
+    # 实验 bd9b21f6 (plan-revision-review-gate) A2: breaking 打回期间 complete
+    # 一律拒——报错必须 actionable（提示等待重评 plan 版本与剩余阻塞数，
+    # 而非通用 invalid transition）。
+    if experiment.phase == ExperimentPhase.pending_review:
+        from server.services.review_service import count_open_unreasonable_for_experiment
+
+        open_count = count_open_unreasonable_for_experiment(db, experiment_id)
+        raise StateTransitionError(
+            f"breaking revise 待重评: plan v{experiment.current_plan_version} 标记 "
+            f"--breaking-audit 后需 reviewer 重评通过才可 complete; "
+            f"open unreasonable items: {open_count}"
+        )
+
+    log_content, enriched_metadata = _build_completion_log(db, experiment, payload)
+
+    if experiment.mode == ExperimentMode.direct.value:
+        _complete_direct_mode(
+            db,
+            experiment,
+            experiment_id=experiment_id,
+            actor=actor,
+            payload=payload,
+            log_content=log_content,
+            enriched_metadata=enriched_metadata,
+        )
+        return
+
+    _complete_standard_mode(
+        db,
+        experiment,
+        experiment_id=experiment_id,
+        actor=actor,
+        payload=payload,
+        log_content=log_content,
+        enriched_metadata=enriched_metadata,
+    )
 
 
 def _notify_topic_close_pending(
