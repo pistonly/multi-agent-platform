@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 6/27：T07、T10、T11、T13、T14、T15（2026-08-25）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 9/27：T07、T09、T10、T11、T12、T13、T14、T15、T16（2026-08-25）；T17 进行中 1/3。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -56,10 +56,8 @@
   问题：重试循环内 `time.sleep(1s/2s)` 且中途 `db.flush()` 不 commit，最坏约 18s 持 SQLite 写锁，阻塞其他写操作。
   改法：每次尝试后立即 commit 进度；或改为独立 worker 驱动重试（WebhookDelivery 表已建，天然支持）。
 
-- [ ] **T09 topics 列表 FS 合并路径去掉 DB 全量拉取**（预估：中）
-  位置：`server/api/topics.py` L121-140。
-  问题：存在 FS 话题时以 `page_size=None` 拉取 DB 全部话题再内存合并分页，每页请求成本 O(全部话题)。
-  改法：用 FS 话题 slug 集合做 SQL 反查（`slug NOT IN (...)`），保留 SQL 分页。
+- [x] **T09 topics 列表 FS 合并路径去掉 DB 全量拉取**（预估：中）✅ 2026-08-25
+  落地：`list_topics` 新增 `exclude_slugs`（NULL slug 显式放行，规避 NOT IN 三值逻辑）与 `offset` 参数；`api/topics.py` 合并分支改为分段分页——FS 段占合并视图前缀、DB 段以 `offset = max(0, start - fs_count)` 续页，`X-Total-Count = fs_count + DB total`。语义与旧内存合并一致（既有分页稳定性测试全过），SQL 守卫断言取行查询必带 LIMIT、无全量拉取。
 
 - [x] **T10 /status 聚合看板加短缓存**（预估：小）✅ 2026-08-25
   落地：`status_service` 加进程内 TTL 缓存（`MAP_STATUS_CACHE_TTL_SECONDS`，默认 5s，0 关闭），原构建逻辑改名 `_build_global_status`；按 project_id 分键、线程锁保护；conftest 增加 autouse `reset_status_cache` fixture 隔离测试。测试断言 TTL 内命中零 SQL、过期/reset 重建、TTL=0 关闭、per-project 键独立。
@@ -73,10 +71,8 @@
   问题：`list_for_agent` 按 `(recipient_agent_id, updated_at DESC)` 排序分页但只有单列索引，大表 filesort；表上单列索引偏多造成写放大。
   改法：加 `(recipient_agent_id, updated_at)` 复合索引，评估裁剪低基数单列索引。
 
-- [ ] **T12 SSE 换 asyncio.Queue，不再占线程池线程**（预估：中）
-  位置：`server/services/notification_stream.py` L115-122。
-  问题：`asyncio.to_thread(queue.get, True, ...)` 基于 `threading.Queue` 阻塞等待，每个 SSE 连接长期占一个线程池线程（anyio 默认仅 40 个），并发扩容性差。
-  改法：改 `asyncio.Queue` + per-agent Event，publish 经 `loop.call_soon_threadsafe` 桥接。
+- [x] **T12 SSE 换 asyncio.Queue，不再占线程池线程**（预估：中）✅ 2026-08-25
+  落地：`notification_stream` 传输改 `asyncio.Queue` + `asyncio.wait_for` 超时心跳，SSE 连接不再占 anyio 线程池线程；订阅者记录所属事件循环，同步请求线程的 publish 经 `loop.call_soon_threadsafe` 桥接回目标循环（无 loop 的测试订阅者退化为直接 put）。新增跨线程桥接测试（事件循环内订阅 + 普通线程 publish 可被 await 到）；既有 SSE 测试改用 get_nowait 轮询辅助，隔离扫描（仅允许 stdlib + fastapi/starlette 导入）保持通过。
 
 - [x] **T13 mark_all_read 改单条 UPDATE**（预估：小）✅ 2026-08-25
   落地：`notification_service.mark_all_read` 改单条核心 UPDATE + rowcount，替换「加载全部未读 ORM 对象逐行赋值」（原 N 行 = 1 SELECT + N UPDATE，现恒定 1 UPDATE）。回归测试用 SQL 计数守卫断言任意行数下恰好 1 条 UPDATE、0 条 SELECT。
@@ -96,13 +92,15 @@
   问题：循环内每个 experiment 各调 `_latest_experiment_log_at`（L838）与 `_project_agent_ids`（L844）。
   改法：`experiment_id IN (...)` 一次取 `max(created_at)` 分组结果；agent 列表每 project 缓存一次。
 
-- [ ] **T16 projects status 的 recent 改 SQL 侧限量**（预估：中）
+- [x] **T16 projects status 的 recent 改 SQL 侧限量**（预估：中）✅ 2026-08-25
+  落地：`build_projects_status` 的 recent 查询改 `row_number() OVER (PARTITION BY project_id ORDER BY updated_at DESC)` 窗口函数 + `rn <= 5`，每项目第 6 名起不离开数据库（原为全量拉回内存逐项目截断）。测试断言每项目恰 5 条最新（含 deleted/archived 过滤不变）+ SQL 守卫（窗口语句恰 1 条、无无 LIMIT 的全量行查询）。
   位置：`server/services/project_service.py` L190-203 → `build_projects_status`。
   问题：拉取所有项目的全部未删实验再在 Python 中截取每项目 5 条，实验数增长后退化为全表载入。
   改法：窗口函数 `row_number() over (partition by project_id order by updated_at desc)` 或每项目 LIMIT N 的 UNION。
 
-- [ ] **T17 中型文件按域拆分**（预估：中）
-  位置：`server/services/notification_service.py`（947 行，按 fanout / classify / stalled_scan 拆）；`server/api/experiments.py`（888 行，18+ 路由按生命周期拆 router）；`server/domain/models.py`（834 行，可按 topic/experiment/notification 拆，非紧急）。
+- [ ] **T17 中型文件按域拆分**（预估：中）——进行中 1/3（2026-08-25）
+  进度：notification_service（1000→852 行）已落地——stalled-lock 扫描簇（`notify_stalled_experiment_locks` + 3 个私有辅助，~155 行）拆至 `server/services/notification_stalled.py`，原模块顶部 re-export 维持既有导入路径；fanout 依赖经函数内 lazy import 反向引用，无导入环；pyproject mypy strict 清单与守卫测试（two-step where / bare anno）同步覆盖新模块。
+  剩余：`server/api/experiments.py`（888 行，18+ 路由按生命周期拆 router）；`server/domain/models.py`（834 行，可按 topic/experiment/notification 拆，非紧急）。
 
 - [ ] **T18 FS 扫描加 mtime/revision 级缓存**（预估：中）
   位置：`server/services/fs_source_service.py` → `fs_topics_as_summaries`（L1317）、`fs_experiments_view`（L556）、`plane_for_project`（L147）。

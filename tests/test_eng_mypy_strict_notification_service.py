@@ -43,6 +43,8 @@ PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
 PYPROJECT = f"{PROJECT_ROOT}/pyproject.toml"
 TARGET = f"{PROJECT_ROOT}/server/services/notification_service.py"
 TARGET_BASENAME = "notification_service.py"
+# T17 拆分后的 stalled-lock 簇所在地；mypy strict 已同步提升（pyproject）。
+TARGET_STALLED = f"{PROJECT_ROOT}/server/services/notification_stalled.py"
 
 
 def _run_mypy(*args: str) -> subprocess.CompletedProcess[str]:
@@ -121,23 +123,25 @@ def test_baseline_mypy_clean_for_notification_service():
 
 def test_no_bare_dict_or_list_annotations():
     """Regression guard: no bare ``dict`` or ``list`` parameter
-    annotations remain in notification_service — every one is now
+    annotations remain in notification_service (and, since the T17 split,
+    its extracted sibling notification_stalled) — every one is now
     parameterized (mostly ``dict[str, Any]``, ``list[Any]``).
     """
-    text = _read(TARGET)
-    # Negative lookahead excludes parameterized `dict[...]` / `dict_foo`.
-    # Bare dict/list annotation: `: dict` followed by whitespace,
-    # `|`, `,`, `)`, `=`, or end-of-line — never by `[` or word char.
-    bare_dict_anno = re.findall(r":\s*dict(?![\w\[])", text)
-    bare_list_anno = re.findall(r":\s*list(?![\w\[])", text)
-    assert not bare_dict_anno, (
-        f"notification_service.py has {len(bare_dict_anno)} bare `dict` "
-        f"annotation(s) — PR5i parameterized all 7 sites."
-    )
-    assert not bare_list_anno, (
-        f"notification_service.py has {len(bare_list_anno)} bare `list` "
-        f"annotation(s) — PR5i parameterized the lone `mentions: list`."
-    )
+    for target in (TARGET, TARGET_STALLED):
+        text = _read(target)
+        # Negative lookahead excludes parameterized `dict[...]` / `dict_foo`.
+        # Bare dict/list annotation: `: dict` followed by whitespace,
+        # `|`, `,`, `)`, `=`, or end-of-line — never by `[` or word char.
+        bare_dict_anno = re.findall(r":\s*dict(?![\w\[])", text)
+        bare_list_anno = re.findall(r":\s*list(?![\w\[])", text)
+        assert not bare_dict_anno, (
+            f"{target} has {len(bare_dict_anno)} bare `dict` "
+            f"annotation(s) — PR5i parameterized all 7 sites."
+        )
+        assert not bare_list_anno, (
+            f"{target} has {len(bare_list_anno)} bare `list` "
+            f"annotation(s) — PR5i parameterized the lone `mentions: list`."
+        )
 
 
 def test_project_agent_ids_uses_two_step_where():
@@ -145,8 +149,11 @@ def test_project_agent_ids_uses_two_step_where():
     two-step ``if exclude: stmt = stmt.where(...)`` pattern instead
     of the previous ``where(... if exclude else True)`` ternary that
     mixed ``BinaryExpression[bool] | bool``.
+
+    T17 note: the stalled-lock cluster (including ``_project_agent_ids``)
+    moved to ``notification_stalled.py`` — the guard follows the code.
     """
-    text = _read(TARGET)
+    text = _read(TARGET_STALLED)
     # Old pattern: '.where(\n            Agent.project_id == project_id,\n            Agent.id.notin_(exclude) if exclude else True,\n        )'
     assert "Agent.id.notin_(exclude) if exclude else True" not in text, (
         "_project_agent_ids must not mix BinaryExpression[bool] | bool "

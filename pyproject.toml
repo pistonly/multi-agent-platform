@@ -164,6 +164,7 @@ module = [
     "server.services.agent_work_service",
     "server.services.topic_work_item_service",
     "server.services.notification_service",
+    "server.services.notification_stalled",
     "server.services.topic_service",
     "server.services.topic_helpers",
     "server.services.topic_lifecycle_service",
