@@ -165,6 +165,13 @@ def _perform_delivery(
     function is sync because ``deliver_delivery`` runs in a BackgroundTask and
     we accept the small worst-case latency (~3 retries × 5s timeout) for the
     sake of reliable delivery.
+
+    T08（2026-08）：每次尝试后立即 ``commit`` 进度（原先 ``flush`` 不
+    commit，重试链中 sleep + HTTP 超时期间整个事务保持打开——SQLite
+    下即持写锁，最坏 ~18s 阻塞其他写）。现在写锁持有期收敛到单次
+    尝试内；后台路径（``deliver_delivery``）自带独立 session，语义
+    不变。同步回退路径（测试 / 无 BackgroundTasks）会顺带提交调用方
+    事务——调用方（通知扇出）在进入前已完成自身 commit。
     """
     delivery = db.scalar(
         select(WebhookDelivery)
@@ -175,6 +182,9 @@ def _perform_delivery(
         return
 
     webhook = delivery.webhook
+    # mid-loop commit 会让 ORM 实例 expire；把投递参数捕获到循环外，
+    # 重试环不再依赖 session 状态（也省去每次重试的 refresh SELECT）。
+    webhook_url = webhook.url
     body = json.dumps(delivery.payload, default=str, ensure_ascii=False).encode("utf-8")
     signature = (
         "sha256="
@@ -195,7 +205,7 @@ def _perform_delivery(
         attempts = attempt
         last_exc = None
         try:
-            last_status = _http_post(webhook.url, body, signature)
+            last_status = _http_post(webhook_url, body, signature)
             delivery.status_code = last_status
             if 200 <= last_status < 300:
                 success = True
@@ -216,10 +226,12 @@ def _perform_delivery(
             )
 
         # Persist progress so admin can watch attempts tick up even mid-retry.
+        # T08：commit 而非 flush——重试 sleep 与下次 HTTP 尝试不再持有
+        # 上一尝试打开的写事务（SQLite 写锁）。
         delivery.attempts = attempts
         delivery.last_attempt_at = datetime.now(timezone.utc)
         delivery.last_error = _summarize_error(last_status, last_exc)
-        db.flush()
+        db.commit()
 
         if attempt < max_attempts:
             sleep_for = backoff_base * (2 ** (attempt - 1))
@@ -229,6 +241,7 @@ def _perform_delivery(
     delivery.success = success
     delivery.last_attempt_at = datetime.now(timezone.utc)
     delivery.last_error = _summarize_error(last_status, last_exc)
+    db.commit()
     if success:
         logger.info(
             "webhook delivery %s succeeded after %d attempt(s)",
