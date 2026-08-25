@@ -608,7 +608,7 @@ def _notify_topic_close_pending(
         if executor_name and executor_name != creator_agent_name
         else ""
     )
-    return notification_service.emit_kind(
+    notification_service.emit_kind(
         db,
         project_id=experiment.project_id,
         # actor=触发 accept 的 reviewer（emit 默认 exclude_actor：不能传
