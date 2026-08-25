@@ -86,8 +86,9 @@ def test_cli_error_envelope_pydantic_rejects_missing_message():
 def test_cli_emit_json_error_envelope_writes_pydantic_json(runner, monkeypatch, capsys):
     """``_emit_json_error_envelope`` emits a Pydantic-validated JSON line.
 
-    Captures stderr via ``capsys`` and re-validates with ``CLIErrorEnvelope``
-    so the printed shape is round-trippable as the canonical model.
+    b56a232 起 stderr 行为外层信封 ``{"ok": false, "error": {...}}``
+    （docs/cli-json-output.md 契约），内层 error 才是 ``CLIErrorEnvelope``
+    字段集。此处解包后 re-validate，保证打印的形状可被规范模型回读。
     """
     cli_main._emit_json_error_envelope(
         error_code="STATE_MACHINE_INVALID_PHASE",
@@ -103,9 +104,9 @@ def test_cli_emit_json_error_envelope_writes_pydantic_json(runner, monkeypatch, 
         None,
     )
     assert line is not None, captured.err
-    payload = json.loads(line)
-    assert payload["ok"] is False
-    parsed = CLIErrorEnvelope.model_validate(payload["error"])
+    outer = json.loads(line)
+    assert outer["ok"] is False
+    parsed = CLIErrorEnvelope.model_validate(outer["error"])
     assert parsed.error_code == "STATE_MACHINE_INVALID_PHASE"
     assert parsed.hint == "submit for review first"
     assert parsed.recovery_command == "map experiment submit-review"
@@ -136,16 +137,16 @@ def test_cli_json_envelope_includes_docs_url_field(runner, patched_cli_no_server
         None,
     )
     assert envelope_line, result.stderr
-    payload = json.loads(envelope_line)
-    assert payload["ok"] is False
-    envelope = payload["error"]
+    outer = json.loads(envelope_line)
+    assert outer["ok"] is False
+    envelope = outer["error"]
     assert "docs_url" in envelope
     # Round-trip parse through the Pydantic model.
     parsed = CLIErrorEnvelope.model_validate(envelope)
     # docs_url is optional — accept None (server doesn't emit one yet) but
     # the field must always be declared.
     assert hasattr(parsed, "docs_url")
-    # All v1 stable fields are present.
+    # All v1 stable fields are present in the inner error object.
     assert set(envelope.keys()) == {
         "error_code",
         "message",
@@ -183,9 +184,9 @@ def test_cli_maphttp_error_envelope_uses_pydantic(runner, monkeypatch, capsys):
         None,
     )
     assert envelope_line, result.stderr
-    payload = json.loads(envelope_line)
-    assert payload["ok"] is False
-    parsed = CLIErrorEnvelope.model_validate(payload["error"])
+    outer = json.loads(envelope_line)
+    assert outer["ok"] is False
+    parsed = CLIErrorEnvelope.model_validate(outer["error"])
     assert parsed.error_code == "NOT_FOUND"
     assert parsed.message == "not here"
     assert parsed.hint == "check id"
@@ -283,25 +284,8 @@ def test_feedback_submit_accepts_file(patched_cli_no_server, runner, tmp_path):
     assert "No such file" not in combined
 
 
-def test_feedback_submit_body_and_file_mutually_exclusive(patched_cli_no_server, runner, tmp_path):
-    body_file = tmp_path / "feedback.md"
-    body_file.write_text("from file", encoding="utf-8")
-    result = runner.invoke(
-        app,
-        ["feedback", "submit", "--body", "from arg", "--file", str(body_file)],
-    )
-    # ``map feedback submit`` retired at v0.15 M62 — the retirement gate
-    # fires (exit 2) before body/file validation is reached.
-    assert result.exit_code == 2
-    assert "retired" in (result.stderr or "")
-
-
-def test_feedback_submit_requires_body_or_file(patched_cli_no_server, runner):
-    result = runner.invoke(app, ["feedback", "submit"])
-    # ``map feedback submit`` retired at v0.15 M62 — retirement gate fires
-    # (exit 2) regardless of body/file args.
-    assert result.exit_code == 2
-    assert "retired" in (result.stderr or "")
+# M62 退役后 ``map feedback submit`` 无条件 exit 2（参数校验契约随之消失），
+# stub 行为由 tests/test_feedback_stub.py 全量覆盖，旧参数校验断言不再适用。
 
 
 # ---- cross-command parity --------------------------------------------------

@@ -157,3 +157,15 @@ map notification read-all
 行动项负责人在完成工作后，应在来源话题写发言、开关联实验；轻量执行项（`action-items.yaml`）用 `map topic action-item complete --evidence ...` / `cancel --reason ...` 清零，close 门禁校验无 open 才放行（CLI 无单独 resolve 命令）。
 
 @ 未匹配时评论仍会发布，响应含 `unresolved_mentions`，并发 `mention.unresolved` 通知给作者。该机制保留于实验评论域（comment 走 API）；FS 话题发言（纯本地写）中的 `@` 仅是视觉提示，不产生 mention 待办。
+
+## 用户反馈（MAP 工具 bug / 改进建议）
+
+MAP 工具本身的反馈走 GitHub issue（旧平台 inbox 已于 v0.15 M62 退役，`feedback submit/list/get/update` 均 exit 2）：
+
+```bash
+map feedback --type bug --title "..." --body "复现步骤..."   # 生成预填 issue 链接
+map feedback --type idea --title "..."                       # 改进建议
+map feedback --open                                          # 直接拉起浏览器
+```
+
+离线命令（不连 API），自动附环境信息（map 版本 / Python / OS / api_url）；私有 fork 用 `--repo owner/name` 覆盖。Agent 拿到 URL 后转交人类提交。项目内部 dogfood 反馈仍走 MAP 话题（由 host 开）。
