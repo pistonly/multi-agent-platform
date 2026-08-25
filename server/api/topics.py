@@ -119,25 +119,44 @@ def list_topics(
             viewer_agent_id=agent.id,
         )
     else:
-        # 有 FS 话题：DB 全量拉取后合并（FS 置顶 + slug 去重），
-        # 对合并视图统一分页——否则 FS 话题会在每一页重复出现，
-        # X-Total-Count 也会失真。
-        fs_slugs = {t.slug for t in fs_topics}
-        db_all, _ = topic_service.list_topics(
-            db,
-            resolved_project_id,
-            status=topic_status,
-            creator_agent_id=creator_agent_id,
-            q=q,
-            page=1,
-            page_size=None,
-            include_archived=include_archived,
-            viewer_agent_id=agent.id,
-        )
-        merged = fs_topics + [t for t in db_all if not (t.slug and t.slug in fs_slugs)]
-        total = len(merged)
+        # 有 FS 话题：合并视图 = FS 段（前置）+ DB 段（slug 反查排除 FS
+        # 副本）。T09（2026-08）：DB 段保留 SQL 分页，按段精确续页——
+        # 原实现 page_size=None 全量拉取 DB 后内存合并，每页请求成本
+        # O(全部话题)；现在 DB 侧只取本页对应的偏移窗口。
+        fs_slugs = {t.slug for t in fs_topics if t.slug}
+        fs_count = len(fs_topics)
         start = (page - 1) * page_size
-        topics = merged[start : start + page_size]
+        fs_slice = fs_topics[start : start + page_size] if start < fs_count else []
+        remaining = page_size - len(fs_slice)
+        common: dict[str, object] = {
+            "status": topic_status,
+            "creator_agent_id": creator_agent_id,
+            "q": q,
+            "include_archived": include_archived,
+            "viewer_agent_id": agent.id,
+            "exclude_slugs": fs_slugs or None,
+        }
+        if remaining > 0:
+            db_topics, db_total = topic_service.list_topics(
+                db,
+                resolved_project_id,
+                page=1,
+                page_size=remaining,
+                offset=max(0, start - fs_count),
+                **common,  # type: ignore[arg-type]
+            )
+        else:
+            # 本页完全落在 FS 段内：不取行，仅取 DB total 供 X-Total-Count。
+            db_topics = []
+            _, db_total = topic_service.list_topics(
+                db,
+                resolved_project_id,
+                page=1,
+                page_size=1,
+                **common,  # type: ignore[arg-type]
+            )
+        topics = fs_slice + db_topics
+        total = fs_count + db_total
     response.headers["X-Total-Count"] = str(total)
     return topics
 

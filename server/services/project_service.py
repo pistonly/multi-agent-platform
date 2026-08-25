@@ -5,7 +5,7 @@ from map_types.enums import ExperimentMode, TopicActionItemStatus, TopicDiscussi
 from map_types.schemas import TopicSummaryRead
 from sqlalchemy import String, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from server.domain.models import (
     Agent,
@@ -188,14 +188,33 @@ def build_projects_status(db: Session, projects: list[Project]) -> list[ProjectS
         active_map[experiment.project_id].append(ExperimentSummaryRead.model_validate(experiment))
 
     recent_map: dict[uuid.UUID, list[ExperimentSummaryRead]] = {pid: [] for pid in project_ids}
-    recent_stmt = (
-        select(Experiment)
+    # T16（2026-08）：每项目最近 5 条改窗口函数在 SQL 侧限量。原实现把
+    # 所有项目的全部存活实验拉回内存（每项目截前 5），行数随历史实验
+    # 线性增长；row_number() OVER (PARTITION BY project_id ORDER BY
+    # updated_at DESC) + rn <= 5 让第 6 名起不离开数据库。
+    # SQLite 3.25+ / PG 均支持窗口函数。
+    recent_rn = (
+        func.row_number()
+        .over(
+            partition_by=Experiment.project_id,
+            order_by=Experiment.updated_at.desc(),
+        )
+        .label("rn")
+    )
+    recent_inner = (
+        select(Experiment, recent_rn)
         .where(
             Experiment.project_id.in_(project_ids),
             Experiment.deleted_at.is_(None),
             Experiment.archived_at.is_(None),
         )
-        .order_by(Experiment.project_id, Experiment.updated_at.desc())
+        .subquery()
+    )
+    recent_experiment = aliased(Experiment, recent_inner)
+    recent_stmt = (
+        select(recent_experiment)
+        .where(recent_inner.c.rn <= 5)
+        .order_by(recent_inner.c.project_id, recent_inner.c.updated_at.desc())
     )
     for experiment in db.scalars(recent_stmt):
         recent = recent_map[experiment.project_id]

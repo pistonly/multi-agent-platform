@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 
 from map_types.enums import ExperimentPhase, TopicDiscussionRound
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import (
@@ -307,9 +307,19 @@ def list_topics(
     page_size: int | None = 100,
     include_archived: bool = False,
     viewer_agent_id: uuid.UUID | None = None,
+    exclude_slugs: set[str] | None = None,
+    offset: int | None = None,
 ) -> tuple[list[TopicSummaryRead], int]:
     """列出话题。``page_size=None`` 表示不分页全量返回（仅供 fs plane
     合并分页使用——API 层需对合并视图统一分页；调用方自行控制规模）。
+
+    T09（2026-08）新增参数（fs plane 合并分页改 SQL 侧分页后不再需要
+    全量路径，保留以兼容既有调用方）：
+
+    - ``exclude_slugs``：排除这些 slug 的 DB 行（FS 话题优先，DB 行只是
+      旧副本）。slug 为 NULL 的行不受 NOT IN 三值逻辑影响，显式放行。
+    - ``offset``：显式偏移量，优先于 ``(page - 1) * page_size``——供
+      FS 段占前缀后的 DB 段精确续页。
     """
     get_project(db, project_id)
     stmt = select(Topic).where(Topic.project_id == project_id, Topic.deleted_at.is_(None))
@@ -322,6 +332,8 @@ def list_topics(
     if q:
         pattern = f"%{q}%"
         stmt = stmt.where(Topic.title.ilike(pattern) | Topic.description.ilike(pattern))
+    if exclude_slugs:
+        stmt = stmt.where(or_(Topic.slug.is_(None), Topic.slug.notin_(exclude_slugs)))
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     stmt = stmt.order_by(Topic.pinned.desc(), Topic.updated_at.desc())
     if page_size is None:
@@ -329,7 +341,8 @@ def list_topics(
     else:
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        effective_offset = offset if offset is not None else (page - 1) * page_size
+        stmt = stmt.offset(max(0, effective_offset)).limit(page_size)
         topics = list(db.scalars(stmt))
     return topic_summaries_for_topics(db, topics, viewer_agent_id=viewer_agent_id), total
 
