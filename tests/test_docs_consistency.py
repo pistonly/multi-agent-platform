@@ -58,6 +58,11 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _parse_prd_version_tuple(version: str) -> tuple[int, ...]:
+    body = version[1:] if version.startswith("v") else version
+    return tuple(int(part) for part in body.split("."))
+
+
 def _current_prd_versions() -> list[str]:
     """Parse ``docs/prd/README.md`` 现行草案 section → ['v0.10', 'v0.11', ...]."""
     text = _read(REPO_ROOT / "docs" / "prd" / "README.md")
@@ -66,6 +71,17 @@ def _current_prd_versions() -> list[str]:
     return sorted(
         {f"v{m}" for m in re.findall(r"\]\(\./v([\d.]+)\.md\)", match.group(0))}
     )
+
+
+def _latest_prd_root_version() -> str:
+    """Largest ``docs/prd/v*.md`` (non-recursive; archive/ is not included)."""
+    versions: list[str] = []
+    for path in (REPO_ROOT / "docs" / "prd").glob("v*.md"):
+        match = re.fullmatch(r"(v\d+(?:\.\d+)*)\.md", path.name)
+        if match:
+            versions.append(match.group(1))
+    assert versions, "docs/prd/ should contain at least one v*.md"
+    return max(versions, key=_parse_prd_version_tuple)
 
 
 def _iter_port_check_files() -> list[Path]:
@@ -163,6 +179,15 @@ class TestCurrentPrdPointers:
         stale = {f"v{c}" for c in claims} - current
         assert not stale, (
             f"{entry} claims retired version(s) {sorted(stale)} as 现行; "
+            f"current set is {sorted(current)}"
+        )
+
+    def test_latest_prd_root_version_is_listed_current(self) -> None:
+        """docs/prd/ 根目录版本号最大的 v*.md 必须出现在「现行草案」段。"""
+        latest = _latest_prd_root_version()
+        current = set(_current_prd_versions())
+        assert latest in current, (
+            f"docs/prd/ root latest {latest} must appear in 「现行草案」; "
             f"current set is {sorted(current)}"
         )
 

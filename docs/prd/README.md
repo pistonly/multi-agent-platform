@@ -1,23 +1,23 @@
 # 多 Agent 平台 — 产品需求文档（PRD）
 
-> 这是 MAP（Multi-Agent Platform）的 PRD 入口。当前主线草案是
-> **v0.11**（Agent 体验与生态互操作，M50–M53 已全部完成）；新增提案
-> 草案 **v0.12**（Agent 人机工程，待评审）；历史版本归档在
-> [`archive/`](./archive/)。
+> 这是 MAP（Multi-Agent Platform）的 PRD 入口。**v0.11–v0.15 均已落地**；
+> 现行叙事以 **[v0.15](./v0.15.md)** 收口。下一刀产品工作是实验生命周期
+> FS 化 M2（`map experiment sync --check` 对账后再停 INSERT），尚未单独立项。
+> 更早版本在下方归档表与 [`archive/`](./archive/)。
 
 ## 现行草案
 
-- **[v0.11 — Agent 体验与生态互操作](./v0.11.md)**：当前主线
-  （2026-08-15 完成），涵盖文档一致性修复（M50）、话题事实源收敛
-  （M51）、Skill 分发版本化与接入可靠性（M52）、A2A 映射（M53）。
-- **[v0.12 — Agent 人机工程 草案](./v0.12.md)**：提案（2026-08-15，
-  M50–M53 实战卡点复盘产出），涵盖机器可读输出贯通（M54）、错误信封
-  可执行化（M55）、命令路由统一（M56）。
+- **[v0.15 — 废弃 platform feedback](./v0.15.md)**：已落地（M62）。看板话题写入改为 CLI 指引、persona 按 `{project_key}-{persona}` 后缀解析；实验 FS 化 M1（`index.md` 契约）已 done。
 
 ## 历史归档（按时间倒序）
 
 | 版本 | 主题 | 链接 |
 |------|------|------|
+| v0.14 | FS 归档命令与自动索引 | [v0.14.md](./v0.14.md) |
+| v0.13 | FS 事实源单轨化收尾 | [v0.13.md](./v0.13.md) |
+| v0.12 | Agent 人机工程（M54–M56） | [v0.12.md](./v0.12.md) |
+| v0.11 | Agent 体验与生态互操作（M50–M53） | [v0.11.md](./v0.11.md) |
+| v0.10 | waker 统一与 FS 瘦身 | [v0.10.md](./v0.10.md) |
 | v0.9 | waker Phase 2 通知降噪 | [v0.9.md](./v0.9.md) |
 | v0.8 | 占位文档（未单独成稿） | [archive/v0.8.md](./archive/v0.8.md) |
 | v0.7 | 占位文档（未单独成稿） | [archive/v0.7.md](./archive/v0.7.md) |
@@ -31,7 +31,8 @@
 ## 维护说明
 
 - 新增版本：在 `archive/` 下加 `vN.md`；如升为「现行」，移至
-  `docs/prd/vN.md` 并更新本 README 的「现行草案」段。
+  `docs/prd/vN.md` 并更新本 README 的「现行草案」段。现行段必须包含
+  `docs/prd/v*.md` 中版本号最大的那一份（测试锁定）。
 - **不要**在仓库根 `docs/` 下放 PRD 文件；统一在本目录或
   `archive/` 下。
 - 跨文件引用：用相对路径，例如 `[archive/v0.6.md](./archive/v0.6.md)`，

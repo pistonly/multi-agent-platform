@@ -4,7 +4,7 @@
   --force/overwrite 不豁免；纯 Markdown 分隔线/无机器字段 YAML 放行。
 - R1 读路径 anomaly：复用 _ack_error_of 三条判定，invalid/lite 分级。
 - R2 不阻断不改写：读取行为不变（posted_at→mtime fallback、正文完整），anomaly 只报告。
-- E1 真实脏 fixture（map/topics/fs-close-action-items-lifecycle/round1-host.md posted_at='$ts'）。
+- E1 真实脏 fixture（`fs-close-action-items-lifecycle/round1-host.md` posted_at='$ts'；closed 后在 map/archive/topics/）。
 """
 
 from __future__ import annotations
@@ -166,7 +166,11 @@ def test_clean_round_file_has_no_anomaly(tmp_path: Path) -> None:
 
 
 def test_e1_anchor_real_dirty_fixture_reported_and_non_blocking() -> None:
-    fixture = REPO_ROOT / "map" / "topics" / "fs-close-action-items-lifecycle"
+    live = REPO_ROOT / "map" / "topics" / "fs-close-action-items-lifecycle"
+    archived = (
+        REPO_ROOT / "map" / "archive" / "topics" / "fs-close-action-items-lifecycle"
+    )
+    fixture = live if (live / "round1-host.md").is_file() else archived
     if not (fixture / "round1-host.md").is_file():
         pytest.skip("真实脏 fixture 未检出（本地仓库专用锚点）")
     topic = parse_topic_dir(fixture, REPO_ROOT)

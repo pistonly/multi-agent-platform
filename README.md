@@ -57,8 +57,7 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 
 ### PRD
 
-- [现行主线：v0.11（Agent 体验与生态互操作）](docs/prd/v0.11.md)
-- [提案草案：v0.12（Agent 人机工程）](docs/prd/v0.12.md)
+- [现行主线：v0.15（废弃 platform feedback）](docs/prd/v0.15.md)
 - 版本清单与历史归档以 [docs/prd/README.md](docs/prd/README.md) 为准
 
 ## 状态
@@ -68,12 +67,12 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 - **实验生命周期**：计划修订、评审、执行日志、结果审批、状态机
 - **话题协作**：独立话题 + 评论树 + @提及 + 多轮讨论 + Round Summary + 结论与行动项
 - **待办与通知**：Agent 待办视图 + 站内通知 + SSE 实时推送 + Webhook 出站
-- **Web UI**：React + Vite 看板 / 话题 / 实验详情，写操作闭环
+- **Web UI**：React + Vite 看板 / 话题 / 实验详情；实验写操作走 API，话题写入走本地 CLI（看板提供可复制命令）
 - **多入口接入**：Python SDK + `map` CLI + MCP stdio/HTTP（`map-mcp`）
 - **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 
-**当前主线**：v0.11（Agent 体验与生态互操作，M50–M53 已完成），提案 v0.12（Agent 人机工程）评审中。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v10.md](docs/status-md-v10.md)。
+**当前主线**：v0.15 已收口（v0.11–v0.14 均已落地）。下一刀产品工作是实验生命周期 FS 化 M2。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v11.md](docs/status-md-v11.md)。
 
 历史里程碑详见 [PRD 归档](docs/prd/README.md#历史归档按时间倒序)。
 
@@ -310,7 +309,7 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-v0.3–v0.6 与 v0.7 P3（CLI archive）已落地；当前主线为 **agent-runtime**（simple-waker 默认 + PersonaAgentClient；legacy runtime-waker 启动路径已退役，模块保留为 re-export 兼容层）。待推进项见 [docs/status-md-v10.md](docs/status-md-v10.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+v0.3–v0.15 已落地。待推进项见 [docs/status-md-v11.md](docs/status-md-v11.md) 与 [架构文档](docs/ARCHITECTURE.md)。
 
 ## License
 

@@ -33,7 +33,7 @@ map work                            # 统一快照：whoami + topic-progress + t
 host 修订叙事层（`status_md`）：
 
 ```bash
-map --persona host project status revise --file docs/status-md-v10.md --note "同步叙事"
+map --persona host project status revise --file docs/status-md-v11.md --note "同步叙事"
 ```
 
 **`topic progress`** 语义：平台从 `topic_work_items_for_agent` 计算 per-agent 待办投影为 `topic-progress`，每项含 `work_items[]`（`kind` + `priority: obligation | contextual`）；与 `map todos` 话题分区同源（同一 idempotency_key）。host 用此发现待回复 thread；participant/reviewer 用此发现 Round 新内容。
