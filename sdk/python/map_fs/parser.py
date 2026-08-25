@@ -58,6 +58,11 @@ def topic_id_for_slug(slug: str) -> uuid.UUID:
     return uuid.uuid5(_NS, f"topic:{slug}")
 
 
+def experiment_id_for_slug(slug: str) -> uuid.UUID:
+    """Deterministic FS experiment id: uuid5(experiment:<slug>)."""
+    return uuid.uuid5(_NS, f"experiment:{slug}")
+
+
 def comment_id_for_path(rel_path: str) -> uuid.UUID:
     return uuid.uuid5(_NS, f"comment:{rel_path}")
 
@@ -181,6 +186,49 @@ class FsTopic:
         return [c for c in self.comments if c.round == round_number and c.author not in ack_list]
 
 
+# M1 index.md 契约：不变量字段。评审条目走 reviews/*.yaml，不进 index。
+EXPERIMENT_INDEX_REQUIRED = (
+    "phase",
+    "current_plan_version",
+    "creator",
+    "executor",
+    "topic",
+    "updated_at",
+)
+EXPERIMENT_PHASES = frozenset(
+    {
+        "draft",
+        "review",
+        "approved",
+        "running",
+        "pending_review",
+        "result_review",
+        "done",
+        "cancelled",
+    }
+)
+_EXPERIMENT_STANDARD_EDGES: dict[str, frozenset[str]] = {
+    "draft": frozenset({"review", "cancelled"}),
+    "review": frozenset({"approved", "draft", "cancelled"}),
+    "approved": frozenset({"running", "cancelled"}),
+    "running": frozenset({"result_review", "pending_review", "cancelled"}),
+    "pending_review": frozenset({"running", "cancelled"}),
+    "result_review": frozenset({"done", "running", "cancelled"}),
+    "done": frozenset(),
+    "cancelled": frozenset(),
+}
+_EXPERIMENT_DIRECT_EDGES: dict[str, frozenset[str]] = {
+    "draft": frozenset({"running", "cancelled"}),
+    "running": frozenset({"done", "cancelled"}),
+    "done": frozenset(),
+    "cancelled": frozenset(),
+}
+
+
+class ExperimentIndexError(ValueError):
+    """index.md 契约 / 验证型写失败（非法手改 phase 或不完整字段）。"""
+
+
 @dataclass
 class FsExperiment:
     """一个实验 = map/experiments/<slug>/ 一个文件夹（plan/log 内容主体）。"""
@@ -196,6 +244,11 @@ class FsExperiment:
     plan_path: str | None = None
     log_path: str | None = None
     review_path: str | None = None
+    current_plan_version: int = 1
+    executor: str = ""
+    topic: str = ""
+    updated_at: datetime | None = None
+    projection_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -559,9 +612,15 @@ def parse_experiment_dir(exp_dir: Path, workspace: Path) -> FsExperiment | None:
         p = exp_dir / name
         return p.relative_to(workspace).as_posix() if p.is_file() else None
 
+    projection_id = _parse_uuid(meta.get("projection_id"))
+    version_raw = meta.get("current_plan_version", 1)
+    try:
+        plan_version = int(version_raw)
+    except (TypeError, ValueError):
+        plan_version = 1
     return FsExperiment(
         slug=slug,
-        id=uuid.uuid5(_NS, f"experiment:{slug}"),
+        id=experiment_id_for_slug(slug),
         title=str(meta.get("title") or slug.replace("-", " ").title()),
         description=str(meta.get("description") or ""),
         phase=str(meta.get("phase") or "draft").lower(),
@@ -571,7 +630,21 @@ def parse_experiment_dir(exp_dir: Path, workspace: Path) -> FsExperiment | None:
         plan_path=_rel("plan.md"),
         log_path=_rel("log.md"),
         review_path=_rel("review.md"),
+        current_plan_version=plan_version,
+        executor=str(meta.get("executor") or ""),
+        topic=str(meta.get("topic") or ""),
+        updated_at=_parse_dt(meta.get("updated_at")),
+        projection_id=projection_id,
     )
+
+
+def _parse_uuid(value: object) -> uuid.UUID | None:
+    if value is None or value == "":
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 def scan_plane(workspace: Path, content_root: str = DEFAULT_CONTENT_ROOT) -> FsPlane:
@@ -745,6 +818,243 @@ def _merge_participant(workspace: Path, slug: str, persona: str, *, content_root
     declared.append(persona)
     meta["participants"] = declared
     _atomic_write(index_path, _render_file(meta, body))
+
+
+def experiment_index_path(
+    workspace: Path, slug: str, *, content_root: str = DEFAULT_CONTENT_ROOT
+) -> Path:
+    return workspace / content_root / "experiments" / _require_slug(slug) / "index.md"
+
+
+def validate_experiment_index_meta(meta: dict[str, Any]) -> None:
+    """独立可调用：校验 index.md 契约字段与 phase 枚举。非法则不落盘。
+
+    不读取 DB。手改 ``phase: done`` 本身若字段齐全会通过本函数；
+    ``commit_experiment_index_write`` 再用 expected_from 拦截绕过 CLI 的相位篡改。
+    """
+    missing: list[str] = []
+    for key in EXPERIMENT_INDEX_REQUIRED:
+        if key not in meta or meta[key] is None:
+            missing.append(key)
+            continue
+        # executor/topic 在 start 前可为空串，但仍须显式出现在 front-matter。
+        if key not in ("executor", "topic") and meta[key] == "":
+            missing.append(key)
+    if missing:
+        raise ExperimentIndexError(
+            f"experiment index.md missing required fields: {', '.join(missing)}"
+        )
+    phase = str(meta.get("phase") or "").lower()
+    if phase not in EXPERIMENT_PHASES:
+        raise ExperimentIndexError(
+            f"experiment index.md has illegal phase {phase!r}; "
+            f"allowed: {', '.join(sorted(EXPERIMENT_PHASES))}"
+        )
+    try:
+        version = int(meta["current_plan_version"])
+    except (TypeError, ValueError) as exc:
+        raise ExperimentIndexError(
+            f"experiment index.md current_plan_version must be int, got {meta.get('current_plan_version')!r}"
+        ) from exc
+    if version < 1:
+        raise ExperimentIndexError("experiment index.md current_plan_version must be >= 1")
+    if _parse_dt(meta.get("updated_at")) is None:
+        raise ExperimentIndexError("experiment index.md updated_at missing or unparseable")
+
+
+def validate_experiment_phase_transition(
+    current: str, target: str, *, mode: str = "standard"
+) -> None:
+    current_l = str(current).lower()
+    target_l = str(target).lower()
+    if current_l not in EXPERIMENT_PHASES:
+        raise ExperimentIndexError(f"illegal current phase {current!r}")
+    if target_l not in EXPERIMENT_PHASES:
+        raise ExperimentIndexError(f"illegal target phase {target!r}")
+    table = _EXPERIMENT_DIRECT_EDGES if mode == "direct" else _EXPERIMENT_STANDARD_EDGES
+    allowed = table.get(current_l, frozenset())
+    if target_l == current_l:
+        return
+    if target_l not in allowed:
+        raise ExperimentIndexError(
+            f"illegal experiment phase write {current_l} -> {target_l} (mode={mode})"
+        )
+
+
+def validate_experiment_index_file(
+    workspace: Path,
+    slug: str,
+    *,
+    content_root: str = DEFAULT_CONTENT_ROOT,
+    expected_from_phase: str | None = None,
+    target_phase: str | None = None,
+    mode: str = "standard",
+) -> dict[str, Any]:
+    """独立可调用的 index.md validate（A2）。返回当前 front-matter。
+
+    ``expected_from_phase``：写回前的期望相位。与文件不一致 ⇒ 判定为手改，拒绝。
+    ``target_phase``：若给出，再校验允许边。
+    """
+    index_path = experiment_index_path(workspace, slug, content_root=content_root)
+    if not index_path.is_file():
+        raise ExperimentIndexError(f"experiment index not found: {index_path}")
+    meta, _ = parse_front_matter(index_path.read_text(encoding="utf-8"))
+    validate_experiment_index_meta(meta)
+    current = str(meta["phase"]).lower()
+    if expected_from_phase is not None and current != str(expected_from_phase).lower():
+        raise ExperimentIndexError(
+            f"experiment index.md phase is {current!r}, expected {expected_from_phase!r} "
+            "(hand-edited phase is rejected; use map experiment CLI)"
+        )
+    if target_phase is not None:
+        validate_experiment_phase_transition(current, target_phase, mode=mode)
+    return meta
+
+
+def write_experiment_index(
+    workspace: Path,
+    slug: str,
+    *,
+    title: str,
+    creator: str,
+    phase: str = "draft",
+    current_plan_version: int = 1,
+    executor: str = "",
+    topic: str = "",
+    description: str = "",
+    projection_id: uuid.UUID | str | None = None,
+    content_root: str = DEFAULT_CONTENT_ROOT,
+) -> Path:
+    """创建（或覆盖）实验文件夹与 index.md。写前校验契约，写后回读。"""
+    slug = _require_slug(slug)
+    now = datetime.now(timezone.utc).isoformat()
+    meta: dict[str, Any] = {
+        "title": title,
+        "phase": str(phase).lower(),
+        "current_plan_version": int(current_plan_version),
+        "creator": creator,
+        "executor": executor if executor is not None else "",
+        "topic": topic if topic is not None else "",
+        "updated_at": now,
+        "description": description or None,
+    }
+    if projection_id is not None:
+        meta["projection_id"] = str(projection_id)
+    index_path = experiment_index_path(workspace, slug, content_root=content_root)
+    if index_path.is_file():
+        old_meta, _ = parse_front_matter(index_path.read_text(encoding="utf-8"))
+        if old_meta.get("created_at"):
+            meta["created_at"] = old_meta["created_at"]
+        elif old_meta.get("projection_id") and projection_id is None:
+            meta["projection_id"] = old_meta["projection_id"]
+    else:
+        meta["created_at"] = now
+    validate_experiment_index_meta(meta)
+    body = f"# {title}\n\n{description}".rstrip() + "\n"
+    _atomic_write(index_path, _render_file(meta, body))
+    written, _ = parse_front_matter(index_path.read_text(encoding="utf-8"))
+    validate_experiment_index_meta(written)
+    if str(written.get("phase")).lower() != meta["phase"]:
+        index_path.unlink(missing_ok=True)
+        raise ExperimentIndexError("write-back re-read phase mismatch; file not kept")
+    return index_path
+
+
+def update_experiment_index(
+    workspace: Path,
+    slug: str,
+    *,
+    content_root: str = DEFAULT_CONTENT_ROOT,
+    mode: str = "standard",
+    **fields: object,
+) -> Path:
+    """合并更新 index.md。若改 phase，必须是允许边；写后回读。"""
+    index_path = experiment_index_path(workspace, slug, content_root=content_root)
+    if not index_path.is_file():
+        raise FileNotFoundError(f"experiment index not found: {index_path}")
+    meta, body = parse_front_matter(index_path.read_text(encoding="utf-8"))
+    current_phase = str(meta.get("phase") or "draft").lower()
+    merged = {**meta, **{k: v for k, v in fields.items() if v is not None}}
+    merged["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if "phase" in fields and fields["phase"] is not None:
+        target = str(fields["phase"]).lower()
+        merged["phase"] = target
+        if target != current_phase:
+            validate_experiment_phase_transition(current_phase, target, mode=mode)
+    validate_experiment_index_meta(merged)
+    _atomic_write(index_path, _render_file(merged, body))
+    written, _ = parse_front_matter(index_path.read_text(encoding="utf-8"))
+    validate_experiment_index_meta(written)
+    if "phase" in fields and fields["phase"] is not None and str(written.get("phase")).lower() != str(fields["phase"]).lower():
+        _atomic_write(index_path, _render_file(meta, body))
+        raise ExperimentIndexError("write-back re-read phase mismatch; restored previous index.md")
+    return index_path
+
+
+def commit_experiment_index_write(
+    workspace: Path,
+    slug: str,
+    *,
+    expected_from_phase: str,
+    target_phase: str,
+    current_plan_version: int | None = None,
+    executor: str | None = None,
+    topic: str | None = None,
+    mode: str = "standard",
+    content_root: str = DEFAULT_CONTENT_ROOT,
+) -> Path:
+    """验证型写回：写前校验 expected_from + 允许边，写后回读；失败不留下目标 phase。"""
+    index_path = experiment_index_path(workspace, slug, content_root=content_root)
+    original = index_path.read_bytes() if index_path.is_file() else None
+    try:
+        validate_experiment_index_file(
+            workspace,
+            slug,
+            content_root=content_root,
+            expected_from_phase=expected_from_phase,
+            target_phase=target_phase,
+            mode=mode,
+        )
+        fields: dict[str, object] = {"phase": target_phase}
+        if current_plan_version is not None:
+            fields["current_plan_version"] = current_plan_version
+        if executor is not None:
+            fields["executor"] = executor
+        if topic is not None:
+            fields["topic"] = topic
+        return update_experiment_index(
+            workspace, slug, content_root=content_root, mode=mode, **fields
+        )
+    except Exception:
+        if original is None:
+            if index_path.is_file():
+                index_path.unlink()
+        else:
+            index_path.write_bytes(original)
+        raise
+
+
+def write_experiment_review_yaml(
+    workspace: Path,
+    slug: str,
+    filename: str,
+    payload: dict[str, Any],
+    *,
+    content_root: str = DEFAULT_CONTENT_ROOT,
+) -> Path:
+    """最小 reviews/ 落盘（M1 目录约定；完整 item 状态机归 M2）。"""
+    slug = _require_slug(slug)
+    if not filename.endswith((".yaml", ".yml")):
+        filename = f"{filename}.yaml"
+    reviews_dir = workspace / content_root / "experiments" / slug / "reviews"
+    reviews_dir.mkdir(parents=True, exist_ok=True)
+    path = reviews_dir / filename
+    text = (
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False, default_flow_style=False).strip()
+        + "\n"
+    )
+    _atomic_write(path, text)
+    return path
 
 
 def update_topic_index(

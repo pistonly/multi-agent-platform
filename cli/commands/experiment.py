@@ -40,21 +40,34 @@ experiment_app.add_typer(lock_app, name="lock")
 experiment_app.add_typer(review_app, name="review")
 experiment_app.add_typer(plan_app, name="plan")
 
-_ID_HELP = "Experiment UUID or >=8-hex-digit prefix (v0.12 M54B)."
+_ID_HELP = (
+    "Experiment UUID, uuid5(experiment:<slug>), directory slug, or >=8-hex-digit prefix. "
+    "uuid → DB first (404 then FS uuid5); slug → FS first."
+)
 
 
 def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
-    """Resolve a ``--id`` value (full UUID or short prefix) to the UUID.
+    """Resolve a ``--id`` value (full UUID, short prefix, FS slug, or uuid5).
 
     Short prefixes (>= 8 hex digits) hit the DB layer via
     ``list_experiments_page(id_prefix=...)`` — ``CAST(id AS CHAR) LIKE
     '<prefix>%'`` (plan v2 r1) — including archived experiments so
     ``show``/``archive`` resolve them too.
+
+    M1 A6: slug → FS ``map/experiments/<slug>/`` first; uuid → DB first,
+    404 后由 ``_load_experiment`` 反查 FS uuid5 / projection_id.
     """
+    from cli.experiment_fs import looks_like_hex_prefix, projection_id_for_fs_ref
+    from cli.main import _resolve_project  # lazy: avoid cycle
+    from cli.shortid import normalize_uuid_like
+
+    text = str(raw).strip()
+    if normalize_uuid_like(text) is None and not looks_like_hex_prefix(text):
+        mapped = projection_id_for_fs_ref(text)
+        if mapped is not None:
+            return mapped
 
     def matcher(prefix: str) -> list[tuple[uuid.UUID, str]]:
-        from cli.main import _resolve_project  # lazy: avoid cycle
-
         project_id = _resolve_project(client, None, None)
         items, _total = client.list_experiments_page(
             project_id, id_prefix=prefix, page_size=50, include_archived=True
@@ -64,11 +77,80 @@ def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
     return resolve_ref(raw, kind="experiment", matcher=matcher)
 
 
+def _load_experiment(client: MAPClient, raw: str | uuid.UUID):
+    """get_experiment + A6 uuid 404→FS + A3 FS overlay."""
+    from map_client.exceptions import MAPNotFoundError
+
+    from cli.experiment_fs import overlay_fs_authority, projection_id_for_fs_ref
+
+    try:
+        exp = client.get_experiment(_rid(client, raw))
+    except MAPNotFoundError:
+        mapped = projection_id_for_fs_ref(str(raw))
+        if mapped is None:
+            raise
+        exp = client.get_experiment(mapped)
+    return overlay_fs_authority(exp)
+
+
 def _require_id(raw: str | None) -> str:
     if raw is None:
         typer.echo("Error: --id is required", err=True)
         raise typer.Exit(2)
     return raw
+
+
+def _run_lifecycle(
+    experiment_id: str,
+    *,
+    call,
+    target_phase: str | None = None,
+    executor_persona: str | None = None,
+    review_payload: dict[str, Any] | None = None,
+    review_filename: str | None = None,
+) -> None:
+    """API 门禁通过后回写 index.md（A2）。index 存在时先 preflight 拦手改 phase。"""
+    from map_fs import ExperimentIndexError
+
+    from cli.experiment_fs import overlay_fs_authority, preflight_index, writeback_after_transition
+    from cli.main import _run  # lazy: avoid cycle
+
+    def action(c: MAPClient):
+        rid = _rid(c, experiment_id)
+        before = c.get_experiment(rid)
+        from_phase = enum_value(before.phase)
+        planned = target_phase or from_phase
+        try:
+            preflight_index(before, from_phase, planned)
+        except ExperimentIndexError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        result = call(c, rid, before)
+        after = result if hasattr(result, "phase") else c.get_experiment(rid)
+        actual = enum_value(getattr(after, "phase", planned))
+        snapshot = after if hasattr(after, "plan_file_path") else before
+        persona = executor_persona
+        if persona is None and hasattr(after, "executor_agent_id"):
+            me = c.get_me()
+            if after.executor_agent_id in (None, after.creator_agent_id, me.id):
+                persona = getattr(me, "persona", None) or "host"
+        try:
+            writeback_after_transition(
+                snapshot,
+                expected_from_phase=from_phase,
+                target_phase=actual,
+                executor_persona=persona,
+                review_payload=review_payload,
+                review_filename=review_filename,
+            )
+        except ExperimentIndexError as exc:
+            typer.echo(f"Error: FS write-back rejected: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        if hasattr(result, "phase"):
+            return overlay_fs_authority(result)
+        return result
+
+    _run(action, experiment_id=experiment_id)
 
 
 @experiment_app.command("create")
@@ -192,7 +274,17 @@ def experiment_create(
 
     def action(c: MAPClient):
         pid = _resolve_project(c, project, project_key)
-        return c.create_experiment(pid, payload)
+        created = c.create_experiment(pid, payload)
+        from cli.experiment_fs import overlay_fs_authority, topic_ref_for_create, write_index_after_create
+
+        me = c.get_me()
+        write_index_after_create(
+            created,
+            plan_file_path=plan_file_path,
+            creator_persona=getattr(me, "persona", None) or "host",
+            topic_ref=topic_ref_for_create(topic_id),
+        )
+        return overlay_fs_authority(created)
 
     _run(action)
 
@@ -236,9 +328,11 @@ def experiment_list(
     from cli.main import _resolve_project, _run  # lazy: avoid cycle
 
     def action(c: MAPClient):
+        from cli.experiment_fs import overlay_fs_authority
+
         pid = _resolve_project(c, project, project_key)
         phase_filter = ExperimentPhase(phase) if phase else None
-        return c.list_experiments(
+        items = c.list_experiments(
             pid,
             phase=phase_filter,
             creator_agent_id=creator_agent_id,
@@ -247,6 +341,7 @@ def experiment_list(
             page_size=page_size,
             include_archived=include_archived,
         )
+        return [overlay_fs_authority(item) for item in items]
 
     _run(action, table_renderer=_render_experiment_table)
 
@@ -254,14 +349,20 @@ def experiment_list(
 @experiment_app.command("submit-review")
 def experiment_submit_review(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.submit_for_review(_rid(c, experiment_id)), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        target_phase="review",
+        call=lambda c, rid, _before: c.submit_for_review(rid),
+    )
 
 
 @experiment_app.command("approve")
 def experiment_approve(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.approve_experiment(_rid(c, experiment_id)), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        target_phase="approved",
+        call=lambda c, rid, _before: c.approve_experiment(rid),
+    )
 
 
 @experiment_app.command("start")
@@ -287,16 +388,22 @@ def experiment_start(
     to ``running`` (skipping review/approved). Use ``--executor participant``
     to delegate execution to the participant persona.
     """
-    from cli.main import _resolve_executor_agent_id, _resolve_project, _run  # lazy: avoid cycle
+    from cli.main import _resolve_executor_agent_id, _resolve_project  # lazy: avoid cycle
 
-    def action(c: MAPClient):
-        executor_agent_id: uuid.UUID | None = None
-        if executor is not None:
-            pid = _resolve_project(c, None, None)
-            executor_agent_id = _resolve_executor_agent_id(c, pid, executor)
-        return c.start_experiment(_rid(c, experiment_id), executor_agent_id=executor_agent_id)
-
-    _run(action, experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        target_phase="running",
+        call=lambda c, rid, _before: (
+            c.start_experiment(
+                rid,
+                executor_agent_id=(
+                    _resolve_executor_agent_id(c, _resolve_project(c, None, None), executor)
+                    if executor is not None
+                    else None
+                ),
+            )
+        ),
+    )
 
 
 @experiment_app.command("cancel")
@@ -306,8 +413,11 @@ def experiment_cancel(experiment_id: str = typer.Option(..., "--id", help=_ID_HE
     State-machine rejections (already cancelled, done, draft misuse) pass
     through unchanged — the server stays the single source of truth.
     """
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.cancel_experiment(_rid(c, experiment_id)), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        target_phase="cancelled",
+        call=lambda c, rid, _before: c.cancel_experiment(rid),
+    )
 
 
 @experiment_app.command("pre-complete")
@@ -417,8 +527,6 @@ def experiment_complete(
     payload under ``template_validation``. Warnings never block the
     transition — add a follow-up log to address them.
     """
-    from cli.main import _run  # lazy: avoid cycle
-
     if schema:
         _print_complete_metadata_schema_and_exit()
     if experiment_id is None or summary is None:
@@ -442,7 +550,12 @@ def experiment_complete(
         log_file_path=log_file_path,
         known_failures=known_failures or [],
     )
-    _run(lambda c: c.complete_experiment(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        call=lambda c, rid, _before: c.complete_experiment(rid, payload),
+        review_payload={"event": "complete", "summary": summary},
+        review_filename="complete.yaml",
+    )
 
 
 @experiment_app.command("accept-result")
@@ -469,8 +582,6 @@ def experiment_accept_result(
         "Use this to discover the verdict schema without grepping the SDK.",
     ),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-
     if schema:
         _print_review_verdict_schema_and_exit()
     if experiment_id is None or summary is None or log_file is None:
@@ -484,7 +595,13 @@ def experiment_accept_result(
         metadata=metadata,
         verdict_file=verdict_file,
     )
-    _run(lambda c: c.accept_experiment_result(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        target_phase="done",
+        call=lambda c, rid, _before: c.accept_experiment_result(rid, payload),
+        review_payload={"decision": "accept", "summary": summary},
+        review_filename="accept-result.yaml",
+    )
 
 
 @experiment_app.command("reject-result")
@@ -511,8 +628,6 @@ def experiment_reject_result(
         "Use this to discover the verdict schema without grepping the SDK.",
     ),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-
     if schema:
         _print_review_verdict_schema_and_exit()
     if experiment_id is None or summary is None or log_file is None:
@@ -526,7 +641,13 @@ def experiment_reject_result(
         metadata=metadata,
         verdict_file=verdict_file,
     )
-    _run(lambda c: c.reject_experiment_result(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        target_phase="running",
+        call=lambda c, rid, _before: c.reject_experiment_result(rid, payload),
+        review_payload={"decision": "reject", "summary": summary},
+        review_filename="reject-result.yaml",
+    )
 
 
 @experiment_app.command("log")
@@ -662,7 +783,7 @@ def experiment_status(
         return
 
     def _action(client: MAPClient):
-        result = client.get_experiment(_rid(client, experiment_id))
+        result = _load_experiment(client, experiment_id)
         if _cli_options.get("format") == "json":
             # v0.12 M54C (E3/E4, plan.md L31): pure-JSON stdout. The
             # human hints below duplicated data.actions / data.blocked_on /
@@ -715,10 +836,69 @@ def experiment_status(
 def experiment_show(
     experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
 ) -> None:
-    """Show one experiment (including archived) by UUID or short prefix."""
+    """Show one experiment (including archived) by UUID, uuid5, slug, or short prefix."""
     from cli.main import _run  # lazy: avoid cycle
     raw = _require_id(experiment_id)
-    _run(lambda c: c.get_experiment(_rid(c, raw)), experiment_id=raw)
+    _run(lambda c: _load_experiment(c, raw), experiment_id=raw)
+
+
+@experiment_app.command("index-validate")
+def experiment_index_validate(
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
+    expected_from: str | None = typer.Option(
+        None,
+        "--expected-from",
+        help="Expected current phase in index.md (hand-edit mismatch is rejected).",
+    ),
+    target: str | None = typer.Option(
+        None,
+        "--target",
+        help="Intended next phase; checked against the allowed-edge table.",
+    ),
+    mode: str = typer.Option("standard", "--mode"),
+) -> None:
+    """Local index.md contract validate (A2). Does not call the API."""
+    from map_fs import ExperimentIndexError, parse_experiment_dir, validate_experiment_index_file
+
+    from cli.experiment_fs import content_root_name, find_fs_experiment, workspace_root
+
+    workspace = workspace_root()
+    if workspace is None:
+        typer.echo("Error: .map/config.yaml not found. Run `map bootstrap` first.", err=True)
+        raise typer.Exit(1)
+    root = content_root_name(workspace)
+    slug: str | None = None
+    try:
+        ref_uuid = uuid.UUID(experiment_id)
+    except ValueError:
+        slug = experiment_id
+    else:
+        fs = find_fs_experiment(workspace, ref=ref_uuid)
+        slug = fs.slug if fs is not None else None
+        if slug is None:
+            parsed = parse_experiment_dir(
+                workspace / root / "experiments" / experiment_id, workspace
+            )
+            slug = parsed.slug if parsed is not None else None
+    if slug is None:
+        typer.echo(f"Error: experiment index not found for {experiment_id}", err=True)
+        raise typer.Exit(1)
+    try:
+        meta = validate_experiment_index_file(
+            workspace,
+            slug,
+            content_root=root,
+            expected_from_phase=expected_from,
+            target_phase=target,
+            mode=mode,
+        )
+    except ExperimentIndexError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(
+        f"index.md ok slug={slug} phase={meta.get('phase')} "
+        f"plan_version={meta.get('current_plan_version')}"
+    )
 
 
 @experiment_app.command(
@@ -823,10 +1003,15 @@ def review_add(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     review_file: Path = typer.Option(..., "--review"),
 ) -> None:
-    from cli.main import _read_text_file, _run  # lazy: avoid cycle
     raw = yaml.safe_load(_read_text_file(review_file, kind="review"))
     payload = ReviewCreate.model_validate(raw)
-    _run(lambda c: c.create_review(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    dumped = payload.model_dump(mode="json")
+    _run_lifecycle(
+        experiment_id,
+        call=lambda c, rid, _before: c.create_review(rid, payload),
+        review_payload=dumped if isinstance(dumped, dict) else {"review": dumped},
+        review_filename="plan-review.yaml",
+    )
 
 
 @plan_app.command("revise")
@@ -846,14 +1031,16 @@ def plan_revise(
         "complete 被真拦截直至重评通过；change_note 必须写明相对上一版改了什么/为什么（缺失即拒绝）",
     ),
 ) -> None:
-    from cli.main import _read_text_file, _run  # lazy: avoid cycle
     payload = PlanRevise(
         content_md=_read_text_file(plan_file, kind="plan"),
         change_note=note,
         addressed_item_ids=list(addressed_item),
         breaking_audit=breaking_audit,
     )
-    _run(lambda c: c.revise_plan(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    _run_lifecycle(
+        experiment_id,
+        call=lambda c, rid, _before: c.revise_plan(rid, payload),
+    )
 
 
 @plan_app.command("validate")
