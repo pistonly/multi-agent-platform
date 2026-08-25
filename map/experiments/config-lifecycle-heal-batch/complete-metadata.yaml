@@ -1,0 +1,5 @@
+# 3b7c2b44 complete metadata（CLI 本地证据检查标准键）
+acceptance: "6/6 达成 — A1 doctor --config 分叉对账+whoami/fs status 告警+--check 码表0/1/2 单测锚点；A2 bootstrap --heal 非破坏性回写+token 不变字节断言；A3 bootstrap 409 三出路分流；A4 reissue --rewrite-config 默认关+回归；A5 workspace_path+content_root 联合键唯一409+doctor 双归属兜底+处置文档（新建被拒+存量列清单两端同盖）；A6 P4-1 help snapshot / P3-1 version 对照范围 / P2-1 archive 规划"
+pytest_summary: "fast-gate 全量 1471 passed, 1 skipped, 359 deselected, 0 failed（终轮 869s 实测复跑 EXIT=0）；首轮 3 failed 为本实验引入已修复清零（CLI 快照 doctor/version + a2a 跨项目 workspace 区分）；本实验新增 tests（doctor/bootstrap/toast/topic-create/version/workspace-unique）全绿"
+alembic_current: "不适用 — 本实验无 DB schema 迁移（A5 唯一性为 app 层校验，非 alembic 列/表变更）"
+smoke: "CLI 实测：doctor config 报 1 处分叉（agents.yaml 缺权威 agent）+ --check rc=1 / 空目录 rc=2；whoami/fs status 各出 [WARN] 告警行；bootstrap --heal 后 agents.local.yaml 字节 UNCHANGED；bootstrap 已存在 key 出三出路分流；A5 再建同 workspace project Error 409 指明认领者；P4-1 topic create --help 两环境一致 [required] 无 object 泄漏；map version info --json 输出 cli.version+四命令集"
