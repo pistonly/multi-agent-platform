@@ -646,10 +646,16 @@ class Notification(Base):
         # fires for non-NULL group_keys (matches the existing partial-index
         # convention used by ``uq_experiment_one_active_per_topic``).
         UniqueConstraint("recipient_agent_id", "group_key", name="uq_notifications_recipient_group_key"),
+        # T11（2026-08）：list_for_agent 的排序分页热点索引
+        # （WHERE recipient_agent_id = ? ORDER BY updated_at DESC）；左前缀
+        # 同时覆盖纯 recipient 等值查询。原 5 个低基数/冗余单列索引已在
+        # migration 052 裁剪（fingerprint_version / category / read_at /
+        # group_key / recipient_agent_id），created_at 保留。
+        Index("ix_notifications_recipient_updated", "recipient_agent_id", "updated_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    recipient_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
+    recipient_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     event: Mapped[str] = mapped_column(String(128), nullable=False)
     summary: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -661,21 +667,19 @@ class Notification(Base):
         default=NotificationCategory.digest,
         server_default=NotificationCategory.digest.value,
         nullable=False,
-        index=True,
     )
-    group_key: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    group_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wake_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
     fingerprint_version: Mapped[NotificationFingerprintVersion] = mapped_column(
         Enum(NotificationFingerprintVersion),
         default=NotificationFingerprintVersion.v2,
         server_default=NotificationFingerprintVersion.v2.value,
         nullable=False,
-        index=True,
     )
     event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
     first_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
