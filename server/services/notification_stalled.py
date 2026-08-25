@@ -1,7 +1,6 @@
 """Stalled experiment-lock scan notifications（T17 从 notification_service 拆出）。
 
-职责边界：``notify_stalled_experiment_locks`` 及其私有辅助（``_aware`` /
-``_latest_experiment_log_at_batch`` / ``_project_agent_ids``）。这一簇只被
+职责边界：``notify_stalled_experiment_locks`` 及其私有辅助（``_latest_experiment_log_at_batch`` / ``_project_agent_ids``；时区归一化已上移 ``time_utils.as_utc``）。这一簇只被
 ``POST /experiments/scan-stalled-locks`` 周期触发，与 inbox（list/mark read）
 和 fanout（upsert / emit_kind）两个簇无共享状态——独立成模块后
 ``notification_service`` 保留约 850 行的 fanout + inbox 面，并通过
@@ -24,14 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from server.domain.models import Agent, Experiment, ExperimentLog
-
-
-def _aware(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
+from server.services.time_utils import as_utc
 
 
 def _latest_experiment_log_at_batch(
@@ -88,9 +80,7 @@ def notify_stalled_experiment_locks(
     # lazy import：避免与 notification_service 的 re-export 构成导入环。
     from server.services.notification_service import enqueue_for_agents
 
-    reference = now or datetime.now(timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
+    reference = as_utc(now or datetime.now(timezone.utc))
     emitted: list[uuid.UUID] = []
     filters = [
         Experiment.phase == ExperimentPhase.running,
@@ -104,7 +94,7 @@ def notify_stalled_experiment_locks(
     # Pass 1：纯 Python 过滤（锁字段都在 experiment 行上），定出候选集。
     candidates: list[tuple[Experiment, datetime, int, float]] = []
     for experiment in experiments:
-        acquired_at = _aware(experiment.lock_acquired_at)
+        acquired_at = as_utc(experiment.lock_acquired_at)
         if acquired_at is None:
             continue
         ttl_seconds = int(experiment.lock_ttl_seconds or 0)
@@ -124,7 +114,7 @@ def notify_stalled_experiment_locks(
     project_agents: dict[uuid.UUID, list[uuid.UUID]] = {}
 
     for experiment, acquired_at, ttl_seconds, ratio in candidates:
-        last_log_at = _aware(latest_log_at.get(experiment.id))
+        last_log_at = as_utc(latest_log_at.get(experiment.id))
         if last_log_at is not None and last_log_at > acquired_at:
             continue
         payload: dict[str, object] = {

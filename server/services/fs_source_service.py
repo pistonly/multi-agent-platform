@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import uuid
@@ -83,6 +84,8 @@ from server.services.fs_projection_store import (  # noqa: F401
     upsert_fs_projection,
 )
 from server.services.work_kinds import resolve_kind
+
+logger = logging.getLogger(__name__)
 
 _PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
 _ROUND_STR_RE = re.compile(r"^round(\d+)$")
@@ -589,6 +592,12 @@ def fs_experiments_view(db: Session, project: Project) -> list[FsExperimentRead]
     try:
         return [FsExperimentRead.model_validate(e) for e in payload.get("experiments", [])]
     except Exception:
+        logger.warning(
+            "fs experiments 投影回退读校验失败，按空处理（project=%s revision=%s）",
+            project.id,
+            getattr(row, "revision", None),
+            exc_info=True,
+        )
         return []
 
 

@@ -13,6 +13,7 @@ from server.domain.schemas import (
     WakerHeartbeatRead,
 )
 from server.services.project_service import build_projects_status, get_project, list_projects
+from server.services.time_utils import as_utc
 
 # T10（2026-08）：``GET /status`` 短 TTL 进程内缓存。看板每次刷新都会
 # 触发跨项目聚合计数 + recent10 + 全部 agent 心跳扫描；缓存把高频刷新
@@ -54,12 +55,6 @@ def _store_status(project_id: uuid.UUID | None, payload: GlobalStatusRead) -> No
         _status_cache[project_id] = (time.monotonic(), payload)
 
 
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def build_waker_heartbeats(
     db: Session,
     *,
@@ -79,7 +74,7 @@ def build_waker_heartbeats(
 
     if threshold_minutes is None:
         threshold_minutes = get_settings().waker_stale_threshold_minutes
-    cutoff = _as_utc(now or datetime.now(timezone.utc)) - timedelta(
+    cutoff = as_utc(now or datetime.now(timezone.utc)) - timedelta(
         minutes=threshold_minutes
     )
     stmt = select(Agent)
@@ -87,8 +82,8 @@ def build_waker_heartbeats(
         stmt = stmt.where(Agent.project_id == project_id)
     rows: list[WakerHeartbeatRead] = []
     for agent in db.scalars(stmt):
-        last = agent.last_waker_poll_at
-        stale = last is not None and _as_utc(last) < cutoff
+        last = as_utc(agent.last_waker_poll_at)
+        stale = last is not None and last < cutoff
         rows.append(
             WakerHeartbeatRead(
                 agent_id=agent.id,

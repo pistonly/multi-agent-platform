@@ -18,6 +18,7 @@ from server.domain.topic_ack_constants import (
 )
 from server.services.errors import ConflictError
 from server.services.thread_activity import topic_comment_order_clauses, topic_comment_sort_key
+from server.services.time_utils import as_utc
 
 ROUND_SUMMARY_RE = re.compile(r"^##\s*Round\s+\d+\s+Summary\b", re.MULTILINE | re.IGNORECASE)
 
@@ -87,13 +88,13 @@ def latest_ack_kind_since(
     since: datetime,
 ) -> str | None:
     """Return the agent's most recent ack kind on or after ``since``."""
-    cutoff = _as_utc(since)
+    cutoff = as_utc(since)
     latest_kind: str | None = None
     latest_at: datetime | None = None
     for comment in comments:
         if comment.author_agent_id != agent_id:
             continue
-        created_at = _as_utc(comment.created_at)
+        created_at = as_utc(comment.created_at)
         if created_at < cutoff:
             continue
         kind = _ack_kind(comment.body)
@@ -168,17 +169,11 @@ def advance_round_ack_state(
     return "pending"
 
 
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def ack_timeout_elapsed(topic: Topic, *, now: datetime | None = None) -> bool:
     if topic.advance_round_pending_since is None:
         return False
-    current = _as_utc(now or datetime.now(timezone.utc))
-    pending = _as_utc(topic.advance_round_pending_since)
+    current = as_utc(now or datetime.now(timezone.utc))
+    pending = as_utc(topic.advance_round_pending_since)
     return current - pending >= ADVANCE_ROUND_ACK_TIMEOUT
 
 
@@ -279,9 +274,9 @@ def _ack_cutoff_for_topic(
     loaded = _comments_for_topic(db, topic.id, comments)
     summary = latest_host_round_summary_comment(loaded, host_agent_id=topic.creator_agent_id)
     if summary is not None:
-        return _as_utc(summary.created_at)
+        return as_utc(summary.created_at)
     if topic.advance_round_pending_since is not None:
-        return _as_utc(topic.advance_round_pending_since)
+        return as_utc(topic.advance_round_pending_since)
     return None
 
 
@@ -291,11 +286,11 @@ def agent_has_round_ack_since(
     *,
     since: datetime,
 ) -> bool:
-    cutoff = _as_utc(since)
+    cutoff = as_utc(since)
     for comment in comments:
         if comment.author_agent_id != agent_id:
             continue
-        if _as_utc(comment.created_at) < cutoff:
+        if as_utc(comment.created_at) < cutoff:
             continue
         if _ack_kind(comment.body) in {"accept", "reject", "dismiss"}:
             return True

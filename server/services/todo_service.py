@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, cast
@@ -33,6 +34,7 @@ from server.domain.schemas import (
 from server.services import mention_service, topic_ack_service
 from server.services import permissions as perm
 from server.services.review_service import prior_version_reviews_fully_resolved_by_experiment
+from server.services.time_utils import as_utc
 from server.services.topic_service import topic_summaries_for_topics
 
 if TYPE_CHECKING:
@@ -47,6 +49,8 @@ _ACTIVE_PHASES = (
 )
 _REPLY_STATES = (ReviewItemStatus.addressed, ReviewItemStatus.rebutted)
 STALE_OPEN_TOPIC_THRESHOLD = timedelta(minutes=30)
+
+logger = logging.getLogger(__name__)
 
 
 def list_pending_topic_replies(
@@ -159,17 +163,17 @@ def list_stale_open_topics(
 
             threshold_minutes = get_settings().stale_open_topic_threshold_minutes
         except Exception:
+            logger.warning(
+                "读取 stale_open_topic_threshold_minutes 配置失败，回退默认 %d 分钟",
+                int(STALE_OPEN_TOPIC_THRESHOLD.total_seconds() // 60),
+                exc_info=True,
+            )
             threshold_minutes = int(STALE_OPEN_TOPIC_THRESHOLD.total_seconds() // 60)
     if threshold_minutes < 0:
         raise ValueError("threshold_minutes must be >= 0")
 
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=threshold_minutes)
-
-    def _as_utc(value: datetime) -> datetime:
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
 
     suppressed_topic_ids = {
         item.topic_id for item in (pending_topic_replies or [])
@@ -205,13 +209,13 @@ def list_stale_open_topics(
                 and topic.deleted_at is None
                 and topic.archived_at is None
                 and topic.status == TopicStatus.open
-                and _as_utc(topic.updated_at) <= cutoff
+                and as_utc(topic.updated_at) <= cutoff
                 and (
                     topic.dismissed_at is None
-                    or _as_utc(topic.updated_at) > _as_utc(topic.dismissed_at)
+                    or as_utc(topic.updated_at) > as_utc(topic.dismissed_at)
                 )
             ),
-            key=lambda topic: _as_utc(topic.updated_at),
+            key=lambda topic: as_utc(topic.updated_at),
         )
     rows: list[StaleOpenTopicTodoRead] = []
     for topic in open_topics:
