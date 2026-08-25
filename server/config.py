@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # 独立缓存，TTL 即最大陈旧窗口。0 = 关闭（测试或强一致场景）。
     status_cache_ttl_seconds: int = 5
 
+    # T18（2026-08）：本地 FS 平面（map/ 实时解析结果）的进程内缓存开关。
+    # 每次 topics/experiments/work 列表请求原本都全量重扫+解析目录树；
+    # 现以「topics/ + experiments/ 全部文件的 (path, mtime_ns, size) 指纹」
+    # 为失效键——指纹不变直接复用上次解析的 FsPlane。写文件（CLI /
+    # 验证型写回）必然改变 mtime，缓存随之失效；多 worker 各进程独立。
+    # False = 关闭（排查新鲜度问题时）。
+    fs_plane_cache_enabled: bool = True
+
     # c9281d86 PR3: Fernet key for at-rest encryption of sensitive
     # columns (currently ``Webhook.secret``). Must be a 32-byte
     # urlsafe-base64-encoded key — generate with

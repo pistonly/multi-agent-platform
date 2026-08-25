@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import re
+import threading
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -148,8 +150,65 @@ def content_root_name(project: Project | None = None) -> str:
     return get_settings().content_root
 
 
+# T18（2026-08）：本地 FS 平面进程内缓存。键 = (workspace, content_root)，
+# 值 = (文件指纹, FsPlane)。指纹覆盖 scan_plane 实际读取的两棵树
+# （topics/ + experiments/）下全部文件的 (相对路径, mtime_ns, size)——
+# 任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）都会改变 mtime
+# 或 size，指纹随之失配并触发重扫；指纹采集只 stat 不读内容，远廉价于
+# 全量解析。FsPlane 及其 topic/experiment 对象在 server 侧只读消费
+# （全部读取方只构建 Read 模型 / derive_work），共享同一实例安全。
+_PLANE_CACHE_MAX_ENTRIES = 8
+_plane_cache: OrderedDict[tuple[str, str], tuple[tuple[tuple[str, int, int], ...], FsPlane]] = (
+    OrderedDict()
+)
+_plane_cache_lock = threading.Lock()
+
+
+def reset_plane_cache() -> None:
+    """清空 FS 平面缓存（测试隔离钩子 / 运维排查用）。"""
+    with _plane_cache_lock:
+        _plane_cache.clear()
+
+
+def _plane_fingerprint(workspace: Path, content_root: str) -> tuple[tuple[str, int, int], ...] | None:
+    """Collect (relpath, mtime_ns, size) for every file scan_plane would read."""
+    entries: list[tuple[str, int, int]] = []
+    root = workspace / content_root
+    for subdir in ("topics", "experiments"):
+        base = root / subdir
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            try:
+                st = path.stat()
+            except OSError:
+                continue  # 竞态：扫描期间文件被删——scan_plane 同样会跳过
+            if path.is_file():
+                entries.append((str(path.relative_to(base)), st.st_mtime_ns, st.st_size))
+    return tuple(entries)
+
+
 def plane_for_project(project: Project) -> FsPlane:
-    return scan_plane(Path(project.workspace_path), content_root_name(project))
+    from server.config import get_settings
+
+    workspace = Path(project.workspace_path)
+    root_name = content_root_name(project)
+    cacheable = get_settings().fs_plane_cache_enabled
+    fingerprint = _plane_fingerprint(workspace, root_name) if cacheable else None
+    if fingerprint:
+        key = (str(workspace), root_name)
+        with _plane_cache_lock:
+            hit = _plane_cache.get(key)
+        if hit is not None and hit[0] == fingerprint:
+            return hit[1]
+    plane = scan_plane(workspace, root_name)
+    if fingerprint:
+        key = (str(workspace), root_name)
+        with _plane_cache_lock:
+            _plane_cache[key] = (fingerprint, plane)
+            while len(_plane_cache) > _PLANE_CACHE_MAX_ENTRIES:
+                _plane_cache.popitem(last=False)
+    return plane
 
 
 def workspace_fs_available(project: Project) -> bool:
