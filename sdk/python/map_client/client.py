@@ -1137,11 +1137,21 @@ class MAPClient:
 
     # --- audit ---
 
-    def list_audit_for_target(self, target_type: str, target_id: uuid.UUID) -> list[AuditLogRead]:
+    def list_audit_for_target(
+        self,
+        target_type: str,
+        target_id: uuid.UUID,
+        *,
+        limit: int = 50,
+    ) -> list[AuditLogRead]:
         data = self._json(
             "GET",
             "/audit",
-            params={"target_type": target_type, "target_id": str(target_id)},
+            params={
+                "target_type": target_type,
+                "target_id": str(target_id),
+                "limit": max(1, min(limit, 200)),
+            },
         )
         return [AuditLogRead.model_validate(a) for a in data]
 

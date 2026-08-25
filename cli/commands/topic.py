@@ -622,6 +622,79 @@ def topic_show(
     _run(action)
 
 
+@topic_app.command("history")
+def topic_history(
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    kind: str | None = typer.Option(
+        None,
+        "--kind",
+        help="Optional AuditLog.action filter applied after merge.",
+    ),
+    limit: int = typer.Option(
+        50,
+        "--limit",
+        min=1,
+        max=200,
+        help="Max merged rows after sorting (≤200).",
+    ),
+) -> None:
+    """Topic-dimension audit timeline (ops-visibility-batch C2).
+
+    ``GET /audit?target_type=topic`` plus audit events of experiments whose
+    ``topic_id`` matches, sorted by time descending. Host and participant
+    share the same GET /audit permission check — no new ACL.
+    """
+    from map_client.exceptions import MAPHTTPError, MAPPermissionError
+    from map_fs import topic_id_for_slug
+
+    from cli.audit_target import (
+        ResolvedTarget,
+        emit_audit_timeline,
+        fetch_topic_history,
+        resolve_audit_target,
+    )
+    from cli.main import _client_ctx
+
+    try:
+        with _client_ctx() as client:
+            # Prefer slug/uuid via shared resolver; if it lands on an
+            # experiment (same string), still force topic semantics via
+            # _resolve_topic_ref so `topic history --id <exp-slug>` 报错清晰.
+            kind_ref, target = _resolve_topic_ref(client, topic_id, None)
+            if kind_ref == "fs":
+                resolved = ResolvedTarget(
+                    "topic", topic_id_for_slug(str(target)), str(target)
+                )
+            else:
+                resolved = resolve_audit_target(client, str(target))
+                if resolved.target_type != "topic":
+                    typer.echo(
+                        f"Error: '{topic_id}' resolved to an experiment; "
+                        "topic history needs a topic slug/uuid "
+                        "(use `map audit list --target` for experiments)",
+                        err=True,
+                    )
+                    raise typer.Exit(2)
+            items = fetch_topic_history(
+                client, resolved, limit=limit, kind=kind
+            )
+    except MAPPermissionError as exc:
+        typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
+        raise typer.Exit(1) from exc
+    except MAPHTTPError as exc:
+        suffix = ""
+        if exc.error_code:
+            suffix += f" [error_code={exc.error_code}]"
+        if exc.hint:
+            suffix += f"\nHint: {exc.hint}"
+        typer.echo(f"Error {exc.status_code}: {exc.detail}{suffix}", err=True)
+        raise typer.Exit(1) from exc
+    emit_audit_timeline(
+        items,
+        empty_message=f"No audit events for topic '{resolved.label}'.",
+    )
+
+
 @topic_app.command("progress")
 def topic_progress() -> None:
     """Per-agent topic work items view (obligation + contextual); same source as todos topic buckets."""

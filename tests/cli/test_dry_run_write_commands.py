@@ -92,6 +92,7 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("project", "status", "show"),
     ("project", "status", "versions"),
     ("audit", "list"),
+    ("topic", "history"),
     ("docs", "error-codes"),
     # map server 进程管理：不改 MAP API 状态
     ("server", "start"),
