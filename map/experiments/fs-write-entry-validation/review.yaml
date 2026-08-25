@@ -1,0 +1,6 @@
+reasonable_items:
+  - "复用 4b1192cc `_ack_error_of` 三条判定做 anomaly 源，不另写第二套规则——与 D4 同源精神一致，避免判据分叉"
+  - "invalid/lite 分级口径与 close_note 逐条对齐（存在但非法=invalid；缺失=lite），可机械判定"
+  - "E1 回归锚点用实测脏 fixture（round1-host.md 的 $ts），断言报告且不阻断读——验收可观测"
+  - "W1 的误伤边界（Markdown 分隔线 vs frontmatter）在风险节显式处理并要求边界单测"
+unreasonable_items: []

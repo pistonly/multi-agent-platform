@@ -1,0 +1,6 @@
+reasonable_items:
+  - "范围克制：只做 close_note 排第一的④（audit CLI 双入口），②①③ 显式记入 dependencies 不算 debt——批次边界清晰"
+  - "纯 CLI 层补口：服务端 GET /audit 与 query_by_target 已就绪的判断经代码核证属实，不重复造服务端"
+  - "C4 权限零改动负向验收（admin 端点语义与既有 CLI 行为零回归）——防开新权限面"
+  - "slug 撞名歧义不静默猜（列两者报错）——与 M55 actionable error 精神一致"
+unreasonable_items: []

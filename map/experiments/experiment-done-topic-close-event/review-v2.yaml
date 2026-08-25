@@ -1,0 +1,5 @@
+reasonable_items:
+  - "v2 B5 三分支完备：FS 话题解析 / DB 话题降级 / topic_id 为空跳过——无话题实验不再产生错误收件语境，accept 主流程不受影响"
+  - "测试面同步补第七组单测（topic_id 为空跳过），验收可观测"
+  - "其余 B1-B4/B6 与 v1 评审认可点不变（白名单显式声明、reject 不触发、事务一致、不新增 work kind）"
+unreasonable_items: []
