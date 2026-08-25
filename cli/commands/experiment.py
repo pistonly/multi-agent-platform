@@ -78,19 +78,65 @@ def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
 
 
 def _load_experiment(client: MAPClient, raw: str | uuid.UUID):
-    """get_experiment + A6 uuid 404→FS + A3 FS overlay."""
+    """DB GET + FS overlay；404 时从 index.md 合成（FS-only 目录可 show）。"""
     from map_client.exceptions import MAPNotFoundError
 
-    from cli.experiment_fs import overlay_fs_authority, projection_id_for_fs_ref
+    from cli.experiment_fs import (
+        fs_experiment_to_detail,
+        lookup_fs_for_ref,
+        overlay_fs_authority,
+        project_id_from_workspace,
+        projection_id_for_fs_ref,
+        workspace_root,
+    )
 
+    db_error: MAPNotFoundError | None = None
+    db_exp = None
     try:
-        exp = client.get_experiment(_rid(client, raw))
-    except MAPNotFoundError:
+        db_exp = client.get_experiment(_rid(client, raw))
+    except MAPNotFoundError as exc:
+        db_error = exc
         mapped = projection_id_for_fs_ref(str(raw))
-        if mapped is None:
-            raise
-        exp = client.get_experiment(mapped)
-    return overlay_fs_authority(exp)
+        if mapped is not None:
+            try:
+                db_exp = client.get_experiment(mapped)
+                db_error = None
+            except MAPNotFoundError as mapped_exc:
+                db_error = mapped_exc
+
+    if db_exp is not None:
+        return overlay_fs_authority(db_exp)
+
+    workspace = workspace_root()
+    fs = lookup_fs_for_ref(str(raw), workspace) if workspace is not None else None
+    if fs is not None and workspace is not None:
+        return fs_experiment_to_detail(
+            fs, project_id_from_workspace(workspace), workspace
+        )
+    if db_error is not None:
+        raise db_error
+    raise MAPNotFoundError(404, f"experiment not found: {raw}")
+
+
+def _list_api_experiments_all(client: MAPClient, pid: uuid.UUID, **kwargs: Any) -> list[Any]:
+    page = 1
+    acc: list[Any] = []
+    while True:
+        batch, total = client.list_experiments_page(
+            pid, page=page, page_size=100, **kwargs
+        )
+        acc.extend(batch)
+        if not batch or len(acc) >= total:
+            break
+        page += 1
+        if page > 100:
+            break
+    return acc
+
+
+def _slice_page(items: list[Any], page: int, page_size: int) -> list[Any]:
+    start = (page - 1) * page_size
+    return items[start : start + page_size]
 
 
 def _require_id(raw: str | None) -> str:
@@ -116,8 +162,17 @@ def _run_lifecycle(
     from cli.main import _run  # lazy: avoid cycle
 
     def action(c: MAPClient):
+        from cli.experiment_fs import lifecycle_missing_projection_message
+
         rid = _rid(c, experiment_id)
-        before = c.get_experiment(rid)
+        try:
+            before = c.get_experiment(rid)
+        except MAPNotFoundError:
+            hint = lifecycle_missing_projection_message(experiment_id)
+            if hint:
+                typer.echo(f"Error: {hint}", err=True)
+                raise typer.Exit(1)
+            raise
         from_phase = enum_value(before.phase)
         planned = target_phase or from_phase
         try:
@@ -318,8 +373,10 @@ def experiment_list(
     page_size: int = typer.Option(100, "--page-size", min=1, max=100),
     include_archived: bool = typer.Option(False, "--include-archived"),
 ) -> None:
-    """List experiments in the current project.
+    """List experiments in the current project (local map/ folders merged with API).
 
+    Local ``map/experiments/*/index.md`` is the display authority (phase /
+    plan version). FS-only directories without a DB projection are included.
     Defaults to a compact table view. Use ``--format yaml`` or
     ``--format json`` for full structured output (scripts / piping).
     """
@@ -328,10 +385,39 @@ def experiment_list(
     from cli.main import _resolve_project, _run  # lazy: avoid cycle
 
     def action(c: MAPClient):
-        from cli.experiment_fs import overlay_fs_authority
+        from cli.experiment_fs import (
+            filter_experiment_summaries,
+            iter_indexed_experiments,
+            merge_experiment_summaries,
+            overlay_fs_authority,
+            should_scan_local_experiments,
+            workspace_root,
+        )
 
         pid = _resolve_project(c, project, project_key)
         phase_filter = ExperimentPhase(phase) if phase else None
+        if should_scan_local_experiments(project, project_key, pid):
+            workspace = workspace_root()
+            if workspace is not None:
+                api_items = _list_api_experiments_all(
+                    c, pid, include_archived=include_archived
+                )
+                merged = merge_experiment_summaries(
+                    iter_indexed_experiments(workspace),
+                    api_items,
+                    pid,
+                    workspace,
+                )
+                return _slice_page(
+                    filter_experiment_summaries(
+                        merged,
+                        phase=phase_filter,
+                        creator_agent_id=creator_agent_id,
+                        q=q,
+                    ),
+                    page,
+                    page_size,
+                )
         items = c.list_experiments(
             pid,
             phase=phase_filter,
@@ -738,7 +824,24 @@ def experiment_log(
 @experiment_app.command("logs")
 def experiment_logs(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
     from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.list_logs(_rid(c, experiment_id)), experiment_id=experiment_id)
+
+    def action(c: MAPClient):
+        from cli.experiment_fs import fs_logs_for_ref
+
+        try:
+            logs = c.list_logs(_rid(c, experiment_id))
+        except MAPNotFoundError:
+            logs = None
+        if logs:
+            return logs
+        fs_logs = fs_logs_for_ref(experiment_id)
+        if fs_logs:
+            return fs_logs
+        if logs is not None:
+            return logs
+        raise MAPNotFoundError(404, f"experiment not found: {experiment_id}")
+
+    _run(action, experiment_id=experiment_id)
 
 
 @experiment_app.command("status")
@@ -899,6 +1002,69 @@ def experiment_index_validate(
         f"index.md ok slug={slug} phase={meta.get('phase')} "
         f"plan_version={meta.get('current_plan_version')}"
     )
+
+
+def _render_sync_check(result: dict[str, Any]) -> str:
+    lines = [
+        f"ok: {result.get('ok')}",
+        f"matched: {result.get('matched', 0)}",
+        f"diffs: {len(result.get('diffs') or [])}",
+        f"repairs: {len(result.get('repairs') or [])}",
+        f"fs_only: {len(result.get('fs_only') or [])}",
+        f"db_only: {len(result.get('db_only') or [])}",
+        f"missing_dir: {len(result.get('missing_dir') or [])}",
+        f"authority: {result.get('authority', 'index.md')}",
+    ]
+    for diff in result.get("diffs") or []:
+        lines.append(
+            f"  diff {diff.get('slug')} {diff.get('field')}: "
+            f"fs={diff.get('fs')} db={diff.get('db')}"
+        )
+    for repair in result.get("repairs") or []:
+        lines.append(
+            f"  repair {repair.get('slug')} {repair.get('kind')}: db_id={repair.get('db_id')}"
+        )
+    for missing in result.get("missing_dir") or []:
+        lines.append(
+            f"  missing_dir {missing.get('plan_file_path')} id={missing.get('id')}"
+        )
+    return "\n".join(lines)
+
+
+@experiment_app.command("sync")
+def experiment_sync(
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help="Diff DB projections against local index.md. Does not rewrite files.",
+    ),
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """Reconcile experiment index.md with DB projections (check-only)."""
+    from cli.experiment_fs import experiment_sync_check
+    from cli.main import _resolve_project, _run
+
+    if not check:
+        typer.echo(
+            "Error: currently only `map experiment sync --check` is supported "
+            "(no silent rewrite).",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    failed = {"value": False}
+
+    def action(c: MAPClient):
+        pid = _resolve_project(c, project, project_key)
+        api_items = _list_api_experiments_all(c, pid, include_archived=True)
+        result = experiment_sync_check(api_items)
+        failed["value"] = not bool(result.get("ok"))
+        return result
+
+    _run(action, table_renderer=_render_sync_check)
+    if failed["value"]:
+        raise typer.Exit(1)
 
 
 @experiment_app.command(

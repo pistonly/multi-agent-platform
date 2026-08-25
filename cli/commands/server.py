@@ -36,16 +36,16 @@ _HEALTH_TIMEOUT_S = 60
 
 
 def _state_dir() -> Path:
-    return Path.home() / _STATE_DIR_NAME
+    from map_client.user_paths import map_state_dir
+
+    return map_state_dir()
 
 
 def _default_db_url() -> str:
-    """用户级库文件位置（仅供展示）。
+    """User-level SQLite URL (login home, not ``$HOME``)."""
+    from map_client.user_paths import default_sqlite_url
 
-    守护进程本身**不**再覆盖 ``MAP_DATABASE_URL``，直接继承
-    ``server.config`` 的默认值，此处只用于 status/start 的输出。
-    """
-    return f"sqlite:///{_state_dir() / 'data' / 'map.db'}"
+    return default_sqlite_url()
 
 
 def _state_path(port: int) -> Path:
@@ -130,9 +130,9 @@ def _find_running_port(preferred: int) -> int | None:
 
 def _daemon_env(port: int) -> dict[str, str]:
     env = os.environ.copy()
-    # 库文件路径不再在此覆盖：守护进程继承 server.config 的用户级默认值
-    # （~/.map/data/map.db），与裸 map-server / uvicorn 直启保持一致。
     env.setdefault("MAP_PORT", str(port))
+    # Pin the resolved URL so a remapped $HOME in the child cannot move the DB.
+    env.setdefault("MAP_DATABASE_URL", _default_db_url())
     return env
 
 
@@ -158,6 +158,7 @@ def _spawn(
                 "pid": proc.pid,
                 "port": port,
                 "log": str(_log_path(port)),
+                "database_url": os.environ.get("MAP_DATABASE_URL") or _default_db_url(),
             },
         )
         return proc

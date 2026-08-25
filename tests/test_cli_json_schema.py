@@ -116,6 +116,8 @@ def stub_env(monkeypatch):
     monkeypatch.setattr(
         cli_main, "_resolve_project", lambda client, p, k: PROJECT_ID
     )
+    # Isolate from the real repo map/experiments merge (FS list extras).
+    monkeypatch.setattr("cli.experiment_fs.workspace_root", lambda: None)
     monkeypatch.setenv("MAP_TOKEN", "fake")
     monkeypatch.setenv("MAP_API_URL", "http://test")
     monkeypatch.delenv("MAP_CLI_FORMAT", raising=False)

@@ -6,7 +6,9 @@ import yaml  # type: ignore[import-untyped]
 
 
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    path = config_path or Path.home() / ".map" / "config.yaml"
+    from map_client.user_paths import map_state_dir
+
+    path = config_path or map_state_dir() / "config.yaml"
     config: dict[str, Any] = {}
     if path.exists():
         config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

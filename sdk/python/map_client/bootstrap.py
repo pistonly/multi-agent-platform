@@ -87,7 +87,9 @@ def _slug(value: str) -> str:
 
 def admin_client(api_url: str, *, transport: Any = None) -> MAPClient:
     token = os.environ.get("MAP_ADMIN_TOKEN")
-    admin_file = Path.home() / ".map" / "admin.yaml"
+    from map_client.user_paths import map_state_dir
+
+    admin_file = map_state_dir() / "admin.yaml"
     if not token and admin_file.is_file():
         data = _read_yaml(admin_file)
         token = data.get("token") or data.get("api_token")

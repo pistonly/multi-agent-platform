@@ -18,8 +18,10 @@ class _FakeProc:
 
 
 def test_default_port_and_paths() -> None:
+    from map_client.user_paths import map_state_dir
+
     assert server_cmd._DEFAULT_PORT == 18400
-    assert server_cmd._state_dir() == __import__("pathlib").Path.home() / ".map"
+    assert server_cmd._state_dir() == map_state_dir()
 
 
 def test_db_url_under_home() -> None:
