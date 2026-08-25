@@ -124,6 +124,8 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     # 部署矩阵握手：只读（本地扫描 + GET /fs/status）。
     ("fs", "status"),
     ("fs", "diff"),
+    # 27f961d1 fs-write-entry-validation V1：离线读路径 anomaly 报告，不改写 MAP 状态。
+    ("fs", "anomalies"),
     # 3b7c2b44 A1：config 对账诊断——只读 .map/ + GET authority，不改状态。
     ("doctor", "config"),
     # 3b7c2b44 A6 P3-1：版本/对照范围——只读本仓 bundled skills 清单。

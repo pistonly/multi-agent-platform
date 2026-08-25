@@ -870,6 +870,10 @@ def _write_fs_comment(
     except FileExistsError as err:
         typer.echo(f"Error: {err} (use `map fs comment --force` to overwrite)", err=True)
         raise typer.Exit(1) from err
+    except ValueError as err:
+        # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(2) from err
     typer.echo(f"Wrote {path} (fs topic: {slug})")
     from cli.fs_projection import maybe_auto_sync
 

@@ -185,7 +185,11 @@ def fs_comment(
     persona: str | None = typer.Option(None, "--persona"),
     round_number: int | None = typer.Option(None, "--round", help="默认取话题当前轮次"),
     round_summary: bool = typer.Option(False, "--round-summary"),
-    force: bool = typer.Option(False, "--force", help="覆盖已有评论文件（破坏 immutable 约定）"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="覆盖已有评论文件（破坏 immutable 约定）；不豁免 frontmatter 前置校验（W1）",
+    ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
     """离线写一条评论：map/topics/<slug>/round<N>-<persona>.md（不调 API）。"""
@@ -217,6 +221,10 @@ def fs_comment(
     except FileExistsError as err:
         typer.echo(f"Error: {err} (use --force to overwrite)", err=True)
         raise typer.Exit(1) from err
+    except ValueError as err:
+        # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(2) from err
     typer.echo(f"Wrote {path}")
     from cli.fs_projection import maybe_auto_sync
 
@@ -273,6 +281,15 @@ def fs_show(
     typer.echo(f"# {t.title}  [{t.slug}]")
     typer.echo(f"status={t.status} round={t.round} creator={t.creator} dir={t.dir_path}")
     typer.echo(f"participants: {', '.join(t.participants)}")
+    if t.anomalies:
+        # R1/V1 读路径报告：只报告不阻断不改写（存量脏文件保留历史）
+        typer.echo(
+            f"anomalies: {len(t.anomalies)} "
+            "(invalid=字段存在但非法; lite=缺失; 只报告不阻断读, 详见 `map fs anomalies`)"
+        )
+        a_headers = ["File", "Level", "Reason"]
+        a_rows = [[a.file, a.level, a.reason] for a in t.anomalies]
+        typer.echo(render_table(a_headers, a_rows))
     if not t.comments:
         typer.echo("(no comments)")
         return
@@ -282,6 +299,41 @@ def fs_show(
     if full:
         for c in t.comments:
             typer.echo(f"\n===== {c.file_path} =====\n{c.content}")
+
+
+@fs_app.command("anomalies")
+def fs_anomalies(
+    format: str = typer.Option(
+        "table", "--format", help="Output format: table | yaml | json (v0.12 M54A)."
+    ),
+) -> None:
+    """离线扫描全部话题 round 文件的 frontmatter anomaly（只报告，不阻断不改写）。
+
+    invalid=字段存在但非法（author/round/posted_at 与文件名或语义不符）；
+    lite=缺失（frontmatter 整块缺失或 posted_at 缺失）。
+    """
+    import yaml as _yaml
+    from map_fs import scan_plane
+
+    workspace = _workspace()
+    plane = scan_plane(workspace, _content_root_name(workspace))
+    rows = [
+        {"topic": t.slug, "status": t.status, "file": a.file, "level": a.level, "reason": a.reason}
+        for t in plane.topics
+        for a in t.anomalies
+    ]
+    if format == "json":
+        typer.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    if format == "yaml":
+        typer.echo(_yaml.safe_dump(rows, allow_unicode=True, sort_keys=False).strip())
+        return
+    if not rows:
+        typer.echo("(no fs anomalies)")
+        return
+    headers = ["Topic", "File", "Level", "Reason"]
+    table_rows = [[r["topic"], r["file"], r["level"], truncate(r["reason"], 52)] for r in rows]
+    typer.echo(render_table(headers, table_rows))
 
 
 @fs_app.command("work")

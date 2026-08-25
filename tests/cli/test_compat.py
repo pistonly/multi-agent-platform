@@ -121,6 +121,7 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "comment",
         "list",
         "show",
+        "anomalies",
         "work",
         "advance-round",
         "close",
