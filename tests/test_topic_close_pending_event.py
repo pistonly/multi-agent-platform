@@ -1,0 +1,218 @@
+"""experiment-done-topic-close-event（f49de698）：accept-result 事件桥测试。
+
+七组（plan v2 测试面）：
+1. accept 触发（FS 话题 recipient/文案正确）
+2. reject 不触发
+3. executor 分离文案带 executor 名 / 同人不带
+4. 白名单包含断言（wakeable 通道，不新增 work kind）
+5. DB 话题降级
+6. topic_id 为空跳过
+7. 事务绑定（emit_kind commit=False，随 accept 事务）
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+import pytest
+from map_fs import topic_id_for_slug, write_topic_index
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from server.domain.models import Agent, Experiment, ExperimentPhase, Notification, Project
+from server.domain.schemas import ExperimentResultDecision
+from server.services import phase_service
+from server.services.notification_service import WAKEABLE_NOTIFICATION_EVENTS
+
+
+def _setup(
+    db: Session,
+    tmp_path: Path,
+    *,
+    slug: str = "ev-demo",
+    with_topic: bool = True,
+    with_executor: bool = False,
+):
+    """Project（workspace 可达）+ host/reviewer(/executor) agents + 实验。"""
+    project = Project(
+        project_key=f"ev-{uuid.uuid4().hex[:8]}",
+        name="Event bridge",
+        workspace_path=str(tmp_path),
+    )
+    db.add(project)
+    db.flush()
+
+    def _agent(name: str) -> Agent:
+        # Agent.name 全局唯一：同测试内二次 _setup 复用既有行（get_or_create）
+        existing = db.scalar(select(Agent).where(Agent.name == name))
+        if existing is not None:
+            return existing
+        agent = Agent(
+            name=name, api_token_hash=f"hash-{name}", role="agent", project_id=project.id
+        )
+        db.add(agent)
+        db.flush()
+        return agent
+
+    host = _agent("multi-agent-platform-host")
+    reviewer = _agent("multi-agents-platform-reviewer")
+    executor_id = None
+    if with_executor:
+        executor_id = _agent("multi-agent-platform-participant").id
+
+    topic_id = None
+    if with_topic:
+        write_topic_index(tmp_path, slug, title="EV", creator="host")
+        topic_id = topic_id_for_slug(slug)
+
+    experiment = Experiment(
+        project_id=project.id,
+        creator_agent_id=host.id,
+        title="事件桥实验",
+        phase=ExperimentPhase.result_review,
+        executor_agent_id=executor_id,
+        topic_id=topic_id,
+    )
+    db.add(experiment)
+    db.flush()
+    return experiment, host, reviewer
+
+
+def _notifications(db: Session, experiment: Experiment) -> list[Notification]:
+    return list(
+        db.scalars(
+            select(Notification).where(
+                Notification.project_id == experiment.project_id,
+                Notification.event == "topic.close_pending",
+            )
+        )
+    )
+
+
+def _accept(db: Session, experiment: Experiment, reviewer: Agent) -> None:
+    phase_service.accept_result(
+        db,
+        experiment.id,
+        reviewer,
+        ExperimentResultDecision(summary="通过", content_md="result", verdict_file=None),
+    )
+
+
+def test_accept_emits_close_pending_for_fs_topic(db_session: Session, tmp_path: Path) -> None:
+    """B1：accept-result → FS 话题 creator（host persona）收到 wakeable 通知。"""
+    experiment, host, reviewer = _setup(db_session, tmp_path)
+    _accept(db_session, experiment, reviewer)
+
+    rows = _notifications(db_session, experiment)
+    assert len(rows) == 1
+    assert rows[0].recipient_agent_id == host.id
+    assert rows[0].category.value == "wakeable"
+    assert "ev-demo" in rows[0].summary
+    assert str(experiment.id)[:8] in rows[0].summary
+    # 文案衔接 close 门禁（D4）
+    assert "action-items" in rows[0].summary
+    assert "close" in rows[0].summary
+
+
+def test_reject_result_does_not_emit(db_session: Session, tmp_path: Path) -> None:
+    """B2：reject-result 不触发事件桥。"""
+    experiment, _host, reviewer = _setup(db_session, tmp_path)
+    phase_service.reject_result(
+        db_session,
+        experiment.id,
+        reviewer,
+        ExperimentResultDecision(summary="驳回", content_md="result", verdict_file=None),
+    )
+    assert _notifications(db_session, experiment) == []
+    assert experiment.phase == ExperimentPhase.running
+
+
+def test_executor_separation_carries_executor_name(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """B3：executor 与 creator 分离 → 文案带 executor 名；同人不带。"""
+    experiment, _host, reviewer = _setup(
+        db_session, tmp_path, slug="sep-demo", with_executor=True
+    )
+    _accept(db_session, experiment, reviewer)
+    summary = _notifications(db_session, experiment)[0].summary
+    assert "multi-agent-platform-participant" in summary
+
+    # 同人（executor=None）不带 executor 片段——同 project 第二个实验
+    # （persona 解析按 Agent.project_id，复用同一 project 才能路由到 host）
+    write_topic_index(tmp_path, "solo-demo", title="Solo", creator="host")
+    experiment2 = Experiment(
+        project_id=experiment.project_id,
+        creator_agent_id=experiment.creator_agent_id,
+        title="事件桥实验2",
+        phase=ExperimentPhase.result_review,
+        topic_id=topic_id_for_slug("solo-demo"),
+    )
+    db_session.add(experiment2)
+    db_session.flush()
+    _accept(db_session, experiment2, reviewer)
+    solo_rows = [
+        r for r in _notifications(db_session, experiment2) if r.target_id == experiment2.topic_id
+    ]
+    assert len(solo_rows) == 1
+    assert "executor:" not in solo_rows[0].summary
+
+
+def test_event_in_wakeable_whitelist() -> None:
+    """B4/B1：event 显式声明在白名单（wakeable 通道），且不新增 work kind。"""
+    assert "topic.close_pending" in WAKEABLE_NOTIFICATION_EVENTS
+    from server.services.work_kinds import WORK_ITEM_KINDS
+
+    assert "topic_close_pending" not in {spec.kind for spec in WORK_ITEM_KINDS}
+
+
+def test_db_topic_falls_back_to_creator_persona(db_session: Session, tmp_path: Path) -> None:
+    """B5 降级：DB 存量话题（无 FS 文件夹）→ creator agent 名反推 persona，不 crash。"""
+    experiment, host, reviewer = _setup(db_session, tmp_path)
+    from server.domain.models import Topic, TopicStatus
+
+    db_topic = Topic(
+        project_id=experiment.project_id,
+        title="DB 存量话题",
+        status=TopicStatus.open,
+        creator_agent_id=host.id,
+    )
+    db_session.add(db_topic)
+    db_session.flush()
+    experiment.topic_id = db_topic.id
+    db_session.flush()
+
+    _accept(db_session, experiment, reviewer)
+    rows = _notifications(db_session, experiment)
+    assert len(rows) == 1
+    assert rows[0].recipient_agent_id == host.id
+
+
+def test_no_topic_experiment_skips_notification(db_session: Session, tmp_path: Path) -> None:
+    """B5（v2）：topic_id 为空的无话题实验 → 跳过通知，accept 主流程不受影响。"""
+    experiment, _host, reviewer = _setup(db_session, tmp_path, with_topic=False)
+    _accept(db_session, experiment, reviewer)
+    assert experiment.phase == ExperimentPhase.done
+    assert _notifications(db_session, experiment) == []
+
+
+def test_notification_binds_to_accept_transaction(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B6：emit_kind 以 commit=False 调用——通知 rows 与 accept_result 同事务
+    （enqueue_for_agents 只 flush，accept 回滚则通知随之消失）。"""
+    experiment, _host, reviewer = _setup(db_session, tmp_path)
+    calls: list[dict] = []
+    original = phase_service.notification_service.emit_kind
+
+    def _spy(db, **kwargs):
+        calls.append(kwargs)
+        return original(db, **kwargs)
+
+    monkeypatch.setattr(phase_service.notification_service, "emit_kind", _spy)
+    _accept(db_session, experiment, reviewer)
+
+    assert len(calls) == 1
+    assert calls[0]["event"] == "topic.close_pending"
+    assert calls[0]["commit"] is False  # 同事务绑定（B6）

@@ -43,6 +43,9 @@ WAKEABLE_NOTIFICATION_EVENTS: set[str] = {
     "topic.lifecycle.closed",
     "topic.lifecycle.reopened",
     "topic.round_advanced",
+    # experiment-done-topic-close-event（f49de698）：实验 done 瞬间唤醒话题
+    # creator 收尾——事件桥为主，stale_open_topics nudge 兜底互补不变。
+    "topic.close_pending",
     "action_item.wake_sent",
     "action_item.stale",
 }

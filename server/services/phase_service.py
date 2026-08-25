@@ -13,6 +13,7 @@ from server.domain.models import (
     ExperimentPhase,
     Review,
     ReviewItem,
+    Topic,
     TopicActionItem,
     TopicActionItemStatus,
 )
@@ -24,7 +25,7 @@ from server.domain.schemas import (
     ReviewVerdictFile,
 )
 from server.domain.state_machine import validate_phase_transition
-from server.services import audit_service, topic_service
+from server.services import audit_service, fs_source_service, notification_service, topic_service
 from server.services.errors import ForbiddenError, StateTransitionError
 from server.services.evidence_service import EVIDENCE_METADATA_KEYS, metadata_has_completion_evidence
 from server.services.log_service import append_log
@@ -562,6 +563,71 @@ def complete_experiment(
     db.commit()
 
 
+def _notify_topic_close_pending(
+    db: Session, experiment, *, actor_id: uuid.UUID, executor_name: str | None
+) -> None:
+    """实验 done→话题收尾事件桥（experiment-done-topic-close-event B1-B5）。
+
+    accept-result 分支触发：给话题 creator persona 发 wakeable 通知
+    （``topic.close_pending``，复用既有通道，不新增 work kind），实验 done
+    的瞬间唤醒收尾，不再等 30 分钟 stale nudge。reject 不触发；stale nudge
+    兜底互补不变。通知随调用方事务（``commit=False``，B6）。
+    """
+    if experiment.topic_id is None:
+        return  # B5：无话题实验（TOPIC='-'）无 close 收尾语义，跳过不发
+    label: str | None = None
+    personas: list[str] = []
+    hit = fs_source_service.find_fs_topic_by_id(db, experiment.topic_id)
+    if hit is not None:
+        # FS 话题（uuid5）：creator 存 persona 短名
+        label = hit[1].slug
+        personas = [hit[1].creator]
+    else:
+        # 存量 DB 话题：creator agent 名反推 persona；反推不出（无话题文件夹
+        # 且命名不在 persona 表）则退到 experiment creator，再不行跳过——
+        # 降级不 crash、不阻断 accept 主流程（B5）。
+        db_topic = db.get(Topic, experiment.topic_id)
+        owner_agent_id = (
+            db_topic.creator_agent_id if db_topic is not None else experiment.creator_agent_id
+        )
+        name_to_persona = {v: k for k, v in notification_service.PERSONA_AGENT_NAMES.items()}
+        if db_topic is not None:
+            label = (db_topic.title or "")[:40]
+        owner_agent = db.get(Agent, owner_agent_id)
+        if owner_agent is not None:
+            persona = name_to_persona.get(owner_agent.name)
+            if persona:
+                personas = [persona]
+    if not personas:
+        return
+    # B3：executor 与话题 creator 分离时才带 executor 名（同人不冗余）；
+    # creator 存 persona 短名，映射回全名比较
+    creator_agent_name = notification_service.PERSONA_AGENT_NAMES.get(personas[0])
+    executor_fragment = (
+        f"（executor: {executor_name}）"
+        if executor_name and executor_name != creator_agent_name
+        else ""
+    )
+    return notification_service.emit_kind(
+        db,
+        project_id=experiment.project_id,
+        # actor=触发 accept 的 reviewer（emit 默认 exclude_actor：不能传
+        # creator，否则 creator 收件人会被当作 self-mention 排除成零通知）
+        actor_id=actor_id,
+        personas=personas,
+        event="topic.close_pending",
+        summary=(
+            f"实验已验收（{str(experiment.id)[:8]}），请收尾话题 {label}{executor_fragment}："
+            "确认 action-items.yaml 清零/全 done 后 close（3d519184 close 门禁），"
+            "或按需继续推进"
+        ),
+        target_type="topic",
+        target_id=experiment.topic_id,
+        payload={"experiment_id": str(experiment.id), "topic_slug": label},
+        commit=False,
+    )
+
+
 def accept_result(
     db: Session,
     experiment_id: uuid.UUID,
@@ -642,6 +708,16 @@ def accept_result(
             if payload.verdict_file is None
             else "false",
         },
+    )
+
+    # 事件桥（experiment-done-topic-close-event B1-B3）：done 瞬间唤醒话题
+    # creator 收尾；executor 与 creator 分离时文案带 executor 名。
+    executor_name = None
+    if experiment.executor_agent_id is not None:
+        executor_agent = db.get(Agent, experiment.executor_agent_id)
+        executor_name = executor_agent.name if executor_agent is not None else None
+    _notify_topic_close_pending(
+        db, experiment, actor_id=actor.id, executor_name=executor_name
     )
 
     db.commit()
