@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -637,3 +638,37 @@ def test_simple_waker_run_command_exports_stale_threshold_env(
     # ``get_settings()`` returns the new threshold.
     assert get_settings().stale_open_topic_threshold_minutes == 5
 
+
+
+def test_apply_project_claude_env_overrides_and_unsets(tmp_path, monkeypatch):
+    """LLM 键必须以 .map/.claude-env 为权威，清掉 shell 残留端点/模型。"""
+    from cli.agent_client import apply_project_claude_env
+
+    # 无 .map/.claude-env → 环境原样保留
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://legacy.example")
+    assert apply_project_claude_env(tmp_path) == {}
+    assert os.environ["ANTHROPIC_BASE_URL"] == "https://legacy.example"
+
+    # 有 .claude-env → 文件值覆盖继承值；文件未定义的 LLM 键被 unset；
+    # 非 LLM 键（如 ZAI_API_* 残留）不受影响
+    env_dir = tmp_path / ".map"
+    env_dir.mkdir()
+    (env_dir / ".claude-env").write_text(
+        "export ANTHROPIC_BASE_URL=http://192.168.20.32:8001\n"
+        "export ANTHROPIC_AUTH_TOKEN=empty\n"
+        "export ANTHROPIC_MODEL=claude-sonnet-4-6\n"
+    )
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "glm-5.3[1m]")
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "glm-5.3[1m]")
+    monkeypatch.setenv("ANTHROPIC_SMALL_FAST_MODEL", "glm-5-turbo")
+    monkeypatch.setenv("ZAI_API_LEFTOVER", "secret")
+
+    applied = apply_project_claude_env(tmp_path)
+    assert applied["ANTHROPIC_BASE_URL"] == "http://192.168.20.32:8001"
+    assert os.environ["ANTHROPIC_BASE_URL"] == "http://192.168.20.32:8001"
+    assert os.environ["ANTHROPIC_MODEL"] == "claude-sonnet-4-6"
+    assert os.environ["ANTHROPIC_AUTH_TOKEN"] == "empty"
+    assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in os.environ
+    assert "ANTHROPIC_SMALL_FAST_MODEL" not in os.environ
+    assert os.environ["ZAI_API_LEFTOVER"] == "secret"

@@ -22,7 +22,7 @@
 | **participant** | `multi-agent-platform-participant` | 参与话题讨论 |
 | **reviewer** | `multi-agent-platform-reviewer` | 评审实验计划与结果 |
 
-标准路径：`./scripts/start-all-wakers.sh` → Agent 读 Skill → `map --persona <name>` CLI。`cli/host_worker` bridge 与 legacy `runtime-waker` 启动路径已停用。
+标准路径：`./scripts/start-all-simple-wakers.sh` → Agent 读 Skill → `map --persona <name>` CLI。`cli/host_worker` bridge 与 legacy `runtime-waker` 启动路径已停用。
 
 ## 里程碑进展（截至 2026-08-22）
 

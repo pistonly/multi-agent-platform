@@ -1,6 +1,6 @@
 # Legacy 入口兼容矩阵（Phase 1）
 
-MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scripts/start-all-wakers.sh`）。
+MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scripts/start-all-simple-wakers.sh`）。
 
 本矩阵列出 pyproject console scripts、`scripts/*.sh`、文档与测试中对各入口的分类，**Phase 1 只标注不删除**；删除类变更见 Phase 2 独立实验。
 
@@ -27,14 +27,13 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 > 模块、`cli/host_worker*.py` 整套及配套测试（`tests/test_runtime_waker*.py`、
 > `tests/test_waker_phase2_*.py`、`tests/test_host_worker.py`、
 > `tests/test_host_experiment_lifecycle.py`）已删除。默认 waker 为
-> `cli.simple_waker`（`./scripts/start-all-wakers.sh`）。
+> `cli.simple_waker`（`./scripts/start-all-simple-wakers.sh`）。
 
 ## scripts/*.sh
 
 | 脚本 | 分类 | 说明 |
 |------|------|------|
-| `scripts/start-all-wakers.sh` | 主路径 | 三 persona simple-waker（默认） |
-| `scripts/start-all-simple-wakers.sh` | 主路径 | 同上（被 start-all-wakers 调用） |
+| `scripts/start-all-simple-wakers.sh` | 主路径 | 三 persona simple-waker（默认） |
 | `scripts/start-simple-waker.sh` | 主路径 | 单 persona simple-waker |
 | `scripts/start-participant-bridge.sh` | deprecated | **stub**：exit 1 + 指引 simple-waker 替代（实验 124e9a00 第一阶段） |
 | `scripts/start-participant-bridge-claude.sh` | deprecated | **stub**：同上（Claude runner 变体） |
@@ -45,7 +44,7 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 
 | 文档 | 分类 | 说明 |
 |------|------|------|
-| `README.md` | 主路径 | 默认 waker 章节指向 `start-all-wakers.sh` |
+| `README.md` | 主路径 | 默认 waker 章节指向 `start-all-simple-wakers.sh` |
 | `AGENTS.md` / `CLAUDE.md` | 主路径 | simple-waker 为主；bridge 已停用 |
 | `docs/MAP-SIMPLE-WAKER.md` | 主路径 | simple-waker 运维说明 |
 | `docs/MAP-RUNTIME-WAKER.md` | legacy-facade | legacy runtime-waker 参考（如仍存在） |
@@ -74,10 +73,10 @@ DEPRECATED: cli/reviewer_worker.py
 
 ```bash
 # 默认：三 persona waker
-./scripts/start-all-wakers.sh
+./scripts/start-all-simple-wakers.sh
 
 # 一键推进话题直到 open topic 清零
-./scripts/start-all-wakers.sh --drain-topics
+./scripts/start-all-simple-wakers.sh --drain-topics
 
 # 单 persona
 ./scripts/start-simple-waker.sh --persona host

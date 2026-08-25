@@ -75,7 +75,7 @@ items (e.g. `@mention`, `round_ack`) still remind. See
 ./scripts/start-simple-waker.sh --persona host
 MAP_SIMPLE_PERSONA=reviewer ./scripts/start-simple-waker.sh
 ./scripts/start-all-simple-wakers.sh
-./scripts/start-all-wakers.sh --drain-topics
+./scripts/start-all-simple-wakers.sh --drain-topics
 ./scripts/start-simple-waker.sh --once --dry-run
 ```
 
@@ -117,15 +117,24 @@ fall back to the `export VAR=...` lines in **`.map/.claude-env`** (the whole
 `.map/` dir is gitignored — do not commit):
 
 ```bash
-# .map/.claude-env — used only when process env vars are unset
+# .map/.claude-env — LLM keys are authoritative from this file (see below)
 export ANTHROPIC_BASE_URL=http://192.168.20.32:8001
 export ANTHROPIC_AUTH_TOKEN=empty
 export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 Resolved keys: credentials `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
-`ANTHROPIC_BASE_URL`, model `ANTHROPIC_MODEL` / `CLAUDE_MODEL`. Resolution
-order: **process env > `.map/.claude-env` > `~/.bashrc` and other shell rc**.
+`ANTHROPIC_BASE_URL`, models `ANTHROPIC_MODEL` / `CLAUDE_MODEL` plus
+`ANTHROPIC_DEFAULT_*` / `ANTHROPIC_SMALL_FAST_MODEL`.
+
+Resolution order: **simple-waker enforces `.map/.claude-env` as authoritative**
+for its LLM keys whenever the file exists — `run()` calls
+`cli.agent_client.apply_project_claude_env`, which overrides inherited process
+env and unsets LLM keys the file does not define, so a *direct* launch
+(`nohup python3 -m cli.simple_waker ...`) cannot fall back to a leftover
+endpoint/account/model from the launching shell (e.g. z.ai's 5-hour 429 usage
+cap). Other call paths (e.g. `host invoke`) still resolve
+**process env > `.map/.claude-env` > `~/.bashrc` and other shell rc**.
 This is Claude SDK credentials — distinct from the MAP platform API token
 (`~/.map/config.yaml`).
 
@@ -200,7 +209,7 @@ simple-waker 是 FS 话题轮次推进后的主唤醒链路，但 waker 状态�
 `inbound_event` 审计的启动路径已退役：
 
 - `scripts/start-runtime-waker-claude.sh`、`scripts/start-all-wakers-legacy.sh` 已删除
-- `MAP_USE_LEGACY_WAKER=1` 不再生效（`start-all-wakers.sh` 现直接调用 simple-waker）
+- `MAP_USE_LEGACY_WAKER=1` 不再生效（旧编排脚本已删除，统一 `start-all-simple-wakers.sh`）
 - `docs/MAP-RUNTIME-WAKER.md` 已删除
 - 原 `ActionItemWakeDecision` / `should_wake_action_item` /
   `scan_pending_action_items` 已迁至 `cli/action_item_escalation.py`

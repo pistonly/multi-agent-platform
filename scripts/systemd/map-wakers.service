@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=@PROJECT_ROOT@
-ExecStart=@PROJECT_ROOT@/scripts/start-all-wakers.sh
+ExecStart=@PROJECT_ROOT@/scripts/start-all-simple-wakers.sh
 Restart=on-failure
 RestartSec=15
 Environment=MAP_RUNTIME_INTERVAL=30

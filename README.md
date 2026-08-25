@@ -203,10 +203,10 @@ map --persona host status              # 查看 open_topics
 
 ```bash
 # 三 persona 各起一个 waker（默认 simple-waker，active interval=30s）
-./scripts/start-all-wakers.sh
+./scripts/start-all-simple-wakers.sh
 
 # 一键推进话题：持续运行三 persona waker，直到 open topic 为 0 后自动退出
-./scripts/start-all-wakers.sh --drain-topics
+./scripts/start-all-simple-wakers.sh --drain-topics
 
 # 单 persona
 ./scripts/start-simple-waker.sh --persona host
@@ -216,6 +216,10 @@ map --persona host status              # 查看 open_topics
 # 干跑一轮
 ./scripts/start-simple-waker.sh --persona host --once --dry-run
 ```
+
+> 脚本只是薄编排（一键三开/排空/预检）；LLM 凭据/端点由 CLI 自身强制
+> `.map/.claude-env`（`cli.simple_waker.run()` → `apply_project_claude_env`），
+> 从任何入口直启行为一致。
 
 状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳）。`.map/` 整目录 gitignore，勿提交。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
 
@@ -232,13 +236,19 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 被唤醒 / 被 `map host invoke` 编排的 Claude Agent 子进程需要连接 Claude Agent SDK（base URL、token、model）。凭据按 `export VAR=...` 行写入 **`.map/.claude-env`**（`.map/` 整目录已 gitignore，勿提交）：
 
 ```bash
-# .map/.claude-env —— 仅当当前进程环境变量未设置时才回退到此文件
+# .map/.claude-env —— LLM 键以本文件为权威（见下）
 export ANTHROPIC_BASE_URL=http://192.168.20.32:8001
 export ANTHROPIC_AUTH_TOKEN=empty
 export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
-解析键：`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`（凭据）、`ANTHROPIC_MODEL` / `CLAUDE_MODEL`（模型）。解析优先级：**进程环境变量 > `.map/.claude-env` > `~/.bashrc` 等 shell rc**。这是 Claude SDK 凭据，与 MAP 平台 API token（`~/.map/config.yaml`）是两回事。
+解析键：`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`（凭据）、`ANTHROPIC_MODEL` / `CLAUDE_MODEL` 及 `ANTHROPIC_DEFAULT_*` / `ANTHROPIC_SMALL_FAST_MODEL`（模型）。
+
+解析优先级：
+- **waker 进程（simple-waker）**：存在 `.map/.claude-env` 时，对其 LLM 键**强制以文件值为准**——无论从哪条路径启动（含 `nohup python3 -m cli.simple_waker ...` 直启），都会覆盖并清理继承 shell 残留的端点/账号/模型（防止落到 z.ai 等端点触发 5 小时 429 用量上限，见 `cli.agent_client.apply_project_claude_env`）。
+- **其他调用路径**（如 `host invoke` 直接使用 SDK 客户端）：**进程环境变量 > `.map/.claude-env` > `~/.bashrc` 等 shell rc**。
+
+这是 Claude SDK 凭据，与 MAP 平台 API token（`~/.map/config.yaml`）是两回事。
 
 ## Host Worker（已退役）
 

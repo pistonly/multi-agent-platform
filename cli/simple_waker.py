@@ -22,6 +22,7 @@ from cli.action_item_escalation import (
     ActionItemWakeDecision,
     scan_pending_action_items,
 )
+from cli.agent_client import apply_project_claude_env
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.host_worker_types import WorkerError
 from cli.map_command_client import MapCommandClient
@@ -963,6 +964,10 @@ def run(
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
+    # LLM 凭据权威来源 .map/.claude-env：即使被直启（绕过 start-*.sh 的
+    # source），也强制走项目代理端点/模型，避免继承 z.ai 等 shell 残留导致
+    # 5 小时 429 用量上限（见 33712fe 之后的补漏）。
+    apply_project_claude_env(root)
     resolved_runtime_home = runtime_home
     if resolved_runtime_home is not None and not dry_run:
         sync_runtime_skills(project_root=root, runtime_home=resolved_runtime_home)

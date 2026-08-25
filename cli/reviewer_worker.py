@@ -1,7 +1,7 @@
 """MAP reviewer bridge — single backend: in-process Claude SDK client with session resume.
 
 .. deprecated::
-    Legacy bridge entry. Use ``./scripts/start-all-wakers.sh`` (simple-waker) and
+    Legacy bridge entry. Use ``./scripts/start-all-simple-wakers.sh`` (simple-waker) and
     ``map --persona reviewer`` with experiment-reviewer Skill instead.
     See ``docs/LEGACY-ENTRY-MATRIX.md``. Phase 1: retained with deprecation label only.
 

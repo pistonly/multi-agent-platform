@@ -9,7 +9,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 
 产品主功能是 **Skill 指导 Agent 使用 MAP 协作**：Skill 负责行为流程与判断规则，MAP 平台负责状态、权限、审计等持久化协作对象。开发优先级应围绕 SDK/CLI、`.map/` persona、Skill onboarding、文档和端到端协作闭环展开。不要把 LLM SDK、复杂业务策略或手写 HTTP 调用嵌入 MAP 核心。
 
-多 persona 自动推进是附带功能：**`simple-waker`**（`./scripts/start-all-wakers.sh`）轮询 **`map work`**，统一 remind 唤醒 Agent Runtime；**`cli/host_worker` bridge 与 legacy `runtime-waker` 启动路径已停用**。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。
+多 persona 自动推进是附带功能：**`simple-waker`**（`./scripts/start-all-simple-wakers.sh` 启动；CLI 自身强制 `.map/.claude-env`）轮询 **`map work`**，统一 remind 唤醒 Agent Runtime；**`cli/host_worker` bridge 与 legacy `runtime-waker` 启动路径已停用**。具体业务判断由被唤醒的 Agent 读取 Skill 后，通过 `map --persona <name>` 写回 MAP。
 
 ## Waker 与职责边界
 

@@ -26,7 +26,7 @@ Session id is stored as `claude_session_id` / `runtime_session_id` in
 
 ```bash
 # Default: simple-waker
-./scripts/start-all-wakers.sh
+./scripts/start-all-simple-wakers.sh
 ./scripts/start-simple-waker.sh --persona host --once --dry-run
 
 # Legacy: runtime-waker with Cursor SDK backend

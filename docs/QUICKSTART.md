@@ -186,7 +186,7 @@ map --persona reviewer experiment list
 
 ```bash
 # 一键启动三个 persona 的 waker
-./scripts/start-all-wakers.sh
+./scripts/start-all-simple-wakers.sh
 
 # 或者只启动单个 persona
 ./scripts/start-simple-waker.sh --persona host

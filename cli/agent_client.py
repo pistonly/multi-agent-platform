@@ -47,6 +47,20 @@ _CREDENTIAL_ENV_KEYS: tuple[str, ...] = (
 )
 _MODEL_ENV_KEYS: tuple[str, ...] = ("ANTHROPIC_MODEL", "CLAUDE_MODEL")
 
+# 决定被拉起 Agent 使用哪个端点/账号/模型的环境键。.map/.claude-env 对这些键
+# 权威：继承自启动 shell 的残留（如 z.ai 的 ANTHROPIC_BASE_URL/glm 模型）若不
+# 清掉，直启 waker 会撞 z.ai 的 5 小时 429 用量上限。
+LLM_ENV_KEYS: frozenset[str] = frozenset(
+    _CREDENTIAL_ENV_KEYS
+    + _MODEL_ENV_KEYS
+    + (
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+    )
+)
+
 _EXPORT_RE = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 IntegrationMode = Literal["bridge", "waker", "manual", "orchestrator"]
@@ -501,6 +515,55 @@ class PersonaAgentClient:
                 if value:
                     return value
         return None
+
+
+def load_project_claude_env(project_root: Path) -> dict[str, str]:
+    """Parse ``.map/.claude-env`` ``export VAR=...`` lines into {VAR: value}.
+
+    Returns {} when the file is missing or unreadable. Values mirror
+    ``_read_export`` unquoting (strip quotes / trailing comment).
+    """
+    env_path = Path(project_root) / ".map" / ".claude-env"
+    if not env_path.is_file():
+        return {}
+    try:
+        text = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        match = _EXPORT_RE.match(line)
+        if match:
+            value = match.group(2).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            elif value and value[0] not in {"'", '"'}:
+                value = re.sub(r"\s+#.*$", "", value).strip()
+            if value:
+                values[match.group(1)] = value
+    return values
+
+
+def apply_project_claude_env(project_root: Path) -> dict[str, str]:
+    """Make ``.map/.claude-env`` authoritative for :data:`LLM_ENV_KEYS`.
+
+    对存在该文件的项目（MAP 仓库）：文件中定义的 LLM 键覆盖继承的
+    os.environ；文件未定义的 LLM 键（如 shell 残留的 z.ai 端点/glm 默认模型）
+    一律 unset，防止直启 waker/agent 时落到错误端点。文件缺失则不动环境。
+    返回实际应用/清除的 {key: value} 子集（文件值），供测试断言。
+    """
+    if not (Path(project_root) / ".map" / ".claude-env").is_file():
+        return {}
+    values = load_project_claude_env(project_root)
+    applied: dict[str, str] = {}
+    for key in LLM_ENV_KEYS:
+        if key in values:
+            os.environ[key] = values[key]
+            applied[key] = values[key]
+        else:
+            if key in os.environ:
+                os.environ.pop(key, None)
+    return applied
 
 
 def make_wakeup_prompt(persona: str, todos: dict[str, Any]) -> str:

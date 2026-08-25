@@ -23,7 +23,7 @@
 | **participant** | `multi-agents-platform-participant` | 参与话题讨论 |
 | **reviewer** | `multi-agents-platform-reviewer` | 评审实验计划 |
 
-**标准路径**：`./scripts/start-all-wakers.sh`（simple-waker）→ Agent 读 Skill → `map --persona <name>` CLI。
+**标准路径**：`./scripts/start-all-simple-wakers.sh`（simple-waker）→ Agent 读 Skill → `map --persona <name>` CLI。
 
 **已停用**：`cli/host_worker`（host bridge）、`start-host-bridge*.sh`、runner JSON 契约；legacy `runtime-waker` 启动路径（`start-runtime-waker-claude.sh` / `start-all-wakers-legacy.sh` 已删除，`MAP_USE_LEGACY_WAKER=1` 不再生效）。`cli/runtime_waker.py` 模块保留为 re-export 兼容层，原 `ActionItemWakeDecision` / `PersonaAgentWakeBackend` / `TODO_WAKE_BUCKETS` 等已迁至 `cli/action_item_escalation.py` 与 `cli/wake_backend.py`。
 
