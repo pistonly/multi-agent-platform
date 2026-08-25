@@ -22,13 +22,15 @@ from server.domain.a2a_mapping import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _bootstrap(client, key: str = "a2a-demo") -> dict:
+def _bootstrap(
+    client, key: str = "a2a-demo", workspace: str = "/tmp/a2a-demo"
+) -> dict:
     resp = client.post(
         "/api/v1/bootstrap",
         json={
             "project_key": key,
             "project_name": "A2A Demo",
-            "workspace_path": "/tmp/a2a-demo",
+            "workspace_path": workspace,
         },
     )
     assert resp.status_code == 201
@@ -92,8 +94,9 @@ class TestAgentCards:
         assert resp.status_code == 401
 
     def test_card_cross_project_forbidden(self, client):
-        first = _bootstrap(client, "a2a-one")
-        second = _bootstrap(client, "a2a-two")
+        # 两个 project 用不同 workspace：A5 联合键唯一性下 workspace 不可复用
+        first = _bootstrap(client, "a2a-one", "/tmp/a2a-one")
+        second = _bootstrap(client, "a2a-two", "/tmp/a2a-two")
         host_two = _persona(second, "host")
 
         resp = client.get(
@@ -164,8 +167,9 @@ class TestTaskProjection:
             assert task["status"] in A2A_TASK_STATES
 
     def test_tasks_cross_project_forbidden(self, client):
-        first = _bootstrap(client, "a2a-one")
-        second = _bootstrap(client, "a2a-two")
+        # 两个 project 用不同 workspace：A5 联合键唯一性下 workspace 不可复用
+        first = _bootstrap(client, "a2a-one", "/tmp/a2a-one")
+        second = _bootstrap(client, "a2a-two", "/tmp/a2a-two")
         resp = client.get(
             f"/api/v1/agents/{_persona(first, 'host')['agent_id']}/tasks",
             headers=_headers(_persona(second, "host")),

@@ -215,6 +215,7 @@ EXPECTED_SUBAPP_FILES = [
     "audit.py",
     "auth.py",
     "docs.py",
+    "doctor.py",
     "experiment.py",
     "feedback.py",
     "fs.py",
@@ -227,6 +228,7 @@ EXPECTED_SUBAPP_FILES = [
     "skill.py",
     "sync.py",
     "topic.py",
+    "version.py",
 ]
 
 
