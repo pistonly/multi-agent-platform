@@ -203,6 +203,18 @@ class CreateStubTransport:
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         self.calls.append((request.method, str(request.url)))
         path = urlparse(str(request.url)).path
+        if request.method == "GET" and path.endswith("/agents/me"):
+            # create 成功后取 creator persona（cli.experiment_fs 写 index.md 用）
+            return httpx.Response(
+                200,
+                json={
+                    "id": str(AGENT_ID),
+                    "name": "host-agent",
+                    "role": "admin",
+                    "project_id": str(PROJECT_ID),
+                    "created_at": _TS,
+                },
+            )
         if request.method == "POST" and path.endswith("/experiments"):
             return httpx.Response(
                 201,
@@ -254,6 +266,11 @@ def stub_env(monkeypatch):
         monkeypatch.setenv("MAP_TOKEN", "fake")
         monkeypatch.setenv("MAP_API_URL", "http://test")
         monkeypatch.delenv("MAP_CLI_FORMAT", raising=False)
+        # experiment_fs 直接绑定 project_config.find_map_dir，必须在消费方
+        # 补丁，否则 create 写回会污染真实 workspace。
+        monkeypatch.setattr(
+            "cli.experiment_fs.find_map_dir", lambda *args, **kwargs: None
+        )
 
     return _install
 
@@ -305,7 +322,8 @@ def test_cli_slim_bad_plan_can_force_bypass(stub_env, runner, tmp_path):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert len(transport.calls) == 1
+    posts = [c for c in transport.calls if c[0] == "POST"]
+    assert len(posts) == 1  # 绕过 lint 后恰好一次 create POST（get_me 不计）
 
 
 def test_cli_yaml_error_renders_hint_block(stub_env, runner):

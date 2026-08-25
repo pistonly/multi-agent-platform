@@ -29,12 +29,27 @@ _TS = "2026-08-23T12:00:00+00:00"
 
 
 class CreateStubTransport(httpx.BaseTransport):
-    """capture POST /projects/{pid}/experiments body;其余 404。"""
+    """capture POST /projects/{pid}/experiments body;其余 404。
+
+    create 成功后会 ``GET /agents/me`` 取 creator persona（cli.experiment_fs
+    写 index.md 用），一并桩掉。
+    """
 
     def __init__(self) -> None:
         self.bodies: list[dict] = []
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/agents/me"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": _AGENT_ID,
+                    "name": "host-agent",
+                    "role": "admin",
+                    "project_id": _PROJECT_ID,
+                    "created_at": _TS,
+                },
+            )
         if request.method == "POST" and request.url.path.endswith("/experiments"):
             self.bodies.append(json.loads(request.content))
             return httpx.Response(
@@ -89,6 +104,12 @@ def stub_env(monkeypatch, tmp_path):
         monkeypatch.setenv("MAP_API_URL", "http://test")
         monkeypatch.delenv("MAP_CLI_FORMAT", raising=False)
         monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
+        # experiment_fs 在模块加载时直接绑定 project_config.find_map_dir，
+        # 只补丁 cli_main 不够——create 写回会污染真实 workspace
+        # （曾写入 map/experiments/hygiene-a4/）。
+        monkeypatch.setattr(
+            "cli.experiment_fs.find_map_dir", lambda *args, **kwargs: None
+        )
 
     return _install
 

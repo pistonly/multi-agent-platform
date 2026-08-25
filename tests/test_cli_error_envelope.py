@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from map_client import project_config
@@ -62,9 +63,27 @@ def patched_cli(monkeypatch):
     monkeypatch.setattr(cli_main, "_transport", MAPTestClientTransport.__new__(MAPTestClientTransport))
     monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
     monkeypatch.setattr(project_config, "find_map_dir", lambda *args, **kwargs: None)
+    # experiment_fs 直接绑定 project_config.find_map_dir，消费方也需补丁，
+    # 避免 preflight 读到真实 workspace。
+    monkeypatch.setattr(
+        "cli.experiment_fs.find_map_dir", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         "map_client.config.load_config",
         lambda *args, **kwargs: {"api_url": "http://test", "token": "stub-token", "project_key": None},
+    )
+    # FS 写回 preflight（A2）在调 start_experiment 前先取 before 快照；
+    # 空 transport 未初始化 _client，get_experiment 必须一并打桩才能
+    # 走到被测的 start_experiment 错误路径。
+    monkeypatch.setattr(
+        MAPClient,
+        "get_experiment",
+        lambda self, experiment_id: SimpleNamespace(
+            id=experiment_id,
+            phase="approved",
+            mode="standard",
+            plan_file_path=None,
+        ),
     )
 
 
