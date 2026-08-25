@@ -31,3 +31,8 @@ host 亲自执行 M1（用户纠正：不要 invoke participant 执行；评审�
 - A6 slug / uuid5 / DB uuid 三态路由实测同一实验
 - 测试：`tests/test_fs_experiment_index.py` + `tests/test_experiment_id_routing.py` + 相关 CLI/lock/fs 共 62 passed
 - ruff：改动文件 `ruff check` 全绿
+
+## 收尾备注
+
+- 首次 `complete` 403：此前误 `start --executor participant`，库里 `executor_agent_id` 仍是 participant；运行中的 server 未把该字段编进 status JSON。已把 executor 改回 creator（host）后重试成功。
+- slim `--log-file-path` 使 server 未读到四段正文，complete 出现 `MISSING_TEMPLATE_SECTION` 软警告；四段在 `log.md` 磁盘文件里。
