@@ -8,8 +8,10 @@ Waker logic stays minimal: the platform serves ``GET /agents/me/work``
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
+import signal
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -118,12 +120,7 @@ class WakeContext:
 
     @property
     def total_items(self) -> int:
-        return (
-            self.topic_update_count
-            + self.todo_item_count
-            + self.notification_count
-            + self.open_topic_count
-        )
+        return self.topic_update_count + self.todo_item_count + self.notification_count + self.open_topic_count
 
     @property
     def has_work(self) -> bool:
@@ -245,9 +242,7 @@ def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntr
                 topic_title=str(raw.get("topic_title") or ""),
                 discussion_round=str(raw.get("discussion_round") or ""),
                 last_comment_author_name=(
-                    str(raw["last_comment_author_name"])
-                    if raw.get("last_comment_author_name")
-                    else None
+                    str(raw["last_comment_author_name"]) if raw.get("last_comment_author_name") else None
                 ),
                 new_comment_count=int(raw.get("new_comment_count") or len(new_comments)),
                 new_comments=tuple(c for c in new_comments if isinstance(c, dict)),
@@ -267,11 +262,7 @@ def summarize_actionable_todos(todos: dict[str, Any]) -> tuple[PendingBucket, ..
         raw_items = todos.get(kind) or []
         if not isinstance(raw_items, list):
             continue
-        items = [
-            item
-            for item in raw_items
-            if isinstance(item, dict) and _todo_item_is_actionable(kind, item)
-        ]
+        items = [item for item in raw_items if isinstance(item, dict) and _todo_item_is_actionable(kind, item)]
         count = len(items)
         if count <= 0:
             continue
@@ -332,9 +323,7 @@ def build_wake_context(
         topic_progress_data,
         todos,
     )
-    deduped_notifications, event_count_sum, dropped = _dedupe_notifications_by_group_key(
-        notifications
-    )
+    deduped_notifications, event_count_sum, dropped = _dedupe_notifications_by_group_key(notifications)
     topic_progress = parse_topic_progress(filtered_progress)
     deferred = 0
     if max_prompt_topics is not None and max_prompt_topics > 0 and len(topic_progress) > max_prompt_topics:
@@ -533,10 +522,7 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
             for sample in bucket.samples:
                 lines.append(f"  - {sample}")
         if context.notification_count:
-            lines.append(
-                f"- notification: {context.notification_count}"
-                f"（{TODO_BUCKET_UI_LABELS['notification']}）"
-            )
+            lines.append(f"- notification: {context.notification_count}（{TODO_BUCKET_UI_LABELS['notification']}）")
         lines.append("")
 
     lines.append(f"详情：`{command} work` · `{command} topic progress` · `{command} todos`")
@@ -587,6 +573,10 @@ class SimpleWaker:
         # T03：本周期解析出的 persona 身份（work 快照的 agent 字段）。
         # 缓存后 action_item escalation 等下游消费点不再重复调 whoami 子进程。
         self._me: dict[str, Any] | None = None
+        # T39：连续失败计数（指数退避）与优雅退出标志（SIGTERM/SIGINT）。
+        self._consecutive_errors = 0
+        self._stop_requested = False
+        self._stop_event: asyncio.Event | None = None
         self.backend = backend or PersonaAgentWakeBackend(
             project_root=self.config.project_root,
             persona=self.config.persona,
@@ -605,24 +595,41 @@ class SimpleWaker:
             await self._reset_runtime_session_if_contract_changed()
         if not self.config.dry_run:
             await self.backend.connect()
+        # T39：优雅退出——SIGTERM/SIGINT 置 stop 标志并唤醒 sleep，当前
+        # cycle 结束后走 finally 的 disconnect（原先 KeyboardInterrupt 会
+        # 直接炸出 asyncio.run，backend.disconnect() 不保证执行）。
+        stop_event = asyncio.Event()
+        self._stop_event = stop_event
+        loop = asyncio.get_running_loop()
+        registered_signals: list[int] = []
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, self._request_stop)
+                registered_signals.append(sig)
+            except (NotImplementedError, RuntimeError):
+                # Windows / 非主线程：无 add_signal_handler。SIGINT 仍有
+                # KeyboardInterrupt 默认路径，asyncio.run 的 finally 兜底。
+                pass
         total = SimpleWakerStats()
         try:
             while True:
                 try:
                     stats, sleep_for = await self._run_once_async()
+                    self._consecutive_errors = 0
                 except WorkerError as exc:
                     # 瞬时错误兜底：API 5xx / 子进程失败 / 身份解析失败等。
                     # 长驻 waker 不能因单次 cycle 失败退出——记错到 state，
-                    # 按 idle 间隔退避后下一 cycle 重试。持续失败会在 state
-                    # 累积 last_cycle_error 供运维观测。
+                    # 按指数退避（T39）后下一 cycle 重试。持续失败会在
+                    # state 累积 last_cycle_error 供运维观测。
                     typer.echo(f"[simple-waker:cycle-error] {exc}", err=True)
                     persona_state = self._persona_state(self.config.persona)
                     persona_state["last_cycle_error"] = str(exc)
                     persona_state["last_cycle_error_at"] = datetime.now(timezone.utc).isoformat()
                     self._state_dirty = True
                     self._save_state_if_needed(force=True)
+                    self._consecutive_errors += 1
                     stats = SimpleWakerStats(cycles=1, cycle_errors=1)
-                    sleep_for = self.config.idle_interval
+                    sleep_for = self._backoff_interval()
                 total.add(stats)
                 log_cycle_summary(
                     "simple-waker",
@@ -650,11 +657,39 @@ class SimpleWaker:
                     break
                 if self.config.max_cycles is not None and total.cycles >= self.config.max_cycles:
                     break
-                await asyncio.sleep(sleep_for)
+                if self._stop_requested:
+                    # T39：信号已到——当前 cycle 已完整收尾，直接退出走
+                    # finally 的 disconnect，不再进入下一个退避/轮询间隔。
+                    typer.echo("[simple-waker] stop requested; exiting gracefully", err=True)
+                    break
+                # T39：sleep 可被 stop 信号提前唤醒（wait_for + Event），
+                # 避免收到 SIGTERM 后还要空等最长 30min 的退避间隔。
+                # asyncio.wait_for 超时在 Py3.10 抛 ``asyncio.TimeoutError``
+                # （3.11 才与内置 TimeoutError 合并），故用 asyncio 版本捕获。
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(stop_event.wait(), timeout=sleep_for)
             return total
         finally:
+            for sig in registered_signals:
+                with contextlib.suppress(Exception):
+                    loop.remove_signal_handler(sig)
+            self._stop_event = None
             if not self.config.dry_run:
                 await self.backend.disconnect()
+
+    def _request_stop(self) -> None:
+        """Signal handler body: set the stop flag and wake the sleep."""
+        if self._stop_requested:
+            return
+        self._stop_requested = True
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+    def _backoff_interval(self) -> float:
+        """T39：按连续失败次数指数退避（idle × 2^n，cap 30min）。"""
+        backoff_cap = 1800.0
+        factor = 2 ** min(self._consecutive_errors, 8)
+        return min(self.config.idle_interval * factor, backoff_cap)
 
     def run_once(self) -> SimpleWakerStats:
         return asyncio.run(self._run_once_async())[0]
@@ -671,9 +706,7 @@ class SimpleWaker:
         todos = work.get("todos") or {}
         notifications_payload = work.get("notifications") or {}
         notifications = (
-            list(notifications_payload.get("items") or [])
-            if isinstance(notifications_payload, dict)
-            else []
+            list(notifications_payload.get("items") or []) if isinstance(notifications_payload, dict) else []
         )
         open_topics: list[dict[str, Any]] = []
         if self.config.drain_topics and self.config.persona == "host":
@@ -889,13 +922,10 @@ class SimpleWaker:
         previous_hash = persona_state.get("runtime_contract_hash")
         if previous_hash == self._runtime_contract_hash:
             return
-        has_resume_session = bool(
-            persona_state.get("claude_session_id") or persona_state.get("runtime_session_id")
-        )
+        has_resume_session = bool(persona_state.get("claude_session_id") or persona_state.get("runtime_session_id"))
         if previous_hash is not None or has_resume_session:
             typer.echo(
-                f"[simple-waker] runtime contract changed for {self.config.persona}; "
-                "starting a fresh runtime session",
+                f"[simple-waker] runtime contract changed for {self.config.persona}; starting a fresh runtime session",
                 err=True,
             )
             await self.backend.reset_session()

@@ -186,8 +186,8 @@
 - [ ] **T38 一次性产物归档**（预估：小）
   `scripts/migrate_action_items_closed_topics.py`（标注一次性）、`reports/` 3 个 e2e 报告、`scripts/claude-*-runner.py` 与 `cursor-*-runner.py`（先 grep 确认无引用）移入 `scripts/archive/`；`map/`（346 个文件，每次实验净增 5-10 个）按 `docs/PROJECT-ARCHIVE-PLAN.md` 定期归档。
 
-- [ ] **T39 waker 退避与优雅退出**（预估：小）
-  `cli/simple_waker.py` L610-622 固定 300s 重试无指数退避；`run_forever` 无 SIGTERM handler，`backend.disconnect()` 不保证执行。按连续失败次数指数退避（5min→10min→30min cap）+ 注册 signal handler。
+- [x] **T39 waker 退避与优雅退出**（预估：小）
+  `cli/simple_waker.py` 固定 300s 重试无指数退避；`run_forever` 无 SIGTERM handler，`backend.disconnect()` 不保证执行。已按连续失败次数指数退避（idle×2^n，cap 30min）+ 注册 signal handler（SIGTERM/SIGINT 置位 + `asyncio.Event` 唤醒睡眠，finally 统一 disconnect）。补充 8 个专项测试 `tests/test_simple_waker_backoff_graceful.py`；顺带修复 Py3.10 下 `asyncio.wait_for` 超时抛 `asyncio.TimeoutError`（3.11 前与内置 `TimeoutError` 非同一类型）导致退避睡眠未被捕获的 bug。
 
 - [ ] **T40 依赖与入口清理**（预估：小）
   `pyproject.toml` dev 组 httpx 冗余声明删除；mcp extra 拉入整个 server 依赖，可拆 `server-core`（仅 fastapi/starlette+mcp）减重 Dockerfile.mcp；deprecated entry points 按 LEGACY-ENTRY-MATRIX 定 1.0 移除时间表。
