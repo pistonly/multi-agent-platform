@@ -36,6 +36,9 @@ web/.vite/
 *.db.bak
 *.sqlite3
 
+# T29 构建时复制的 alembic 树；镜像仍 COPY 仓库根 alembic/ + alembic.ini
+server/_migrate/
+
 # 镜像不需要的仓库内容
 docs/
 tests/

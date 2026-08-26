@@ -1,2 +1,5 @@
 graft server/web_dist
+graft alembic
+include alembic.ini
+include scripts/map_build_backend.py
 global-exclude .gitkeep

@@ -107,7 +107,8 @@ pip install multi-agent-platform-server
 pip install -e ".[dev]"
 
 # 运行数据库迁移（需要 server 依赖）
-alembic upgrade head
+alembic upgrade head                    # 源码 / Docker（仓库根有 alembic.ini）
+python -m server.migrate upgrade head   # 从 wheel 安装后（无仓库根 ini）
 
 # 启动 API + 看板（同源：http://localhost:18400/ ，端口可用 --port / MAP_PORT 覆盖）
 map server start          # 后台守护服务（PID/日志/DB 落在 ~/.map/）

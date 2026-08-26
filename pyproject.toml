@@ -77,19 +77,23 @@ map-mcp = "map_mcp.main:cli"
 
 [build-system]
 requires = ["setuptools>=75.0"]
-build-backend = "setuptools.build_meta"
+build-backend = "map_build_backend"
+backend-path = ["scripts"]
 
 [tool.setuptools.package-dir]
 
 [tool.setuptools.packages.find]
 where = [".", "sdk/python"]
 include = ["server*", "cli*", "map_client*", "map_fs*", "map_mcp*", "map_sdk*", "map_types*"]
+exclude = ["server._migrate", "server._migrate.*"]
 
 [tool.setuptools.package-data]
 "cli.skills" = ["**/*.md", "**/*.sh", "**/*.yaml"]
 # Bundled React SPA (scripts/sync-web-dist.sh → server/web_dist). Required
 # in the wheel so `map-server` can serve the board without a git clone.
-"server" = ["web_dist/**"]
+# T29：alembic 脚本树经 scripts/prepare-wheel-assets.sh 复制到
+# server/_migrate，随 wheel 分发（目录 gitignore，构建时生成）。
+"server" = ["web_dist/**", "_migrate/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -114,7 +118,7 @@ markers = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["reference", "tmp"]
+extend-exclude = ["reference", "tmp", "server/_migrate"]
 
 [tool.ruff.lint]
 # E/F 基础；B bugbear 抓常见 bug；UP pyupgrade 现代化语法；I isort；SIM 简化。

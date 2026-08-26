@@ -73,6 +73,9 @@ web/dist/
 server/web_dist/**
 !server/web_dist/.gitkeep
 
+# T29：wheel 构建时复制的 alembic 树（scripts/prepare-wheel-assets.sh）
+server/_migrate/
+
 # Demo project generated output
 test_project/output/
 

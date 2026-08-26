@@ -14,7 +14,7 @@
 #      == sdk/python/map_sdk/__init__.py __version__
 #   2. with --require-tag: git tag v<version> exists and points at HEAD
 #      AND server/web_dist/index.html exists (run scripts/sync-web-dist.sh
-#      first so the wheel ships the board)
+#      first so the wheel ships the board). Unpack check: scripts/check-packaging.sh.
 #   3. with --require-tag: server/web_dist/build-info.json records that the
 #      bundle was built from the current HEAD at the current version —
 #      catches the incident class where a web/ source fix never reached a

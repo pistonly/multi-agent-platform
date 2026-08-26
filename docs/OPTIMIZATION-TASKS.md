@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 21/27：T06-T23、T25-T27（2026-08-25/26）；剩余 T24（大）、T28-T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 22/27：T06-T23、T25-T27、T29（2026-08-25/26）；剩余 T24（大）、T28、T30-T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -142,7 +142,8 @@
 
 ## P1 打包与 CI
 
-- [ ] **T29 修复 wheel 打包缺口并加冒烟校验**（预估：中）
+- [x] **T29 修复 wheel 打包缺口并加冒烟校验**（预估：中）✅ 2026-08-26
+  落地：MANIFEST `graft alembic` + `include alembic.ini`；`alembic.ini` 的 `script_location` 改为 `%(here)s/alembic`（复制进 wheel 后仍指向同目录脚本树）。setuptools 只打包包内文件，故 PEP 517 后端 `scripts/map_build_backend.py` 在 sdist/wheel 前把根目录 alembic 复制到 `server/_migrate`（gitignore，不进 `alembic/__init__.py` 以免 shadow 第三方包）。`python -m server.migrate` 优先 cwd `alembic.ini`，否则用 wheel 内副本。CI `packaging` job：`sync-web-dist.sh` + `check-packaging.sh` 解包断言 `web_dist/assets` 非空且 `_migrate/alembic/versions` 存在。测试 `tests/test_optimization_t29.py`。
   位置：`MANIFEST.in` + `pyproject.toml`。
   问题：`web_dist` 构建产物被 gitignore 且被 global-exclude 排除，干净 checkout 打的 sdist/wheel 没有 Web UI；`alembic/`、`alembic.ini` 不在 MANIFEST，wheel 用户无法跑迁移（Dockerfile 手动 COPY 掩盖了问题）。
   改法：MANIFEST 增加 `graft alembic`、`include alembic.ini`；CI 加 release job：构建 wheel → 解包检查 web_dist/assets 非空 + alembic 存在；本地打包前跑 `scripts/sync-web-dist.sh`。
