@@ -28,6 +28,7 @@ from cli.agent_client import apply_project_claude_env
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.errors import WorkerError
 from cli.map_command_client import MapCommandClient
+from cli.map_sdk_client import MapSdkClient
 from cli.wake_backend import (
     TODO_BUCKET_UI_LABELS,
     TODO_WAKE_BUCKETS,
@@ -543,6 +544,32 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _use_subprocess_waker_client(flag: bool) -> bool:
+    if flag:
+        return True
+    raw = os.environ.get("MAP_WAKER_SUBPROCESS", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def build_waker_client(
+    *,
+    persona: str,
+    project_root: Path | None,
+    map_cmd: str,
+    dry_run: bool,
+    subprocess_client: bool = False,
+) -> MapCommandClient | MapSdkClient:
+    """T24：默认 in-process SDK；``--subprocess-client`` / env 回退 ``map`` 子进程。"""
+    if _use_subprocess_waker_client(subprocess_client):
+        return MapCommandClient(
+            persona=persona,
+            project_root=project_root,
+            map_cmd=map_cmd,
+            dry_run=dry_run,
+        )
+    return MapSdkClient(persona=persona, project_root=project_root, dry_run=dry_run)
+
+
 # Backward-compatible aliases for tests
 PendingWorkSummary = WakeContext
 summarize_pending_work = lambda todos, notifications=None: build_wake_context(  # noqa: E731
@@ -557,7 +584,7 @@ class SimpleWaker:
     def __init__(
         self,
         *,
-        client: MapCommandClient,
+        client: MapCommandClient | MapSdkClient,
         config: SimpleWakerConfig | None = None,
         backend: PersonaAgentWakeBackend | None = None,
     ) -> None:
@@ -676,6 +703,10 @@ class SimpleWaker:
             self._stop_event = None
             if not self.config.dry_run:
                 await self.backend.disconnect()
+            close_fn = getattr(self.client, "close", None)
+            if callable(close_fn):
+                with contextlib.suppress(Exception):
+                    close_fn()
 
     def _request_stop(self) -> None:
         """Signal handler body: set the stop flag and wake the sleep."""
@@ -1007,6 +1038,14 @@ def run(
             "Env fallback: MAP_SIMPLE_MAX_PROMPT_TOPICS."
         ),
     ),
+    subprocess_client: bool = typer.Option(
+        False,
+        "--subprocess-client",
+        help=(
+            "T24 rollback: talk to MAP via `map` subprocess instead of "
+            "in-process SDK. Env: MAP_WAKER_SUBPROCESS=1."
+        ),
+    ),
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
@@ -1031,7 +1070,13 @@ def run(
             get_settings.cache_clear()
         except Exception:
             pass
-    client = MapCommandClient(persona=persona, project_root=root, map_cmd=map_cmd)
+    client = build_waker_client(
+        persona=persona,
+        project_root=root,
+        map_cmd=map_cmd,
+        dry_run=False,
+        subprocess_client=subprocess_client,
+    )
     # env fallback：不带 flag 启动（如 scripts/start-simple-waker.sh 直传旧参数）
     # 时仍可经 MAP_SIMPLE_MAX_PROMPT_TOPICS 调配额。
     if max_prompt_topics == 3:

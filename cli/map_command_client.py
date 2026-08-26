@@ -13,6 +13,12 @@ from cli.errors import WorkerError
 
 
 class MapCommandClient:
+    """Subprocess ``map`` client used by orchestrator / e2e.
+
+    T24: ``simple-waker`` defaults to :class:`cli.map_sdk_client.MapSdkClient`
+    (in-process ``MAPClient``). Keep this class until those callers migrate.
+    Rollback for waker: ``--subprocess-client`` or ``MAP_WAKER_SUBPROCESS=1``.
+    """
     def __init__(
         self,
         *,

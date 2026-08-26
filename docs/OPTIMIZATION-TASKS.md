@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 22/27：T06-T23、T25-T27、T29（2026-08-25/26）；剩余 T24（大）、T28、T30-T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 22/27：T06-T23、T25-T27、T29（2026-08-25/26）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T28、T30-T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -120,7 +120,8 @@
   落地：新建 `cli/runner.py`（`_run` 执行链、client ctx、JSON error envelope、序列化、`_resolve_project` / creator / executor / `_require_*` / `_load_topic_resolve_payload`）与 `cli/io_helpers.py`（`_read_text_file` / `_read_yaml_file`，原定义在 experiment.py 又被 main re-export 回去）。commands / audit_target / persona_compare / fs_projection 的 40+ 处函数内 lazy import 改顶层导入；main.py 1591 → 970 行（size-cap 守卫 1600 内），保留 re-export 兼容层与 `_cli_options` / `_transport` 状态。
   关键设计：`_run` / `_resolve_project` 经 `runner._xxx` 模块属性调用（而非 from-import 固化绑定），runner 内部对 `_client_ctx` / `resolve_client` / `admin_client` / `find_map_dir` / `load_project_map_config` 运行时经 `cli.main` 解析——保住测试的全部 monkeypatch 注入面（`cli.main._transport` / `cli.main._client_ctx` / `cli.main.resolve_client` / `cli.runner._run` 等）；4 个测试的 patch 目标同步迁移（shortid / json_schema / m55 / notification_bulk_filter / fs_projection_cli）。剩余函数内 lazy import 仅 `_cli_options` / `_transport` / `_cli_version` / `_project_cli_default_format` 运行时状态（monkeypatch 面，按设计保留）。验证：全量 1580 passed；slow 门控的 test_cli.py 8 个失败经 HEAD 基线对比确认为既存（SOCKS 代理环境 + ReviewCreate 等，非本次引入）。
 
-- [ ] **T24 waker 迁移到 SDK，收敛双客户端层**（预估：大，T03 的中期项）
+- [ ] **T24 waker 迁移到 SDK，收敛双客户端层**（预估：大，T03 的中期项）⏳ 2026-08-26 落地 1/2
+  落地 1/2：`simple-waker` 默认走 `cli/map_sdk_client.py`（in-process `MAPClient`，`work`/`whoami`/lock scan/inbound-event/mark-wake|stale 不再起 `map` 子进程）；`--subprocess-client` 与 `MAP_WAKER_SUBPROCESS=1` 回退。`MapCommandClient` 仍服务 orchestrator/e2e。测试 `tests/test_optimization_t24.py`。
   位置：`sdk/python/map_client/client.py`（1212 行，in-process）与 `cli/map_command_client.py`（525 行，subprocess）方法集几乎一一对应。
   问题：两套平行 API 层；waker/orchestrator/e2e 走 subprocess 层导致 T03 的进程税。
   改法：simple_waker/orchestrator/e2e 逐步迁 `MAPClient`，`MapCommandClient` 标记 deprecated；`--dry-run` 写拦截语义在 SDK 层用 dry_run 回调实现。
