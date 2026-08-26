@@ -199,6 +199,14 @@ class PersonaAgentClient:
                     fingerprint=fingerprint,
                 )
                 result = None
+                # T22：超时后必须断开 SDK 连接再返回。旧 client 的
+                # receive_response() 流可能仍挂起，而 ``_connected`` 残留
+                # True 会让下一轮 wake 复用同一 client、卡在同一个流上。
+                # disconnect 会吞掉 SDK 侧异常并清 ``_client``/``_connected``，
+                # 下一轮 connect() 重建全新连接；state 里的 session id
+                # 保留，仍按 resume 语义延续对话上下文（彻底弃 session 走
+                # wake_backend.reset_session()，由调用方按需决定）。
+                await self.disconnect()
                 break
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:

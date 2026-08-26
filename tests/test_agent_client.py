@@ -560,6 +560,11 @@ def test_wake_up_aborts_with_no_response_when_receive_response_hangs(tmp_path: P
     assert elapsed < 5.0, f"wake_up did not respect wake_timeout (elapsed={elapsed:.2f}s)"
     # query() was still called before the hang — only the receive side aborts.
     assert fake.query_calls == ["stuck agent"]
+    # T22: timeout must disconnect so the next wake reconnects fresh instead of
+    # reusing the client whose receive_response() stream is still hanging.
+    assert fake.disconnect_calls == 1
+    assert agent._connected is False
+    assert agent._client is None
 
 
 def test_wake_up_logs_timeout_event_when_receive_response_hangs(tmp_path: Path) -> None:
@@ -624,6 +629,9 @@ def test_wake_up_aborts_when_messages_stop_mid_stream(tmp_path: Path) -> None:
     # The text event landed before the hang; no result event after.
     assert [e["type"] for e in events] == ["text"]
     assert elapsed < 5.0, f"mid-stream hang was not aborted (elapsed={elapsed:.2f}s)"
+    # T22: mid-stream hang also disconnects — next wake reconnects fresh.
+    assert fake.disconnect_calls == 1
+    assert agent._connected is False
 
 
 # --- disconnect --------------------------------------------------------------
