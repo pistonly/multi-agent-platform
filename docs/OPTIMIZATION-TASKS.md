@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 14/27：T06、T07、T08、T09、T10、T11、T12、T13、T14、T15、T16、T17、T18、T19（2026-08-25/26）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 18/27：T06-T23（2026-08-25/26）；剩余 T24（大）、T25-T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -107,24 +107,18 @@
 
 ## P1 CLI 与 SDK
 
-- [ ] **T20 删除 participant/reviewer bridge 死代码**（预估：小）
-  位置：`cli/participant_worker.py`（255 行）、`cli/reviewer_worker.py`（263 行）、`pyproject.toml` L75-76 的 `map-participant-bridge` / `map-reviewer-bridge` entry points、对应测试与 `scripts/start-*-bridge*.sh` 桩脚本。
-  问题：bridge 路径已停用（AGENTS.md 已声明），`cli/` 内零引用，仅测试引用。
-  改法：删除文件 + entry points + 测试；`docs/LEGACY-ENTRY-MATRIX.md` 同步更新删除时间。
+- [x] **T20 删除 participant/reviewer bridge 死代码**（预估：小）✅ 2026-08-26
+  落地：删除 `cli/participant_worker.py`、`cli/reviewer_worker.py`、2 个 console entry、4 个 `start-*-bridge*.sh` stub 与 2 个配套测试；LEGACY-ENTRY-MATRIX.md 增「已退役（T20）」条目并清空 DEPRECATED 在册清单（check-deprecated.sh 通过）；README 退役章节同步。共享模块 `bridge_state.py` / `worker_cycle_log.py` 为 simple-waker/orchestrator 主路径使用，保留。
 
-- [ ] **T21 host_worker_types.py 只留 WorkerError**（预估：小）
-  位置：`cli/host_worker_types.py`（151 行）。
-  问题：仅 `WorkerError` 被 13+ 模块引用，其余（`MapClientProtocol` 40+ 行、`HostWorkerConfig` 等）无外部引用。
-  改法：`WorkerError` 迁至 `cli/errors.py`，删除其余类型，更新 `map_command_client.py` 等导入。
+- [x] **T21 host_worker_types.py 只留 WorkerError**（预估：小）✅ 2026-08-26
+  落地：`WorkerError` 迁至新建 `cli/errors.py`，删除 `cli/host_worker_types.py` 全文（`MapClientProtocol` 40+ 行、`WorkerConfig`、`WorkerStats`、`DEFAULT_REPLY_TEMPLATE` 均零外部引用）；9 个引用方（simple_waker / runtime_chat / map_command_client / e2e_collab / wake_backend / bridge_state + 3 测试）改从 `cli.errors` 导入。
 
-- [ ] **T22 wake 超时后复位 Agent SDK 连接**（预估：小）
-  位置：`cli/agent_client.py` L186-202 → `wake_up` 超时分支。
-  问题：超时后 `result=None; break` 但未 `disconnect()`，`_connected` 仍为 True；下一轮复用旧 client，旧 `receive_response()` 流可能仍挂起。
-  改法：超时路径调用 `disconnect()`（或 `wake_backend.reset_session()`），保证下轮全新连接。
+- [x] **T22 wake 超时后复位 Agent SDK 连接**（预估：小）✅ 2026-08-26
+  落地：`wake_up` 的 TimeoutError 分支在 break 前补 `await self.disconnect()`——旧 client 的 `receive_response()` 流可能仍挂起，`_connected` 残留 True 会让下一轮复用同一 client 卡在同一流上。state 的 session id 保留（resume 语义延续对话上下文；彻底弃 session 走 `wake_backend.reset_session()` 由调用方决定）。两个超时测试补断言：`disconnect_calls == 1`、`_connected is False`、`_client is None`。
 
-- [ ] **T23 打破 main ↔ commands 循环 import**（预估：中）
-  位置：`from cli.main import ...` 出现在 `cli/commands/project.py:57`、`topic.py:857`、`experiment.py:795/1340`、`notification.py:193`、`fs.py:592` 等 10+ 处函数内 lazy import；`_read_text_file` 真正定义在 `commands/experiment.py:1360-1381` 再被 `main.py:46-54` re-export 回来。
-  改法：抽 `cli/io_helpers.py`（读文件 + 统一错误输出）与 `cli/runner.py`（`_run`/`_client_ctx`/envelope 输出），commands 顶层直接导入，删除全部 lazy import 与 re-export。
+- [x] **T23 打破 main ↔ commands 循环 import**（预估：中）✅ 2026-08-26
+  落地：新建 `cli/runner.py`（`_run` 执行链、client ctx、JSON error envelope、序列化、`_resolve_project` / creator / executor / `_require_*` / `_load_topic_resolve_payload`）与 `cli/io_helpers.py`（`_read_text_file` / `_read_yaml_file`，原定义在 experiment.py 又被 main re-export 回去）。commands / audit_target / persona_compare / fs_projection 的 40+ 处函数内 lazy import 改顶层导入；main.py 1591 → 970 行（size-cap 守卫 1600 内），保留 re-export 兼容层与 `_cli_options` / `_transport` 状态。
+  关键设计：`_run` / `_resolve_project` 经 `runner._xxx` 模块属性调用（而非 from-import 固化绑定），runner 内部对 `_client_ctx` / `resolve_client` / `admin_client` / `find_map_dir` / `load_project_map_config` 运行时经 `cli.main` 解析——保住测试的全部 monkeypatch 注入面（`cli.main._transport` / `cli.main._client_ctx` / `cli.main.resolve_client` / `cli.runner._run` 等）；4 个测试的 patch 目标同步迁移（shortid / json_schema / m55 / notification_bulk_filter / fs_projection_cli）。剩余函数内 lazy import 仅 `_cli_options` / `_transport` / `_cli_version` / `_project_cli_default_format` 运行时状态（monkeypatch 面，按设计保留）。验证：全量 1580 passed；slow 门控的 test_cli.py 8 个失败经 HEAD 基线对比确认为既存（SOCKS 代理环境 + ReviewCreate 等，非本次引入）。
 
 - [ ] **T24 waker 迁移到 SDK，收敛双客户端层**（预估：大，T03 的中期项）
   位置：`sdk/python/map_client/client.py`（1212 行，in-process）与 `cli/map_command_client.py`（525 行，subprocess）方法集几乎一一对应。
