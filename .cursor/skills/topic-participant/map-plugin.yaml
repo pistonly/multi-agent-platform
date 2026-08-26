@@ -1,4 +1,4 @@
-# MAP Skill 分发清单（v0.13.2 话题写命令收口 map fs）
+# MAP Skill 分发清单（话题写命令走 map topic）
 # - version: 语义化版本，`map skill list --installed` / `map skill upgrade` 依据
 # - requires: 所需 map CLI 最低版本（MAJOR.MINOR）
 # - runtime_targets: 声明支持的 `map skill install --runtime` 目标

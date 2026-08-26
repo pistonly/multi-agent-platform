@@ -452,19 +452,19 @@ def test_cli_topic_write_commands_rejected_with_fs_guidance(
     retired = [
         (
             ["topic", "comment", "--id", tid, "--body", "评论"],
-            "fs comment",
+            "topic comment",
         ),
         (
             ["topic", "comment", "--id", tid, "--file", str(comment_file)],
-            "fs comment",
+            "topic comment",
         ),
         (
             ["topic", "advance-round", "--id", tid],
-            "fs advance-round",
+            "topic advance-round",
         ),
         (
             ["topic", "close", "--id", tid],
-            "fs close",
+            "topic close",
         ),
     ]
     for argv, hint in retired:
@@ -474,11 +474,12 @@ def test_cli_topic_write_commands_rejected_with_fs_guidance(
         assert hint in result.output, (argv, result.output)
 
 
-def test_cli_topic_help_announces_fs_only_writes(runner):
-    """M58b-1: `map topic --help` 顶层声明话题写操作 FS 单轨化。"""
+def test_cli_topic_help_announces_folder_writes(runner):
+    """`map topic --help` 顶层声明话题写操作走 map/topics/。"""
     result = runner.invoke(app, ["topic", "--help"])
     assert result.exit_code == 0, result.output
-    assert "FS-only writes" in result.output
+    assert "map/topics" in result.output
+    assert "create" in result.output
 
 
 def test_cli_topic_resolve_rejected_and_action_list_reads_db_fixture(
@@ -499,7 +500,7 @@ def test_cli_topic_resolve_rejected_and_action_list_reads_db_fixture(
     )
     assert result.exit_code == 2, result.output
     assert "DB write path retired" in result.output
-    assert "`map fs close --topic <slug> --reason <code> --note <decision>`" in result.output
+    assert "`map topic close --topic <slug> --reason <code> --note <decision>`" in result.output
     assert "`map topic migrate" in result.output
 
     db_resolve_with_action_items(

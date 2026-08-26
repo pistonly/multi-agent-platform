@@ -419,7 +419,7 @@ def apply_fs_projection_delta(
     row = get_fs_projection(db, project)
     if row is None:
         raise ConflictError(
-            "no projection exists; run a full map fs sync / push to bootstrap",
+            "no projection exists; run a full `map sync publish --full` to bootstrap",
             error="fs_projection_missing",
         )
     if agent.id != row.publisher_agent_id and agent.role != AgentRole.admin:
@@ -595,7 +595,7 @@ def apply_fields_to_projection(
         return None
     row = get_fs_projection(db, project)
     if row is None:
-        raise ConflictError("FS projection missing; run `map fs push` before committing")
+        raise ConflictError("FS projection missing; run `map sync publish --full` before committing")
     if row.revision != base_revision:
         raise ConflictError(
             f"projection revision conflict: validated at {base_revision}, "

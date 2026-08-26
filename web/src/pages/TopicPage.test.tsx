@@ -123,7 +123,7 @@ describe("TopicPage", () => {
 
     renderTopicPage();
 
-    expect(await screen.findByText(/远程 FS 投影的只读视图/)).toBeTruthy();
+    expect(await screen.findByText(/远程投影的只读视图/)).toBeTruthy();
     expect(await screen.findByText(/revision 3/)).toBeTruthy();
     expect(screen.getByText(/最后同步于/)).toBeTruthy();
     expect(screen.getByText(/内容可能陈旧/)).toBeTruthy();
@@ -143,7 +143,7 @@ describe("TopicPage", () => {
     renderTopicPage();
 
     expect(await screen.findByText(/话题评论、关闭、结论和归档请用 CLI/)).toBeTruthy();
-    expect(screen.getByText(/map --persona host fs comment --topic cli-guide/)).toBeTruthy();
+    expect(screen.getByText(/map --persona host topic comment --topic cli-guide/)).toBeTruthy();
     expect(screen.queryByText("关闭话题")).toBeNull();
     expect(screen.queryByPlaceholderText(/参与讨论/)).toBeNull();
   });

@@ -169,10 +169,10 @@ map --persona host status
 map --persona host topic list --status open
 
 # 创建一个话题（写 map/topics/<slug>/ + index.md；API 扫不到仓库时 list 仍能合并本地）
-map --persona host fs topic-create --title "讨论新功能设计" --slug discuss-new-feature --participants participant,reviewer
+map --persona host topic create --title "讨论新功能设计" --slug discuss-new-feature --participants participant,reviewer
 
 # participant：参与评论（即写 map/topics/<slug>/round<N>-participant.md）
-map --persona participant fs comment --topic discuss-new-feature --body "我同意这个方案"
+map --persona participant topic comment --topic discuss-new-feature --body "我同意这个方案"
 
 # reviewer：查看实验
 map --persona reviewer experiment list

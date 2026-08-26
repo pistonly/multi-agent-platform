@@ -18,7 +18,7 @@
 |------|----------|--------------|------|
 | `mentions` | map mention dismiss --id <uuid> | map-project-collab | mention 功能保留；实验评论仍产生，话题域来源已随 DB 写路径退役枯竭 |
 | `pending_topic_replies` | 写本轮发言文件：map topic comment --id <slug> --file <md>（即写 map/topics/<slug>/round<N>-<persona>.md，文件存在即消失）；存量 DB 话题只读，需 host 先 topic migrate | topic-host | FS 话题 reason=fs_file_missing；participant 视角见 topic-participant |
-| `round_ack` | 参与者交齐文件后 map topic advance-round --id <slug>（服务端校验写回 index.md；等价 fs advance-round --topic <slug>） | topic-host | 仅 host；FS 话题 |
+| `round_ack` | 参与者交齐文件后 map topic advance-round --id <slug>（服务端校验写回 index.md；等价 topic advance-round --topic <slug>） | topic-host | 仅 host；FS 话题 |
 | `pending_advance_rounds` | 读路径保留；推进已退役——host 先 topic migrate --id <uuid>迁 FS 后用 topic advance-round --id <slug> | topic-host | 存量 DB 话题 |
 | `pending_round_acks` | FS 话题=写本轮自己的发言文件（发言文件即表态）；存量 DB 话题=只读（迁移后表态），DB --ack 命令已退役 | topic-participant | reviewer 视角见 experiment-reviewer |
 | `pending_reviews` | 完成评审（experiment review add） | experiment-reviewer |  |
@@ -40,7 +40,7 @@
 ### FS 话题速查（map/ 文件夹事实源）
 
 - 话题 = `map/topics/<slug>/` 文件夹；发言 = `round<N>-<persona>.md` 一个文件（每轮每人一个，默认 immutable）
-- 离线读写即协作：`map fs list / show / comment / work`（纯本地，不调 API；advanced 入口，日常用 `map topic`）
+- 离线读写即协作：`map topic list / show / comment / work`（纯本地，不调 API；advanced 入口，日常用 `map topic`）
 - 验证型写走 API：`map topic advance-round --id <slug>` / `map topic close --id <slug>`（服务端校验权限 + ack 后写回 index.md）
 - FS 话题的 topic_id 是 uuid5 派生，可直接用于 `map topic show/comment/advance-round/close --id`（CLI 路由层解析）
 - **v0.13 M58 起 DB 话题写路径退役**：对 DB uuid（或 `--storage db`）跑写命令返回引导性错误——`topic create / list / show` 已兼容 FS；存量话题继续讨论先 `topic migrate`

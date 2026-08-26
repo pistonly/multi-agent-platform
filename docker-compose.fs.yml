@@ -7,10 +7,10 @@
 #   export MAP_WORKSPACE_PATH=/absolute/path/to/your/repo
 #   docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.fs.yml up
 #
-# 已知权衡（因此定位为过渡方案，长期形态是 map fs push + validate/commit）：
+# 已知权衡（因此定位为过渡方案，长期形态是 map sync publish + validate/commit）：
 # - macOS 的 bind mount 性能明显低于 Linux（map/ 全量实时扫描会更慢）；
 # - 容器进程写 index.md 会产生 root-owned 文件，注意 UID/GID 对齐；
-# - 仅适用于「单机 Docker」；多机 / 远程 server 请走 map fs push。
+# - 仅适用于「单机 Docker」；多机 / 远程 server 请走 map sync publish。
 #
 # 未设置 MAP_WORKSPACE_PATH 时 compose 会直接报错（:? 语法），避免把
 # workspace 静默挂错路径。

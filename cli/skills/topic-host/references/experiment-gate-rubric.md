@@ -30,7 +30,7 @@
 `topic advance-round`（不带 `--ready`）把轮次推进到下一轮后，**平台会为 required participant 生成 wakeable 通知**，simple-waker 会据此唤醒 participant 进场发言。host **无需**再手动 `@multi-agent-platform-participant`：
 
 ```bash
-map --persona host fs advance-round --topic <slug>
+map --persona host topic advance-round --topic <slug>
 # 平台通知 required participant；waker 会唤醒他们
 ```
 
@@ -80,10 +80,10 @@ map --persona host topic dismiss --id <topic-uuid>
 
 ```bash
 # participant 表态（写自己的发言文件）：
-map --persona participant fs comment --topic <slug> --file ./my-stance.md
+map --persona participant topic comment --topic <slug> --file ./my-stance.md
 
 # host 在 required 表态齐后推进：
-map --persona host fs advance-round --topic <slug>
+map --persona host topic advance-round --topic <slug>
 ```
 
 required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--waive-ack --waive-reason "<非空理由>"`（审计可见）。误推进按 FS rollback 约定回退（删本轮 round 文件 + 核对 `index.md` 的 `round`/`participants` 一致性）。
@@ -97,12 +97,12 @@ required 发言文件未齐时直接推进会被拒绝；确需跳过时用 `--w
 
 ```bash
 # 简单议题：Round 1 已收敛，host 提前标记 ready
-map --persona host fs advance-round --topic <slug> --ready
+map --persona host topic advance-round --topic <slug> --ready
 
 # 复杂议题：Round 2 仍有未决项，追加 Round 3
-map --persona host fs advance-round --topic <slug>
+map --persona host topic advance-round --topic <slug>
 # Round 3 收敛后标记 ready
-map --persona host fs advance-round --topic <slug> --ready
+map --persona host topic advance-round --topic <slug> --ready
 ```
 
 - Rubric 的「两轮」要求是**默认建议**，不是硬性平台约束：满足「至少一轮讨论 + Round Summary + 其他三门」即可开实验。
@@ -112,7 +112,7 @@ map --persona host fs advance-round --topic <slug> --ready
 参与者离线但结论已收敛时，host 可显式豁免表态门禁直接推进（**必须**配非空理由，审计可见）：
 
 ```bash
-map --persona host fs advance-round --topic <slug> \
+map --persona host topic advance-round --topic <slug> \
   --waive-ack --waive-reason "参与者离线，结论已收敛"
 ```
 

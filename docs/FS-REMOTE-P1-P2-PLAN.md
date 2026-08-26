@@ -138,9 +138,9 @@ stale 判定建议：
 
 ### 3.3 CLI 计划
 
-将当前 `map fs push` 演化为以下用户面：
+将当前 `map sync publish --full` 演化为以下用户面：
 
-#### `map fs status`
+#### `map sync check`
 
 新增展示：
 
@@ -149,7 +149,7 @@ stale 判定建议：
 - `in-sync | local-ahead | divergent | detached | stale`；
 - 下一步可执行命令。
 
-#### `map fs diff`
+#### `map sync diff`
 
 目标：只显示结构化摘要，不下载或打印全部正文。
 
@@ -161,7 +161,7 @@ stale 判定建议：
 
 server 无投影时，diff 应解释为首次 bootstrap，而不是错误。
 
-#### `map fs sync`
+#### `map sync publish`
 
 建议语义：
 
@@ -181,14 +181,14 @@ server 无投影时，diff 应解释为首次 bootstrap，而不是错误。
 
 删除安全门禁：交互模式必须确认；Agent / 非交互模式缺少 `--yes` 时返回可操作错误，不能静默删除远端对象。
 
-`map fs push` 在 P1 期间保留为兼容别名，输出 deprecation 提示并等价于 `map fs sync --full`，实际移除另行立项。
+`map sync publish --full` 在 P1 期间保留为兼容别名，输出 deprecation 提示并等价于 `map sync publish --full`，实际移除另行立项。
 
 #### 本地写后的自动同步
 
 以下成功写操作在检测到 server 为 `projection-cache` 时默认执行增量 sync：
 
 - `map topic comment` 的 FS 路径；
-- `map fs comment`；
+- `map topic comment`；
 - topic create；
 - lifecycle validate / commit 完成后的关联 topic 刷新。
 
@@ -196,7 +196,7 @@ server 无投影时，diff 应解释为首次 bootstrap，而不是错误。
 
 - 本地文件写入不回滚（comment/create 本来就是本地事实）；
 - 命令必须非零退出或明确输出 `local write succeeded, remote sync failed`；
-- 给出 `map fs diff` / `map fs sync` 修复命令；
+- 给出 `map sync diff` / `map sync publish` 修复命令；
 - lifecycle commit 的原子恢复逻辑维持 P0 契约，不与普通本地写混用。
 
 ### 3.4 服务端与 Web 计划
@@ -224,7 +224,7 @@ Web：
    migration + Project schema/API + server scan 路由 + 默认值兼容测试。
 2. **P1-B：来源元数据与 stale**  
    统一 schema、read envelope、Web badge、status 输出。
-3. **P1-C：对象 hash 清单与 `map fs diff`**  
+3. **P1-C：对象 hash 清单与 `map sync diff`**  
    只读能力先落地，固定 delta 输入契约。
 4. **P1-D：delta + tombstone CAS**  
    服务端事务、SDK、CLI `sync --dry-run/--yes/--full`。
@@ -241,7 +241,7 @@ Web：
 - [x] delta 并发请求只有一个能从相同 base revision 成功；
 - [x] 删除只能由显式 tombstone 发生，全量 repair 不因遗漏对象静默删除；
 - [x] 空 delta 幂等且 revision 不增长；
-- [x] `map fs diff --json` 能稳定区分 in-sync、local-ahead、divergent、detached；
+- [x] `map sync diff --json` 能稳定区分 in-sync、local-ahead、divergent、detached；
 - [x] comment/create 自动同步失败时本地文件保留，CLI 明确报“本地成功、远端失败”；
 - [x] lifecycle commit 冲突仍恢复本地 `index.md`；
 - [x] topic、experiment、work、Web 展示同一个 source revision；
@@ -482,7 +482,7 @@ P1：
 
 - migration 与项目级 content source 配置；
 - delta/tombstone API、SDK、CLI；
-- `map fs status/diff/sync`；
+- `map sync check/diff/sync`；
 - source meta / stale 的 CLI、API、Web 展示；
 - 自动同步与恢复说明；
 - P1 协议、权限、并发、迁移测试。

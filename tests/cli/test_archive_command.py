@@ -110,13 +110,17 @@ def _create_cancelled_experiment(client, headers, project, title: str = "归档�
     return exp_id
 
 
-def _assert_topic_archive_guidance(result: Any, kind: str = "archive") -> None:
-    assert result.exit_code == 2, result.output
-    assert "DB write path retired" in result.output, result.output
-    if kind == "archive":
-        assert "mv map/topics/<slug>/ map/archive/topics/" in result.output
-    else:
-        assert "mv map/archive/topics/<slug>/ map/topics/" in result.output
+def _assert_topic_archive_folder_miss(result: Any) -> None:
+    """DB uuid / 缺失 slug 走文件夹归档：找不到工作区或话题目录，不触达 SDK。"""
+    assert result.exit_code in (1, 2), result.output
+    combined = result.output.lower()
+    assert (
+        "not found" in combined
+        or "bootstrap" in combined
+        or ".map" in combined
+        or "index.md" in combined
+    ), result.output
+    assert "DB write path retired" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +134,7 @@ def test_topic_archive_basic_rejected_with_fs_guidance(
     topic = _db_topic(db_session, project, title="basic-archive")
 
     result = runner.invoke(app, ["topic", "archive", "--id", str(topic.id)])
-    _assert_topic_archive_guidance(result)
+    _assert_topic_archive_folder_miss(result)
 
 
 def test_topic_archive_undo_and_unarchive_both_rejected(
@@ -139,9 +143,9 @@ def test_topic_archive_undo_and_unarchive_both_rejected(
     topic = _db_topic(db_session, project, title="undo-archive")
 
     undo = runner.invoke(app, ["topic", "archive", "--id", str(topic.id), "--undo"])
-    _assert_topic_archive_guidance(undo, kind="archive-undo")
+    _assert_topic_archive_folder_miss(undo)
     unarchive = runner.invoke(app, ["topic", "archive", "--id", str(topic.id), "--unarchive"])
-    _assert_topic_archive_guidance(unarchive, kind="archive-undo")
+    _assert_topic_archive_folder_miss(unarchive)
     # 两个别名路由到同一拒绝路径，文案一致
     assert undo.output == unarchive.output
 
@@ -154,8 +158,8 @@ def test_undo_and_unarchive_equivalent(runner: CliRunner, patched_cli):
         r_undo = runner.invoke(app, ["topic", "archive", "--id", topic_id, "--undo"])
         r_unarchive = runner.invoke(app, ["topic", "archive", "--id", topic_id, "--unarchive"])
 
-    assert r_undo.exit_code == 2, r_undo.output
-    assert r_unarchive.exit_code == 2, r_unarchive.output
+    assert r_undo.exit_code in (1, 2), r_undo.output
+    assert r_unarchive.exit_code in (1, 2), r_unarchive.output
     assert r_undo.output == r_unarchive.output
     fake_update_topic.assert_not_called()
 
@@ -201,8 +205,8 @@ def test_archive_rejected_before_sdk_call(runner: CliRunner, patched_cli):
         r1 = runner.invoke(app, ["topic", "archive", "--id", topic_id])
         r2 = runner.invoke(app, ["topic", "archive", "--id", topic_id])
 
-    assert r1.exit_code == 2, r1.output
-    assert r2.exit_code == 2, r2.output
+    assert r1.exit_code in (1, 2), r1.output
+    assert r2.exit_code in (1, 2), r2.output
     assert r1.output == r2.output
     assert captured == []
 
@@ -269,7 +273,7 @@ def test_archive_not_found_404_friendly_message(
 ):
     missing_topic = str(uuid.uuid4())
     result = runner.invoke(app, ["topic", "archive", "--id", missing_topic])
-    _assert_topic_archive_guidance(result)
+    _assert_topic_archive_folder_miss(result)
 
     missing_exp = str(uuid.uuid4())
     result2 = runner.invoke(app, ["experiment", "archive", "--id", missing_exp])
@@ -280,19 +284,19 @@ def test_archive_not_found_404_friendly_message(
 def test_archive_invalid_uuid_typer_error(runner: CliRunner, patched_cli):
     bad = "not-a-uuid"
     result = runner.invoke(app, ["topic", "archive", "--id", bad])
-    assert result.exit_code != 0
-    assert "Invalid value" in result.output
-    assert bad in result.output
+    # 话题归档按 slug 找文件夹，不再要求 UUID
+    _assert_topic_archive_folder_miss(result)
 
     result2 = runner.invoke(app, ["experiment", "archive", "--id", bad])
     assert result2.exit_code != 0
     assert "Invalid value" in result2.output
+    assert bad in result2.output
 
 
 def test_archive_missing_id_typer_error(runner: CliRunner, patched_cli):
-    # topic archive 无 --id 也统一走引导拒绝（--id 已 optional）
     result = runner.invoke(app, ["topic", "archive"])
-    _assert_topic_archive_guidance(result)
+    assert result.exit_code != 0
+    assert "--topic" in result.output or "--id" in result.output
 
     result2 = runner.invoke(app, ["experiment", "archive"])
     assert result2.exit_code != 0
@@ -325,7 +329,7 @@ def test_archive_permission_matrix(
 
     # host: topic archive 引导拒绝；experiment archive 成功
     r1 = runner.invoke(app, ["topic", "archive", "--id", str(topic.id)])
-    _assert_topic_archive_guidance(r1)
+    _assert_topic_archive_folder_miss(r1)
     r2 = runner.invoke(app, ["experiment", "archive", "--id", exp_id])
     assert r2.exit_code == 0, r2.output
 
@@ -333,7 +337,7 @@ def test_archive_permission_matrix(
     # creator-or-admin 门禁 403（authz PR3：PATCH 实验元数据仅创建者/管理员）
     monkeypatch.setenv("MAP_TOKEN", reviewer_token)
     r3 = runner.invoke(app, ["topic", "archive", "--id", str(topic.id), "--undo"])
-    _assert_topic_archive_guidance(r3, kind="archive-undo")
+    _assert_topic_archive_folder_miss(r3)
     r4 = runner.invoke(app, ["experiment", "archive", "--id", exp_id, "--undo"])
     assert r4.exit_code == 1, r4.output
     assert "creator or an admin" in r4.output
@@ -350,7 +354,7 @@ def test_show_after_archive_still_visible(
     topic = _db_topic(db_session, project, title="show-after-archive")
 
     archive = runner.invoke(app, ["topic", "archive", "--id", str(topic.id)])
-    _assert_topic_archive_guidance(archive)
+    _assert_topic_archive_folder_miss(archive)
 
     # 只读路径不回退：show 仍可读 DB 话题
     show = runner.invoke(app, ["topic", "show", "--id", str(topic.id)])

@@ -1,16 +1,8 @@
-"""``map fs ...`` sub-app — map/ 文件夹事实源操作。
-
-两类命令：
-
-* **纯文件操作**（零 API、零网络）：``init`` / ``topic create`` / ``comment`` /
-  ``list`` / ``show`` / ``work`` / ``migrate-from-docs`` / ``archive`` /
-  ``archive-index``。Agent 发言 = 写一个 ``round<N>-<persona>.md``，学习成本为
-  零，这些命令只是命名约定的便捷封装。
-* **验证型写**（走 API）：``advance-round`` / ``close``。服务端校验权限与
-  ack 完整性后写回 index.md。
+"""Helpers for folder-backed topic writes (CLI surface is ``map topic`` / ``map sync``).
 
 内容根目录：``.map/config.yaml`` 的 ``content_root``（默认 ``map``），
-即 ``<workspace>/map/``。
+即 ``<workspace>/map/``。用户命令不暴露 fs：话题走 ``map topic``，
+投影同步走 ``map sync publish`` / ``diff`` / ``check``。
 """
 
 from __future__ import annotations
@@ -29,15 +21,6 @@ from map_client.exceptions import MAPHTTPError
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.table_render import render_table, truncate
-
-fs_app = typer.Typer(
-    help=(
-        "map/ folder source-of-truth writes and projection sync. "
-        "Daily topic writes: topic-create / comment / advance-round / close / archive. "
-        "`map topic` keeps hidden compatibility aliases for the same writes."
-    ),
-    rich_markup_mode=None,
-)
 
 _ROUND_FILE_RE = re.compile(r"^round(\d+)-([A-Za-z0-9_.\-]+)\.md$")
 
@@ -80,8 +63,7 @@ def _default_persona(workspace: Path) -> str:
 def _persona(persona: str | None) -> str:
     """解析 persona：子命令显式 --persona > 全局 map --persona > config 默认。
 
-    全局 ``map --persona <name> fs ...`` 与其他命令组语义一致，Agent 无需
-    记住 fs 子命令要重复传 --persona。
+    全局 ``map --persona <name> topic ...`` 与其他命令组语义一致。
     """
     if persona:
         return persona
@@ -101,7 +83,7 @@ def _current_round(workspace: Path, slug: str) -> int:
 
     topic = parse_topic_dir(workspace / _content_root_name(workspace) / "topics" / slug, workspace)
     if topic is None:
-        typer.echo(f"Error: fs topic not found: {slug} (run `map fs topic create` first)", err=True)
+        typer.echo(f"Error: topic not found: {slug} (run `map topic create` first)", err=True)
         raise typer.Exit(1)
     return topic.round_number
 
@@ -111,7 +93,6 @@ def _current_round(workspace: Path, slug: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-@fs_app.command("init")
 def fs_init() -> None:
     """创建内容根目录结构：<content_root>/topics 与 <content_root>/experiments。"""
     from map_fs import DEFAULT_CONTENT_ROOT
@@ -133,7 +114,7 @@ def write_new_fs_topic(
     participants: str | None = None,
     creator: str | None = None,
 ) -> Path:
-    """离线创建话题文件夹 + index.md。``map topic create`` 与 ``map fs topic-create`` 共用。
+    """离线创建话题文件夹 + index.md。``map topic create`` 使用此函数。
 
     slug 为空时由 title 生成（两个入口行为一致）。title 为空直接报错退出——
     部分 typer/click 版本组合不强制校验必填 CLI 选项，缺失的 ``--title``
@@ -158,7 +139,6 @@ def write_new_fs_topic(
     )
 
 
-@fs_app.command("topic-create")
 def fs_topic_create(
     title: str = typer.Option(..., "--title"),
     slug: str | None = typer.Option(
@@ -185,7 +165,6 @@ def fs_topic_create(
     maybe_auto_sync(no_sync=no_sync, workspace=_workspace())
 
 
-@fs_app.command("comment")
 def fs_comment(
     topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名，T2-P2）"),
     body: str | None = typer.Option(None, "--body", help="评论正文（与 --file 二选一）"),
@@ -239,7 +218,6 @@ def fs_comment(
     maybe_auto_sync(no_sync=no_sync, workspace=workspace)
 
 
-@fs_app.command("list")
 def fs_list(status: str | None = typer.Option(None, "--status", help="open | closed")) -> None:
     """离线列出所有文件夹话题（实时解析，无网络）。"""
     from map_fs import scan_plane
@@ -261,10 +239,9 @@ def fs_list(status: str | None = typer.Option(None, "--status", help="open | clo
         ]
         for t in topics
     ]
-    typer.echo(render_table(headers, rows) if rows else "(no fs topics)")
+    typer.echo(render_table(headers, rows) if rows else "(no topics)")
 
 
-@fs_app.command("show")
 def fs_show(
     topic: str = typer.Option(..., "--topic", "--id"),
     full: bool = typer.Option(False, "--full", help="打印评论完整正文"),
@@ -280,11 +257,11 @@ def fs_show(
         if (workspace / root / "archive" / "topics" / topic).is_dir():
             typer.echo(
                 f"Error: topic '{topic}' is archived (map/archive/topics/{topic}/) — "
-                f"restore via `map fs archive --topic {topic} --undo` to resume",
+                f"restore via `map topic archive --topic {topic} --undo` to resume",
                 err=True,
             )
             raise typer.Exit(1)
-        typer.echo(f"Error: fs topic not found: {topic}", err=True)
+        typer.echo(f"Error: topic not found: {topic}", err=True)
         raise typer.Exit(1)
     typer.echo(f"# {t.title}  [{t.slug}]")
     typer.echo(f"status={t.status} round={t.round} creator={t.creator} dir={t.dir_path}")
@@ -293,7 +270,7 @@ def fs_show(
         # R1/V1 读路径报告：只报告不阻断不改写（存量脏文件保留历史）
         typer.echo(
             f"anomalies: {len(t.anomalies)} "
-            "(invalid=字段存在但非法; lite=缺失; 只报告不阻断读, 详见 `map fs anomalies`)"
+            "(invalid=字段存在但非法; lite=缺失; 只报告不阻断读, 详见 `map topic anomalies`)"
         )
         a_headers = ["File", "Level", "Reason"]
         a_rows = [[a.file, a.level, a.reason] for a in t.anomalies]
@@ -309,7 +286,6 @@ def fs_show(
             typer.echo(f"\n===== {c.file_path} =====\n{c.content}")
 
 
-@fs_app.command("anomalies")
 def fs_anomalies(
     format: str = typer.Option(
         "table", "--format", help="Output format: table | yaml | json (v0.12 M54A)."
@@ -337,14 +313,13 @@ def fs_anomalies(
         typer.echo(_yaml.safe_dump(rows, allow_unicode=True, sort_keys=False).strip())
         return
     if not rows:
-        typer.echo("(no fs anomalies)")
+        typer.echo("(no anomalies)")
         return
     headers = ["Topic", "File", "Level", "Reason"]
     table_rows = [[r["topic"], r["file"], r["level"], truncate(r["reason"], 52)] for r in rows]
     typer.echo(render_table(headers, table_rows))
 
 
-@fs_app.command("work")
 def fs_work(persona: str | None = typer.Option(None, "--persona")) -> None:
     """离线推导 persona 待办（纯函数：文件存在性 → pending_topic_reply 等）。"""
     from map_fs import derive_work, scan_plane
@@ -354,7 +329,7 @@ def fs_work(persona: str | None = typer.Option(None, "--persona")) -> None:
     plane = scan_plane(workspace, _content_root_name(workspace))
     items = [i for t in plane.topics for i in derive_work(t, who)]
     if not items:
-        typer.echo(f"(no fs work for {who})")
+        typer.echo(f"(no folder work for {who})")
         return
     headers = ["Kind", "Topic", "Round", "Detail"]
     rows = [[i.kind, i.topic_slug, str(i.round), i.detail] for i in items]
@@ -428,15 +403,14 @@ def _require_local_topic(workspace: Path, slug: str) -> Any:
     )
     if parsed is None:
         typer.echo(
-            f"Error: fs topic not found locally: {slug} "
-            "(验证型写需要本地 map/ 文件夹作为事实源；run `map fs topic create` first)",
+            f"Error: topic not found locally: {slug} "
+            "(验证型写需要本地 map/ 文件夹作为事实源；run `map topic create` first)",
             err=True,
         )
         raise typer.Exit(1)
     return parsed
 
 
-@fs_app.command("status")
 def fs_status(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
@@ -540,15 +514,15 @@ def validated_write_flow(
     base_revision: int | None = None
     if plane_status.mode != "local-fs":
         # 增量同步（禁删）：远端独有对象不会被验证型写隐式清掉——全量 PUT
-        # 会静默删除投影中本地缺失的对象，绕过 map fs sync 的 tombstone 门禁。
+        # 会静默删除投影中本地缺失的对象，绕过 map sync publish 的 tombstone 门禁。
         from cli.fs_projection import sync_projection
 
         result = sync_projection(c, pid=pid, workspace=workspace, allow_deletes=False)
         if result.get("sync_state") == "skipped-deletes":
             typer.echo(
                 "Warning: projection sync before validate skipped because remote "
-                "objects would be deleted. Preview with `map fs diff`, then "
-                "`map fs sync --yes`.",
+                "objects would be deleted. Preview with `map sync diff`, then "
+                "`map sync publish --yes`.",
                 err=True,
             )
         base_revision = int(
@@ -596,7 +570,7 @@ def _run_validated_write(
     project_key: str | None,
     validate_call,
 ) -> None:
-    """``map fs advance-round|close`` 入口：包一层 client 构造与输出渲染。"""
+    """``map topic advance-round|close`` 入口：包一层 client 构造与输出渲染。"""
 
     def action(c: MAPClient):
         pid = runner._resolve_project(c, project, project_key)
@@ -607,7 +581,6 @@ def _run_validated_write(
     runner._run(action)
 
 
-@fs_app.command("advance-round")
 def fs_advance_round(
     topic: str = typer.Option(..., "--topic", "--id"),
     project: uuid.UUID | None = typer.Option(None, "--project"),
@@ -683,7 +656,6 @@ def _render_validate_error(exc: MAPHTTPError) -> None:
             )
 
 
-@fs_app.command("close")
 def fs_close(
     topic: str = typer.Option(..., "--topic", "--id"),
     project: uuid.UUID | None = typer.Option(None, "--project"),
@@ -714,7 +686,6 @@ def fs_close(
     )
 
 
-@fs_app.command("archive")
 def fs_archive(
     topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名，T2-P2）"),
     undo: bool = typer.Option(
@@ -761,7 +732,6 @@ def fs_archive(
     typer.echo(f"Rebuilt {index.relative_to(workspace)} (entry reflected)")
 
 
-@fs_app.command("archive-index")
 def fs_archive_index(
     rebuild: bool = typer.Option(
         False, "--rebuild", help="全量重建（生成式投影，唯一模式）"
@@ -788,15 +758,14 @@ def fs_archive_index(
     typer.echo(f"Rebuilt {index.relative_to(workspace)} ({len(entries)} entries)")
 
 
-@fs_app.command("push")
 def fs_push(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
     yes: bool = typer.Option(False, "--yes", help="Confirm remote deletes (tombstones)"),
 ) -> None:
-    """Deprecated alias for ``map fs sync --full``. Prefer ``map fs sync``."""
+    """Deprecated alias for ``map sync publish --full``. Prefer ``map sync publish``."""
     typer.echo(
-        "Warning: `map fs push` is deprecated; use `map fs sync --full`.",
+        "Warning: `map sync push` is deprecated; use `map sync publish --full`.",
         err=True,
     )
     _run_fs_sync(project=project, project_key=project_key, dry_run=False, full=True, yes=yes)
@@ -827,7 +796,6 @@ def _run_fs_sync(
     runner._run(action)
 
 
-@fs_app.command("diff")
 def fs_diff(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
@@ -863,7 +831,6 @@ def fs_diff(
     runner._run(action, table_renderer=_render)
 
 
-@fs_app.command("sync")
 def fs_sync(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
@@ -917,7 +884,6 @@ def _topic_index_meta(topic_dir: Path) -> tuple[str, int, str]:
     return topic_dir.name.replace("-", " ").title(), max_round, creator or "host"
 
 
-@fs_app.command("migrate-from-docs")
 def fs_migrate_from_docs(
     dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:

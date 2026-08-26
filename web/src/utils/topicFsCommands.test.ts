@@ -16,14 +16,14 @@ describe("topicFsCommands", () => {
 
   it("builds create command with quoted title", () => {
     expect(topicCreateCommand('say "hi"', "demo")).toBe(
-      'map --persona host fs topic-create --title "say \\"hi\\"" --slug demo',
+      'map --persona host topic create --title "say \\"hi\\"" --slug demo',
     );
   });
 
   it("uses placeholders when slug is missing", () => {
     expect(topicCommentCommand("")).toContain("--topic <slug>");
     expect(topicCloseCommand("demo")).toContain("--topic demo");
-    expect(topicArchiveCommand("demo")).toBe("map --persona host fs archive --topic demo");
+    expect(topicArchiveCommand("demo")).toBe("map --persona host topic archive --topic demo");
     expect(topicMigrateCommand("abc-id")).toContain("--id abc-id");
   });
 });

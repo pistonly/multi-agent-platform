@@ -41,7 +41,7 @@ def fs_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _invoke_comment(runner: CliRunner, workspace: Path, *extra: str) -> None:
     src = workspace / "opinion.md"
     src.write_text("# 我的观点\n正文", encoding="utf-8")
-    result = runner.invoke(app, ["fs", "comment", "--topic", "t", "--file", str(src), *extra])
+    result = runner.invoke(app, ["topic", "comment", "--topic", "t", "--file", str(src), *extra])
     assert result.exit_code == 0, result.output
 
 
@@ -50,7 +50,7 @@ def test_global_persona_propagates_to_fs_comment(runner: CliRunner, fs_workspace
     src.write_text("# 观点", encoding="utf-8")
     result = runner.invoke(
         app,
-        ["--persona", "participant", "fs", "comment", "--topic", "t", "--file", str(src)],
+        ["--persona", "participant", "topic", "comment", "--topic", "t", "--file", str(src)],
     )
     assert result.exit_code == 0, result.output
     assert (fs_workspace / "map" / "topics" / "t" / "round1-participant.md").is_file()
@@ -64,7 +64,7 @@ def test_subcommand_persona_overrides_global(runner: CliRunner, fs_workspace: Pa
         [
             "--persona",
             "participant",
-            "fs",
+            "topic",
             "comment",
             "--persona",
             "reviewer",

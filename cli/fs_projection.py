@@ -195,10 +195,10 @@ def build_diff_payload(
         server_mode=status.mode,
     )
     next_cmd = {
-        "detached": "map fs sync",
-        "local-ahead": "map fs sync",
-        "divergent": "map fs status  # resolve publisher/content_root blockers",
-        "stale": "map fs sync",
+        "detached": "map sync publish",
+        "local-ahead": "map sync publish",
+        "divergent": "map sync check  # resolve publisher/content_root blockers",
+        "stale": "map sync publish",
         "in-sync": None,
     }.get(sync_state)
     return {
@@ -256,7 +256,7 @@ def sync_projection(
     if deletes and not yes and not sys.stdin.isatty():
         typer.echo(
             "Error: remote objects would be deleted; re-run with --yes "
-            "(non-interactive agents must confirm tombstones). Preview: map fs diff",
+            "(non-interactive agents must confirm tombstones). Preview: map sync diff",
             err=True,
         )
         raise typer.Exit(1)
@@ -323,7 +323,7 @@ def maybe_auto_sync(
         typer.echo(
             f"Warning: auto-sync skipped due to server error: "
             f"{err.status_code} {err.detail}. Remote projection is now stale; "
-            "run `map fs sync` after fixing server access.",
+            "run `map sync publish` after fixing server access.",
             err=True,
         )
         return
@@ -349,17 +349,17 @@ def maybe_auto_sync(
             f"local write succeeded, remote sync failed: {err.status_code} {err.detail}",
             err=True,
         )
-        typer.echo("fix: map fs diff && map fs sync --yes", err=True)
+        typer.echo("fix: map sync diff && map sync publish --yes", err=True)
         raise typer.Exit(1) from err
     except Exception as err:
         typer.echo(f"local write succeeded, remote sync failed: {err}", err=True)
-        typer.echo("fix: map fs diff && map fs sync --yes", err=True)
+        typer.echo("fix: map sync diff && map sync publish --yes", err=True)
         raise typer.Exit(1) from err
     if result.get("sync_state") == "skipped-deletes":
         typer.echo(
             "Warning: auto-sync skipped entirely (including this write) because "
-            "remote objects would be deleted. Preview with `map fs diff`, then "
-            "`map fs sync --yes`.",
+            "remote objects would be deleted. Preview with `map sync diff`, then "
+            "`map sync publish --yes`.",
             err=True,
         )
         return
@@ -398,7 +398,7 @@ def warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
                 if result.get("sync_state") == "skipped-deletes":
                     typer.echo(
                         "WARNING: bootstrap auto-sync skipped because it would "
-                        "delete remote objects. Run `map fs diff` then `map fs sync --yes`.",
+                        "delete remote objects. Run `map sync diff` then `map sync publish --yes`.",
                         err=True,
                     )
                 else:
@@ -435,8 +435,8 @@ def warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
         if status.hint:
             typer.echo(f"  hint: {status.hint}", err=True)
         typer.echo(
-            "  修复: 同机运行 server，或在业务仓执行 `map fs sync` "
-            "（兼容别名 `map fs push`）。不要把 bind-mount 当作推荐安装路径。",
+            "  修复: 同机运行 server，或在业务仓执行 `map sync publish` "
+            "（兼容别名 `map sync push`）。不要把 bind-mount 当作推荐安装路径。",
             err=True,
         )
     except _AUTO_SYNC_SKIP_ERRORS as exc:

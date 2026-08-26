@@ -39,7 +39,7 @@ def test_render_clear_action_comment_template_is_deterministic():
     }
     rendered = render_clear_action_template(item)
     expected = (
-        "map fs comment --topic 11111111-1111-1111-1111-111111111111 "
+        "map topic comment --topic 11111111-1111-1111-1111-111111111111 "
         "--file <your-round-speech.md>"
     )
     assert rendered == expected
@@ -57,7 +57,7 @@ def test_render_clear_action_ack_template_is_deterministic():
     }
     rendered = render_clear_action_template(item)
     assert rendered == (
-        "map fs comment --topic 33333333-3333-3333-3333-333333333333 "
+        "map topic comment --topic 33333333-3333-3333-3333-333333333333 "
         "--file <your-round-speech.md>  # speech file = your ack (v0.13 M58)"
     )
 

@@ -2,11 +2,11 @@
 
 Three sub-apps that share the "topic work items" domain:
 
-* ``map topic ...`` — unified topic facade (list / show / create / comment /
-  advance-round / close / progress / dismiss / read / mark-seen / migrate).
-  Writes go to ``map/topics/<slug>/``; ``list``/``show`` merge local folders with
-  leftover DB topics from the API. v0.13 M58: DB write paths retired —
-  resolve / rollback-round / reopen / archive (and the DB branches of
+* ``map topic ...`` — unified topic facade (create / comment / advance-round /
+  close / archive / list / show / progress / dismiss / read / mark-seen /
+  migrate). Writes go to ``map/topics/<slug>/``; ``list``/``show`` merge local
+  folders with leftover DB topics from the API. v0.13 M58: DB write paths
+  retired — resolve / rollback-round / reopen (and the DB branches of
   comment / advance-round / close) reject with guidance.
 * ``map mention ...`` — personal @mention todos (dismiss / list /
   dismiss-all / reconcile-stale stub).
@@ -35,17 +35,15 @@ from cli.runner import (  # noqa: E402
 )
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
-# create/comment/advance-round/close + retired DB writes: keep callable, hide
-# from `map topic --help` so discovery goes to `map fs` (Web CLI 指引同源).
-_TOPIC_WRITE_HIDDEN = True
+# Retired DB writes stay callable but hidden from `map topic --help`.
+# Daily writes (create/comment/advance-round/close/archive) are visible.
 
 topic_app = typer.Typer(
     help=(
-        "Topic reads, migrate, and action-items (v0.13 M58: FS-only writes). "
-        "list/show/progress/history merge local map/ with leftover DB topics; "
+        "Topics: create/comment/advance-round/close/archive write map/topics/<slug>/; "
+        "list/show/progress/history merge local folders with leftover DB topics. "
         "migrate/dismiss/read/mark-seen stay available. "
-        "Writes live under `map fs` (topic-create/comment/advance-round/close/archive); "
-        "`map topic` write subcommands remain as hidden compatibility aliases."
+        "DB write paths (resolve/rollback-round/reopen) are retired."
     ),
     rich_markup_mode=None,
 )
@@ -54,7 +52,7 @@ todo_app = typer.Typer(help="Todo partition clear routing (explicit_only buckets
 # FS 话题执行项（action-items.yaml）——收敛时落盘，close 门禁校验清零
 action_item_app = typer.Typer(
     help=(
-        "FS 话题执行项(action-items.yaml)命令：add / complete / cancel / list。"
+        "话题执行项(action-items.yaml)命令：add / complete / cancel / list。"
         "收敛时由 host 落盘 open 项，owner 完成/取消后清零，close 门禁校验无 open 才放行。"
     ),
     rich_markup_mode=None,
@@ -301,7 +299,7 @@ def _exit_not_found(message: str, ref: str, ref_uuid: uuid.UUID | None) -> NoRet
     if hint is not None:
         typer.echo(
             f"Error: topic '{hint}' is archived (map/archive/topics/{hint}/) — "
-            f"restore via `map fs archive --topic {hint} --undo` to resume; "
+            f"restore via `map topic archive --topic {hint} --undo` to resume; "
             "archived topics are read-only via the archive folder",
             err=True,
         )
@@ -348,7 +346,7 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
         slug = fs_hit()
         if slug is not None:
             return ("fs", slug)
-        _exit_not_found(f"Error: fs topic not found: {ref} (see `map fs list`)", ref, ref_uuid)
+        _exit_not_found(f"Error: topic not found: {ref} (see `map topic list`)", ref, ref_uuid)
     if storage == "db":
         tid = db_hit()
         if tid is not None:
@@ -371,7 +369,7 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
         return ("db", tid)
     _exit_not_found(
         f"Error: topic not found: {ref} (no map/topics/{ref}/ folder and no DB slug "
-        "match; see `map fs list` / `map topic list`)",
+        "match; see `map topic list`)",
         ref,
         None,
     )
@@ -415,7 +413,7 @@ def _fs_projection_noop(command: str, slug: str) -> NoReturn:
     typer.echo(
         f"No-op: FS topic '{slug}' has no DB todos projection; `topic {command}` "
         "only affects DB topics. FS pending items (e.g. fs_file_missing) clear "
-        "by writing round files (see `map fs work`)."
+        "by writing round files (see `map topic work`)."
     )
     raise typer.Exit(0)
 
@@ -427,48 +425,45 @@ def _fs_projection_noop(command: str, slug: str) -> NoReturn:
 # 一律引导性错误（exit 2），不静默成功。
 _DB_WRITE_RETIRED_HINTS: dict[str, str] = {
     "create": (
-        "create FS topics instead: "
-        "`map fs topic-create --title ... --slug <name> --participants <a,b>` "
-        "(hidden alias: `map topic create`)"
+        "create topics instead: "
+        "`map topic create --title ... --slug <name> --participants <a,b>` "
+        "(writes map/topics/<slug>/)"
     ),
     "resolve": (
-        "decisions are carried by the FS close note: "
-        "`map fs close --topic <slug> --reason <code> --note <decision>`; "
+        "decisions are carried by the close note: "
+        "`map topic close --topic <slug> --reason <code> --note <decision>`; "
         "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
     ),
     "advance-round": (
-        "FS topics advance via `map fs advance-round --topic <slug>` "
-        "(or `map topic advance-round --id <slug>`); "
+        "advance via `map topic advance-round --topic <slug>`; "
         "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
     ),
     "rollback-round": (
-        "FS rounds are file facts — remove the round<N>-*.md files and fix "
+        "rounds are file facts — remove the round<N>-*.md files and fix "
         "index.md round/participants consistency (see file-reference.md); "
         "legacy DB topic: `map topic migrate` first"
     ),
     "comment": (
-        "comment FS topics via `map fs comment --topic <slug> --file <md>` "
-        "(or `map topic comment --id <slug>`); "
+        "comment via `map topic comment --topic <slug> --file <md>`; "
         "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
     ),
     "close": (
-        "close FS topics via `map fs close --topic <slug> --reason <code> --note ...` "
-        "(or `map topic close --id <slug>`); "
+        "close via `map topic close --topic <slug> --reason <code> --note ...`; "
         "legacy DB topic: `map topic migrate --id <uuid> --slug <name>` first"
     ),
     "reopen": (
-        "FS topic status lives in map/topics/<slug>/index.md — edit `status` "
+        "topic status lives in map/topics/<slug>/index.md — edit `status` "
         "directly and note the reason in the close note or a new speech; "
         "legacy DB topic: `map topic migrate` first"
     ),
     "archive": (
-        "archive FS topics via `map fs archive --topic <slug>` "
-        "(validates closed status, git mv, auto-rebuilds archive INDEX; v0.14 M60); "
+        "archive via `map topic archive --topic <slug>` "
+        "(validates closed status, git mv, auto-rebuilds archive INDEX); "
         "legacy DB topics stay readable via `topic show` (archive flag no longer maintained)"
     ),
     "archive-undo": (
-        "restore a FS-archived topic via `map fs archive --topic <slug> --undo` "
-        "(v0.14 M60); index consistency is rebuilt automatically"
+        "restore an archived topic via `map topic archive --topic <slug> --undo`; "
+        "index consistency is rebuilt automatically"
     ),
 }
 
@@ -493,7 +488,7 @@ def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
 # ---------------------------------------------------------------------------
 
 
-@topic_app.command("create", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("create")
 def topic_create(
     title: str = typer.Option(
         ..., "--title", show_default=False, help="Map topic title."
@@ -517,7 +512,7 @@ def topic_create(
     ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
-    """Create map/topics/<slug>/ + index.md (hidden alias of ``map fs topic-create``)."""
+    """Create map/topics/<slug>/ + index.md."""
     from cli.commands.fs import write_new_fs_topic
     from cli.fs_projection import maybe_auto_sync
 
@@ -608,9 +603,30 @@ def topic_list(
 
 @topic_app.command("show")
 def topic_show(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(
+        ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
+    ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+    full: bool = typer.Option(False, "--full", help="Print full comment bodies for local folder topics."),
 ) -> None:
+    if storage != "db":
+        workspace = _optional_workspace()
+        if workspace is not None:
+            from map_fs import parse_topic_dir
+
+            from cli.commands.fs import _content_root_name, fs_show
+
+            root = _content_root_name(workspace)
+            slug = topic_id
+            if _looks_like_uuid(topic_id):
+                found = _fs_slug_by_uuid(topic_id)
+                if found:
+                    slug = found
+            parsed = parse_topic_dir(workspace / root / "topics" / slug, workspace)
+            archived = (workspace / root / "archive" / "topics" / slug).is_dir()
+            if parsed is not None or archived:
+                fs_show(topic=slug, full=full)
+                return
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -634,7 +650,7 @@ def topic_show(
 
 @topic_app.command("history")
 def topic_history(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     kind: str | None = typer.Option(
         None,
         "--kind",
@@ -711,9 +727,9 @@ def topic_progress() -> None:
     runner._run(lambda c: c.get_topic_progress())
 
 
-@topic_app.command("resolve", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("resolve", hidden=True)
 def topic_resolve(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     resolve_file: Path = typer.Option(..., "--file"),
 ) -> None:
@@ -732,9 +748,11 @@ def topic_resolve(
     runner._run(action)
 
 
-@topic_app.command("advance-round", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("advance-round")
 def topic_advance_round(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(
+        ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
+    ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     increment_summary: bool = typer.Option(
         True,
@@ -780,7 +798,7 @@ def topic_advance_round(
                 typer.echo(
                     "Error: --ack / --ack-ids are DB-topic options (retired v0.13 M58); "
                     "FS topics advance when round files are present or with --waive-ack "
-                    "(see `map fs advance-round`).",
+                    "(see `map topic advance-round`).",
                     err=True,
                 )
                 raise typer.Exit(2)
@@ -818,9 +836,9 @@ def topic_advance_round(
     runner._run(action)
 
 
-@topic_app.command("rollback-round", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("rollback-round", hidden=True)
 def topic_rollback_round(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """(Retired v0.13 M58) DB rollback is gone; FS rounds are file facts (edit files)."""
@@ -834,17 +852,26 @@ def topic_rollback_round(
     runner._run(action)
 
 
-@topic_app.command("comment", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("comment")
 def topic_comment(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(
+        ..., "--topic", "--id", help="Topic UUID (DB), folder uuid5 id, or slug."
+    ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     body: str | None = typer.Option(None, "--body"),
     body_file: Path | None = typer.Option(None, "--file"),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
+    persona: str | None = typer.Option(None, "--persona"),
+    round_number: int | None = typer.Option(None, "--round", help="默认取话题当前轮次"),
     round_summary: bool = typer.Option(
         False,
         "--round-summary",
         help="Mark this comment as a Round Summary (triggers participant ack flow).",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="覆盖已有评论文件（破坏 immutable 约定）；不豁免 frontmatter 前置校验",
     ),
     file_path: str | None = typer.Option(
         None,
@@ -886,18 +913,49 @@ def topic_comment(
     if storage == "fs":
         target = _fs_comment_target()
         if target is None:
-            typer.echo(f"Error: fs topic not found: {topic_id} (see `map fs list`)", err=True)
+            typer.echo(f"Error: topic not found: {topic_id} (see `map topic list`)", err=True)
             raise typer.Exit(1)
-        _write_fs_comment(target, content, parent, round_summary, file_path, no_sync=no_sync)
+        _write_fs_comment(
+            target,
+            content,
+            parent,
+            round_summary,
+            file_path,
+            no_sync=no_sync,
+            persona=persona,
+            round_number=round_number,
+            force=force,
+        )
         return
     if storage is None and (slug := _fs_comment_target()) is not None:
-        _write_fs_comment(slug, content, parent, round_summary, file_path, no_sync=no_sync)
+        _write_fs_comment(
+            slug,
+            content,
+            parent,
+            round_summary,
+            file_path,
+            no_sync=no_sync,
+            persona=persona,
+            round_number=round_number,
+            force=force,
+        )
         return
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
         if kind == "fs":  # pragma: no cover - 本地优先分支已拦截；兜底保持一致
-            _write_fs_comment(target, content, parent, round_summary, file_path, exit_after=True, no_sync=no_sync)
+            _write_fs_comment(
+                target,
+                content,
+                parent,
+                round_summary,
+                file_path,
+                exit_after=True,
+                no_sync=no_sync,
+                persona=persona,
+                round_number=round_number,
+                force=force,
+            )
             raise typer.Exit(0)
         _db_write_retired("comment", str(target))
 
@@ -913,18 +971,21 @@ def _write_fs_comment(
     *,
     exit_after: bool = False,
     no_sync: bool = False,
+    persona: str | None = None,
+    round_number: int | None = None,
+    force: bool = False,
 ) -> None:
-    """FS 话题发言 = 写 round<N>-<persona>.md（纯本地，与 map fs comment 同语义）。"""
+    """话题发言 = 写 round<N>-<persona>.md（纯本地）。"""
     if content is None:
         typer.echo(
-            "Error: fs topics need --body / --file (content is stored in the round "
+            "Error: folder topics need --body / --file (content is stored in the round "
             "file); --file-path is a DB-topic reference-only option.",
             err=True,
         )
         raise typer.Exit(2)
     if parent is not None:
         typer.echo(
-            "Error: --parent is a DB-topic option; FS threading uses in-file "
+            "Error: --parent is a DB-topic option; folder threading uses in-file "
             "section references (see file-reference.md).",
             err=True,
         )
@@ -934,24 +995,33 @@ def _write_fs_comment(
     from cli.commands.fs import _content_root_name, _current_round, _persona, _workspace
 
     workspace = _workspace()
+    if force:
+        typer.echo(
+            "Warning: --force overwrites an existing comment file (breaks the "
+            "immutable convention). Commit first if you need the old content auditable.",
+            err=True,
+        )
     try:
         path = write_round_comment(
             workspace,
             slug,
-            round_number=_current_round(workspace, slug),
-            persona=_persona(None),
+            round_number=(
+                round_number if round_number is not None else _current_round(workspace, slug)
+            ),
+            persona=_persona(persona),
             body=content,
             is_round_summary=round_summary,
             content_root=_content_root_name(workspace),
+            overwrite=force,
         )
     except FileExistsError as err:
-        typer.echo(f"Error: {err} (use `map fs comment --force` to overwrite)", err=True)
+        typer.echo(f"Error: {err} (use `map topic comment --force` to overwrite)", err=True)
         raise typer.Exit(1) from err
     except ValueError as err:
         # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）
         typer.echo(f"Error: {err}", err=True)
         raise typer.Exit(2) from err
-    typer.echo(f"Wrote {path} (fs topic: {slug})")
+    typer.echo(f"Wrote {path}")
     from cli.fs_projection import maybe_auto_sync
 
     maybe_auto_sync(no_sync=no_sync, workspace=workspace)
@@ -959,9 +1029,11 @@ def _write_fs_comment(
         raise typer.Exit(0)
 
 
-@topic_app.command("close", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("close")
 def topic_close(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(
+        ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
+    ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     reason: str | None = typer.Option(
         None,
@@ -1011,9 +1083,9 @@ def topic_close(
     runner._run(action)
 
 
-@topic_app.command("reopen", hidden=_TOPIC_WRITE_HIDDEN)
+@topic_app.command("reopen", hidden=True)
 def topic_reopen(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """(Retired v0.13 M58) DB reopen is gone; FS status lives in index.md."""
@@ -1029,7 +1101,7 @@ def topic_reopen(
 
 @topic_app.command("dismiss")
 def topic_dismiss(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """Hide an open topic from host todos until new activity (same as Web UI ✕).
@@ -1049,7 +1121,7 @@ def topic_dismiss(
 
 @topic_app.command("read")
 def topic_read(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling.
@@ -1069,7 +1141,7 @@ def topic_read(
 
 @topic_app.command("mark-seen")
 def topic_mark_seen(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations.
@@ -1087,35 +1159,20 @@ def topic_mark_seen(
     runner._run(action)
 
 
-@topic_app.command(
-    "archive",
-    hidden=_TOPIC_WRITE_HIDDEN,
-    epilog="(Retired v0.13 M58) FS archiving = moving map/topics/<slug>/ to map/archive/topics/.",
-)
+@topic_app.command("archive")
 def topic_archive(
-    topic_id: uuid.UUID | None = typer.Option(
-        None,
-        "--id",
-        help="Topic UUID (DB only: archived is a DB-record flag; FS topics have no archive concept).",
-    ),
+    topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名）"),
     undo: bool = typer.Option(
-        False,
-        "--undo",
-        help="Unarchive instead of archive. Equivalent to --unarchive.",
+        False, "--undo", help="还原归档话题（archive 目录移回 map/topics/）"
     ),
     unarchive: bool = typer.Option(
-        False,
-        "--unarchive",
-        help="Alias of --undo: unarchive instead of archive.",
+        False, "--unarchive", help="Alias of --undo: unarchive instead of archive."
     ),
 ) -> None:
-    """(Retired v0.13 M58) DB archive flag is gone; FS archiving is a file move.
+    """归档话题：校验已 closed 后 git mv 到 map/archive/topics/，并重建索引。"""
+    from cli.commands.fs import fs_archive
 
-    Legacy DB topics stay readable via ``topic show``; the archived flag is no
-    longer maintained from the CLI. FS topics archive by moving the folder to
-    ``map/archive/topics/``.
-    """
-    _db_write_retired("archive-undo" if (undo or unarchive) else "archive")
+    fs_archive(topic=topic, undo=undo or unarchive)
 
 
 def _plan_db_to_fs_migration(topic: Any, workspace: Path) -> dict[str, Any]:
@@ -1365,7 +1422,7 @@ def _ai_local_topic(workspace: Path, root: str, topic: str) -> Any:
 
     parsed = parse_topic_dir(workspace / root / "topics" / topic, workspace)
     if parsed is None:
-        typer.echo(f"Error: fs topic not found: {topic}（`map topic action-item` 只作用于 map/ 话题）", err=True)
+        typer.echo(f"Error: topic not found: {topic}（`map topic action-item` 只作用于 map/ 话题）", err=True)
         raise typer.Exit(1)
     return parsed
 
@@ -1398,7 +1455,7 @@ def _ai_save(workspace: Path, root: str, topic: str, items: list, *, no_sync: bo
 
 @action_item_app.command("list")
 def action_item_list(
-    topic: str = typer.Option(..., "--topic", help="FS 话题 slug"),
+    topic: str = typer.Option(..., "--topic", help="话题 slug"),
 ) -> None:
     """列出话题 action-items.yaml 的全部执行项（含解析错误提示）。"""
     from cli.commands.fs import _content_root_name, _workspace
@@ -1422,7 +1479,7 @@ def action_item_list(
 
 @action_item_app.command("complete")
 def action_item_complete(
-    topic: str = typer.Option(..., "--topic", help="FS 话题 slug"),
+    topic: str = typer.Option(..., "--topic", help="话题 slug"),
     item_id: int = typer.Option(..., "--id", help="执行项编号（见 action-items.yaml / `action-item list`）"),
     evidence: str = typer.Option(
         ..., "--evidence", help="完成证据：commit hash / pytest 摘要 / 文件路径（必填——不许自说自话）"
@@ -1438,7 +1495,7 @@ def action_item_complete(
 
 @action_item_app.command("cancel")
 def action_item_cancel(
-    topic: str = typer.Option(..., "--topic", help="FS 话题 slug"),
+    topic: str = typer.Option(..., "--topic", help="话题 slug"),
     item_id: int = typer.Option(..., "--id", help="执行项编号（见 action-items.yaml / `action-item list`）"),
     reason: str = typer.Option(..., "--reason", help="放弃理由（必填，审计留痕；cancel 不挡 close）"),
     no_sync: bool = typer.Option(False, "--no-sync", help="跳过投影自动同步"),
@@ -1452,7 +1509,7 @@ def action_item_cancel(
 
 @action_item_app.command("add")
 def action_item_add(
-    topic: str = typer.Option(..., "--topic", help="FS 话题 slug"),
+    topic: str = typer.Option(..., "--topic", help="话题 slug"),
     owner: str = typer.Option(..., "--owner", help="owner persona 短名（host / participant / reviewer）"),
     title: str = typer.Option(..., "--title", help="执行项标题"),
     no_sync: bool = typer.Option(False, "--no-sync", help="跳过投影自动同步"),
@@ -1536,3 +1593,55 @@ def _ai_mutate(
         typer.echo(f"Wrote {path} — #{item_id} → done（evidence: {evidence}）")
     else:
         typer.echo(f"Wrote {path} — #{item_id} → cancelled（reason: {reason}）")
+
+
+@topic_app.command("init")
+def topic_init() -> None:
+    """创建内容根目录结构：map/topics 与 map/experiments。"""
+    from cli.commands.fs import fs_init
+
+    fs_init()
+
+
+@topic_app.command("anomalies")
+def topic_anomalies(
+    format: str = typer.Option(
+        "table", "--format", help="Output format: table | yaml | json."
+    ),
+) -> None:
+    """离线扫描全部话题 round 文件的 frontmatter anomaly（只报告，不改写）。"""
+    from cli.commands.fs import fs_anomalies
+
+    fs_anomalies(format=format)
+
+
+@topic_app.command("work")
+def topic_work(
+    persona: str | None = typer.Option(None, "--persona"),
+) -> None:
+    """离线推导 persona 待办（纯文件存在性，不调 API）。"""
+    from cli.commands.fs import fs_work
+
+    fs_work(persona=persona)
+
+
+@topic_app.command("archive-index")
+def topic_archive_index(
+    rebuild: bool = typer.Option(
+        False, "--rebuild", help="全量重建（生成式投影，唯一模式）"
+    ),
+) -> None:
+    """重建 map/archive/INDEX.md。"""
+    from cli.commands.fs import fs_archive_index
+
+    fs_archive_index(rebuild=rebuild)
+
+
+@topic_app.command("migrate-from-docs")
+def topic_migrate_from_docs(
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """存量迁移：docs/{topics,experiments,map-history} → map/ 下的事实源布局。"""
+    from cli.commands.fs import fs_migrate_from_docs
+
+    fs_migrate_from_docs(dry_run=dry_run)

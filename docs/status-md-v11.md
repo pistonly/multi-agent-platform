@@ -31,10 +31,10 @@
 | v0.10–v0.11 | waker 统一、FS source-of-truth 瘦身（MAP 平台瘦身为交互索引） | ✅ 已落地 |
 | v0.12 | **M54** machine-readable-cli / **M55** actionable-error-envelope / **M56** topic-id-routing | ✅ 已落地 |
 | v0.13 | **M57** 实验日志瘦身对齐 / **M58** DB 话题写路径退役 / **M59** 性能基线与工程卫生 | ✅ 已落地 |
-| v0.14 | **M60** `map fs archive` / **M61** `map fs archive-index --rebuild` | ✅ 已落地 |
+| v0.14 | **M60** `map topic archive` / **M61** `map topic archive-index --rebuild` | ✅ 已落地 |
 | v0.15 | **M62** 废弃 platform feedback；实验 FS 化 **M1**（`map/experiments/<slug>/index.md` 契约） | ✅ 已落地 |
 
-**话题面**：无 open 话题、无活跃实验。closed 话题走 `map --persona host fs archive --topic <slug>` 归档；实验写仍走 API，话题写入走本地 CLI（看板提供可复制命令）。
+**话题面**：无 open 话题、无活跃实验。closed 话题走 `map --persona host topic archive --topic <slug>` 归档；实验写仍走 API，话题写入走本地 CLI（看板提供可复制命令）。
 
 ## 阻塞 / 风险
 
@@ -44,7 +44,7 @@
 ## 下一步（建议）
 
 1. 实验生命周期 FS 化 **M2**：`map experiment sync --check` 对账零 diff 后再停 INSERT（尚未立项）
-2. `map topic` 写命令从 help 消失或变成 `map fs` 薄别名（双轨收口）
+2. `map topic` 写命令从 help 消失或变成 `map topic` 薄别名（双轨收口）
 3. CI 持续：pytest + ruff + alembic upgrade
 
 ## 关键文档

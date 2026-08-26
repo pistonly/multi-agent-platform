@@ -85,7 +85,6 @@ EXPECTED_TOP_LEVEL_SUBAPPS = [
     "todo",
     "action",
     "feedback",
-    "fs",
     "docs",
 ]
 
@@ -115,24 +114,6 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "mark-stale",
     ],
     "feedback": ["submit", "list", "get", "update"],
-    "fs": [
-        "init",
-        "topic-create",
-        "comment",
-        "list",
-        "show",
-        "anomalies",
-        "work",
-        "advance-round",
-        "close",
-        "migrate-from-docs",
-        "status",
-        "push",
-        "diff",
-        "sync",
-        "archive",
-        "archive-index",
-    ],
     "docs": ["error-codes"],
     "topic": [
         "list",
@@ -143,10 +124,17 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
         "mark-seen",
         "migrate",
         "history",
-        # plan v3 I4: FS 话题执行项子组（topic_app.add_typer(action_item_app)）
         "action-item",
-        # create/comment/advance-round/close + retired resolve/rollback/reopen/archive
-        # are hidden compatibility aliases; discovery is `map fs`.
+        "create",
+        "comment",
+        "advance-round",
+        "close",
+        "archive",
+        "init",
+        "anomalies",
+        "work",
+        "archive-index",
+        "migrate-from-docs",
     ],
     "mention": ["dismiss", "list", "dismiss-all", "reconcile-stale"],
     "todo": ["clear"],
@@ -174,29 +162,26 @@ def test_subapp_commands_match_snapshot(
     )
 
 
-HIDDEN_TOPIC_WRITE_ALIASES = [
-    "create",
-    "comment",
-    "advance-round",
-    "close",
+HIDDEN_TOPIC_RETIRED_COMMANDS = [
     "resolve",
     "rollback-round",
     "reopen",
-    "archive",
 ]
 
 
-def test_topic_help_hides_write_and_retired_commands(runner: CliRunner) -> None:
-    """Write + retired DB commands stay callable but are not listed on ``map topic --help``."""
+def test_topic_help_hides_retired_db_commands(runner: CliRunner) -> None:
+    """Retired DB writes stay callable but are not listed on ``map topic --help``."""
     result = runner.invoke(app, ["topic", "--help"])
     assert result.exit_code == 0, result.stdout
     visible = _parse_commands_block(result.stdout)
-    for name in HIDDEN_TOPIC_WRITE_ALIASES:
+    for name in HIDDEN_TOPIC_RETIRED_COMMANDS:
         assert name not in visible, f"{name} should be hidden from map topic --help; got {visible}"
-    assert "map fs" in result.stdout
+    for name in ("create", "comment", "advance-round", "close", "archive"):
+        assert name in visible, f"{name} should be visible on map topic --help; got {visible}"
+    assert "map fs" not in result.stdout
 
 
-def test_hidden_topic_write_aliases_still_have_help(runner: CliRunner) -> None:
+def test_topic_write_commands_still_have_help(runner: CliRunner) -> None:
     for name in ("create", "comment", "close", "advance-round", "archive"):
         result = runner.invoke(app, ["topic", name, "--help"])
         assert result.exit_code == 0, (name, result.output)

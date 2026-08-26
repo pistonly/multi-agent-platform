@@ -276,15 +276,15 @@ def fs_plane_status(db: Session, project: Project) -> FsPlaneStatusRead:
     elif row is not None:
         mode = "projection-cache"
         hint = (
-            "workspace 不可达，读路径回退到 map fs sync 的投影缓存；"
+            "workspace 不可达，读路径回退到 map sync publish 的投影缓存；"
             "验证型写走 validate → 本地写回 → commit。写文件后 CLI 会自动增量同步。"
         )
     else:
         mode = "detached"
         hint = (
             "server 看不到 workspace（远程/容器部署），FS plane 对 server 不可见："
-            "map/ 话题不会出现在列表与 work 待办中。修复：执行 `map fs sync` "
-            "（或兼容别名 `map fs push`）上行投影缓存。"
+            "map/ 话题不会出现在列表与 work 待办中。修复：执行 `map sync publish` "
+            "（或兼容别名 `map sync push`）上行投影缓存。"
         )
     return FsPlaneStatusRead(
         workspace_path=project.workspace_path,
@@ -975,7 +975,7 @@ def projection_revision_for_write(db: Session, project: Project) -> int:
     row = get_fs_projection(db, project)
     if row is None:
         raise FsPlaneUnavailableError(
-            "workspace unreachable and no projection is available; run `map fs push`"
+            "workspace unreachable and no projection is available; run `map sync publish --full`"
         )
     return row.revision
 
@@ -1001,7 +1001,7 @@ def _topic_view_for_validation(
             return _view_from_projection(detail)
     raise FsPlaneUnavailableError(
         f"workspace unreachable and no usable projection for '{slug}'; "
-        "run `map fs sync` first, or mount the workspace (docker-compose.fs.yml)"
+        "run `map sync publish` first, or mount the workspace (docker-compose.fs.yml)"
     )
 
 

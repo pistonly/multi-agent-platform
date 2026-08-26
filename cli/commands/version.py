@@ -35,7 +35,6 @@ def _cli_version() -> str:
 # 关键命令集（plan A6 P3-1）→ 该命令协作时依赖的 bundled skills。只覆盖范围，
 # 不穷举；新命令集接入时按需扩。
 _KEY_COMMAND_SKILLS: dict[str, tuple[str, ...]] = {
-    "fs": ("map-project-collab",),
     "topic": ("map-project-collab", "topic-host", "topic-participant"),
     "bootstrap": ("map-project-collab",),
     "review": ("map-project-collab", "experiment-reviewer", "experiment-host"),
@@ -59,7 +58,7 @@ def version_info(
         False, "--json", help="JSON 输出（CLI 版本 + 关键命令集 skills 对照范围）。"
     ),
 ) -> None:
-    """Show CLI version and the key-command skills scope (fs/topic/bootstrap/review)."""
+    """Show CLI version and the key-command skills scope (topic/bootstrap/review)."""
     import json as _json
 
     cli_version = _cli_version()
@@ -71,7 +70,7 @@ def version_info(
                 "commands": {cmd: list(skills) for cmd, skills in _KEY_COMMAND_SKILLS.items()},
                 "skills": scope,
                 "note": (
-                    "对照范围=关键命令集 fs/topic/bootstrap/review 所依赖 bundled skills；"
+                    "对照范围=关键命令集 topic/bootstrap/review 所依赖 bundled skills；"
                     "全量漂移看 map skill list --installed"
                 ),
             },

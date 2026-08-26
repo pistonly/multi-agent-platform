@@ -219,7 +219,7 @@ class E2EDriver:
             f"{self._ctx()}\n\n"
             "Task: open a new discussion topic on the subject above, using the "
             "exact topic_title above. Use the topic-host Skill and "
-            "`map --persona host fs topic-create --title \"<topic_title>\" "
+            "`map --persona host topic create --title \"<topic_title>\" "
             "--slug <kebab-case-slug> --participants host,participant`. "
             "After creating, confirm the topic_id in your E2E summary line."
         )
@@ -228,10 +228,10 @@ class E2EDriver:
         return (
             f"{self._ctx()}\n\n"
             f"Task: this is {round_label} of the discussion. Read the topic "
-            "thread with `map --persona participant fs show --topic <topic_slug>`, "
+            "thread with `map --persona participant topic show --topic <topic_slug>`, "
             "then post a substantive comment that advances the discussion "
             "(question, counterpoint, or supporting evidence) with "
-            "`map --persona participant fs comment --topic <topic_slug> "
+            "`map --persona participant topic comment --topic <topic_slug> "
             "--body \"...\"`. Use the topic-participant Skill."
         )
 
@@ -239,8 +239,8 @@ class E2EDriver:
         return (
             f"{self._ctx()}\n\n"
             f"Task: this is {round_label} of the discussion. Read the latest "
-            "participant comment with `map --persona host fs show --topic "
-            "<topic_slug>`, then reply with `map --persona host fs comment "
+            "participant comment with `map --persona host topic show --topic "
+            "<topic_slug>`, then reply with `map --persona host topic comment "
             "--topic <topic_slug> --body \"...\"` (threading is carried by "
             "section references inside the file, not --parent). Use the "
             "topic-host Skill."
@@ -322,7 +322,7 @@ class E2EDriver:
             f"{self._ctx()}\n\n"
             "Task: the experiment has been verified and accepted. Decide "
             "whether to close the topic or keep it open for further work.\n"
-            "  - To close: `map --persona host fs close --topic <topic_slug> "
+            "  - To close: `map --persona host topic close --topic <topic_slug> "
             "--note \"<conclusion and action items>\"` (the close_note carries "
             "the resolution).\n"
             "  - To keep open: post a summary comment and stop.\n\n"

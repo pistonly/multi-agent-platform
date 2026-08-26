@@ -205,14 +205,14 @@ async def test_mcp_topic_flow(map_client):
         (
             "create_topic",
             {"title": "MCP 话题", "description": "讨论"},
-            "map fs topic-create",
+            "map topic create",
         ),
         (
             "create_topic_comment",
             {"topic_id": topic_id, "body": "一条讨论"},
-            "map fs comment",
+            "map topic comment",
         ),
-        ("close_topic", {"topic_id": topic_id}, "map fs close"),
+        ("close_topic", {"topic_id": topic_id}, "map topic close"),
         ("reopen_topic", {"topic_id": topic_id}, "index.md"),
     ]
     for tool, args, hint_fragment in cases:

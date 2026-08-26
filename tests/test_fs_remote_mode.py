@@ -106,7 +106,7 @@ def test_fs_status_three_modes(client, admin_headers: dict, tmp_path: Path) -> N
     body = resp.json()
     assert body["mode"] == "detached"
     assert body["workspace_exists"] is False
-    assert "map fs push" in body["hint"]
+    assert "map sync publish" in body["hint"]
 
     _push_plane(client, admin_headers, detached["id"], local_ws)
     resp = client.get(f"/api/v1/projects/{detached['id']}/fs/status", headers=admin_headers)

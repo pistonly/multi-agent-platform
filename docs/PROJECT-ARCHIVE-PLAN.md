@@ -10,7 +10,7 @@
 - `projects.archived_at` 字段已存在（`PATCH /api/v1/projects/{id}` 的
   `archived` 字段可置位），但归档**无副作用**——不改变 workspace/topics 的
   扫描可见性，也不提示受影响范围。
-- topic 级归档已落地（v0.14 M60/M61 `map fs archive --topic <slug>`，索引经
+- topic 级归档已落地（v0.14 M60/M61 `map topic archive --topic <slug>`，索引经
   rebuild 达成、可 `--undo` 无损还原）。project 归档应复用同一套「可逆、非
   静默」的设计原则。
 - workspace 唯一归属硬约束（3b7c2b44 A5）上线后，「archive 换主」成为存量双
@@ -22,7 +22,7 @@
 
 project `archived_at` 置位 → 进入 **dormant**：
 - 不物理删除任何数据（topics / experiments / agents / decisions 全部保留）。
-- 该 project 的 workspace 从活跃扫描面退出：`fs status` / waker / 投影扫描
+- 该 project 的 workspace 从活跃扫描面退出：`sync check` / waker / 投影扫描
   不再轮询其 workspace_path。
 - **联合键语义**：dormant project 的 `workspace_path + content_root` 释放给
   新 project 认领？——**否**。为避免「归档即割让」的静默数据歧义，archive 时
@@ -35,7 +35,7 @@ project `archived_at` 置位 → 进入 **dormant**：
 - 列出该 project 的全部 topics、experiments、agents 数量与 UUID 前缀。
 - 列出被其 workspace_path 覆盖的 FS 话题目录（`map/topics/<slug>/`），标注
   uuid5 派生 id——即 archive 后扫描可见性会从哪些目录消失。
-- dry-run 只是提示，不改变任何状态（对标 `map fs archive` 的 index rebuild
+- dry-run 只是提示，不改变任何状态（对标 `map topic archive` 的 index rebuild
   预览）。
 
 ### 3. unarchive 无损

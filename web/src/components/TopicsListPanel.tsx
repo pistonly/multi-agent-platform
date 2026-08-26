@@ -26,7 +26,7 @@ export function TopicsListPanel({
   pageSize = 20,
   title = "话题",
   viewAllHref,
-  emptyLabel = "暂无话题。用「发布话题」复制 map fs topic-create 命令",
+  emptyLabel = "暂无话题。用「发布话题」复制 map topic create 命令",
 }: TopicsListPanelProps) {
   const [statusFilter, setStatusFilter] = useState<TopicStatus | undefined>(undefined);
   const [searchInput, setSearchInput] = useState("");

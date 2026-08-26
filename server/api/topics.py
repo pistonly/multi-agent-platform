@@ -32,13 +32,13 @@ topics_router = APIRouter(tags=["topics"], dependencies=[Depends(bind_background
 # （topic migrate 收尾归档依赖），title/description/pinned 编辑一并 410。
 # 读路径（GET*）与 POST dismiss 保留。
 _RETIRED_WRITE_HINTS: dict[str, str] = {
-    "create": "create FS topics via `map fs topic-create --title ... --slug <name>` (map/ folder is the source of truth)",
-    "close": "close FS topics via `map fs close --topic <slug> --reason <code> --note ...`",
-    "reopen": "FS topic status lives in map/topics/<slug>/index.md — edit `status` directly and note the reason",
-    "advance-round": "advance FS topics via `map fs advance-round --topic <slug>` (wakeable event included)",
-    "rollback-round": "FS rounds are file facts — remove round<N>-*.md files and fix index.md round/participants",
-    "resolve": "decisions ride the FS close note: `map fs close --topic <slug> --note <decision>`",
-    "comment": "comment FS topics via `map fs comment --topic <slug> --file <md>` (pure local write)",
+    "create": "create topics via `map topic create --title ... --slug <name>` (map/ folder is the source of truth)",
+    "close": "close topics via `map topic close --topic <slug> --reason <code> --note ...`",
+    "reopen": "topic status lives in map/topics/<slug>/index.md — edit `status` directly and note the reason",
+    "advance-round": "advance topics via `map topic advance-round --topic <slug>` (wakeable event included)",
+    "rollback-round": "rounds are file facts — remove round<N>-*.md files and fix index.md round/participants",
+    "resolve": "decisions ride the close note: `map topic close --topic <slug> --note <decision>`",
+    "comment": "comment topics via `map topic comment --topic <slug> --file <md>` (pure local write)",
     "delete": "archive FS topics by moving map/topics/<slug>/ to map/archive/topics/; legacy DB topics stay readable",
     "patch": "only `archived` is maintained (topic migrate finalization); edit title/description/pinned in index.md instead",
 }
@@ -251,7 +251,7 @@ def advance_topic_round(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicSummaryRead:
-    """(Retired v0.13 M58) DB round advance is gone — use `map fs advance-round`."""
+    """(Retired v0.13 M58) DB round advance is gone — use `map topic advance-round`."""
     raise _write_retired_410("advance-round")
 
 
@@ -287,7 +287,7 @@ def create_topic_comment(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> TopicCommentRead:
-    """(Retired v0.13 M58) DB comments are gone — use `map fs comment`."""
+    """(Retired v0.13 M58) DB comments are gone — use `map topic comment`."""
     raise _write_retired_410("comment")
 
 

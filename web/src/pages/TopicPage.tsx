@@ -151,8 +151,8 @@ export function TopicPage() {
       {isRemoteFsProjection && (
         <div className="rounded border border-amber-700 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
           <p>
-            这是远程 FS 投影的只读视图。请在项目本地通过 <code>map fs</code> 写入文件并用{" "}
-            <code>map fs sync</code> 同步；Web 不会直接修改远程投影。
+            这是远程投影的只读视图。请在项目本地通过 <code>map topic</code> 写入文件并用{" "}
+            <code>map sync publish</code> 同步；Web 不会直接修改远程投影。
           </p>
           <p className="mt-2 text-amber-50/90">
             来源 {topic.source?.content_source ?? topic.content_source}

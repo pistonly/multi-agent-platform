@@ -28,7 +28,7 @@ def test_version_json_has_cli_and_scope_commands() -> None:
     payload = json.loads(result.output)
     assert payload["cli"]["version"]
     scope_commands = set(payload["scope"]["commands"])
-    assert {"fs", "topic", "bootstrap", "review"} <= scope_commands
+    assert {"topic", "bootstrap", "review"} <= scope_commands
 
 
 def test_version_json_skills_have_bundled_version() -> None:

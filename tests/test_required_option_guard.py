@@ -92,7 +92,7 @@ class TestRootCliRequiredGuard:
     def test_fs_topic_create_missing_title(self, workspace: Path) -> None:
         from cli.main import app
 
-        result = runner.invoke(app, ["fs", "topic-create"])
+        result = runner.invoke(app, ["topic", "create"])
         assert result.exit_code == 2, result.output
         assert "--title" in _plain(result.output)
 
@@ -101,11 +101,11 @@ class TestRootCliRequiredGuard:
 
         result = runner.invoke(app, ["topic", "comment", "--body", "x"])
         assert result.exit_code == 2, result.output
-        assert "--id" in _plain(result.output)
+        assert "--id" in _plain(result.output) or "--topic" in _plain(result.output)
 
     def test_happy_path_unaffected(self, workspace: Path) -> None:
         from cli.main import app
 
-        result = runner.invoke(app, ["fs", "topic-create", "--title", "Guard Ok"])
+        result = runner.invoke(app, ["topic", "create", "--title", "Guard Ok"])
         assert result.exit_code == 0, result.output
         assert (workspace / "map" / "topics" / "guard-ok" / "index.md").is_file()

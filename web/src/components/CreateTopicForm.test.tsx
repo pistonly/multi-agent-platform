@@ -16,7 +16,7 @@ describe("CreateTopicForm", () => {
 
     expect(
       screen.getByText(
-        'map --persona host fs topic-create --title "Ship the CLI guide" --slug ship-the-cli-guide',
+        'map --persona host topic create --title "Ship the CLI guide" --slug ship-the-cli-guide',
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "发布话题" })).toBeNull();

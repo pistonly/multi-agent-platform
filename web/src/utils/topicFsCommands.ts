@@ -15,22 +15,22 @@ function shellQuote(value: string): string {
 export function topicCreateCommand(title: string, slug: string): string {
   const safeTitle = title.trim() || "<title>";
   const safeSlug = slug.trim() || "<slug>";
-  return `map --persona host fs topic-create --title ${shellQuote(safeTitle)} --slug ${safeSlug}`;
+  return `map --persona host topic create --title ${shellQuote(safeTitle)} --slug ${safeSlug}`;
 }
 
 export function topicCommentCommand(slug: string): string {
   const safeSlug = slug.trim() || "<slug>";
-  return `map --persona host fs comment --topic ${safeSlug} --body "..."`;
+  return `map --persona host topic comment --topic ${safeSlug} --body "..."`;
 }
 
 export function topicCloseCommand(slug: string): string {
   const safeSlug = slug.trim() || "<slug>";
-  return `map --persona host fs close --topic ${safeSlug} --reason <code> --note "..."`;
+  return `map --persona host topic close --topic ${safeSlug} --reason <code> --note "..."`;
 }
 
 export function topicArchiveCommand(slug: string): string {
   const safeSlug = slug.trim() || "<slug>";
-  return `map --persona host fs archive --topic ${safeSlug}`;
+  return `map --persona host topic archive --topic ${safeSlug}`;
 }
 
 export function topicMigrateCommand(topicId: string): string {

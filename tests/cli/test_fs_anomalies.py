@@ -32,13 +32,15 @@ def ws(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         encoding="utf-8",
     )
     import cli.commands.fs as fs_cli
+    import cli.commands.topic as topic_cli
 
     monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
+    monkeypatch.setattr(topic_cli, "_optional_workspace", lambda: tmp_path)
     return tmp_path
 
 
 def test_fs_anomalies_lists_dirty_file(ws: Path) -> None:
-    result = runner.invoke(app, ["fs", "anomalies"])
+    result = runner.invoke(app, ["topic", "anomalies"])
     assert result.exit_code == 0, result.output
     assert "round1-participant.md" in result.output
     assert "invalid" in result.output
@@ -48,7 +50,7 @@ def test_fs_anomalies_lists_dirty_file(ws: Path) -> None:
 def test_fs_anomalies_json_format(ws: Path) -> None:
     import json
 
-    result = runner.invoke(app, ["fs", "anomalies", "--format", "json"])
+    result = runner.invoke(app, ["topic", "anomalies", "--format", "json"])
     assert result.exit_code == 0, result.output
     rows = json.loads(result.output)
     assert rows and rows[0]["level"] == "invalid" and rows[0]["topic"] == "t"
@@ -66,13 +68,13 @@ def test_fs_anomalies_empty_workspace(tmp_path: Path, monkeypatch: pytest.Monkey
     import cli.commands.fs as fs_cli
 
     monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
-    result = runner.invoke(app, ["fs", "anomalies"])
+    result = runner.invoke(app, ["topic", "anomalies"])
     assert result.exit_code == 0, result.output
-    assert "(no fs anomalies)" in result.output
+    assert "(no anomalies)" in result.output
 
 
 def test_fs_show_includes_anomaly_section_and_does_not_block(ws: Path) -> None:
-    result = runner.invoke(app, ["fs", "show", "--topic", "t"])
+    result = runner.invoke(app, ["topic", "show", "--topic", "t"])
     assert result.exit_code == 0, result.output
     # anomaly 段存在且读取照常（评论表仍在）
     assert "anomalies: 1" in result.output
@@ -86,7 +88,7 @@ def test_fs_comment_rejects_body_frontmatter_with_example(ws: Path) -> None:
         "---\nauthor: host\nround: 1\nposted_at: '$ts'\n---\n\n正文",
         encoding="utf-8",
     )
-    result = runner.invoke(app, ["fs", "comment", "--topic", "t", "--file", str(src)])
+    result = runner.invoke(app, ["topic", "comment", "--topic", "t", "--file", str(src)])
     assert result.exit_code == 2
     assert "must not carry its own frontmatter" in result.output
     # 拒绝文案带正确示例（D6）
@@ -97,7 +99,7 @@ def test_fs_comment_force_does_not_bypass_frontmatter_check(ws: Path) -> None:
     src = ws / "op2.md"
     src.write_text("---\nauthor: host\n---\n正文", encoding="utf-8")
     result = runner.invoke(
-        app, ["fs", "comment", "--topic", "t", "--file", str(src), "--force"]
+        app, ["topic", "comment", "--topic", "t", "--file", str(src), "--force"]
     )
     # --force 豁免 immutable，不豁免 W1
     assert result.exit_code == 2

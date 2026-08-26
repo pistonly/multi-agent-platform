@@ -119,10 +119,13 @@ map --persona host experiment archive --id <exp-uuid> --undo
 | `map sync status` | 查看本地缓存的同步状态（最后拉取时间、缓存条目数） |
 | `map sync topics` | 离线列出本地缓存中的话题 |
 | `map sync topic --id <uuid>` | 离线查看缓存中某个话题的完整数据 |
+| `map sync publish` | 将本地 `map/` 文件夹发布到 server 投影（远程/容器）；`--full` 全量，`--yes` 确认远端删除 |
+| `map sync diff` | 比较本地 `map/` 与 server 投影（只读摘要） |
+| `map sync check` | 文件夹平面握手：本地 hash + server revision / 可达性 |
 | `map topic list` | 列出话题：合并本地 `map/topics/` 与 API 存量 DB；默认排除已归档；`--include-archived` 包含 |
 | `map topic show --id <slug-or-uuid>` | 显示话题详情（slug / uuid5 优先读本地文件夹） |
-| `map fs topic-create --title ... --slug <name>` | 创建 `map/topics/<slug>/`（不写 DB；`map topic create` 为隐藏别名） |
-| `map fs close --topic <slug>` / 重开请改 `index.md` status | 关闭 FS 话题（验证型写）；`topic reopen` 已退役 |
+| `map topic create --title ... --slug <name>` | 创建 `map/topics/<slug>/`（不写 DB） |
+| `map topic close --topic <slug>` / 重开请改 `index.md` status | 关闭 FS 话题（验证型写）；`topic reopen` 已退役 |
 | `map topic read --id <uuid>` / `topic mark-seen` | 推进当前 persona 的话题已读 cursor，只清 contextual unread；reply / ack / mention obligation 仍需用对应动作处理 |
 | `map experiment list` / `experiment show` | 实验列表 / 详情 |
 | `map experiment status --id <uuid>` | 实验详情，包含 `acceptance_status` 验收状态投影 |

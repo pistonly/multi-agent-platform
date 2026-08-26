@@ -167,10 +167,10 @@ def test_create_topic_id_uuid_passthrough(stub_env, runner, tmp_path) -> None:
 
 def test_fs_comment_id_alias_registered(runner) -> None:
     """T2-P2:--topic 命令注册 --id 双轨别名(--topic 不 break)。"""
-    result = runner.invoke(app, ["fs", "comment", "--help"])
+    result = runner.invoke(app, ["topic", "comment", "--help"])
     assert result.exit_code == 0
     # 类型占位渲染(TEXT / <str>)随 click 版本不定,前缀断言三连已足够
-    assert "--topic, --id" in result.output
+    assert "--topic, --id" in result.output or "--id, --topic" in result.output
 
 
 # --- A5: did-you-mean(解析层)------------------------------------------------

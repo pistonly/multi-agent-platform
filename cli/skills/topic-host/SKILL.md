@@ -63,10 +63,10 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 
 **FS 话题（`map/topics/<slug>/` 存在，新话题默认走此路径）**：
 
-1. **建**：`map fs topic-create --slug <name> --title "..."`（纯写 index.md）；发起帖 `map fs comment --topic <slug> --file <md>`
+1. **建**：`map topic create --slug <name> --title "..."`（纯写 index.md）；发起帖 `map topic comment --topic <slug> --file <md>`
 2. **读**：`map topic list` / `map topic show --id <slug>`（list 合并本地 map/ + API；show 优先读文件夹）
-3. **敛**：参与者交齐本轮文件后 `map fs advance-round --topic <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--ready`
-4. **断/清**：收敛时把轻量执行项落 `map topic action-item add`、owner 用 `map topic action-item complete --evidence ...` / `cancel --reason ...` 清零 → `map fs close --topic <slug> --reason ...`（门禁:action-items.yaml 无 open 项才放行，409 时先清零再 close）；实验仍走 `map experiment create`（DB 生命周期）
+3. **敛**：参与者交齐本轮文件后 `map topic advance-round --topic <slug>`（服务端校验 ack 满员后写回 index.md；未满员 409 列出 missing，可 `--waive-ack --waive-reason`）；收敛加 `--ready`
+4. **断/清**：收敛时把轻量执行项落 `map topic action-item add`、owner 用 `map topic action-item complete --evidence ...` / `cancel --reason ...` 清零 → `map topic close --topic <slug> --reason ...`（门禁:action-items.yaml 无 open 项才放行，409 时先清零再 close）；实验仍走 `map experiment create`（DB 生命周期）
 
 **存量话题处置（v0.13 M58 起 DB 写路径已退役）**：
 

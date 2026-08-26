@@ -181,7 +181,7 @@ class TestCommentFsRouting:
         target = workspace / "map" / "topics" / "fs-demo" / "round1-host.md"
         assert target.is_file()
         assert "# 观点" in target.read_text(encoding="utf-8")
-        assert "fs topic: fs-demo" in result.output
+        assert "Wrote" in result.output
 
     def test_comment_by_fs_uuid_writes_round_file(self, workspace: Path) -> None:
         _make_fs_topic(workspace, "fs-demo")
@@ -217,7 +217,7 @@ class TestCommentFsRouting:
             ["comment", "--id", "fp", "--file-path", "map/x.md", "--excerpt", "e"],
         )
         assert result.exit_code == 2
-        assert "fs topics need --body / --file" in result.output
+        assert "need --body / --file" in result.output
 
     def test_comment_parent_rejected_on_fs(self, workspace: Path) -> None:
         _make_fs_topic(workspace, "p")
@@ -231,7 +231,7 @@ class TestCommentFsRouting:
     def test_comment_storage_fs_unknown_topic(self, workspace: Path) -> None:
         result = runner.invoke(topic_app, ["comment", "--id", "ghost", "--storage", "fs", "--body", "x"])
         assert result.exit_code == 1
-        assert "fs topic not found" in result.output
+        assert "topic not found" in result.output
 
     def test_comment_immutable_second_write_errors(self, workspace: Path) -> None:
         _make_fs_topic(workspace, "im")
@@ -259,7 +259,7 @@ _TRI_STATE_COMMANDS = {
     "read",
     "mark-seen",
 }
-_DB_ONLY_COMMANDS = {"migrate", "archive"}
+_DB_ONLY_COMMANDS = {"migrate"}
 
 
 class _RecordingStub(_StubClient):
@@ -438,7 +438,7 @@ class TestSixCommandDbBranch:
         assert "DB write path retired" in result.output
         # The hint quotes the full command with args — assert the bare
         # command prefix, not a backtick-closed token.
-        assert "map fs close --topic" in result.output
+        assert "map topic close --topic" in result.output
         assert "topic migrate" in result.output
         assert client.calls == []
 
@@ -488,7 +488,7 @@ class TestIdHelpConsistency:
     """M56C：--id help 文本分组一致（三态组 10 命令同文案；DB-only 组带标注）。"""
 
     def test_tri_state_id_help_identical(self) -> None:
-        expected = "Topic UUID (DB), FS uuid5 id, or slug."
+        expected = "Topic UUID (DB), folder uuid5 id, or slug."
         for name in sorted(_TRI_STATE_COMMANDS):
             result = runner.invoke(topic_app, [name, "--help"])
             assert result.exit_code == 0, name
@@ -505,7 +505,17 @@ class TestIdHelpConsistency:
         # 防止未来新增命令悄悄游离在分组断言之外
         from cli.commands.topic import topic_app
 
-        no_id = {"create", "list", "progress"}
+        no_id = {
+            "create",
+            "list",
+            "progress",
+            "init",
+            "anomalies",
+            "work",
+            "archive-index",
+            "migrate-from-docs",
+            "archive",
+        }
         for info in topic_app.registered_commands:
             if info.name in no_id:
                 continue
@@ -595,23 +605,14 @@ class TestCreateMissingOptionGuards:
     ``TypeError: PosixPath / NoneType``）。两个 create 入口必须自行兜底：
     slug 缺省由 title 生成、title 缺省明确报错，不能崩。"""
 
-    def test_fs_topic_create_without_slug_slugifies_title(self, workspace: Path) -> None:
-        from cli.commands.fs import fs_app
-
-        result = runner.invoke(fs_app, ["topic-create", "--title", "Auto Slug Topic"])
+    def test_topic_create_without_slug_slugifies_title(self, workspace: Path) -> None:
+        result = runner.invoke(topic_app, ["create", "--title", "Auto Slug Topic"])
         assert result.exit_code == 0, result.output
         assert (workspace / "map" / "topics" / "auto-slug-topic" / "index.md").is_file()
 
-    def test_fs_topic_create_without_title_errors_cleanly(self, workspace: Path) -> None:
-        from cli.commands.fs import fs_app
-
-        result = runner.invoke(fs_app, ["topic-create"])
-        # click 恢复必填校验的版本下是 exit 2（usage error），两种都算已修复
-        assert result.exit_code in (1, 2), result.output
-        assert "--title" in result.output
-
     def test_topic_create_without_title_errors_cleanly(self, workspace: Path) -> None:
         result = runner.invoke(topic_app, ["create"])
+        # click 恢复必填校验的版本下是 exit 2（usage error），两种都算已修复
         assert result.exit_code in (1, 2), result.output
         assert "--title" in result.output
 

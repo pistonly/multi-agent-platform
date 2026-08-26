@@ -77,12 +77,12 @@
 | 形态 | `GET /fs/status` 判定 | 读路径 | 验证型写 |
 |------|----------------------|--------|----------|
 | 同机部署（uvicorn 于仓库本机） | `local-fs` | 实时解析 `map/` | validate + commit；同机模式下 commit 会复核 index.md 已写回 |
-| 远程 / 容器 + `map fs sync` | `projection-cache` | 回退到 `fs_projections` 单发布者投影缓存；Web 明确只读，展示 revision / 更新时间 / stale | host/admin/`*-sync` 按 revision CAS 增量同步（tombstone 删除）；全量 PUT 仅作 bootstrap/repair |
-| 远程 / 容器，未同步 | `detached` | FS plane 对 server 不可见（bootstrap 与 `map fs status` 显式警告 + 修复指引，不再静默空列表） | 409 `fs_plane_unavailable` |
+| 远程 / 容器 + `map sync publish` | `projection-cache` | 回退到 `fs_projections` 单发布者投影缓存；Web 明确只读，展示 revision / 更新时间 / stale | host/admin/`*-sync` 按 revision CAS 增量同步（tombstone 删除）；全量 PUT 仅作 bootstrap/repair |
+| 远程 / 容器，未同步 | `detached` | FS plane 对 server 不可见（bootstrap 与 `map sync check` 显式警告 + 修复指引，不再静默空列表） | 409 `fs_plane_unavailable` |
 
 读侧统一入口 `plane_views`：本地实时解析优先、投影缓存回退；`/topics` 合并、`/topics/{uuid}`、`/agents/me/work`（waker 源）共用该入口，并携带同一个 `ContentSourceMeta`。投影缓存有上限（2000 topics / 8MB，超限 413）。远程缓存契约是 `single-publisher-eventual`：首次 push 绑定 publisher/owner，旧 revision 或其他发布者覆盖返回 409。`content_root` 是项目级配置，不再从全局 `MAP_CONTENT_ROOT` 推断已有项目。
 
-远程形态的协作节奏：`map topic comment/create` 在 `projection-cache` 下默认自动 `map fs sync`；失败时本地文件保留并提示 `map fs diff`。`--no-sync` 用于离线。`map fs push` 是 `map fs sync --full` 的兼容别名。`docker-compose.fs.yml` 同路径挂载不再作为推荐安装路径。
+远程形态的协作节奏：`map topic comment/create` 在 `projection-cache` 下默认自动 `map sync publish`；失败时本地文件保留并提示 `map sync diff`。`--no-sync` 用于离线。`map sync push` 是 `map sync publish --full` 的兼容别名。`docker-compose.fs.yml` 同路径挂载不再作为推荐安装路径。
 
 ## 5. CLI 路由（M51）
 
@@ -109,4 +109,4 @@ comment 的 FS 分支为纯本地写（本地优先路由，离线可用）；sh
 - **Web（Docker nginx）**：`http://localhost:3000`（与 API 同源看板等价；Vite 开发仍为 `:5173`）
 - **waker**：`./scripts/start-all-simple-wakers.sh`；状态 `.map/simple-waker-state-*.json`、日志 `.map/waker-logs/`、session 转录 `.map/runtime-waker-sessions/`
 - **PyPI**：`multi-agent-platform`（CLI + SDK）；`multi-agent-platform-server` / `map-server` 内含看板静态资源。Alembic 完整迁移链仍建议 Docker 或 clone 仓库。
-- **FS plane 三态**（见 §4.1）：`map fs status` / `GET /fs/status` 握手。Docker 单机需要 server 看到 workspace 时叠加 `docker-compose.fs.yml`（宿主与容器同绝对路径挂载）；远程部署走 `map fs push` 投影上行 + validate/commit 两段式验证型写。`map bootstrap` 末尾自动探测并在 detached 时给出修复指引。
+- **FS plane 三态**（见 §4.1）：`map sync check` / `GET /fs/status` 握手。Docker 单机需要 server 看到 workspace 时叠加 `docker-compose.fs.yml`（宿主与容器同绝对路径挂载）；远程部署走 `map sync publish --full` 投影上行 + validate/commit 两段式验证型写。`map bootstrap` 末尾自动探测并在 detached 时给出修复指引。

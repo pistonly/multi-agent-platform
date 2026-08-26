@@ -1,10 +1,14 @@
-"""``map sync ...`` sub-app — local cache sync commands.
+"""``map sync ...`` sub-app — local cache + map/ folder projection sync.
 
 Commands:
     map sync pull       — Pull project data from remote server to local cache
-    map sync status     — Show sync status (last pull time, cached counts)
+    map sync status     — Show cache sync status (last pull time, cached counts)
     map sync topics     — List cached topics (offline, from local cache)
     map sync topic      — Show a cached topic by ID (offline, from local cache)
+    map sync publish    — Publish local map/ folders to the server projection
+    map sync diff       — Compare local map/ with the server projection
+    map sync check      — Folder-plane handshake (local hash + server revision)
+    map sync push       — Deprecated alias of ``map sync publish --full``
 """
 from __future__ import annotations
 
@@ -17,7 +21,12 @@ from map_client.project_config import find_map_dir  # noqa: E402
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 
-sync_app = typer.Typer(help="Local cache sync commands (offline browsing)")
+sync_app = typer.Typer(
+    help=(
+        "Local cache (pull/status/topics) and map/ folder projection "
+        "(publish/diff/check)."
+    )
+)
 
 
 def _require_cache_session():
@@ -168,3 +177,53 @@ def sync_topic(
         typer.echo(json.dumps(topic["data"], indent=2, default=str, ensure_ascii=False))
     finally:
         session.close()
+
+
+@sync_app.command("publish")
+def sync_publish(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    full: bool = typer.Option(
+        False, "--full", help="Upsert every local object, not just the delta"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Confirm remote deletes (tombstones)"),
+) -> None:
+    """Publish local map/ folders to the server projection (CAS delta + explicit deletes)."""
+    from cli.commands.fs import fs_sync
+
+    fs_sync(project=project, project_key=project_key, dry_run=dry_run, full=full, yes=yes)
+
+
+@sync_app.command("diff")
+def sync_diff(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """Compare local map/ with the server projection (summary only, no bodies)."""
+    from cli.commands.fs import fs_diff
+
+    fs_diff(project=project, project_key=project_key)
+
+
+@sync_app.command("check")
+def sync_check(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+) -> None:
+    """Folder-plane handshake: local hash + server reachability."""
+    from cli.commands.fs import fs_status
+
+    fs_status(project=project, project_key=project_key)
+
+
+@sync_app.command("push")
+def sync_push(
+    project: uuid.UUID | None = typer.Option(None, "--project"),
+    project_key: str | None = typer.Option(None, "--project-key"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm remote deletes (tombstones)"),
+) -> None:
+    """Deprecated alias for ``map sync publish --full``."""
+    from cli.commands.fs import fs_push
+
+    fs_push(project=project, project_key=project_key, yes=yes)

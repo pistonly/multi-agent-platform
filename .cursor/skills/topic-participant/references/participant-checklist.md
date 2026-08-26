@@ -2,14 +2,14 @@
 
 > 从 [topic-participant SKILL.md](../SKILL.md) 下沉的命令与模板细节。准备发言、跟评或表态时阅读本文件；何时发言、表态语义与防刷屏规则见主文件。
 >
-> **v0.13 M58 起话题写路径单轨 FS**：发言走 `map fs comment --topic <slug>`（写文件）；存量 DB 话题只读，继续讨论须先由 host `topic migrate` 迁 FS。
+> **v0.13 M58 起话题写路径单轨 FS**：发言走 `map topic comment --topic <slug>`（写文件）；存量 DB 话题只读，继续讨论须先由 host `topic migrate` 迁 FS。
 
 ## 发言命令（topic comment）
 
 短评用 `--body`：
 
 ```bash
-map --persona participant fs comment \
+map --persona participant topic comment \
   --topic <slug> \
   --body "..."
 ```
@@ -17,7 +17,7 @@ map --persona participant fs comment \
 长内容先写本地 MD 再引用（推荐，即写 `map/topics/<slug>/round<N>-participant.md`）：
 
 ```bash
-map --persona participant fs comment \
+map --persona participant topic comment \
   --topic <slug> \
   --file ./my-opinion.md
 ```
@@ -26,7 +26,7 @@ host 的轮次 Summary 用 `--round-summary`（host 专用，participant 不用�
 
 ```bash
 # 仅 host 视角示意，participant 不要执行
-map --persona host fs comment --topic <slug> --round-summary --file ./summary.md
+map --persona host topic comment --topic <slug> --round-summary --file ./summary.md
 ```
 
 读取他人发言：`topic show --id <slug>` 列出各轮文件，或直接读 `map/topics/<slug>/` 下对应 round 文件全文（详见 [map-project-collab file-reference](../../map-project-collab/references/file-reference.md)）。
@@ -34,7 +34,7 @@ map --persona host fs comment --topic <slug> --round-summary --file ./summary.md
 ## 存量 DB 话题处置
 
 - **读**：`topic show --id <topic-uuid>`（只读路径永久保留）
-- **继续讨论**：请 host 执行 `topic migrate --id <topic-uuid>` 迁为 FS 话题，之后用 `map fs comment --topic <slug>` 发言
+- **继续讨论**：请 host 执行 `topic migrate --id <topic-uuid>` 迁为 FS 话题，之后用 `map topic comment --topic <slug>` 发言
 - **不要**对存量 DB uuid 跑 `topic comment` / `advance-round --ack` 等写命令——v0.13 M58 起返回引导性错误
 
 ## 发言结构（建议）

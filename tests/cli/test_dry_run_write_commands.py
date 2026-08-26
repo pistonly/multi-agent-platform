@@ -43,7 +43,6 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "todo_app": ("todo",),
     "action_app": ("action",),
     "feedback_app": ("feedback",),
-    "fs_app": ("fs",),
     "audit_app": ("audit",),
     "docs_app": ("docs",),
     "e2e_app": ("e2e",),
@@ -112,24 +111,17 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("skill", "install"),  # 只写本地文件（.cursor/skills/），不改 MAP 状态
     # M52A：upgrade 同 install，仅覆写本地 Skill 目录（可 diff 摘要预览）
     ("skill", "upgrade"),
-    # fs plane 离线命令：只写本地 map/ 文件夹（事实源本身），不走 API。
+    # 话题文件夹离线命令：只写本地 map/，不走 MAP API。
     # advance-round / close 是验证型写（走 API），登记在 _WRITE_COMMANDS_2。
-    ("fs", "init"),
-    ("fs", "topic-create"),
-    ("fs", "comment"),
-    ("fs", "list"),
-    ("fs", "show"),
-    ("fs", "work"),
-    ("fs", "migrate-from-docs"),
-    # v0.14 M60/M61：归档薄命令 + 索引重建，零 API 纯本地
-    # （移动 map/ 目录内文件 + 重建 archive INDEX，不调 server）。
-    ("fs", "archive"),
-    ("fs", "archive-index"),
-    # 部署矩阵握手：只读（本地扫描 + GET /fs/status）。
-    ("fs", "status"),
-    ("fs", "diff"),
-    # 27f961d1 fs-write-entry-validation V1：离线读路径 anomaly 报告，不改写 MAP 状态。
-    ("fs", "anomalies"),
+    # archive 会移动本地目录，dry-run 仍跳过（与 topic create/comment 同属写白名单）。
+    ("topic", "init"),
+    ("topic", "anomalies"),
+    ("topic", "work"),
+    ("topic", "archive-index"),
+    ("topic", "migrate-from-docs"),
+    # 部署矩阵握手 / 投影 diff：只读。
+    ("sync", "check"),
+    ("sync", "diff"),
     # 3b7c2b44 A1：config 对账诊断——只读 .map/ + GET authority，不改状态。
     ("doctor", "config"),
     # 3b7c2b44 A6 P3-1：版本/对照范围——只读本仓 bundled skills 清单。

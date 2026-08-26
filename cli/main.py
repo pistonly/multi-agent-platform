@@ -56,7 +56,6 @@ from cli.commands.experiment import (  # noqa: F401 — re-export 保持 cli.mai
     experiment_app,
 )
 from cli.commands.feedback import feedback_app
-from cli.commands.fs import fs_app
 from cli.commands.host import host_app
 from cli.commands.notification import inbound_event_app, notification_app
 from cli.commands.persona import persona_app
@@ -147,7 +146,6 @@ app.add_typer(todo_app, name="todo")
 app.add_typer(action_app, name="action")
 app.add_typer(feedback_app, name="feedback")
 app.add_typer(doctor_app, name="doctor")
-app.add_typer(fs_app, name="fs")
 app.add_typer(docs_app, name="docs")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(sync_app, name="sync")
@@ -480,9 +478,9 @@ _CLEAR_ACTION_TEMPLATES: dict[str, str] = {
     # v0.13 M58: topic write paths are FS-only. The DB-era hints
     # ("--reply-to" thread reply / "advance-round --ack accept") pointed at
     # retired commands; both obligations are now cleared by writing the
-    # agent's own round speech file via ``map fs comment``.
-    "comment": "map fs comment --topic {topic_id} --file <your-round-speech.md>",
-    "ack": "map fs comment --topic {topic_id} --file <your-round-speech.md>  # speech file = your ack (v0.13 M58)",
+    # agent's own round speech file via ``map topic comment``.
+    "comment": "map topic comment --topic {topic_id} --file <your-round-speech.md>",
+    "ack": "map topic comment --topic {topic_id} --file <your-round-speech.md>  # speech file = your ack (v0.13 M58)",
     "dismiss": "map mention dismiss --id {mention_id}",
     "read": "Read latest comments on topic '{topic_title}'",
 }

@@ -96,20 +96,20 @@ class TestQuickstartMatchesCli:
     """M50A：QUICKSTART 示例参数与 CLI 定义一致。"""
 
     def test_topic_create_uses_description_not_body(self) -> None:
-        """QUICKSTART 话题创建演示走 ``map fs topic-create``（FS 写入口）。"""
+        """QUICKSTART 话题创建演示走 ``map topic create``。"""
         text = _read(REPO_ROOT / "docs" / "QUICKSTART.md")
         create_lines = [
             line.strip()
             for line in text.splitlines()
-            if re.search(r"map[^\n]*\bfs topic-create\b", line)
+            if re.search(r"map[^\n]*\btopic create\b", line)
         ]
-        assert create_lines, "QUICKSTART should demonstrate `map fs topic-create`"
+        assert create_lines, "QUICKSTART should demonstrate `map topic create`"
         for line in create_lines:
             assert "--body" not in line, (
-                f"`topic-create` has no --body param (use --title/--slug/--participants): {line}"
+                f"`topic create` has no --body param (use --title/--slug/--participants): {line}"
             )
             assert "--title" in line and "--slug" in line, (
-                f"`fs topic-create` example missing --title/--slug: {line}"
+                f"`topic create` example missing --title/--slug: {line}"
             )
 
     def test_bootstrap_api_url_uses_default_port(self) -> None:
