@@ -10,7 +10,7 @@ import pytest
 import typer
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 from cli.runtime_chat import (
     default_runtime_home,
     default_state_file,

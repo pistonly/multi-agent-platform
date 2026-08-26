@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 
 
 def load_bridge_state(

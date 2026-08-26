@@ -32,7 +32,7 @@ from typing import Any
 import typer
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 from cli.map_command_client import MapCommandClient
 from cli.runtime_chat import (
     default_runtime_home,

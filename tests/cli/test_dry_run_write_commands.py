@@ -245,7 +245,7 @@ def test_subprocess_timeout_raises_worker_error(monkeypatch) -> None:
     """BUG #2a：subprocess 挂起时必须抛 WorkerError，而非永久阻塞 waker cycle。"""
     import subprocess as _sp
 
-    from cli.host_worker_types import WorkerError
+    from cli.errors import WorkerError
     from cli.map_command_client import MapCommandClient
 
     def _hang(*args: object, **kwargs: object) -> None:

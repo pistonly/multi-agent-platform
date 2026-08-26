@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from cli.agent_client import PersonaAgentClient
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 
 # ---------------------------------------------------------------------------
 # WakeResult — waker 调用 backend 后的统一返回值

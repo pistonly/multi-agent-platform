@@ -3,7 +3,7 @@ import json
 import pytest
 
 from cli.bridge_state import load_bridge_state, save_bridge_state
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 
 
 def test_load_bridge_state_returns_default_collections_for_missing_file(tmp_path):

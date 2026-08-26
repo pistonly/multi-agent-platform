@@ -19,7 +19,7 @@ from map_client.project_config import find_map_dir
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
 from cli.bridge_state import load_bridge_state, save_bridge_state
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 from cli.wake_backend import sync_runtime_skills
 
 DEFAULT_STATE_TEMPLATE = ".map/runtime-waker-state-{persona}.json"

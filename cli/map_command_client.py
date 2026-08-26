@@ -9,7 +9,7 @@ from typing import Any
 import typer
 import yaml
 
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 
 
 class MapCommandClient:

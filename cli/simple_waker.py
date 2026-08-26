@@ -24,7 +24,7 @@ from cli.action_item_escalation import (
 )
 from cli.agent_client import apply_project_claude_env
 from cli.bridge_state import load_bridge_state, save_bridge_state
-from cli.host_worker_types import WorkerError
+from cli.errors import WorkerError
 from cli.map_command_client import MapCommandClient
 from cli.wake_backend import (
     TODO_BUCKET_UI_LABELS,
