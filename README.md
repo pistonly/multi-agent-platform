@@ -173,6 +173,7 @@ map --persona host host invoke --persona reviewer --prompt-file ./review-task.md
 # Web UI：map-server 已同源提供看板（打开 API 根路径，设置页填 Token）
 # 前端热更新（贡献者）：cd web && npm install && npm run dev   # http://localhost:5173
 # 把构建产物打进 Python 包（发 PyPI / 本机 map-server 看板）：./scripts/sync-web-dist.sh
+# 发版编排（bump / prepare / tag / upload；默认不推 remote、不传 PyPI）：./scripts/release.sh
 ```
 
 实验计划可在验收列表项行首标记类型，例如

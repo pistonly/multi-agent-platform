@@ -38,6 +38,17 @@ def test_ci_packaging_job_unpacks_wheel() -> None:
     assert "scripts/sync-web-dist.sh" in text
 
 
+def test_release_conductor_exists() -> None:
+    """Local PyPI conductor is the release entry; CI must not auto-upload."""
+    assert (_ROOT / "scripts" / "release.sh").is_file()
+    ci = (_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    nightly = (_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+    assert "twine upload" not in ci
+    assert "twine upload" not in nightly
+    assert "scripts/release.sh" not in ci
+    assert "scripts/release.sh" not in nightly
+
+
 def test_resolve_alembic_ini_prefers_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ini = tmp_path / "alembic.ini"
     ini.write_text("[alembic]\nscript_location = %(here)s/alembic\n", encoding="utf-8")

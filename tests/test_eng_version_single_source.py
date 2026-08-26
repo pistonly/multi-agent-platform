@@ -13,9 +13,10 @@ This test pins the invariant that ``pyproject.toml`` and
 ``server/__version__.py`` stay in lockstep, and that no other module
 in ``server/`` hardcodes the version literal.
 
-Release workflow: bump both ``pyproject.toml`` ``[project] version``
-and ``server/__version__.py`` in the same commit. The two assertions
-below fail otherwise.
+Release workflow: bump ``pyproject.toml``, ``server/__version__.py``,
+``map_sdk.__version__``, and ``server-pkg/pyproject.toml`` (version +
+``multi-agent-platform[server]>=`` pin) in the same commit. Prefer
+``scripts/release.sh bump``. The assertions below fail otherwise.
 """
 
 from __future__ import annotations
@@ -83,8 +84,9 @@ def test_map_sdk_version_matches_pyproject():
     assert map_sdk.__version__ == pyproject_version, (
         f"map_sdk.__version__ ({map_sdk.__version__!r}) does not match "
         f"pyproject.toml [project] version ({pyproject_version!r}). "
-        f"Bump all three (pyproject / server/__version__.py / "
-        f"sdk/python/map_sdk/__init__.py) in the same commit."
+        f"Bump pyproject / server/__version__.py / "
+        f"sdk/python/map_sdk/__init__.py / server-pkg in the same commit "
+        f"(scripts/release.sh bump)."
     )
 
 
@@ -122,6 +124,41 @@ def test_no_hardcoded_version_literal_in_server_main():
             f"server/main.py hardcodes version literal {match.group(0)!r} "
             f"on line: {line!r}. Import from `server.__version__` instead."
         )
+
+
+def _read_server_pkg_project_version() -> str:
+    text = (PROJECT_ROOT / "server-pkg" / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^\[project\].*?^version\s*=\s*"([^"]+)"', text, re.MULTILINE | re.DOTALL)
+    assert match is not None, "server-pkg/pyproject.toml must declare [project] version"
+    return match.group(1)
+
+
+def test_server_pkg_version_matches_pyproject():
+    """Meta-package version must lockstep with the main wheel."""
+    assert _read_server_pkg_project_version() == _read_pyproject_version()
+
+
+def test_server_pkg_dependency_pin_matches_pyproject():
+    """``multi-agent-platform-server`` must depend on ``>=`` the same version.
+
+    Otherwise ``pip install multi-agent-platform-server==X`` can pull an
+    older CLI/server extra and the dual-package release is incoherent.
+    """
+    text = (PROJECT_ROOT / "server-pkg" / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'multi-agent-platform\[server\]>=([^"\s,]+)', text)
+    assert match is not None, "server-pkg must pin multi-agent-platform[server]>=..."
+    assert match.group(1) == _read_pyproject_version()
+
+
+def test_uv_lock_editable_version_matches_pyproject():
+    """``uv.lock`` records the local package version; drift fails ``uv sync --frozen``."""
+    text = (PROJECT_ROOT / "uv.lock").read_text(encoding="utf-8")
+    match = re.search(
+        r'(?m)^name = "multi-agent-platform"\nversion = "([^"]+)"\nsource = \{ editable = "\." \}',
+        text,
+    )
+    assert match is not None, "uv.lock must record editable multi-agent-platform version"
+    assert match.group(1) == _read_pyproject_version()
 
 
 def test_server_main_imports_version_from_server_package():
