@@ -71,9 +71,8 @@ claude-runtime = [
 [project.scripts]
 map-server = "server.main:run"
 map = "cli.main:main"
-# DEPRECATED (Phase 1 retained): see docs/LEGACY-ENTRY-MATRIX.md — use simple-waker + persona Skill
-map-participant-bridge = "cli.participant_worker:main"
-map-reviewer-bridge = "cli.reviewer_worker:main"
+# T20（2026-08）：map-participant-bridge / map-reviewer-bridge 已删除，
+# 见 docs/LEGACY-ENTRY-MATRIX.md「已退役」——用 simple-waker + persona Skill。
 map-mcp = "map_mcp.main:cli"
 
 [build-system]

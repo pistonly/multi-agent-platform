@@ -248,7 +248,7 @@ export ANTHROPIC_MODEL=claude-sonnet-4-6
 
 ## Host Worker（已退役）
 
-早期轮询 bridge（`map-host-bridge` / `map-host-worker`、`start-host-bridge*.sh`、`start-runtime-waker-claude.sh`、`start-all-wakers-legacy.sh`）已由 **simple-waker** 全面取代并停用（`MAP_USE_LEGACY_WAKER` 不再生效）。`pyproject.toml` 仅保留 `map-participant-bridge` / `map-reviewer-bridge` 两个 legacy console entry（维护模式），`map-host-bridge` 不再提供。
+早期轮询 bridge（`map-host-bridge` / `map-host-worker`、`start-host-bridge*.sh`、`start-runtime-waker-claude.sh`、`start-all-wakers-legacy.sh`）已由 **simple-waker** 全面取代并停用（`MAP_USE_LEGACY_WAKER` 不再生效）。participant/reviewer bridge（`map-participant-bridge` / `map-reviewer-bridge` console entry 与 `start-*-bridge*.sh`）也已删除（T20）——自动推进统一走 simple-waker。
 
 详见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
 

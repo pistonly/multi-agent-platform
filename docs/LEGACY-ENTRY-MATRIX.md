@@ -19,8 +19,6 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 |-------|------|------|------|
 | `map` | `cli.main` | 主路径 | Persona + CLI 协作入口 |
 | `map-server` | `server.main` | 主路径 | API 服务 |
-| `map-participant-bridge` | `cli.participant_worker` | deprecated | 旧 participant bridge；用 simple-waker + participant Skill |
-| `map-reviewer-bridge` | `cli.reviewer_worker` | deprecated | 旧 reviewer bridge；用 simple-waker + reviewer Skill |
 | `map-mcp` | `map_mcp.main` | 独立线 | MCP 验证路径，不在本实验退役范围 |
 
 > **已退役**（v0.10）：`map-runtime-waker` console entry、`cli/runtime_waker.py`
@@ -28,6 +26,15 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 > `tests/test_waker_phase2_*.py`、`tests/test_host_worker.py`、
 > `tests/test_host_experiment_lifecycle.py`）已删除。默认 waker 为
 > `cli.simple_waker`（`./scripts/start-all-simple-wakers.sh`）。
+>
+> **已退役**（v0.16，优化任务 T20）：`map-participant-bridge` /
+> `map-reviewer-bridge` console entry、`cli/participant_worker.py`、
+> `cli/reviewer_worker.py` 模块、4 个 `scripts/start-*-bridge*.sh` stub
+> 及配套测试（`tests/test_participant_worker_claude_agent.py`、
+> `tests/test_reviewer_worker_claude_agent.py`）已删除。bridge 路径自
+> simple-waker 全面接管后 `cli/` 内零引用，仅测试持有。共享模块
+> `cli/bridge_state.py`、`cli/worker_cycle_log.py` 为 simple-waker /
+> orchestrator 主路径使用，保留。
 
 ## scripts/*.sh
 
@@ -35,10 +42,6 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 |------|------|------|
 | `scripts/start-all-simple-wakers.sh` | 主路径 | 三 persona simple-waker（默认） |
 | `scripts/start-simple-waker.sh` | 主路径 | 单 persona simple-waker |
-| `scripts/start-participant-bridge.sh` | deprecated | **stub**：exit 1 + 指引 simple-waker 替代（实验 124e9a00 第一阶段） |
-| `scripts/start-participant-bridge-claude.sh` | deprecated | **stub**：同上（Claude runner 变体） |
-| `scripts/start-reviewer-bridge.sh` | deprecated | **stub**：exit 1 + 指引 simple-waker 替代 |
-| `scripts/start-reviewer-bridge-claude.sh` | deprecated | **stub**：同上（Claude runner 变体） |
 
 ## 文档
 
@@ -62,12 +65,7 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 
 check-deprecated.sh 同时执行两条防回潮规则（实验 124e9a00 A3）：manifest 中 `scripts/*.sh` 必须保持 stub（改回真脚本 → CI fail）；退役声明处（CLAUDE.md / Skill wake.md）引用的启动路径必须在本矩阵 scripts 节登记（未登记 → CI fail）。**本文件的 scripts 表格与 DEPRECATED 清单是登记单一真相，改格式前先过 CI。**
 
-DEPRECATED: scripts/start-participant-bridge.sh
-DEPRECATED: scripts/start-participant-bridge-claude.sh
-DEPRECATED: scripts/start-reviewer-bridge.sh
-DEPRECATED: scripts/start-reviewer-bridge-claude.sh
-DEPRECATED: cli/participant_worker.py
-DEPRECATED: cli/reviewer_worker.py
+（T20 后本清单暂无在册 DEPRECATED 条目——bridge 簇已整体退役，如未来再引入 deprecated 入口按上格式登记。）
 
 ## 迁移指引
 
@@ -82,4 +80,4 @@ DEPRECATED: cli/reviewer_worker.py
 ./scripts/start-simple-waker.sh --persona host
 ```
 
-勿再使用 `start-*-bridge*.sh` 或 `map-*-bridge` console entry 做新接入。
+bridge 系入口（`start-*-bridge*.sh` / `map-*-bridge` console entry）已全部删除，勿在新接入中引用；自动推进统一走 simple-waker。
