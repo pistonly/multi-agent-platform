@@ -30,6 +30,7 @@ import typer
 from typer.testing import CliRunner
 
 import cli.main as cli_main
+import cli.runner as cli_runner_mod  # T23: helpers moved to runner
 from cli.main import app
 from cli.shortid import normalize_uuid_like, resolve_ref
 
@@ -106,7 +107,7 @@ def stub_env(monkeypatch):
     transport = StubTransport([])
     monkeypatch.setattr(cli_main, "_transport", transport)
     monkeypatch.setattr(
-        cli_main, "_resolve_project", lambda client, p, k: PROJECT_ID
+        cli_runner_mod, "_resolve_project", lambda client, p, k: PROJECT_ID
     )
     monkeypatch.setenv("MAP_TOKEN", "fake")
     monkeypatch.setenv("MAP_API_URL", "http://test")

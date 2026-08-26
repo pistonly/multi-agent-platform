@@ -13,6 +13,9 @@ import uuid
 
 import typer
 from map_client.client import MAPClient
+from map_client.project_config import find_map_dir  # noqa: E402
+
+from cli import runner  # module ref: test monkeypatch surface (T23)
 
 sync_app = typer.Typer(help="Local cache sync commands (offline browsing)")
 
@@ -20,7 +23,7 @@ sync_app = typer.Typer(help="Local cache sync commands (offline browsing)")
 def _require_cache_session():
     """Open the local cache DB, exiting with a helpful hint if .map/ is missing."""
     from cli.local_cache import get_cache_path, init_cache
-    from cli.main import _cli_options, find_map_dir
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     map_dir = find_map_dir(_cli_options.get("project_root"))
     if map_dir is None:
@@ -46,12 +49,11 @@ def sync_pull(
     `map sync topics` and `map sync topic --id <uuid>`.
     """
     from cli.local_cache import pull_project_to_cache
-    from cli.main import _resolve_project, _run
 
     map_dir, db_path, session = _require_cache_session()
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         # Resolve project_key for sync_meta bookkeeping
         from map_client.config import load_config
 
@@ -70,7 +72,7 @@ def sync_pull(
         return None
 
     try:
-        _run(action)
+        runner._run(action)
     finally:
         session.close()
 

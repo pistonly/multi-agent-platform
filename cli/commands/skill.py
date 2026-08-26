@@ -262,7 +262,7 @@ def skill_list(
     ),
 ) -> None:
     """List bundled Skills available for installation."""
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     skill_names = _list_skill_dirs()
     if not skill_names:
@@ -367,7 +367,7 @@ def skill_install(
     """
     import shutil
 
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     fmt = _cli_options.get("format", "yaml")
     target = _resolve_target(target, runtime)
@@ -527,7 +527,7 @@ def skill_upgrade(
     """
     import shutil
 
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     fmt = _cli_options.get("format", "yaml")
     target = _resolve_target(target, runtime)

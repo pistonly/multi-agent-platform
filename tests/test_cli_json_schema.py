@@ -36,6 +36,7 @@ from map_types.schemas import (
 from typer.testing import CliRunner
 
 import cli.main as cli_main
+import cli.runner as cli_runner_mod  # T23: helpers moved to runner
 from cli.main import CLIErrorEnvelope, app
 
 PROJECT_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -114,7 +115,7 @@ def runner() -> CliRunner:
 def stub_env(monkeypatch):
     monkeypatch.setattr(cli_main, "_transport", StubTransport())
     monkeypatch.setattr(
-        cli_main, "_resolve_project", lambda client, p, k: PROJECT_ID
+        cli_runner_mod, "_resolve_project", lambda client, p, k: PROJECT_ID
     )
     # Isolate from the real repo map/experiments merge (FS list extras).
     monkeypatch.setattr("cli.experiment_fs.workspace_root", lambda: None)

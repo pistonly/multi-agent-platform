@@ -40,7 +40,7 @@ class FeedbackKind(str, Enum):
 
 
 def _env_lines() -> list[str]:
-    from cli.main import _cli_options, _cli_version
+    from cli.main import _cli_options, _cli_version  # runtime state (monkeypatch surface)
 
     lines = [
         f"- map version: {_cli_version()}",
@@ -54,7 +54,6 @@ def _env_lines() -> list[str]:
 def _detect_api_url(project_root) -> str:
     try:
         import yaml
-
         from map_client.project_config import find_map_dir
 
         map_dir = find_map_dir(project_root)

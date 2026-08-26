@@ -67,13 +67,17 @@ def fake_client() -> MagicMock:
 
 
 def _patch_run(monkeypatch: pytest.MonkeyPatch, client: MagicMock) -> None:
-    """Patch ``cli.main._run`` so it invokes ``action(client)`` synchronously."""
-    import cli.main as cli_main
+    """Patch ``cli.runner._run`` so it invokes ``action(client)`` synchronously.
+
+    T23: ``notification_app`` imports ``_run`` from ``cli.runner`` at module
+    top level, so the injection point moved off ``cli.main``.
+    """
+    import cli.runner as cli_runner_mod
 
     def _fake_run(action, **kwargs):  # type: ignore[no-untyped-def]
         return action(client)
 
-    monkeypatch.setattr(cli_main, "_run", _fake_run)
+    monkeypatch.setattr(cli_runner_mod, "_run", _fake_run)
 
 
 def test_read_all_no_filter_uses_bulk_endpoint(

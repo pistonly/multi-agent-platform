@@ -20,6 +20,8 @@ from typing import Any
 
 import typer
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+
 agent_app = typer.Typer(help="Agent commands (server-side identity)")
 
 
@@ -35,12 +37,11 @@ def _parse_uuid(raw: str | None, *, field: str) -> uuid.UUID | None:
 @agent_app.command("show")
 def agent_show() -> None:
     """Show the current MAP agent identity (== ``map me`` / ``map persona whoami``)."""
-    from cli.main import _run  # lazy: avoid cli.main ↔ cli.commands.agent cycle
 
     def action(c: Any) -> Any:
         return c.get_me()
 
-    _run(action)
+    runner._run(action)
 
 
 @agent_app.command("list")
@@ -55,14 +56,13 @@ def agent_list(
     Admins see every agent. Project-bound agents see admins and agents
     in their own project. Use ``--project-id`` / ``--role`` to narrow.
     """
-    from cli.main import _run  # lazy: see agent_show
 
     pid = _parse_uuid(project_id, field="project_id")
 
     def action(c: Any) -> Any:
         return c.list_agents(project_id=pid, role=role)
 
-    _run(action)
+    runner._run(action)
 
 
 @agent_app.command("escalation-target")
@@ -80,14 +80,13 @@ def agent_escalation_target(
     this on ``MAPHTTPError`` to append ``Escalation: @<name>`` to the
     error output.
     """
-    from cli.main import _run  # lazy: see agent_show
 
     eid = _parse_uuid(experiment_id, field="experiment_id")
 
     def action(c: Any) -> Any:
         return c.get_escalation_target(experiment_id=eid)
 
-    _run(action)
+    runner._run(action)
 
 
 @agent_app.command("register")
@@ -102,7 +101,6 @@ def agent_register(
     ),
 ) -> None:
     """Register a new agent (admin-only; role=agent requires a project)."""
-    from cli.main import _run  # lazy: see agent_show
 
     pid = _parse_uuid(project_id, field="project_id")
 
@@ -114,4 +112,4 @@ def agent_register(
             project_id=pid,
         )
 
-    _run(action, admin=True)
+    runner._run(action, admin=True)

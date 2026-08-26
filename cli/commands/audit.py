@@ -11,6 +11,8 @@ import uuid
 import typer
 from map_client.exceptions import MAPHTTPError, MAPPermissionError
 
+from cli.runner import _admin_client_ctx, _client_ctx, _print_json  # noqa: E402
+
 audit_app = typer.Typer(help="Audit log commands")
 
 
@@ -56,7 +58,6 @@ def audit_list(
         map audit list --target ops-visibility-batch
         map audit list --target 4770ea76 --kind experiment.completed
     """
-    from cli.main import _admin_client_ctx, _client_ctx, _print_json
 
     if target and experiment_id is not None:
         typer.echo(

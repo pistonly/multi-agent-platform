@@ -8,6 +8,8 @@ from pathlib import Path
 
 import typer
 
+from cli.runner import _print_json  # noqa: E402
+
 runtime_app = typer.Typer(help="Agent runtime session commands")
 
 
@@ -57,7 +59,7 @@ def runtime_chat(
     model: str | None = typer.Option(None, "--model", help="Optional Claude model override"),
 ) -> None:
     """Resume a persona runtime session and chat interactively from the terminal."""
-    from cli.main import _cli_options  # lazy: avoid cycle
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
     from cli.runtime_chat import run_runtime_chat
 
     run_runtime_chat(
@@ -93,7 +95,7 @@ def runtime_status(
     ),
 ) -> None:
     """Show resumable session id and whether runtime waker is running."""
-    from cli.main import _cli_options, _print_json  # lazy: avoid cycle
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
     from cli.runtime_chat import dump_runtime_chat_status
 
     _print_json(

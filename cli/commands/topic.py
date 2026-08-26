@@ -26,6 +26,13 @@ import typer
 import yaml
 from map_client.client import MAPClient
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.io_helpers import _read_text_file  # noqa: E402
+from cli.runner import (  # noqa: E402
+    _client_ctx,
+    _load_topic_resolve_payload,
+    _resolve_creator_agent_id,
+)
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
 # create/comment/advance-round/close + retired DB writes: keep callable, hide
@@ -260,9 +267,8 @@ def _fs_slug_by_uuid(ref: str) -> str | None:
 
 
 def _db_uuid_by_slug(c: MAPClient, slug: str) -> uuid.UUID | None:
-    from cli.main import _resolve_project
 
-    pid = _resolve_project(c, None, None)
+    pid = runner._resolve_project(c, None, None)
     for t in c.list_topics(pid, page_size=100):
         if t.slug == slug:
             return t.id
@@ -572,10 +578,9 @@ def topic_list(
     """
     from map_types.enums import TopicStatus
 
-    from cli.main import _resolve_creator_agent_id, _resolve_project, _run
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         st = TopicStatus(status) if status else None
         resolved_creator_id = _resolve_creator_agent_id(c, pid, creator, creator_agent_id)
         api_topics = _list_api_topics_all(
@@ -598,7 +603,7 @@ def topic_list(
         merged = _merge_topic_summaries(local_fs, api_topics)
         return _slice_page(merged, page, page_size)
 
-    _run(action, table_renderer=_render_topic_table)
+    runner._run(action, table_renderer=_render_topic_table)
 
 
 @topic_app.command("show")
@@ -606,7 +611,6 @@ def topic_show(
     topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), FS uuid5 id, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
-    from cli.main import _resolve_project, _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -622,10 +626,10 @@ def topic_show(
                 )
                 if parsed is not None:
                     return _fs_topic_to_detail(parsed)
-            return c.get_fs_topic(_resolve_project(c, None, None), target)
+            return c.get_fs_topic(runner._resolve_project(c, None, None), target)
         return c.get_topic(target)
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("history")
@@ -659,7 +663,6 @@ def topic_history(
         fetch_topic_history,
         resolve_audit_target,
     )
-    from cli.main import _client_ctx
 
     try:
         with _client_ctx() as client:
@@ -704,9 +707,8 @@ def topic_history(
 @topic_app.command("progress")
 def topic_progress() -> None:
     """Per-agent topic work items view (obligation + contextual); same source as todos topic buckets."""
-    from cli.main import _run
 
-    _run(lambda c: c.get_topic_progress())
+    runner._run(lambda c: c.get_topic_progress())
 
 
 @topic_app.command("resolve", hidden=_TOPIC_WRITE_HIDDEN)
@@ -717,7 +719,6 @@ def topic_resolve(
 ) -> None:
     """(Retired v0.13 M58) DB resolve is gone; decisions ride the FS close note."""
 
-    from cli.main import _load_topic_resolve_payload, _run
 
     payload = _load_topic_resolve_payload(resolve_file)
     _ = payload  # validated then discarded; the retired hint explains the path
@@ -728,7 +729,7 @@ def topic_resolve(
             _fs_transition_rejected("resolve", target)
         _db_write_retired("resolve", str(target))
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("advance-round", hidden=_TOPIC_WRITE_HIDDEN)
@@ -766,7 +767,6 @@ def topic_advance_round(
         help="Reason for waiving the ack requirement (required when --waive-ack is set).",
     ),
 ) -> None:
-    from cli.main import _resolve_project, _run
 
     if ack_ids:
         # --ack-ids is only meaningful for the retired DB path; still parse to
@@ -808,14 +808,14 @@ def topic_advance_round(
 
             return validated_write_flow(
                 c,
-                pid=_resolve_project(c, None, None),
+                pid=runner._resolve_project(c, None, None),
                 action_name="advance-round",
                 topic=target,
                 validate_call=validate_call,
             )
         _db_write_retired("advance-round", str(target))
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("rollback-round", hidden=_TOPIC_WRITE_HIDDEN)
@@ -824,7 +824,6 @@ def topic_rollback_round(
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """(Retired v0.13 M58) DB rollback is gone; FS rounds are file facts (edit files)."""
-    from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -832,7 +831,7 @@ def topic_rollback_round(
             _fs_transition_rejected("rollback-round", target)
         _db_write_retired("rollback-round", str(target))
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("comment", hidden=_TOPIC_WRITE_HIDDEN)
@@ -860,7 +859,6 @@ def topic_comment(
     ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
-    from cli.main import _read_text_file, _run
 
     has_inline = body is not None or body_file is not None
     if not has_inline and file_path is None:
@@ -903,7 +901,7 @@ def topic_comment(
             raise typer.Exit(0)
         _db_write_retired("comment", str(target))
 
-    _run(action)
+    runner._run(action)
 
 
 def _write_fs_comment(
@@ -976,7 +974,6 @@ def topic_close(
         help="Longer explanation for why the topic is being closed.",
     ),
 ) -> None:
-    from cli.main import _resolve_project, _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -1004,14 +1001,14 @@ def topic_close(
 
             return validated_write_flow(
                 c,
-                pid=_resolve_project(c, None, None),
+                pid=runner._resolve_project(c, None, None),
                 action_name="close",
                 topic=target,
                 validate_call=validate_call,
             )
         _db_write_retired("close", str(target))
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("reopen", hidden=_TOPIC_WRITE_HIDDEN)
@@ -1020,7 +1017,6 @@ def topic_reopen(
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """(Retired v0.13 M58) DB reopen is gone; FS status lives in index.md."""
-    from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -1028,7 +1024,7 @@ def topic_reopen(
             _fs_transition_rejected("reopen", target)
         _db_write_retired("reopen", str(target))
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("dismiss")
@@ -1041,7 +1037,6 @@ def topic_dismiss(
     DB topics only; FS targets are a no-op with a notice (FS pending items
     clear by writing round files).
     """
-    from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -1049,7 +1044,7 @@ def topic_dismiss(
             _fs_projection_noop("dismiss", target)
         return c.dismiss_topic(target)
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("read")
@@ -1062,7 +1057,6 @@ def topic_read(
     DB topics only; FS targets are a no-op with a notice (FS pending items
     clear by writing round files).
     """
-    from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -1070,7 +1064,7 @@ def topic_read(
             _fs_projection_noop("read", target)
         return c.mark_topic_read(target)
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command("mark-seen")
@@ -1083,7 +1077,6 @@ def topic_mark_seen(
     DB topics only; FS targets are a no-op with a notice (FS pending items
     clear by writing round files).
     """
-    from cli.main import _run
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -1091,7 +1084,7 @@ def topic_mark_seen(
             _fs_projection_noop("mark-seen", target)
         return c.mark_topic_read(target)
 
-    _run(action)
+    runner._run(action)
 
 
 @topic_app.command(
@@ -1238,9 +1231,8 @@ def topic_migrate(
     FS 完整落盘（index.md + 全部 round 文件）成功后才 archive DB 记录
     （列表默认隐藏，show 仍可见）；中途失败不产生半迁移。
     """
-    from cli.main import _run
 
-    _run(lambda c: _execute_db_to_fs_migration(c, topic_id, slug, dry_run=dry_run))
+    runner._run(lambda c: _execute_db_to_fs_migration(c, topic_id, slug, dry_run=dry_run))
 
 
 def _execute_db_to_fs_migration(
@@ -1300,25 +1292,22 @@ def mention_dismiss(
 
     Idempotent: dismissing an already-dismissed mention returns the same result.
     """
-    from cli.main import _run
 
-    _run(lambda c: c.dismiss_mention(mention_id))
+    runner._run(lambda c: c.dismiss_mention(mention_id))
 
 
 @mention_app.command("list")
 def mention_list() -> None:
     """List open @mentions for the current persona."""
-    from cli.main import _run
 
-    _run(lambda c: c.get_todos().mentions)
+    runner._run(lambda c: c.get_todos().mentions)
 
 
 @mention_app.command("dismiss-all")
 def mention_dismiss_all() -> None:
     """Dismiss all open @mentions for the current persona."""
-    from cli.main import _run
 
-    _run(lambda c: c.dismiss_all_mentions())
+    runner._run(lambda c: c.dismiss_all_mentions())
 
 
 @mention_app.command("reconcile-stale")
@@ -1340,23 +1329,22 @@ def todo_clear(
     key: str = typer.Option(..., "--key", help="Work-item idempotency_key or partition id"),
 ) -> None:
     """Route explicit_only todo partitions to the canonical clear CLI (T1 D7)."""
-    from cli.main import _run
 
     if key.startswith("notification:"):
         notification_id = uuid.UUID(key.split(":", 1)[1])
-        _run(lambda c: c.mark_notification_read(notification_id))
+        runner._run(lambda c: c.mark_notification_read(notification_id))
         return
     if key.startswith("action_item:"):
         item_id = uuid.UUID(key.split(":", 1)[1])
-        _run(lambda c: c.complete_action_item(item_id))
+        runner._run(lambda c: c.complete_action_item(item_id))
         return
     if key.startswith("my_open_topics:") or key.startswith("topic:"):
         topic_id = uuid.UUID(key.rsplit(":", 1)[-1])
-        _run(lambda c: c.dismiss_topic(topic_id))
+        runner._run(lambda c: c.dismiss_topic(topic_id))
         return
     if key.startswith("unread_change:"):
         topic_id = uuid.UUID(key.split(":", 2)[1])
-        _run(lambda c: c.mark_topic_read(topic_id))
+        runner._run(lambda c: c.mark_topic_read(topic_id))
         return
     raise typer.BadParameter(
         f"unsupported todo clear key {key!r}; explicit_only: notification, action_item, "

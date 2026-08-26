@@ -18,6 +18,8 @@ from typing import Any
 import typer
 import yaml
 
+from cli.runner import _print_json  # noqa: E402
+
 docs_app = typer.Typer(help="Repo-bundled documentation commands (no API).")
 
 
@@ -50,7 +52,7 @@ def _resolve_repo_root(start: Path | None = None) -> Path:
 def _load_error_codes_index(
     project_root: Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
-    from cli.main import _cli_options  # lazy: avoid cli.main ↔ cli.commands.* cycle
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     repo_root = _resolve_repo_root(project_root or _cli_options.get("project_root"))
     index_path = repo_root / _ERROR_CODES_INDEX_RELATIVE
@@ -130,7 +132,6 @@ def docs_error_codes(
     ),
 ) -> None:
     """List MAP error codes from ``docs/error-codes/index.json``."""
-    from cli.main import _print_json  # lazy
 
     index_path, payload = _load_error_codes_index(project_root)
     keywords = _search_keywords_to_list(search)

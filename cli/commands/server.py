@@ -25,6 +25,8 @@ from typing import Any
 import typer
 import yaml
 
+from cli.runner import _print_json  # noqa: E402
+
 server_app = typer.Typer(help="Run / manage the MAP server (no Docker required).")
 
 _DEFAULT_PORT = 18400
@@ -242,11 +244,10 @@ def server_status(
     port: int = typer.Option(_DEFAULT_PORT, "--port", "-p", help="Port to inspect."),
 ) -> None:
     """Report whether a MAP server is running and where."""
-    from cli.main import _print_json
 
     opts = {"format": "yaml"}
     try:
-        from cli.main import _cli_options
+        from cli.main import _cli_options  # runtime state (monkeypatch surface)
         opts["format"] = _cli_options.get("format", "yaml")
     except Exception:
         pass
@@ -374,7 +375,7 @@ def server_bootstrap(
             raise typer.Exit(1)
         typer.echo(f"MAP server started at http://localhost:{port}")
 
-    from cli.main import _transport
+    from cli.main import _transport  # runtime state (monkeypatch surface)
 
     root = (project_root or Path.cwd()).resolve()
     workspace = path or root

@@ -1,8 +1,9 @@
 """``map experiment ...`` sub-app — cli/main.py split.
 
 Owns experiment lifecycle commands plus nested ``lock`` / ``review`` / ``plan``.
-Command bodies lazy-import ``cli.main`` helpers to break the
-``cli.main ↔ cli.commands.*`` import cycle.
+T23：执行链辅助（``_run`` / ``_read_text_file`` 等）已从 ``cli.runner`` /
+``cli.io_helpers`` 顶层导入；仅运行时状态（``_cli_options`` 等
+monkeypatch 面）保留函数内延迟导入。
 """
 from __future__ import annotations
 
@@ -29,6 +30,10 @@ from map_types.schemas import (
     ReviewCreate,
 )
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.io_helpers import _read_text_file, _read_yaml_file
+from cli.persona_compare import _persona_compare_view
+from cli.runner import _print_json, _resolve_executor_agent_id
 from cli.shortid import resolve_ref
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
@@ -58,7 +63,6 @@ def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
     404 后由 ``_load_experiment`` 反查 FS uuid5 / projection_id.
     """
     from cli.experiment_fs import looks_like_hex_prefix, projection_id_for_fs_ref
-    from cli.main import _resolve_project  # lazy: avoid cycle
     from cli.shortid import normalize_uuid_like
 
     text = str(raw).strip()
@@ -68,7 +72,7 @@ def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
             return mapped
 
     def matcher(prefix: str) -> list[tuple[uuid.UUID, str]]:
-        project_id = _resolve_project(client, None, None)
+        project_id = runner._resolve_project(client, None, None)
         items, _total = client.list_experiments_page(
             project_id, id_prefix=prefix, page_size=50, include_archived=True
         )
@@ -159,7 +163,6 @@ def _run_lifecycle(
     from map_fs import ExperimentIndexError
 
     from cli.experiment_fs import overlay_fs_authority, preflight_index, writeback_after_transition
-    from cli.main import _run  # lazy: avoid cycle
 
     def action(c: MAPClient):
         from cli.experiment_fs import lifecycle_missing_projection_message
@@ -205,7 +208,7 @@ def _run_lifecycle(
             return overlay_fs_authority(result)
         return result
 
-    _run(action, experiment_id=experiment_id)
+    runner._run(action, experiment_id=experiment_id)
 
 
 @experiment_app.command("create")
@@ -246,7 +249,6 @@ def experiment_create(
         help="Skip the local plan frontmatter lint pre-check (server still enforces it).",
     ),
 ) -> None:
-    from cli.main import _resolve_project, _run  # lazy: avoid cycle
 
     if plan_file is None and plan_file_path is None:
         typer.echo("Error: either --plan-file or --plan-file-path is required", err=True)
@@ -328,7 +330,7 @@ def experiment_create(
     )
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         created = c.create_experiment(pid, payload)
         from cli.experiment_fs import overlay_fs_authority, topic_ref_for_create, write_index_after_create
 
@@ -341,7 +343,7 @@ def experiment_create(
         )
         return overlay_fs_authority(created)
 
-    _run(action)
+    runner._run(action)
 
 
 def _render_experiment_table(experiments: Any) -> str:
@@ -382,7 +384,6 @@ def experiment_list(
     """
     from map_types.enums import ExperimentPhase
 
-    from cli.main import _resolve_project, _run  # lazy: avoid cycle
 
     def action(c: MAPClient):
         from cli.experiment_fs import (
@@ -394,7 +395,7 @@ def experiment_list(
             workspace_root,
         )
 
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         phase_filter = ExperimentPhase(phase) if phase else None
         if should_scan_local_experiments(project, project_key, pid):
             workspace = workspace_root()
@@ -429,7 +430,7 @@ def experiment_list(
         )
         return [overlay_fs_authority(item) for item in items]
 
-    _run(action, table_renderer=_render_experiment_table)
+    runner._run(action, table_renderer=_render_experiment_table)
 
 
 @experiment_app.command("submit-review")
@@ -474,7 +475,6 @@ def experiment_start(
     to ``running`` (skipping review/approved). Use ``--executor participant``
     to delegate execution to the participant persona.
     """
-    from cli.main import _resolve_executor_agent_id, _resolve_project  # lazy: avoid cycle
 
     _run_lifecycle(
         experiment_id,
@@ -483,7 +483,7 @@ def experiment_start(
             c.start_experiment(
                 rid,
                 executor_agent_id=(
-                    _resolve_executor_agent_id(c, _resolve_project(c, None, None), executor)
+                    _resolve_executor_agent_id(c, runner._resolve_project(c, None, None), executor)
                     if executor is not None
                     else None
                 ),
@@ -521,7 +521,6 @@ def experiment_pre_complete(
     experiment exists and that the supplied metadata carries at least one
     deploy/test evidence field.
     """
-    from cli.main import _read_yaml_file, _run  # lazy: avoid cycle
 
     metadata = _read_yaml_file(metadata_file)
     if not metadata_has_completion_evidence(metadata):
@@ -549,7 +548,7 @@ def experiment_pre_complete(
             "evidence_keys": sorted(str(key) for key in metadata) if isinstance(metadata, dict) else [],
         }
 
-    _run(_action)
+    runner._run(_action)
     # T3-S1 (cli-hygiene-batch / A6): 校验通过后回显下一步可直接粘贴的
     # complete 命令行——--id/--metadata 按本次入参填好,--summary 与
     # --log-file-path 是 complete 侧必填、pre-complete 未接收的参数,作为
@@ -792,7 +791,6 @@ def experiment_log(
     the summary exactly repeats the prior log's summary. Evidence
     validation is metadata-driven and behaves identically in both forms.
     """
-    from cli.main import _read_text_file, _read_yaml_file, _run  # lazy: avoid cycle
     if log_file is not None and log_file_path is not None:
         typer.echo("Error: use only one of --file or --log-file-path", err=True)
         raise typer.Exit(2)
@@ -818,12 +816,11 @@ def experiment_log(
             file_path=log_file_path,
             metadata=metadata,
         )
-    _run(lambda c: c.create_log(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    runner._run(lambda c: c.create_log(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 @experiment_app.command("logs")
 def experiment_logs(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
-    from cli.main import _run  # lazy: avoid cycle
 
     def action(c: MAPClient):
         from cli.experiment_fs import fs_logs_for_ref
@@ -841,7 +838,7 @@ def experiment_logs(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP
             return logs
         raise MAPNotFoundError(404, f"experiment not found: {experiment_id}")
 
-    _run(action, experiment_id=experiment_id)
+    runner._run(action, experiment_id=experiment_id)
 
 
 @experiment_app.command("status")
@@ -868,9 +865,9 @@ def experiment_status(
     ),
 ) -> None:
     """Show one experiment's phase, actions, blocked_on, and (per-actor) capabilities."""
-    from cli.main import _cli_options, _persona_compare_view, _run  # lazy: avoid cycle
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
     if persona_compare:
-        _run(
+        runner._run(
             lambda c: _persona_compare_view(
                 c,
                 _rid(c, experiment_id),
@@ -932,7 +929,7 @@ def experiment_status(
             )
         return result
 
-    _run(_action)
+    runner._run(_action)
 
 
 @experiment_app.command("show")
@@ -940,9 +937,8 @@ def experiment_show(
     experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
 ) -> None:
     """Show one experiment (including archived) by UUID, uuid5, slug, or short prefix."""
-    from cli.main import _run  # lazy: avoid cycle
     raw = _require_id(experiment_id)
-    _run(lambda c: _load_experiment(c, raw), experiment_id=raw)
+    runner._run(lambda c: _load_experiment(c, raw), experiment_id=raw)
 
 
 @experiment_app.command("index-validate")
@@ -1043,7 +1039,6 @@ def experiment_sync(
 ) -> None:
     """Reconcile experiment index.md with DB projections (check-only)."""
     from cli.experiment_fs import experiment_sync_check
-    from cli.main import _resolve_project, _run
 
     if not check:
         typer.echo(
@@ -1056,13 +1051,13 @@ def experiment_sync(
     failed = {"value": False}
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         api_items = _list_api_experiments_all(c, pid, include_archived=True)
         result = experiment_sync_check(api_items)
         failed["value"] = not bool(result.get("ok"))
         return result
 
-    _run(action, table_renderer=_render_sync_check)
+    runner._run(action, table_renderer=_render_sync_check)
     if failed["value"]:
         raise typer.Exit(1)
 
@@ -1101,7 +1096,6 @@ def experiment_archive(
         map --persona host experiment archive --id <uuid> --undo
         map --persona host experiment archive --id <uuid> --unarchive
     """
-    from cli.main import _run  # lazy: avoid cycle
     raw = _require_id(experiment_id)
     from map_types.schemas import ExperimentUpdate
 
@@ -1119,7 +1113,7 @@ def experiment_archive(
             )
             raise typer.Exit(1) from exc
 
-    _run(action)
+    runner._run(action)
 
 
 @lock_app.command("acquire")
@@ -1127,14 +1121,12 @@ def experiment_lock_acquire(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     ttl: int = typer.Option(1800, "--ttl", min=1, help="Lock TTL in seconds."),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.acquire_experiment_lock(_rid(c, experiment_id), ttl_seconds=ttl), experiment_id=experiment_id)
+    runner._run(lambda c: c.acquire_experiment_lock(_rid(c, experiment_id), ttl_seconds=ttl), experiment_id=experiment_id)
 
 
 @lock_app.command("release")
 def experiment_lock_release(experiment_id: str = typer.Option(..., "--id", help=_ID_HELP)) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.release_experiment_lock(_rid(c, experiment_id)), experiment_id=experiment_id)
+    runner._run(lambda c: c.release_experiment_lock(_rid(c, experiment_id)), experiment_id=experiment_id)
 
 
 @lock_app.command("force-release")
@@ -1143,8 +1135,7 @@ def experiment_lock_force_release(
     reason: str = typer.Option(..., "--reason"),
     actor: str | None = typer.Option(None, "--actor"),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.force_release_experiment_lock(_rid(c, experiment_id), reason=reason, actor=actor), experiment_id=experiment_id)
+    runner._run(lambda c: c.force_release_experiment_lock(_rid(c, experiment_id), reason=reason, actor=actor), experiment_id=experiment_id)
 
 
 @lock_app.command("skip")
@@ -1152,16 +1143,14 @@ def experiment_lock_skip(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     next_attempt_at: str = typer.Option(..., "--next-attempt-at"),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.record_experiment_lock_skip(_rid(c, experiment_id), next_attempt_at=next_attempt_at), experiment_id=experiment_id)
+    runner._run(lambda c: c.record_experiment_lock_skip(_rid(c, experiment_id), next_attempt_at=next_attempt_at), experiment_id=experiment_id)
 
 
 @lock_app.command("scan-stalled")
 def experiment_lock_scan_stalled() -> None:
     """Scan running experiment locks and emit no-progress notifications."""
-    from cli.main import _run  # lazy: avoid cycle
 
-    _run(lambda c: c.scan_stalled_experiment_locks())
+    runner._run(lambda c: c.scan_stalled_experiment_locks())
 
 
 @review_app.command("add")
@@ -1227,7 +1216,7 @@ def plan_validate(
     exit 1 when warnings are present, so ``experiment create`` scripts
     can gate on lint outcome.
     """
-    from cli.main import _print_json, _project_cli_default_format, _read_text_file  # lazy: avoid cycle
+    from cli.main import _project_cli_default_format  # runtime state (monkeypatch surface)
     from server.services.plan_marker_service import validate_plan_frontmatter
 
     content = _read_text_file(plan_file, kind="plan")
@@ -1282,7 +1271,6 @@ def review_list(
         help="Filter by exact plan_version. Combine with --include-archived to inspect historical review chains.",
     ),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
     def action(c: MAPClient):
         return c.list_reviews(
             _rid(c, experiment_id),
@@ -1290,7 +1278,7 @@ def review_list(
             plan_version=plan_version,
         )
 
-    _run(action, experiment_id=experiment_id)
+    runner._run(action, experiment_id=experiment_id)
 
 
 @review_app.command("withdraw")
@@ -1298,8 +1286,7 @@ def review_withdraw(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     review_id: uuid.UUID = typer.Option(..., "--review-id"),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.withdraw_review(_rid(c, experiment_id), review_id), experiment_id=experiment_id)
+    runner._run(lambda c: c.withdraw_review(_rid(c, experiment_id), review_id), experiment_id=experiment_id)
 
 
 @review_app.command("resolve-item")
@@ -1320,9 +1307,8 @@ def review_resolve_item(
     """
     from map_types.enums import ReviewItemStatus
 
-    from cli.main import _run  # lazy: avoid cycle
 
-    _run(lambda c: c.update_review_item(item_id, ReviewItemStatus(status)))
+    runner._run(lambda c: c.update_review_item(item_id, ReviewItemStatus(status)))
 
 
 @experiment_app.command("comment")
@@ -1337,7 +1323,6 @@ def experiment_comment(
     from map_types.enums import CommentAnchorType
     from map_types.schemas import CommentCreate
 
-    from cli.main import _read_text_file, _run  # lazy: avoid cycle
 
     if body is None and body_file is None:
         typer.echo("Error: either --body or --file is required", err=True)
@@ -1352,33 +1337,14 @@ def experiment_comment(
         parent_id=parent,
         body=content,
     )
-    _run(lambda c: c.create_comment(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+    runner._run(lambda c: c.create_comment(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 
 
 # --- file/metadata helpers + schema templates ------------------------------
-# 自 cli/main.py 搬入(size-cap 守卫 1600 行):本模块是唯一消费者,
-# 顺带消除原先 ``cli.main ↔ cli.commands.experiment`` 的 lazy-import cycle。
-def _read_text_file(path: Path, *, kind: str) -> str:
-    """Read a required ``--file``/``--metadata`` argument.
-
-    Converts missing-file and not-a-file OS errors into a clean CLI error
-    (exit code 2) instead of letting Python emit a raw traceback, so that
-    user-facing mistakes like ``--metadata ./missing.yaml`` stay legible.
-    """
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        typer.echo(f"Error: {kind} file not found: {path}", err=True)
-        raise typer.Exit(2) from None
-    except IsADirectoryError:
-        typer.echo(f"Error: {kind} path is a directory, not a file: {path}", err=True)
-        raise typer.Exit(2) from None
-
-
-def _read_yaml_file(path: Path | None, *, kind: str = "metadata") -> Any:
-    if path is None:
-        return None
-    return yaml.safe_load(_read_text_file(path, kind=kind))
+# T23（2026-08）：``_read_text_file`` / ``_read_yaml_file`` 定义已上移
+# ``cli/io_helpers.py``（原自 main.py 搬入后又 re-export 回去，是循环
+# import 成因）。本模块从 io_helpers 导入；main.py 的 re-export 兼容层
+# 同步改走 io_helpers。
 
 
 def _load_complete_metadata(path: Path | None, *, allow_missing_evidence: bool) -> dict | None:

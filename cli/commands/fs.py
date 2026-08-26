@@ -27,6 +27,7 @@ import yaml
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.table_render import render_table, truncate
 
 fs_app = typer.Typer(
@@ -85,7 +86,7 @@ def _persona(persona: str | None) -> str:
     if persona:
         return persona
     try:
-        from cli.main import _cli_options  # lazy import，避免循环依赖
+        from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
         global_persona = _cli_options.get("persona")
     except ImportError:
@@ -442,7 +443,7 @@ def fs_status(
 ) -> None:
     """部署矩阵握手：本地 plane 概览 + server 可达性（local-fs / projection-cache / detached）。"""
     from cli.commands.doctor import warn_config_divergence
-    from cli.main import _cli_options, _resolve_project, _run
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     if _cli_options.get("format") in (None, "yaml"):
         warn_config_divergence(project_root=_cli_options.get("project_root"))
@@ -454,7 +455,7 @@ def fs_status(
 
         from cli.fs_projection import build_diff_payload
 
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         plane = scan_plane(workspace, _content_root_name(workspace))
         status = c.fs_plane_status(pid)
         diff = build_diff_payload(c, pid=pid, workspace=workspace)
@@ -505,7 +506,7 @@ def fs_status(
             lines.append(f"hint     : {server['hint']}")
         return "\n".join(lines)
 
-    _run(action, table_renderer=_render)
+    runner._run(action, table_renderer=_render)
 
 
 def validated_write_flow(
@@ -596,15 +597,14 @@ def _run_validated_write(
     validate_call,
 ) -> None:
     """``map fs advance-round|close`` 入口：包一层 client 构造与输出渲染。"""
-    from cli.main import _resolve_project, _run
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         return validated_write_flow(
             c, pid=pid, action_name=action_name, topic=topic, validate_call=validate_call
         )
 
-    _run(action)
+    runner._run(action)
 
 
 @fs_app.command("advance-round")
@@ -811,21 +811,20 @@ def _run_fs_sync(
     yes: bool,
 ) -> None:
     from cli.fs_projection import sync_projection
-    from cli.main import _resolve_project, _run
 
     workspace = _workspace()
 
     def action(c: MAPClient):
         return sync_projection(
             c,
-            pid=_resolve_project(c, project, project_key),
+            pid=runner._resolve_project(c, project, project_key),
             workspace=workspace,
             dry_run=dry_run,
             full=full,
             yes=yes,
         )
 
-    _run(action)
+    runner._run(action)
 
 
 @fs_app.command("diff")
@@ -835,13 +834,12 @@ def fs_diff(
 ) -> None:
     """Compare local map/ with the server projection (summary only, no bodies)."""
     from cli.fs_projection import build_diff_payload
-    from cli.main import _resolve_project, _run
 
     workspace = _workspace()
 
     def action(c: MAPClient):
         return build_diff_payload(
-            c, pid=_resolve_project(c, project, project_key), workspace=workspace
+            c, pid=runner._resolve_project(c, project, project_key), workspace=workspace
         )
 
     def _render(result: dict) -> str:
@@ -862,7 +860,7 @@ def fs_diff(
             lines.append(f"next      : {result['next']}")
         return "\n".join(lines)
 
-    _run(action, table_renderer=_render)
+    runner._run(action, table_renderer=_render)
 
 
 @fs_app.command("sync")

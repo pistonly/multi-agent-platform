@@ -71,7 +71,7 @@ def auth_reissue(
         map auth reissue --name my-project-host          # from .map/config.yaml
         map auth reissue --name my-project-host --rewrite-config  # 顺带修 config project_id
     """
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     fmt = _cli_options.get("format", "yaml")
     root = project_root or _cli_options.get("project_root")

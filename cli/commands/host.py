@@ -176,7 +176,7 @@ def host_invoke(
     """
     import json as json_lib
 
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
     from cli.orchestrator import run_invoke
 
     # Resolve prompt

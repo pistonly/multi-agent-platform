@@ -189,8 +189,9 @@ def test_maybe_auto_sync_http_error_exits(monkeypatch) -> None:
 
     monkeypatch.setattr("cli.main._cli_options", {"persona": "host", "dry_run": False})
     monkeypatch.setattr("cli.main.resolve_client", lambda **kwargs: Client())
+    # T23: fs_projection resolves _resolve_project via the runner module ref.
     monkeypatch.setattr(
-        "cli.main._resolve_project",
+        "cli.runner._resolve_project",
         lambda *args, **kwargs: "00000000-0000-0000-0000-000000000004",
     )
     monkeypatch.setattr(

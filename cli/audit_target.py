@@ -18,6 +18,8 @@ from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError, MAPNotFoundError
 from map_types.schemas import AuditLogRead
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.runner import _print_json, _print_yaml  # noqa: E402
 from cli.table_render import format_datetime, render_table, short_uuid, truncate
 
 _HEX = re.compile(r"^[0-9a-f]+$")
@@ -44,7 +46,7 @@ def _optional_workspace() -> Path | None:
 
     from map_client.project_config import find_map_dir
 
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     start = _cli_options.get("project_root")
     map_dir = find_map_dir(Path(start) if start else None)
@@ -84,9 +86,8 @@ def _local_topic_slug_hit(raw: str) -> str | None:
 
 
 def _find_experiment(client: MAPClient, raw: str) -> ResolvedTarget | None:
-    from cli.main import _resolve_project
 
-    project_id = _resolve_project(client, None, None)
+    project_id = runner._resolve_project(client, None, None)
     body = _hex_body(raw)
 
     if len(body) == 32 and _HEX.fullmatch(body):
@@ -154,9 +155,8 @@ def _find_topic(client: MAPClient, raw: str) -> ResolvedTarget | None:
 
     # DB slug fallback（存量话题）
     try:
-        from cli.main import _resolve_project
 
-        project_id = _resolve_project(client, None, None)
+        project_id = runner._resolve_project(client, None, None)
         topics = client.list_topics(project_id, page_size=100)
     except Exception:
         return None
@@ -229,13 +229,12 @@ def fetch_topic_history(
     kind: str | None = None,
 ) -> list[AuditLogRead]:
     """话题 audit + 关联实验 audit，时间倒序，截到 limit（≤200）。"""
-    from cli.main import _resolve_project
 
     cap = max(1, min(limit, 200))
     chunks: list[list[AuditLogRead]] = [
         fetch_target_audit(client, topic, limit=200, kind=kind)
     ]
-    project_id = _resolve_project(client, None, None)
+    project_id = runner._resolve_project(client, None, None)
     experiments, _total = client.list_experiments_page(
         project_id, page_size=100, include_archived=True
     )
@@ -261,7 +260,7 @@ def _audit_sort_ts(row: AuditLogRead) -> datetime:
 
 
 def _resolved_format() -> str:
-    from cli.main import _cli_options
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     fmt = _cli_options.get("format", "yaml")
     source = _cli_options.get("format_source", "default")
@@ -276,7 +275,6 @@ def emit_audit_timeline(
     empty_message: str,
 ) -> None:
     """C3：table/yaml/json；空结果友好提示，不打空表头。"""
-    from cli.main import _print_json, _print_yaml
 
     if not items:
         typer.echo(empty_message)

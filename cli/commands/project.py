@@ -9,7 +9,11 @@ from pathlib import Path
 
 import typer
 from map_client.client import MAPClient
+from map_client.project_config import find_map_dir  # noqa: E402
 from map_types.schemas import ProjectStatusRevise
+
+from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.io_helpers import _read_text_file  # noqa: E402
 
 project_app = typer.Typer(help="Project commands")
 status_app = typer.Typer(help="Project Current Status commands")
@@ -23,14 +27,12 @@ def project_create(
     path: str = typer.Option(..., "--path"),
     description: str | None = typer.Option(None, "--description"),
 ) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.create_project(key, name, path, description))
+    runner._run(lambda c: c.create_project(key, name, path, description))
 
 
 @project_app.command("list")
 def project_list(include_archived: bool = typer.Option(False, "--include-archived")) -> None:
-    from cli.main import _run  # lazy: avoid cycle
-    _run(lambda c: c.list_projects(include_archived=include_archived))
+    runner._run(lambda c: c.list_projects(include_archived=include_archived))
 
 
 @project_app.command("decisions")
@@ -39,12 +41,11 @@ def project_decisions(
     project_key: str | None = typer.Option(None, "--project-key"),
     limit: int = typer.Option(20, "--limit", min=1, max=100),
 ) -> None:
-    from cli.main import _resolve_project, _run  # lazy: avoid cycle
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         return c.list_project_decisions(pid, limit=limit)
 
-    _run(action)
+    runner._run(action)
 
 
 @status_app.command("revise")
@@ -54,14 +55,13 @@ def project_status_revise(
     project_key: str | None = typer.Option(None, "--project-key"),
     note: str | None = typer.Option(None, "--note"),
 ) -> None:
-    from cli.main import _read_text_file, _resolve_project, _run  # lazy: avoid cycle
     payload = ProjectStatusRevise(content_md=_read_text_file(status_file, kind="status"), change_note=note)
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         return c.revise_project_status(pid, payload)
 
-    _run(action)
+    runner._run(action)
 
 
 @status_app.command("versions")
@@ -69,8 +69,7 @@ def project_status_versions(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
 ) -> None:
-    from cli.main import _resolve_project, _run  # lazy: avoid cycle
-    _run(lambda c: c.list_project_status_versions(_resolve_project(c, project, project_key)))
+    runner._run(lambda c: c.list_project_status_versions(runner._resolve_project(c, project, project_key)))
 
 
 @status_app.command("show")
@@ -79,9 +78,8 @@ def project_status_show(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
 ) -> None:
-    from cli.main import _resolve_project, _run  # lazy: avoid cycle
-    _run(
-        lambda c: c.get_project_status_version(_resolve_project(c, project, project_key), version)
+    runner._run(
+        lambda c: c.get_project_status_version(runner._resolve_project(c, project, project_key), version)
     )
 
 
@@ -119,16 +117,15 @@ def project_export(
         map project export -o ./docs/history    # Tracked output directory
         map project export --no-archived        # Skip archived items
     """
-    from cli.main import _resolve_project, _run  # lazy: avoid cycle
     from cli.project_export import export_project_history
 
     if output_dir is None:
-        from cli.main import _cli_options, find_map_dir
+        from cli.main import _cli_options  # runtime state (monkeypatch surface)
         map_dir = find_map_dir(_cli_options.get("project_root"))
         output_dir = map_dir / "history" if map_dir is not None else Path(".map") / "history"
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         result_dir = export_project_history(
             c,
             pid,
@@ -144,5 +141,5 @@ def project_export(
         )
         return None
 
-    _run(action)
+    runner._run(action)
 

@@ -22,6 +22,9 @@ from map_types.schemas.fs import (
     fs_topic_content_hash,
 )
 
+# T23：执行链辅助从 runner 顶层导入（原 ``from cli.main import ...`` lazy）
+from cli import runner  # module ref: test monkeypatch surface (T23)
+
 
 def _workspace_root(workspace: Path) -> str:
     from cli.commands.fs import _content_root_name
@@ -296,7 +299,10 @@ def maybe_auto_sync(
     if no_sync:
         return
     from cli.commands.fs import _workspace
-    from cli.main import _cli_options, _resolve_project, resolve_client
+    from cli.main import (
+        _cli_options,  # runtime state (monkeypatch surface)
+        resolve_client,  # test injection surface (monkeypatch)
+    )
 
     ws = workspace or _workspace()
     try:
@@ -304,7 +310,7 @@ def maybe_auto_sync(
             persona=_cli_options.get("persona"),
             project_root=ws,
         )
-        pid = _resolve_project(client, None, None)
+        pid = runner._resolve_project(client, None, None)
         status = client.fs_plane_status(pid)
     except MAPHTTPError as err:
         # 认证/权限/服务端错误不是"离线"：本地写已成功，但投影会静默漂移，

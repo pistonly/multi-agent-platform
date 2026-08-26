@@ -11,6 +11,9 @@ import typer
 from map_client.client import MAPClient
 from map_client.project_config import find_map_dir, load_project_map_config
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.runner import _print_json, _require_map_dir  # noqa: E402
+
 persona_app = typer.Typer(help="Persona / identity commands")
 
 
@@ -19,7 +22,6 @@ def persona_list(
     project_root: Path | None = typer.Option(None, "--project-root"),
 ) -> None:
     """List personas defined in .map/agents.yaml."""
-    from cli.main import _print_json, _require_map_dir  # lazy: avoid cycle
     map_dir = _require_map_dir(project_root)
     cfg = load_project_map_config(map_dir=map_dir)
     rows = []
@@ -42,7 +44,7 @@ def persona_whoami(
     project_root: Path | None = typer.Option(None, "--project-root"),
 ) -> None:
     """Show MAP identity for the selected persona (default from .map/config.yaml)."""
-    from cli.main import _cli_options, _run  # lazy: avoid cycle
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
     if persona is not None:
         _cli_options["persona"] = persona
     if project_root is not None:
@@ -64,5 +66,5 @@ def persona_whoami(
             ).default_persona
         return payload
 
-    _run(action)
+    runner._run(action)
 

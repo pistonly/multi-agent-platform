@@ -15,6 +15,8 @@ import yaml
 from map_client.client import MAPClient
 from map_client.project_config import find_map_dir, load_project_map_config
 
+from cli.runner import _to_yamlable  # noqa: E402
+
 # 0db51e10 I1(5a): per-persona view diff for ``map experiment status
 # --persona-compare``. Each persona calls ``get_experiment`` with its own
 # token; the four diff_fields are surfaced in a compact table by default
@@ -144,7 +146,7 @@ def _persona_compare_view(
     # Lazy import: ``_cli_options`` / ``_transport`` / ``_to_yamlable``
     # live on the ``cli.main`` module state; importing them lazily keeps
     # this module importable from cli.main without a cycle.
-    from cli.main import _cli_options, _to_yamlable, _transport
+    from cli.main import _cli_options, _transport  # runtime state (monkeypatch surface)
 
     map_dir = find_map_dir(_cli_options.get("project_root"))
     if map_dir is None:

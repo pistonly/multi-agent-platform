@@ -26,6 +26,8 @@ import typer
 from map_client.client import MAPClient
 from map_client.exceptions import MAPConflictError
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.io_helpers import _read_text_file  # noqa: E402
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
 notification_app = typer.Typer(help="Notification commands (personal inbox)")
@@ -70,7 +72,6 @@ def notification_list(
     Defaults to a compact table view. Use ``--format yaml`` or
     ``--format json`` for full structured output (scripts / piping).
     """
-    from cli.main import _run  # lazy: avoid cli.main ↔ cli.commands.* cycle
 
     def action(c: Any) -> Any:
         return c.list_notifications(
@@ -81,7 +82,7 @@ def notification_list(
             offset=offset,
         )
 
-    _run(action, table_renderer=_render_notification_table)
+    runner._run(action, table_renderer=_render_notification_table)
 
 
 @notification_app.command("read")
@@ -89,12 +90,11 @@ def notification_read(
     notification_id: uuid.UUID = typer.Option(..., "--id", help="Notification UUID."),
 ) -> None:
     """Mark one notification as read."""
-    from cli.main import _run
 
     def action(c: Any) -> Any:
         return c.mark_notification_read(notification_id)
 
-    _run(action)
+    runner._run(action)
 
 
 @notification_app.command("read-all")
@@ -121,7 +121,6 @@ def notification_read_all(
     """
     from map_types.enums import NotificationCategory
 
-    from cli.main import _run
 
     # Validate --category early so user sees a clean error before any API call.
     if category is not None and category not in ("wakeable", "digest", "all"):
@@ -158,7 +157,7 @@ def notification_read_all(
                 break
         return {"marked": marked}
 
-    _run(action)
+    runner._run(action)
 
 
 inbound_event_app = typer.Typer(
@@ -190,7 +189,6 @@ def inbound_event_record(
     from map_types.enums import InboundEventSource
     from map_types.schemas import InboundEventCreate
 
-    from cli.main import _read_text_file, _run
 
     extra_payload: dict | None = None
     if payload_file is not None:
@@ -210,4 +208,4 @@ def inbound_event_record(
             typer.echo(f"inbound-event duplicate (409): {exc.detail}", err=True)
             raise typer.Exit(2) from exc
 
-    _run(action)
+    runner._run(action)

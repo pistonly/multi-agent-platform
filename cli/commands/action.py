@@ -12,6 +12,8 @@ import uuid
 import typer
 from map_client.client import MAPClient
 
+from cli import runner  # module ref: test monkeypatch surface (T23)
+
 action_app = typer.Typer(help="Topic action item commands")
 
 
@@ -26,10 +28,9 @@ def action_list(
 ) -> None:
     from map_types.enums import TopicActionItemStatus
 
-    from cli.main import _resolve_project, _run  # lazy: avoid cli.main ↔ cli.commands.* cycle
 
     def action(c: MAPClient):
-        pid = _resolve_project(c, project, project_key)
+        pid = runner._resolve_project(c, project, project_key)
         owner = owner_agent_id
         if mine:
             owner = c.get_me().id
@@ -41,7 +42,7 @@ def action_list(
             limit=limit,
         )
 
-    _run(action)
+    runner._run(action)
 
 
 @action_app.command("complete")
@@ -49,12 +50,11 @@ def action_complete(
     action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to mark done."),
 ) -> None:
     """Close an action item as done (open -> done)."""
-    from cli.main import _run  # lazy
 
     def action(c: MAPClient):
         return c.complete_action_item(action_item_id)
 
-    _run(action)
+    runner._run(action)
 
 
 @action_app.command("deliver")
@@ -62,12 +62,11 @@ def action_deliver(
     action_item_id: uuid.UUID = typer.Option(..., "--id", help="Action item UUID to deliver."),
 ) -> None:
     """Deliver an open action item (source topic may be closed/archived)."""
-    from cli.main import _run  # lazy
 
     def action(c: MAPClient):
         return c.deliver_action_item(action_item_id)
 
-    _run(action)
+    runner._run(action)
 
 
 @action_app.command("cancel")
@@ -84,14 +83,13 @@ def action_cancel(
     from map_types.enums import ActionItemCategory
     from map_types.schemas import ActionItemCancel
 
-    from cli.main import _run  # lazy
 
     def action(c: MAPClient):
         cat = ActionItemCategory(category) if category else None
         payload = ActionItemCancel(reason=reason, category=cat)
         return c.cancel_action_item(action_item_id, payload)
 
-    _run(action)
+    runner._run(action)
 
 
 @action_app.command("link")
@@ -105,12 +103,11 @@ def action_link(
 ) -> None:
     """Attach an experiment to an open action item so future experiment
     ``done`` cascades the action item automatically."""
-    from cli.main import _run  # lazy
 
     def action(c: MAPClient):
         return c.link_action_item(action_item_id, experiment_id)
 
-    _run(action)
+    runner._run(action)
 
 
 @action_app.command("mark-wake-sent")
@@ -120,12 +117,11 @@ def action_mark_wake_sent(
     """Bump wake_count + stamp last_woken_at + write ``action_item.wake_sent``
     audit row. Used by the runtime-waker CLI to advance the three-stage
     escalation timeline (experiment B / I4). Owner or admin only."""
-    from cli.main import _run  # lazy
 
     def action(c: MAPClient):
         return c.mark_wake_sent(action_item_id)
 
-    _run(action)
+    runner._run(action)
 
 
 @action_app.command("mark-stale")
@@ -134,9 +130,8 @@ def action_mark_stale(
 ) -> None:
     """Stamp stale_at + write the ``action_item.stale`` audit row after the
     4th unanswered wake. Admin only (system escalation, experiment B / I4)."""
-    from cli.main import _run  # lazy
 
     def action(c: MAPClient):
         return c.mark_stale(action_item_id)
 
-    _run(action)
+    runner._run(action)
