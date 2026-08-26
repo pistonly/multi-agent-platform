@@ -14,6 +14,7 @@ required 参数缺失不再抛 ``MissingParameter``，回调以 ``None`` 直跑
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,12 @@ from typer.testing import CliRunner
 from cli.subcommand_format import make_group_cls
 
 runner = CliRunner()
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI so Rich-styled ``--name`` (hyphens split across codes) still matches."""
+    return _ANSI_RE.sub("", text)
 
 
 @pytest.fixture()
@@ -64,7 +71,7 @@ class TestSyntheticRequiredGuard:
     def test_missing_required_is_usage_error(self) -> None:
         result = runner.invoke(_synthetic_app(), ["sub", "go"])
         assert result.exit_code == 2, result.output
-        assert "--name" in result.output
+        assert "--name" in _plain(result.output)
 
     def test_missing_required_not_silently_none(self) -> None:
         # 修复前：exit 0 + 回调收到 name=None（必填校验被跳过）
@@ -87,14 +94,14 @@ class TestRootCliRequiredGuard:
 
         result = runner.invoke(app, ["fs", "topic-create"])
         assert result.exit_code == 2, result.output
-        assert "--title" in result.output
+        assert "--title" in _plain(result.output)
 
     def test_topic_comment_missing_id(self, workspace: Path) -> None:
         from cli.main import app
 
         result = runner.invoke(app, ["topic", "comment", "--body", "x"])
         assert result.exit_code == 2, result.output
-        assert "--id" in result.output
+        assert "--id" in _plain(result.output)
 
     def test_happy_path_unaffected(self, workspace: Path) -> None:
         from cli.main import app

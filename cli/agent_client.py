@@ -189,7 +189,11 @@ class PersonaAgentClient:
                 )
             except StopAsyncIteration:
                 break
-            except TimeoutError:
+            except asyncio.TimeoutError:
+                # Py3.10：asyncio.wait_for 抛 asyncio.TimeoutError，与内置
+                # TimeoutError 不是同一类型（3.11 才合并）。与 T39
+                # simple_waker 的捕获约定一致，避免超时路径在 3.10 上
+                # 变成未捕获异常、disconnect 根本走不到。
                 self._log_event(
                     log_path,
                     event="timeout",

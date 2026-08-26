@@ -155,15 +155,16 @@ def content_root_name(project: Project | None = None) -> str:
 
 # T18（2026-08）：本地 FS 平面进程内缓存。键 = (workspace, content_root)，
 # 值 = (文件指纹, FsPlane)。指纹覆盖 scan_plane 实际读取的两棵树
-# （topics/ + experiments/）下全部文件的 (相对路径, mtime_ns, size)——
-# 任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）都会改变 mtime
-# 或 size，指纹随之失配并触发重扫；指纹采集只 stat 不读内容，远廉价于
-# 全量解析。FsPlane 及其 topic/experiment 对象在 server 侧只读消费
-# （全部读取方只构建 Read 模型 / derive_work），共享同一实例安全。
+# （topics/ + experiments/）下全部文件的 (相对路径, mtime_ns, size, ino)——
+# 任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）都会改变 mtime、
+# size 或 inode（原子 replace 换 inode）。仅 (mtime, size) 在粗粒度时间戳
+# 文件系统上会漏掉「同秒、同大小覆盖写入」，inode 补上这条缺口。
+# 指纹采集只 stat 不读内容，远廉价于全量解析。FsPlane 及其
+# topic/experiment 对象在 server 侧只读消费（全部读取方只构建 Read
+# 模型 / derive_work），共享同一实例安全。
 _PLANE_CACHE_MAX_ENTRIES = 8
-_plane_cache: OrderedDict[tuple[str, str], tuple[tuple[tuple[str, int, int], ...], FsPlane]] = (
-    OrderedDict()
-)
+_PlaneFingerprint = tuple[tuple[str, int, int, int], ...]
+_plane_cache: OrderedDict[tuple[str, str], tuple[_PlaneFingerprint, FsPlane]] = OrderedDict()
 _plane_cache_lock = threading.Lock()
 
 
@@ -173,9 +174,9 @@ def reset_plane_cache() -> None:
         _plane_cache.clear()
 
 
-def _plane_fingerprint(workspace: Path, content_root: str) -> tuple[tuple[str, int, int], ...] | None:
-    """Collect (relpath, mtime_ns, size) for every file scan_plane would read."""
-    entries: list[tuple[str, int, int]] = []
+def _plane_fingerprint(workspace: Path, content_root: str) -> _PlaneFingerprint | None:
+    """Collect (relpath, mtime_ns, size, ino) for every file scan_plane would read."""
+    entries: list[tuple[str, int, int, int]] = []
     root = workspace / content_root
     for subdir in ("topics", "experiments"):
         base = root / subdir
@@ -187,7 +188,12 @@ def _plane_fingerprint(workspace: Path, content_root: str) -> tuple[tuple[str, i
             except OSError:
                 continue  # 竞态：扫描期间文件被删——scan_plane 同样会跳过
             if path.is_file():
-                entries.append((str(path.relative_to(base)), st.st_mtime_ns, st.st_size))
+                # relpath 相对 content_root，避免 topics/ 与 experiments/ 下
+                # 同名文件在指纹里撞车；st_ino 让原子 replace 在 mtime 不变
+                # （1s 粒度 FS / 同秒覆盖）时仍能失效缓存。
+                entries.append(
+                    (str(path.relative_to(root)), st.st_mtime_ns, st.st_size, st.st_ino)
+                )
     return tuple(entries)
 
 

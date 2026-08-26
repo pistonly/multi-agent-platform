@@ -1,9 +1,9 @@
 """优化任务 T18 的回归测试（见 docs/OPTIMIZATION-TASKS.md）。
 
 FS 平面进程内缓存：指纹（topics/ + experiments/ 全文件的
-(relpath, mtime_ns, size)）不变时复用上次解析的 FsPlane；任何文件
-写入/新增/删除必然改变指纹并触发重扫；开关关闭或 reset 后行为退回
-每次全量扫描。
+(relpath, mtime_ns, size, ino)）不变时复用上次解析的 FsPlane；任何文件
+写入/新增/删除/同大小覆盖必然改变指纹并触发重扫；开关关闭或 reset
+后行为退回每次全量扫描。
 """
 
 from __future__ import annotations
