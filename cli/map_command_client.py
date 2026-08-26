@@ -38,10 +38,25 @@ class MapCommandClient:
             args.extend(["--project-root", str(self.project_root)])
         return args
 
-    def _run(self, args: list[str], *, parse_yaml: bool = True, retryable: bool = False) -> Any:
+    def _run(
+        self,
+        args: list[str],
+        *,
+        parse_yaml: bool = True,
+        retryable: bool = False,
+        map_exit: dict[int, Any] | None = None,
+    ) -> Any:
+        """Run ``map`` as a subprocess.
+
+        ``map_exit`` (T25)：把特定非零退出码映射成返回值，而不是抛
+        ``WorkerError``。``inbound_event_record`` 用 ``{0: True, 2: False}``
+        表达 409→exit 2 的去重语义，避免再复制一套 timeout/错误拼装。
+        """
         cmd = self._base_args() + args
         if self.dry_run and _is_write_command(args):
             typer.echo("[dry-run] " + " ".join(cmd))
+            if map_exit is not None and 0 in map_exit:
+                return map_exit[0]
             return None
         attempts = _RETRY_ATTEMPTS if retryable else 1
         result: subprocess.CompletedProcess[str] | None = None
@@ -63,6 +78,8 @@ class MapCommandClient:
                 ) from exc
             if result.returncode == 0:
                 break
+            if map_exit is not None and result.returncode in map_exit:
+                return map_exit[result.returncode]
             detail = result.stderr.strip() or result.stdout.strip()
             # 仅对幂等读命令、且失败特征为瞬时（API 5xx / 网络抖动 / 超时）时退避重试；
             # 401/403/404 等确定性错误或写命令失败立即抛出，避免无谓重试。
@@ -73,6 +90,8 @@ class MapCommandClient:
                 f"Command failed ({result.returncode}): {' '.join(cmd)}\n{detail}"
             )
         assert result is not None  # 循环只在 returncode == 0 时 break
+        if map_exit is not None and 0 in map_exit:
+            return map_exit[0]
         if not parse_yaml:
             return result.stdout
         if not result.stdout.strip():
@@ -386,31 +405,8 @@ class MapCommandClient:
             "--source",
             source,
         ]
-        cmd = self._base_args() + args
-        if self.dry_run and _is_write_command(args):
-            typer.echo("[dry-run] " + " ".join(cmd))
-            return True
-        try:
-            result = subprocess.run(
-                cmd,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=self.cmd_timeout,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise WorkerError(
-                f"Command timed out after {self.cmd_timeout}s: {' '.join(cmd)}"
-            ) from exc
-        if result.returncode == 0:
-            return True
-        if result.returncode == 2:
-            # CLI maps 409 Conflict to exit 2; treat as duplicate.
-            return False
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise WorkerError(
-            f"Command failed ({result.returncode}): {' '.join(cmd)}\n{detail}"
-        )
+        # T25：409→exit 2 走 ``map_exit``，timeout / 错误拼装复用 ``_run``。
+        return self._run(args, parse_yaml=False, map_exit={0: True, 2: False})
 
 
 # 会修改 MAP 状态的子命令（``map --dry-run`` 时必须跳过这些，否则会真实

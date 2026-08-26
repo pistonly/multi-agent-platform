@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 18/27：T06-T23（2026-08-25/26）；剩余 T24（大）、T25-T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 21/27：T06-T23、T25-T27（2026-08-25/26）；剩余 T24（大）、T28-T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -100,7 +100,7 @@
   未做：`server/domain/models.py`（837 行）拆分——纯声明式 ORM 模型、无逻辑耦合，拆分收益低，维持现状。
 
 - [x] **T18 FS 扫描加 mtime/revision 级缓存**（预估：中）✅ 2026-08-26
-  落地：`fs_source_service` 增加进程内 plane 缓存——以 `(workspace, root_name)` 为键，缓存值为完整目录指纹（topics/ + experiments/ 下全部文件的 `(relpath, mtime_ns, size)`）与解析出的 `FsPlane`；任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）改变 mtime 即指纹失配、自动重扫。LRU 上限防多 workspace 膨胀，`fs_plane_cache_enabled` 设置可关（默认开），`reset_plane_cache()` 供测试隔离。测试 `tests/test_optimization_t18.py` 覆盖命中零重扫 / mtime 变更失效 / 关闭开关直通。
+  落地：`fs_source_service` 增加进程内 plane 缓存——以 `(workspace, root_name)` 为键，缓存值为完整目录指纹（topics/ + experiments/ 下全部文件的 `(relpath, mtime_ns, size, ino)`）与解析出的 `FsPlane`；任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）改变 mtime、size 或 inode 即指纹失配、自动重扫。同大小覆盖写入在粗粒度时间戳 FS 上只靠 mtime 会漏失效，故指纹含 `st_ino`。LRU 上限防多 workspace 膨胀，`fs_plane_cache_enabled` 设置可关（默认开），`reset_plane_cache()` 供测试隔离。测试 `tests/test_optimization_t18.py` 覆盖命中零重扫 / 写入失效 / 关闭开关直通。
 
 - [x] **T19 宽捕获补日志、时区工具去重**（预估：小）✅ 2026-08-26
   落地：宽捕获路径补 `logger.warning`（fs_source_service 快照降级等 6 处，附异常摘要便于排障）；时区辅助收敛至 `server/services/time_utils.as_utc`（overload 保证 strict-mypy 下 `datetime -> datetime` 精确），`notification_stalled._aware` 与 `status_service` / `todo_service` / `topic_ack_service` 的 `_as_utc` 三处雷同实现统一替换。
@@ -125,20 +125,15 @@
   问题：两套平行 API 层；waker/orchestrator/e2e 走 subprocess 层导致 T03 的进程税。
   改法：simple_waker/orchestrator/e2e 逐步迁 `MAPClient`，`MapCommandClient` 标记 deprecated；`--dry-run` 写拦截语义在 SDK 层用 dry_run 回调实现。
 
-- [ ] **T25 inbound_event_record 去重 _run 逻辑**（预估：小）
-  位置：`cli/map_command_client.py` L362-413。
-  问题：手工复制 `_run()`（L41-80）全套 timeout/错误拼装约 50 行，仅 exit 2 → False 语义不同。
-  改法：给 `_run` 加返回码处理参数，删除复制品。
+- [x] **T25 inbound_event_record 去重 _run 逻辑**（预估：小）✅ 2026-08-26
+  落地：`MapCommandClient._run` 增加 ``map_exit``（把特定非零退出码映射成返回值）；`inbound_event_record` 用 `{0: True, 2: False}` 表达 409→CLI exit 2 的去重语义，timeout/错误拼装与 dry-run 登记复用 `_run`，删除约 40 行复制品。测试 `tests/test_optimization_t25.py`。
+  位置：`cli/map_command_client.py`。
 
-- [ ] **T26 合并 _resolve_creator/executor_agent_id**（预估：小）
-  位置：`cli/main.py` L1013-1077 与 L1080-1129。
-  问题：两段约 55 行逐行同构（UUID 直通 → list_agents 过滤 → 0 命中列出 → 多命中报歧义），仅文案与 flag 名不同。
-  改法：抽 `_resolve_agent_ref(client, project_id, value, *, flag, label)`，两个入口各剩 3-5 行。
+- [x] **T26 合并 _resolve_creator/executor_agent_id**（预估：小）✅ 2026-08-26
+  落地：抽 ``_resolve_agent_ref(client, project_id, value, *, flag, label)``（UUID 直通 → list_agents 过滤 → 0 命中列出 → 多命中报歧义）；``_resolve_executor_agent_id`` 只剩一行委托，``_resolve_creator_agent_id`` 保留双 flag 别名/冲突门禁后走同一查找。位置在 T23 后的 `cli/runner.py`（不再是 main.py）。测试 `tests/test_optimization_t26.py`。
 
-- [ ] **T27 收窄 SDK bootstrap 的宽泛捕获**（预估：小）
-  位置：`sdk/python/map_client/bootstrap.py` L135/139/160/184/219/225/238/256 共 8 处 `except Exception`。
-  问题：配置探测 fallback 会把权限错误、磁盘错误一并静默当"配置缺失"，排障困难。
-  改法：收窄为 `(yaml.YAMLError, OSError, ValueError)` 并至少 `logger.debug` 留痕。CLI 侧同类点位（`cli/main.py:1007`、`cli/fs_projection.py:319/428` 等）一并收窄，`fs_projection` 优先。
+- [x] **T27 收窄 SDK bootstrap 的宽泛捕获**（预估：小）✅ 2026-08-26
+  落地：`bootstrap.py` 8 处 `except Exception` 按场景收窄为 YAML 探测 `(YAMLError, OSError, ValueError)`、HTTP 建连 `(HTTPError, OSError, ValueError, ImportError)`、请求 `(RequestError, OSError)`、错误体 JSON `(ValueError, TypeError)`，并 `logger.debug` 留痕。CLI：`fs_projection.maybe_auto_sync` / `warn_fs_plane_detached` 的静默 skip 与 `runner._resolve_project` 的 `load_config` 探测同步收窄，TypeError 等程序 bug 不再当「离线/缺配置」。测试 `tests/test_optimization_t27.py`。
 
 - [ ] **T28 SDK 加连接级重试**（预估：小）
   位置：`sdk/python/map_client/client.py` L134-140、L171-204。

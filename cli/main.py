@@ -108,6 +108,7 @@ from cli.runner import (  # noqa: F401
     _require_map_dir,
     _require_option_uuid,
     _resolve_admin_api_url,
+    _resolve_agent_ref,
     _resolve_creator_agent_id,
     _resolve_executor_agent_id,
     _resolve_project,

@@ -630,10 +630,58 @@ def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: 
         from map_client.config import load_config
 
         cfg_key = load_config().get("project_key")
-    except Exception:
+    except (ValueError, OSError, yaml.YAMLError):
         pass
     key = project_key or cfg_key
     return client.resolve_project_id(project, project_key=key)
+
+
+def _resolve_agent_ref(
+    client: MAPClient,
+    project_id: uuid.UUID,
+    value: str,
+    *,
+    flag: str,
+    label: str,
+) -> uuid.UUID:
+    """Resolve ``--creator`` / ``--executor`` (name or UUID) via one lookup path (T26).
+
+    - Valid UUID → pass through (skip ``/agents`` lookup).
+    - Name → ``list_agents(project_id)`` exact match, ignoring admin rows.
+      0 hits → error + list available names; >1 hits → error (ambiguous).
+    """
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        pass
+    agents = client.list_agents(project_id=project_id)
+    matches = [
+        a
+        for a in agents
+        if a.role.value != "admin" and a.project_id == project_id and a.name == value
+    ]
+    if len(matches) == 0:
+        available = sorted(
+            a.name for a in agents if a.role.value != "admin" and a.project_id == project_id
+        )
+        available_hint = (
+            f" Available agent_name in this project: {', '.join(available)}."
+            if available
+            else " No project-bound agents found in this project."
+        )
+        typer.echo(
+            f"Error: {label} '{value}' not found in current project.{available_hint}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        typer.echo(
+            f"Error: {label} '{value}' matches {len(matches)} agents in current project; "
+            f"name is ambiguous. Pass {flag} <UUID> instead.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return matches[0].id
 
 
 def _resolve_creator_agent_id(
@@ -673,34 +721,9 @@ def _resolve_creator_agent_id(
             err=True,
         )
         raise typer.Exit(1)
-    agents = client.list_agents(project_id=project_id)
-    matches = [
-        a
-        for a in agents
-        if a.role.value != "admin" and a.project_id == project_id and a.name == creator
-    ]
-    if len(matches) == 0:
-        available = sorted(
-            a.name for a in agents if a.role.value != "admin" and a.project_id == project_id
-        )
-        available_hint = (
-            f" Available agent_name in this project: {', '.join(available)}."
-            if available
-            else " No project-bound agents found in this project."
-        )
-        typer.echo(
-            f"Error: agent_name '{creator}' not found in current project.{available_hint}",
-            err=True,
-        )
-        raise typer.Exit(1)
-    if len(matches) > 1:
-        typer.echo(
-            f"Error: agent_name '{creator}' matches {len(matches)} agents in current project; "
-            "name is ambiguous. Pass --creator-agent-id <UUID> instead.",
-            err=True,
-        )
-        raise typer.Exit(1)
-    return matches[0].id
+    return _resolve_agent_ref(
+        client, project_id, creator, flag="--creator-agent-id", label="agent_name"
+    )
 
 
 def _resolve_executor_agent_id(
@@ -711,48 +734,12 @@ def _resolve_executor_agent_id(
     """Resolve ``--executor`` (name or UUID) into an ``executor_agent_id``.
 
     Migration 042: used by ``map experiment start --executor <name|uuid>``
-    to delegate execution to another agent. Mirrors the
-    ``_resolve_creator_agent_id`` lookup path:
-
-    - Valid UUID → pass through (skip the /agents lookup).
-    - Name → look up via ``list_agents(project_id)``; exact match within
-      current project, ignoring admin rows. 0 hits → error + list
-      available names; >1 hits → error (project-internal name collision).
+    to delegate execution to another agent. Name lookup shares
+    ``_resolve_agent_ref`` with ``--creator`` (T26).
     """
-    try:
-        executor_uuid = uuid.UUID(executor)
-    except ValueError:
-        executor_uuid = None
-    if executor_uuid is not None:
-        return executor_uuid
-    agents = client.list_agents(project_id=project_id)
-    matches = [
-        a
-        for a in agents
-        if a.role.value != "admin" and a.project_id == project_id and a.name == executor
-    ]
-    if len(matches) == 0:
-        available = sorted(
-            a.name for a in agents if a.role.value != "admin" and a.project_id == project_id
-        )
-        available_hint = (
-            f" Available agent_name in this project: {', '.join(available)}."
-            if available
-            else " No project-bound agents found in this project."
-        )
-        typer.echo(
-            f"Error: executor '{executor}' not found in current project.{available_hint}",
-            err=True,
-        )
-        raise typer.Exit(1)
-    if len(matches) > 1:
-        typer.echo(
-            f"Error: executor '{executor}' matches {len(matches)} agents in current project; "
-            "name is ambiguous. Pass --executor <UUID> instead.",
-            err=True,
-        )
-        raise typer.Exit(1)
-    return matches[0].id
+    return _resolve_agent_ref(
+        client, project_id, executor, flag="--executor", label="executor"
+    )
 
 
 def _load_topic_resolve_payload(path: Path) -> TopicResolve:

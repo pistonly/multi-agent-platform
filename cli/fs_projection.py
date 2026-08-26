@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 import typer
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
@@ -24,6 +26,9 @@ from map_types.schemas.fs import (
 
 # T23：执行链辅助从 runner 顶层导入（原 ``from cli.main import ...`` lazy）
 from cli import runner  # module ref: test monkeypatch surface (T23)
+
+logger = logging.getLogger(__name__)
+_AUTO_SYNC_SKIP_ERRORS = (ValueError, OSError, httpx.RequestError)
 
 
 def _workspace_root(workspace: Path) -> str:
@@ -322,8 +327,10 @@ def maybe_auto_sync(
             err=True,
         )
         return
-    except Exception:
-        # 离线 / 配置缺失：跳过（本地文件仍是事实源）。
+    except _AUTO_SYNC_SKIP_ERRORS as exc:
+        # 离线 / 配置缺失：跳过（本地文件仍是事实源）。TypeError 等程序
+        # bug 不再吞掉（T27）。
+        logger.debug("auto-sync skipped (offline/config): %s", exc)
         return
     if status.mode == "local-fs":
         return
@@ -416,7 +423,8 @@ def warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
                         f"{err.status_code} {err.detail}",
                         err=True,
                     )
-            except Exception as err:
+            except _AUTO_SYNC_SKIP_ERRORS as err:
+                logger.debug("bootstrap auto-sync failed: %s", err)
                 typer.echo(f"WARNING: auto sync after bootstrap failed: {err}", err=True)
         typer.echo(
             f"WARNING: FS plane mode={status.mode} —— server 看不到本机 workspace "
@@ -431,7 +439,8 @@ def warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
             "（兼容别名 `map fs push`）。不要把 bind-mount 当作推荐安装路径。",
             err=True,
         )
-    except Exception:
+    except _AUTO_SYNC_SKIP_ERRORS as exc:
+        logger.debug("FS plane handshake skipped: %s", exc)
         return
     finally:
         with contextlib.suppress(Exception):

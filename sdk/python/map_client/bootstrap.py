@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -23,6 +24,15 @@ from map_client.project_config import (
     ProjectMapConfig,
     _read_yaml,
 )
+
+logger = logging.getLogger(__name__)
+
+# T27：配置/HTTP 探测失败要留 debug 痕迹，且不要把 TypeError 等程序 bug
+# 吞成「配置缺失」。YAML 读盘与 JSON 错误体各自收窄。
+_YAML_PROBE_ERRORS = (yaml.YAMLError, OSError, ValueError)
+_HTTP_SETUP_ERRORS = (httpx.HTTPError, OSError, ValueError, ImportError)
+_HTTP_REQUEST_ERRORS = (httpx.RequestError, OSError)
+_JSON_BODY_ERRORS = (ValueError, TypeError)
 
 DEFAULT_PERSONAS: dict[str, dict[str, str]] = {
     "host": {
@@ -132,11 +142,13 @@ def _public_bootstrap(
         client = httpx.Client(
             transport=transport, timeout=30.0, trust_env=not _is_local_url(url)
         )
-    except Exception:
+    except _HTTP_SETUP_ERRORS as exc:
+        logger.debug("public bootstrap client setup failed: %s", exc)
         return None
     try:
         resp = client.post(url, json=body)
-    except Exception:
+    except _HTTP_REQUEST_ERRORS as exc:
+        logger.debug("public bootstrap POST failed: %s", exc)
         return None
     finally:
         client.close()
@@ -157,8 +169,8 @@ def _public_bootstrap(
                     error_code = payload.get("error_code")
                     hint = payload.get("hint")
                     retryable = payload.get("retryable")
-            except Exception:
-                pass
+            except _JSON_BODY_ERRORS as exc:
+                logger.debug("public bootstrap error body is not JSON: %s", exc)
         raise_for_status(
             resp.status_code,
             detail,
@@ -181,7 +193,8 @@ def _surviving_local_tokens(map_dir: Path) -> list[str]:
         return []
     try:
         data = _read_yaml(local_path)
-    except Exception:
+    except _YAML_PROBE_ERRORS as exc:
+        logger.debug("could not read surviving local tokens from %s: %s", local_path, exc)
         return []
     personas = (data or {}).get("personas") if isinstance(data, dict) else None
     if not isinstance(personas, dict):
@@ -216,13 +229,15 @@ def _public_reissue(
         client = httpx.Client(
             transport=transport, timeout=30.0, trust_env=not _is_local_url(url)
         )
-    except Exception:
+    except _HTTP_SETUP_ERRORS as exc:
+        logger.debug("public reissue client setup failed: %s", exc)
         return None
     try:
         resp = client.post(
             url, json={"project_key": project_key, "agent_name": agent_name}, headers=headers
         )
-    except Exception:
+    except _HTTP_REQUEST_ERRORS as exc:
+        logger.debug("public reissue POST failed: %s", exc)
         return None
     finally:
         client.close()
@@ -235,8 +250,8 @@ def _public_reissue(
         try:
             payload = resp.json()
             detail = str(payload.get("detail", "")) if isinstance(payload, dict) else ""
-        except Exception:
-            pass
+        except _JSON_BODY_ERRORS as exc:
+            logger.debug("public reissue 404 body is not JSON: %s", exc)
         if detail.strip().lower() in ("", "not found"):
             return None
     if resp.status_code >= 400:
@@ -253,8 +268,8 @@ def _public_reissue(
                     error_code = payload.get("error_code")
                     hint = payload.get("hint")
                     retryable = payload.get("retryable")
-            except Exception:
-                pass
+            except _JSON_BODY_ERRORS as exc:
+                logger.debug("public reissue error body is not JSON: %s", exc)
         raise_for_status(
             resp.status_code,
             detail,
