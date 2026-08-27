@@ -516,6 +516,44 @@ def test_runtime_contract_change_resets_existing_session(tmp_path: Path) -> None
     assert persona_state["runtime_contract_version"] == simple_waker.RUNTIME_CONTRACT_VERSION
 
 
+def test_runtime_backend_change_resets_existing_session(tmp_path: Path) -> None:
+    client = FakeMapClient(persona="host", todos={})
+    backend = MagicMock()
+    backend.reset_session = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        runtime="cursor",
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+    persona_state = waker._persona_state("host")
+    persona_state["runtime_backend"] = "claude"
+    persona_state["claude_session_id"] = "old-session"
+
+    asyncio.run(waker._reset_runtime_session_if_backend_changed())
+
+    backend.reset_session.assert_awaited_once()
+
+
+def test_runtime_backend_unchanged_does_not_reset(tmp_path: Path) -> None:
+    client = FakeMapClient(persona="host", todos={})
+    backend = MagicMock()
+    backend.reset_session = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        runtime="cursor",
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+    waker._persona_state("host")["runtime_backend"] = "cursor"
+
+    asyncio.run(waker._reset_runtime_session_if_backend_changed())
+
+    backend.reset_session.assert_not_called()
+
+
 def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     client = FakeMapClient(
         persona="host",
@@ -672,3 +710,110 @@ def test_apply_project_claude_env_overrides_and_unsets(tmp_path, monkeypatch):
     assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in os.environ
     assert "ANTHROPIC_SMALL_FAST_MODEL" not in os.environ
     assert os.environ["ZAI_API_LEFTOVER"] == "secret"
+
+
+def test_simple_waker_run_command_selects_cursor_runtime(monkeypatch, tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    captured: dict[str, object] = {}
+
+    def fake_build(**kwargs):
+        captured.update(kwargs)
+        backend = MagicMock()
+        backend.connect = AsyncMock()
+        backend.disconnect = AsyncMock()
+        backend.reset_session = AsyncMock()
+        backend.wake_async = AsyncMock()
+        return backend
+
+    monkeypatch.setattr("cli.simple_waker.build_wake_backend", fake_build)
+    monkeypatch.setattr("cli.simple_waker.SimpleWaker.run_forever", lambda self: None)
+    monkeypatch.delenv("MAP_SIMPLE_RUNTIME", raising=False)
+
+    result = CliRunner().invoke(
+        simple_waker.APP,
+        [
+            "--persona",
+            "host",
+            "--project-root",
+            str(tmp_path),
+            "--runtime",
+            "cursor",
+            "--once",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["runtime"] == "cursor"
+
+
+def test_simple_waker_run_command_runtime_env_fallback(monkeypatch, tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    captured: dict[str, object] = {}
+
+    def fake_build(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    monkeypatch.setattr("cli.simple_waker.build_wake_backend", fake_build)
+    monkeypatch.setattr("cli.simple_waker.SimpleWaker.run_forever", lambda self: None)
+    monkeypatch.setenv("MAP_SIMPLE_RUNTIME", "cursor")
+
+    result = CliRunner().invoke(
+        simple_waker.APP,
+        ["--persona", "host", "--project-root", str(tmp_path), "--once", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["runtime"] == "cursor"
+
+
+def test_simple_waker_run_command_runtime_flag_wins_over_env(monkeypatch, tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    captured: dict[str, object] = {}
+
+    def fake_build(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    monkeypatch.setattr("cli.simple_waker.build_wake_backend", fake_build)
+    monkeypatch.setattr("cli.simple_waker.SimpleWaker.run_forever", lambda self: None)
+    monkeypatch.setenv("MAP_SIMPLE_RUNTIME", "cursor")
+
+    result = CliRunner().invoke(
+        simple_waker.APP,
+        [
+            "--persona",
+            "host",
+            "--project-root",
+            str(tmp_path),
+            "--runtime",
+            "claude",
+            "--once",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["runtime"] == "claude"
+
+
+def test_simple_waker_run_command_rejects_unknown_runtime(monkeypatch, tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    monkeypatch.setattr("cli.simple_waker.SimpleWaker.run_forever", lambda self: None)
+    result = CliRunner().invoke(
+        simple_waker.APP,
+        [
+            "--persona",
+            "host",
+            "--project-root",
+            str(tmp_path),
+            "--runtime",
+            "codex",
+            "--once",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "Unknown waker runtime" in result.output

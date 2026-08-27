@@ -77,6 +77,10 @@ MAP_SIMPLE_PERSONA=reviewer ./scripts/start-simple-waker.sh
 ./scripts/start-all-simple-wakers.sh
 ./scripts/start-all-simple-wakers.sh --drain-topics
 ./scripts/start-simple-waker.sh --once --dry-run
+
+# Cursor SDK local runtime (requires `pip install -e '.[cursor-runtime]'`)
+MAP_SIMPLE_RUNTIME=cursor ./scripts/start-simple-waker.sh --persona host --once --dry-run
+MAP_SIMPLE_RUNTIME=cursor ./scripts/start-all-simple-wakers.sh
 ```
 
 `--drain-topics` starts host/participant/reviewer wakers and monitors
@@ -100,13 +104,30 @@ Environment variables:
 | `MAP_SIMPLE_IDLE_INTERVAL` | `300` | Poll cadence when idle |
 | `MAP_SIMPLE_MIN_REMIND_SECONDS` | `30` | Minimum gap between remind prompts |
 | `MAP_SIMPLE_STATE_FILE` | `.map/simple-waker-state.json` | Session + remind timestamps |
-| `MAP_SIMPLE_RUNTIME_HOME` | `.map/claude-runtime-home` | Claude runtime HOME |
+| `MAP_SIMPLE_RUNTIME` | `claude` | Agent runtime: `claude` or `cursor` (`--runtime`) |
+| `MAP_SIMPLE_RUNTIME_HOME` | `.map/claude-runtime-home` | Claude runtime HOME (ignored for `--runtime cursor`) |
 | `MAP_SIMPLE_MODEL` | unset | Optional model override |
 
 Logs: `.map/simple-waker-logs/` when using `start-all-simple-wakers.sh`.
 
-Session transcripts: same `.map/runtime-waker-sessions/` path as the Claude
-backend (`PersonaAgentClient`).
+Session transcripts: `.map/runtime-waker-sessions/` for both Claude and Cursor backends.
+
+### Agent runtime backends
+
+simple-waker reminds a long-lived Agent Runtime. The poll/remind loop is runtime-agnostic; only the backend that receives the prompt changes.
+
+| `--runtime` / `MAP_SIMPLE_RUNTIME` | Backend | Session id in state | Skills |
+| --- | --- | --- | --- |
+| `claude` (default) | `PersonaAgentWakeBackend` → `claude-agent-sdk` | `claude_session_id` / `runtime_session_id` | Copied into `MAP_SIMPLE_RUNTIME_HOME/.claude/skills` |
+| `cursor` | `CursorSdkWakeBackend` → `cursor-sdk` local agent | `cursor_agent_id` / `runtime_session_id` | Project `.cursor/skills` via `setting_sources=["project"]` |
+
+Cursor **must** use the local runtime (this checkout + `.map/` tokens). Switching runtime on an existing state file starts a fresh session.
+
+Install the optional extra before `--runtime cursor`:
+
+```bash
+pip install -e ".[cursor-runtime]"
+```
 
 ### Claude SDK credentials for resumed agents (`.map/.claude-env`)
 
@@ -137,6 +158,31 @@ cap). Other call paths (e.g. `host invoke`) still resolve
 **process env > `.map/.claude-env` > `~/.bashrc` and other shell rc**.
 This is Claude SDK credentials — distinct from the MAP platform API token
 (`~/.map/config.yaml`).
+
+### Cursor SDK credentials for resumed agents (`.map/.cursor-env`)
+
+`--runtime cursor` uses the Cursor Python SDK (`cursor-sdk`) against the local
+working tree. Credentials live in **`.map/.cursor-env`** (gitignore, do not
+commit):
+
+```bash
+# .map/.cursor-env — Cursor keys are authoritative from this file
+export CURSOR_API_KEY=cursor_...
+export CURSOR_MODEL=composer-2.5
+```
+
+When the file exists, simple-waker treats it as authoritative for
+`CURSOR_API_KEY` / `CURSOR_MODEL` (`cli.cursor_wake_backend.apply_project_cursor_env`),
+including unsetting keys the file does not define. Missing file falls back to
+the process environment (`CURSOR_API_KEY` is also accepted by the SDK itself).
+Default model is `composer-2.5`. Mint keys at
+[Cursor Dashboard → Integrations](https://cursor.com/dashboard/integrations).
+
+The Cursor backend launches `AsyncClient.launch_bridge` and keeps one local
+agent per persona (`Agent.create` / `Agent.resume`). It does **not** isolate
+`HOME` or copy skills into `.claude/skills`; project Skills load from
+`.cursor/skills` via `setting_sources=["project"]`. `host invoke` / `map runtime chat`
+still use the Claude client in this change.
 
 ## Agent rules
 

@@ -26,13 +26,16 @@ from cli.action_item_escalation import (
 )
 from cli.agent_client import apply_project_claude_env
 from cli.bridge_state import load_bridge_state, save_bridge_state
+from cli.cursor_wake_backend import apply_project_cursor_env
 from cli.errors import WorkerError
 from cli.map_command_client import MapCommandClient
 from cli.map_sdk_client import MapSdkClient
 from cli.wake_backend import (
     TODO_BUCKET_UI_LABELS,
     TODO_WAKE_BUCKETS,
-    PersonaAgentWakeBackend,
+    WakeBackend,
+    build_wake_backend,
+    resolve_waker_runtime,
     sync_runtime_skills,
 )
 from cli.worker_cycle_log import log_cycle_summary
@@ -140,6 +143,7 @@ class SimpleWakerConfig:
     dry_run: bool = False
     state_file: Path | None = Path(".map/simple-waker-state.json")
     model: str | None = None
+    runtime: str = "claude"
     runtime_home: Path | None = None
     min_remind_seconds: float = 30.0
     drain_topics: bool = False
@@ -586,7 +590,7 @@ class SimpleWaker:
         *,
         client: MapCommandClient | MapSdkClient,
         config: SimpleWakerConfig | None = None,
-        backend: PersonaAgentWakeBackend | None = None,
+        backend: WakeBackend | None = None,
     ) -> None:
         self.client = client
         self.config = config or SimpleWakerConfig()
@@ -604,7 +608,8 @@ class SimpleWaker:
         self._consecutive_errors = 0
         self._stop_requested = False
         self._stop_event: asyncio.Event | None = None
-        self.backend = backend or PersonaAgentWakeBackend(
+        self.backend: WakeBackend = backend or build_wake_backend(
+            runtime=self.config.runtime,
             project_root=self.config.project_root,
             persona=self.config.persona,
             get_agent_state=lambda: self._persona_state(self.config.persona),
@@ -620,6 +625,7 @@ class SimpleWaker:
     async def _run_forever_async(self) -> SimpleWakerStats:
         if not self.config.dry_run:
             await self._reset_runtime_session_if_contract_changed()
+            await self._reset_runtime_session_if_backend_changed()
         if not self.config.dry_run:
             await self.backend.connect()
         # T39：优雅退出——SIGTERM/SIGINT 置 stop 标志并唤醒 sleep，当前
@@ -953,7 +959,11 @@ class SimpleWaker:
         previous_hash = persona_state.get("runtime_contract_hash")
         if previous_hash == self._runtime_contract_hash:
             return
-        has_resume_session = bool(persona_state.get("claude_session_id") or persona_state.get("runtime_session_id"))
+        has_resume_session = bool(
+            persona_state.get("claude_session_id")
+            or persona_state.get("runtime_session_id")
+            or persona_state.get("cursor_agent_id")
+        )
         if previous_hash is not None or has_resume_session:
             typer.echo(
                 f"[simple-waker] runtime contract changed for {self.config.persona}; starting a fresh runtime session",
@@ -965,6 +975,18 @@ class SimpleWaker:
         persona_state["runtime_contract_updated_at"] = datetime.now(timezone.utc).isoformat()
         self._state_dirty = True
         self._save_state_if_needed(force=True)
+
+    async def _reset_runtime_session_if_backend_changed(self) -> None:
+        persona_state = self._persona_state(self.config.persona)
+        previous = persona_state.get("runtime_backend")
+        if not previous or previous == self.config.runtime:
+            return
+        typer.echo(
+            f"[simple-waker] runtime backend changed {previous} -> {self.config.runtime}; "
+            "starting a fresh runtime session",
+            err=True,
+        )
+        await self.backend.reset_session()
 
     def _save_state_if_needed(self, *, force: bool = False) -> None:
         if not force and not self._state_dirty:
@@ -1010,11 +1032,16 @@ def run(
         "--state-file",
         help="Runtime session + remind timestamps.",
     ),
-    model: str | None = typer.Option(None, "--model", help="Optional Claude model override."),
+    model: str | None = typer.Option(None, "--model", help="Optional agent model override."),
+    runtime: str | None = typer.Option(
+        None,
+        "--runtime",
+        help="Agent runtime: claude (default) or cursor. Env: MAP_SIMPLE_RUNTIME.",
+    ),
     runtime_home: Path | None = typer.Option(
         None,
         "--runtime-home",
-        help="Optional HOME for the Claude runtime process.",
+        help="Optional HOME for the Claude runtime process (ignored for --runtime cursor).",
     ),
     stale_threshold_minutes: int | None = typer.Option(
         None,
@@ -1049,12 +1076,20 @@ def run(
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
-    # LLM 凭据权威来源 .map/.claude-env：即使被直启（绕过 start-*.sh 的
-    # source），也强制走项目代理端点/模型，避免继承 z.ai 等 shell 残留导致
-    # 5 小时 429 用量上限（见 33712fe 之后的补漏）。
-    apply_project_claude_env(root)
+    try:
+        resolved_runtime = resolve_waker_runtime(runtime)
+    except WorkerError as exc:
+        typer.echo(f"[simple-waker] {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    # LLM 凭据权威来源按 runtime 分流：Claude 走 .map/.claude-env，Cursor 走
+    # .map/.cursor-env。直启（绕过 start-*.sh）也强制以文件为准，避免继承
+    # shell 残留端点/账号。
+    if resolved_runtime == "cursor":
+        apply_project_cursor_env(root)
+    else:
+        apply_project_claude_env(root)
     resolved_runtime_home = runtime_home
-    if resolved_runtime_home is not None and not dry_run:
+    if resolved_runtime != "cursor" and resolved_runtime_home is not None and not dry_run:
         sync_runtime_skills(project_root=root, runtime_home=resolved_runtime_home)
     # f873c287 I1(g): apply threshold to env BEFORE any Settings read so
     # the ``map work`` subprocess (and any in-process server) sees the
@@ -1100,6 +1135,7 @@ def run(
         dry_run=dry_run,
         state_file=state_file,
         model=model,
+        runtime=resolved_runtime,
         runtime_home=resolved_runtime_home,
         min_remind_seconds=min_remind_seconds,
         drain_topics=drain_topics,

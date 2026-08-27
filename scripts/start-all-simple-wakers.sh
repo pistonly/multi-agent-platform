@@ -49,6 +49,7 @@ Environment:
   MAP_WAKER_DRAIN_CHECK_INTERVAL_SECONDS  Default: 60
   MAP_SIMPLE_ACTIVE_INTERVAL               Default passed to start-simple-waker
   MAP_SIMPLE_IDLE_INTERVAL                 Default passed to start-simple-waker
+  MAP_SIMPLE_RUNTIME                       Agent runtime: claude (default) or cursor
 EOF
 }
 

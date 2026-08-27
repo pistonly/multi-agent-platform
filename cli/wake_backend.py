@@ -8,14 +8,23 @@ re-export 保持向后兼容，既有测试不需要修改。
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from cli.agent_client import PersonaAgentClient
 from cli.errors import WorkerError
+
+WAKER_RUNTIMES: frozenset[str] = frozenset({"claude", "cursor"})
+RUNTIME_SESSION_KEYS: tuple[str, ...] = (
+    "claude_session_id",
+    "runtime_session_id",
+    "cursor_agent_id",
+    "runtime_backend",
+)
 
 # ---------------------------------------------------------------------------
 # WakeResult — waker 调用 backend 后的统一返回值
@@ -27,6 +36,79 @@ class WakeResult:
     session_id: str | None = None
     response_text: str | None = None
     skipped: bool = False
+
+
+class WakeBackend(Protocol):
+    """Minimal surface simple-waker uses to remind an Agent Runtime."""
+
+    async def connect(self) -> None: ...
+
+    async def wake_async(
+        self,
+        *,
+        prompt: str,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
+    ) -> WakeResult: ...
+
+    async def disconnect(self) -> None: ...
+
+    async def reset_session(self) -> None: ...
+
+
+def resolve_waker_runtime(cli_value: str | None = None) -> str:
+    """Resolve ``--runtime`` / ``MAP_SIMPLE_RUNTIME`` to ``claude`` or ``cursor``.
+
+    Precedence: explicit CLI value > ``MAP_SIMPLE_RUNTIME`` > ``claude``.
+    """
+    raw = (cli_value or "").strip().lower()
+    if not raw:
+        raw = (os.environ.get("MAP_SIMPLE_RUNTIME") or "claude").strip().lower()
+    if raw not in WAKER_RUNTIMES:
+        expected = ", ".join(sorted(WAKER_RUNTIMES))
+        raise WorkerError(f"Unknown waker runtime {raw!r}; expected one of: {expected}")
+    return raw
+
+
+def clear_runtime_session_state(state: dict[str, Any]) -> None:
+    """Drop persisted runtime ids so the next connect starts a fresh session."""
+    for key in RUNTIME_SESSION_KEYS:
+        state.pop(key, None)
+
+
+def build_wake_backend(
+    *,
+    runtime: str,
+    project_root: Path,
+    persona: str,
+    get_agent_state: Callable[[], dict[str, Any]],
+    save_state_fn: Callable[[], None],
+    model: str | None = None,
+    runtime_home: Path | None = None,
+) -> WakeBackend:
+    """Construct the Agent Runtime backend for a simple-waker process."""
+    if runtime == "cursor":
+        from cli.cursor_wake_backend import CursorSdkWakeBackend
+
+        return CursorSdkWakeBackend(
+            project_root=project_root,
+            persona=persona,
+            get_agent_state=get_agent_state,
+            save_state_fn=save_state_fn,
+            model=model,
+        )
+    if runtime == "claude":
+        return PersonaAgentWakeBackend(
+            project_root=project_root,
+            persona=persona,
+            get_agent_state=get_agent_state,
+            save_state_fn=save_state_fn,
+            model=model,
+            runtime_home=runtime_home,
+        )
+    expected = ", ".join(sorted(WAKER_RUNTIMES))
+    raise WorkerError(f"Unknown waker runtime {runtime!r}; expected one of: {expected}")
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +219,10 @@ class PersonaAgentWakeBackend:
                 integration="waker",
             )
         await self._agent_client.connect()
+        state = self._get_agent_state()
+        if state.get("runtime_backend") != "claude":
+            state["runtime_backend"] = "claude"
+            self._save_state_fn()
 
     async def wake_async(
         self,
@@ -156,9 +242,10 @@ class PersonaAgentWakeBackend:
         )
         state = self._get_agent_state()
         session_id = state.get("claude_session_id")
+        state["runtime_backend"] = "claude"
         if session_id:
             state["runtime_session_id"] = session_id
-            self._save_state_fn()
+        self._save_state_fn()
         if status == "error":
             raise WorkerError(f"Claude wake failed with status={status!r}")
         return WakeResult(session_id=session_id)
@@ -173,8 +260,7 @@ class PersonaAgentWakeBackend:
             await self._agent_client.disconnect()
             self._agent_client = None
         state = self._get_agent_state()
-        state.pop("claude_session_id", None)
-        state.pop("runtime_session_id", None)
+        clear_runtime_session_state(state)
         self._save_state_fn()
 
     def wake(

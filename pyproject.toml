@@ -67,6 +67,11 @@ claude-runtime = [
     # (tests/test_agent_client.py). Install with: pip install -e ".[dev,claude-runtime]"
     "claude-agent-sdk>=0.2,<1.0",
 ]
+cursor-runtime = [
+    # Optional: Cursor SDK local agent backend for simple-waker (--runtime cursor).
+    # Install with: pip install -e ".[cursor-runtime]"
+    "cursor-sdk>=1.0,<2.0",
+]
 
 [project.scripts]
 map-server = "server.main:run"

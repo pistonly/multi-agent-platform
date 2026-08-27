@@ -529,17 +529,16 @@ class PersonaAgentClient:
         return None
 
 
-def load_project_claude_env(project_root: Path) -> dict[str, str]:
-    """Parse ``.map/.claude-env`` ``export VAR=...`` lines into {VAR: value}.
+def parse_export_env_file(path: Path) -> dict[str, str]:
+    """Parse ``export VAR=...`` lines into {VAR: value}.
 
     Returns {} when the file is missing or unreadable. Values mirror
     ``_read_export`` unquoting (strip quotes / trailing comment).
     """
-    env_path = Path(project_root) / ".map" / ".claude-env"
-    if not env_path.is_file():
+    if not path.is_file():
         return {}
     try:
-        text = env_path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except OSError:
         return {}
     values: dict[str, str] = {}
@@ -554,6 +553,11 @@ def load_project_claude_env(project_root: Path) -> dict[str, str]:
             if value:
                 values[match.group(1)] = value
     return values
+
+
+def load_project_claude_env(project_root: Path) -> dict[str, str]:
+    """Parse ``.map/.claude-env`` ``export VAR=...`` lines into {VAR: value}."""
+    return parse_export_env_file(Path(project_root) / ".map" / ".claude-env")
 
 
 def apply_project_claude_env(project_root: Path) -> dict[str, str]:
@@ -636,5 +640,8 @@ __all__ = [
     "PersonaAgentClient",
     "PersonaAgentLike",
     "WakeUpEvent",
+    "apply_project_claude_env",
+    "load_project_claude_env",
     "make_wakeup_prompt",
+    "parse_export_env_file",
 ]

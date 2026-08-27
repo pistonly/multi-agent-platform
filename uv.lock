@@ -457,6 +457,22 @@ wheels = [
 ]
 
 [[package]]
+name = "cursor-sdk"
+version = "1.0.28"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2d/58/6b8ac6a13c6b2c621a02da646e773dff4225af48892b77294f1e3ca0e914/cursor_sdk-1.0.28.tar.gz", hash = "sha256:e7782527e0a62816abc0610df3abda893ff27b5ea7b8d470668e31d08892a604", size = 1177, upload-time = "2026-08-13T19:40:35.854Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/c7/6b3e67d2ad66031ed2eff69565926967d45f4b2e1baa053d4d27c1814208/cursor_sdk-1.0.28-py3-none-macosx_11_0_arm64.whl", hash = "sha256:7a469b3e0c7492d8f5d51e60fc76e16374eabf25575e5f45eb47c43387ca422d", size = 49728133, upload-time = "2026-08-13T19:40:21.17Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/7d/29f80425242322a159a75c955e963b4c774cda694b25bc54c03f8cdeec36/cursor_sdk-1.0.28-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:2973f8b1642faea47e7bc98d4eefffcd0896bfc0d050203dd5a17b1cfe8d18c2", size = 51234000, upload-time = "2026-08-13T19:40:24.08Z" },
+    { url = "https://files.pythonhosted.org/packages/71/c0/a5948407f9146b1104bc70649fe39b17d63f31ef0f3d6887348ca00a83ee/cursor_sdk-1.0.28-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:602766b01f684c3bcbefaeb35d84c8f67ea36348e7320a8fa73fbd84f0ab567f", size = 58823722, upload-time = "2026-08-13T19:40:27.049Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/69/a0f81e92a8b22637a0e2f9662eb7fdd2ed3902026a3856cba6dc1af1b337/cursor_sdk-1.0.28-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:a76f884ea91c21f75cb9391e65fe23bc626c4cb64b7fa32f63bac3d03f5df3da", size = 59520896, upload-time = "2026-08-13T19:40:30.033Z" },
+    { url = "https://files.pythonhosted.org/packages/64/c2/9af88511f7fe136b15d08cbece6c9191e16c9c988e66440dfdac6acc139c/cursor_sdk-1.0.28-py3-none-win_amd64.whl", hash = "sha256:436a588f7d1433eae844d3959fd2bacbd73d6a0fee7859addc1b09e620f42ba6", size = 45825448, upload-time = "2026-08-13T19:40:33.185Z" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -903,6 +919,9 @@ dependencies = [
 claude-runtime = [
     { name = "claude-agent-sdk" },
 ]
+cursor-runtime = [
+    { name = "cursor-sdk" },
+]
 dev = [
     { name = "alembic" },
     { name = "bcrypt" },
@@ -950,6 +969,7 @@ requires-dist = [
     { name = "bcrypt", marker = "extra == 'server'", specifier = ">=4.2.0,<6.0" },
     { name = "claude-agent-sdk", marker = "extra == 'claude-runtime'", specifier = ">=0.2,<1.0" },
     { name = "cryptography", marker = "extra == 'server'", specifier = ">=44.0.0,<50.0" },
+    { name = "cursor-sdk", marker = "extra == 'cursor-runtime'", specifier = ">=1.0,<2.0" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0,<1" },
     { name = "httpx", specifier = ">=0.28.0,<1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0,<1" },
@@ -970,7 +990,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15.0,<0.28" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32.0,<1" },
 ]
-provides-extras = ["server", "dev", "mcp", "claude-runtime"]
+provides-extras = ["server", "dev", "mcp", "claude-runtime", "cursor-runtime"]
 
 [[package]]
 name = "packaging"

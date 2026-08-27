@@ -1,43 +1,44 @@
-# MAP Agent Runtime (unified worktree)
+# MAP Agent Runtime
 
-This branch combines:
-
-- **Default wake layer**: **simple-waker** (`cli/simple_waker.py`) — poll topic-progress + todos + wakeable notifications → unified remind
-- **Legacy wake layer**: **runtime-waker** (`cli/runtime_waker.py`) — SSE + per-item fingerprints + `inbound_event` audit (`MAP_USE_LEGACY_WAKER=1`)
-- **Pluggable runtime backends** (legacy path): Claude (`PersonaAgentClient`), Codex, or Cursor SDK
-
-## Architecture
+Default wake layer: **simple-waker** (`cli/simple_waker.py`) — poll
+topic-progress + todos + wakeable notifications → unified remind → Agent Runtime.
 
 ```text
-simple-waker (default)
-  poll topic-progress + todos + notifications → unified remind → PersonaAgentClient session
-
-map-runtime-waker (legacy, merged into map-project-collab § Waker 模式)
-  poll todos → discover_wake_events → dedupe → short event prompt
-       ├── PersonaAgentWakeBackend (claude) — one ClaudeSDKClient per process
-       ├── CodexSdkWakeBackend — thread_start / thread_resume per wake
-       └── CursorSdkWakeBackend — Agent.create / Agent.resume per wake
+simple-waker
+  poll map work → unified remind
+       ├── --runtime claude (default)
+       │     PersonaAgentWakeBackend — one ClaudeSDKClient per process
+       └── --runtime cursor
+             CursorSdkWakeBackend — AsyncClient.launch_bridge + local Agent.create / Agent.resume
 ```
 
-Session id is stored as `claude_session_id` / `runtime_session_id` in
-`.map/simple-waker-state-*.json` (default) or `.map/runtime-waker-state-*.json` (legacy).
+Session ids are stored per persona in `.map/simple-waker-state-*.json`:
+
+- Claude: `claude_session_id` / `runtime_session_id`
+- Cursor: `cursor_agent_id` / `runtime_session_id`
+- Both write `runtime_backend` so switching runtimes starts a fresh session
+
+Legacy `runtime-waker` / host-bridge paths are retired. Do not use
+`MAP_USE_LEGACY_WAKER` or `scripts/cursor-*-runner.py` (old JSON bridge
+contract) for new work.
 
 ## Quick start
 
 ```bash
-# Default: simple-waker
+# Default: Claude Agent SDK
 ./scripts/start-all-simple-wakers.sh
 ./scripts/start-simple-waker.sh --persona host --once --dry-run
 
-# Legacy: runtime-waker with Cursor SDK backend
-MAP_USE_LEGACY_WAKER=1 MAP_RUNTIME_BACKEND=cursor ./scripts/start-runtime-waker-claude.sh --persona host --once --dry-run
+# Cursor SDK local runtime
+pip install -e ".[cursor-runtime]"
+MAP_SIMPLE_RUNTIME=cursor ./scripts/start-simple-waker.sh --persona host --once --dry-run
 ```
 
-See [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md) (default) and
-[docs/MAP-RUNTIME-WAKER.md](docs/MAP-RUNTIME-WAKER.md) (legacy) for credentials,
-models, and backend-specific setup.
+Credentials: `.map/.claude-env` (Claude) or `.map/.cursor-env` (Cursor). See
+[docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md).
 
 ## Status
 
-- Target integration path for MAP × Agent Runtime: **simple-waker** default
-- Legacy bridge workers and **runtime-waker** remain for SSE audit / per-item wake debugging
+- Target integration path for MAP × Agent Runtime: **simple-waker**
+- Cursor support is waker-only (`--runtime cursor`); `host invoke` and
+  `map runtime chat` still use Claude

@@ -203,6 +203,9 @@ map --persona host status              # 查看 open_topics
 # 三 persona 各起一个 waker（默认 simple-waker，active interval=30s）
 ./scripts/start-all-simple-wakers.sh
 
+# Cursor SDK 本地 runtime（需 `pip install -e '.[cursor-runtime]'` 与 `.map/.cursor-env`）
+MAP_SIMPLE_RUNTIME=cursor ./scripts/start-all-simple-wakers.sh
+
 # 一键推进话题：持续运行三 persona waker，直到 open topic 为 0 后自动退出
 ./scripts/start-all-simple-wakers.sh --drain-topics
 
@@ -215,8 +218,8 @@ map --persona host status              # 查看 open_topics
 ./scripts/start-simple-waker.sh --persona host --once --dry-run
 ```
 
-> 脚本只是薄编排（一键三开/排空/预检）；LLM 凭据/端点由 CLI 自身强制
-> `.map/.claude-env`（`cli.simple_waker.run()` → `apply_project_claude_env`），
+> 脚本只是薄编排（一键三开/排空/预检）；LLM 凭据由 CLI 自身按 runtime 强制
+> `.map/.claude-env`（claude）或 `.map/.cursor-env`（cursor），
 > 从任何入口直启行为一致。
 
 状态文件：`.map/simple-waker-state-<persona>.json`（session + remind 时间戳）。`.map/` 整目录 gitignore，勿提交。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
@@ -247,6 +250,18 @@ export ANTHROPIC_MODEL=claude-sonnet-4-6
 - **其他调用路径**（如 `host invoke` 直接使用 SDK 客户端）：**进程环境变量 > `.map/.claude-env` > `~/.bashrc` 等 shell rc**。
 
 这是 Claude SDK 凭据，与 MAP 平台 API token（`~/.map/config.yaml`）是两回事。
+
+### 被拉起 Agent 的 Cursor SDK 凭据（`.map/.cursor-env`，可选）
+
+`MAP_SIMPLE_RUNTIME=cursor` / `--runtime cursor` 走 Cursor Python SDK 本地 agent。凭据写入 **`.map/.cursor-env`**：
+
+```bash
+# .map/.cursor-env —— Cursor 键以本文件为权威
+export CURSOR_API_KEY=cursor_...
+export CURSOR_MODEL=composer-2.5
+```
+
+安装：`pip install -e ".[cursor-runtime]"`。Skill 从仓库 `.cursor/skills` 加载（`setting_sources=["project"]`）。详见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
 
 ## Host Worker（已退役）
 
