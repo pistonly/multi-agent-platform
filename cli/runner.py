@@ -73,6 +73,12 @@ def _current_admin_client_ctx() -> Iterator[MAPClient]:
     return _main._admin_client_ctx()
 
 
+@contextmanager
+def _null_client_ctx() -> Iterator[None]:
+    """无客户端上下文：local plane 的零 server 命令（如 local-only list）注入。"""
+    yield None
+
+
 # ---------------------------------------------------------------------------
 # client contexts
 # ---------------------------------------------------------------------------
@@ -477,6 +483,7 @@ def _run(
     output_format: str | None = None,
     admin: bool = False,
     table_renderer=None,
+    client_ctx=None,
 ) -> None:
     """Run an SDK action with MAP-aware error rendering (I1(c)~(e)).
 
@@ -503,6 +510,9 @@ def _run(
         table_renderer: Optional callable that takes the action result
             and returns a string for ``"table"`` format output. When
             provided, this command is treated as a list command.
+        client_ctx: Optional context manager that yields the client.
+            When provided (e.g. :func:`_null_client_ctx` for local-plane
+            commands), the admin/persona client resolution is skipped.
     """
     if experiment_id is not None and not isinstance(experiment_id, uuid.UUID):
         experiment_id = normalize_uuid_like(experiment_id)
@@ -524,7 +534,10 @@ def _run(
     error_format = "yaml" if output_format == "table" else output_format
 
     try:
-        ctx = _current_admin_client_ctx() if admin else _current_client_ctx()
+        if client_ctx is not None:
+            ctx = client_ctx
+        else:
+            ctx = _current_admin_client_ctx() if admin else _current_client_ctx()
         with ctx as client:
             result = action(client)
         if result is not None:

@@ -303,7 +303,11 @@ def maybe_auto_sync(
     """
     if no_sync:
         return
-    from cli.commands.fs import _workspace
+    from cli.commands.fs import _workspace, is_local_plane
+
+    # local plane 无远端可同步：本地文件即事实源，直接跳过（不建客户端）。
+    if is_local_plane(workspace):
+        return
     from cli.main import (
         _cli_options,  # runtime state (monkeypatch surface)
         resolve_client,  # test injection surface (monkeypatch)

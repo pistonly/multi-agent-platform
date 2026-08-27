@@ -12,7 +12,9 @@ import yaml
 # 此处 re-export 是测试注入面（monkeypatch ``cli.main.admin_client`` /
 # ``cli.main.resolve_client`` 拦截真实网络调用），勿删。
 from map_client.bootstrap import (
+    DEFAULT_PERSONAS,
     admin_client,  # noqa: F401
+    bootstrap_local_map,
     bootstrap_project_map,
     heal_project_map_config,
 )
@@ -538,11 +540,53 @@ def map_bootstrap(
         help="非破坏性修复（3b7c2b44 A2）：key 已存在时跳过 create，把 config.yaml 的 "
         "project_id 与 agents.yaml 的 agent_name 回写服务端权威，不碰 token。",
     ),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="离线本地平面（plane: local）：零注册/零 token/零网络，只写 .map/ 配置与内容根，"
+        "不调 server。适合 agent workspace 内的一次性 run 级项目。",
+    ),
+    personas: str = typer.Option(
+        "host,participant,reviewer",
+        "--personas",
+        help="逗号分隔的 persona 列表（仅 --local 生效；默认 host,participant,reviewer）。",
+    ),
 ) -> None:
     """Register MAP project + persona agents; write .map/ config (requires admin token)."""
     root = (project_root or Path.cwd()).resolve()
     workspace = path or root
     display_name = name or key
+
+    if local:
+        persona_defs: dict[str, dict[str, str]] = {}
+        for raw in (part.strip() for part in personas.split(",")):
+            if not raw:
+                continue
+            spec = DEFAULT_PERSONAS.get(raw, {})
+            persona_defs[raw] = {
+                "agent_name_suffix": spec.get("agent_name_suffix") or raw,
+                "description": spec.get("description"),
+                "role": spec.get("role") or "agent",
+            }
+        try:
+            result = bootstrap_local_map(
+                project_key=key,
+                project_name=display_name,
+                project_root=root,
+                api_url=api_url,
+                personas=persona_defs or None,
+            )
+            from cli.commands.fs import fs_init
+
+            fs_init(root)
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        typer.echo(f"Wrote {result.config.map_dir}/ (plane: local — 离线项目，不注册平台)")
+        typer.echo(f"MAP project_key={result.config.project_key} id={result.config.project_id}")
+        typer.echo("Personas: " + ", ".join(sorted(result.config.personas)))
+        typer.echo("Try: map --persona host topic create --title <title>")
+        return
 
     if heal:
         try:

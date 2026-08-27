@@ -23,6 +23,14 @@ BOOTSTRAP_HINT = (
     f"Or copy from {MAP_DIR_NAME}/config.yaml.example."
 )
 
+LOCAL_PLANE_HINT = (
+    "plane: local — this command requires a MAP server, but the project is "
+    "configured as an offline local-plane project. Offline-supported commands: "
+    "map bootstrap --local / map topic init, create, comment, advance-round, "
+    "close, list, show, work, anomalies, archive, archive-index, doctor config. "
+    "Do not run map sync or server-bound commands in a local-plane project."
+)
+
 
 def missing_map_config_message() -> str:
     return f"No {MAP_DIR_NAME}/{CONFIG_FILE} found. {BOOTSTRAP_HINT}"
@@ -45,6 +53,9 @@ class ProjectMapConfig:
     default_persona: str
     personas: dict[str, PersonaInfo]
     tokens: dict[str, str]
+    # 平面模式：``local`` = 离线本地平面（零注册/零 token/零 server，见
+    # map bootstrap --local）；缺省 ``remote`` = 现状行为。
+    plane: str = "remote"
 
     def resolve_persona(self, persona: str) -> str:
         """归一到 personas 短名 key：已接受短名，也接受 agent_name 长名。
@@ -114,6 +125,7 @@ def load_project_map_config(
         raise ValueError(f"{resolved_map_dir / CONFIG_FILE} must set project_key")
 
     default_persona = str(config.get("default_persona") or DEFAULT_PERSONA)
+    plane = str(config.get("plane") or "remote")
     raw_personas = agents_meta.get("personas") or {}
     personas: dict[str, PersonaInfo] = {}
     for key, value in raw_personas.items():
@@ -145,6 +157,7 @@ def load_project_map_config(
         default_persona=default_persona,
         personas=personas,
         tokens=tokens,
+        plane=plane,
     )
 
 
@@ -158,6 +171,10 @@ def resolve_client(
     map_dir = find_map_dir(project_root)
     if persona is not None or map_dir is not None:
         cfg = load_project_map_config(project_root=project_root, map_dir=map_dir)
+        if cfg.plane == "local":
+            # 单一收口点：所有走 server 的 CLI 命令都经此建客户端；local
+            # 平面项目在这里统一得到清晰提示（离线支持的命令不建客户端）。
+            raise ValueError(LOCAL_PLANE_HINT)
         return cfg.client_for(persona, transport=transport)
 
     from map_client.config import load_config

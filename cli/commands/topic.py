@@ -573,6 +573,37 @@ def topic_list(
     """
     from map_types.enums import TopicStatus
 
+    # local plane：FS 是唯一事实源，list 纯本地（不建客户端、不合并 API）。
+    # --include-archived / --creator-agent-id 为 server 概念，local plane 不适用。
+    from cli.commands import fs as fs_cli
+
+    if fs_cli.is_local_plane():
+        from map_client.project_config import find_map_dir, load_project_map_config
+
+        def local_action(_c):
+            cfg = load_project_map_config(map_dir=find_map_dir(None))
+            if not cfg.project_id:
+                typer.echo(
+                    "Error: plane: local requires project_id in .map/config.yaml",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            pid = uuid.UUID(cfg.project_id)
+            rows = _filter_local_summaries(
+                _scan_local_fs_summaries(pid),
+                status=status,
+                creator=creator,
+                creator_agent_id=None,
+                q=q,
+            )
+            return _slice_page(rows, page, page_size)
+
+        runner._run(
+            local_action,
+            table_renderer=_render_topic_table,
+            client_ctx=runner._null_client_ctx(),
+        )
+        return
 
     def action(c: MAPClient):
         pid = runner._resolve_project(c, project, project_key)
@@ -790,6 +821,28 @@ def topic_advance_round(
         # --ack-ids is only meaningful for the retired DB path; still parse to
         # give a precise error instead of a generic usage failure.
         [uuid.UUID(item.strip()) for item in ack_ids.split(",") if item.strip()]
+
+    # local plane（plane: local）：零 server 验证型写（共享 map_fs.validation 门禁）。
+    from cli.commands import fs as fs_cli
+
+    if fs_cli.is_local_plane():
+        from map_fs import validation as fs_validation
+
+        slug = fs_cli.local_topic_slug(topic_id)
+        actor = fs_cli.local_actor_persona()
+        fs_cli.local_validated_write_flow(
+            action_name="advance-round",
+            topic=slug,
+            actor_persona=actor,
+            validate_call=lambda t: fs_validation.validate_advance_round(
+                t,
+                actor=actor,
+                waive_ack=waive_ack,
+                waive_reason=waive_reason,
+                mark_ready=mark_ready,
+            ),
+        )
+        return
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)
@@ -1046,6 +1099,27 @@ def topic_close(
         help="Longer explanation for why the topic is being closed.",
     ),
 ) -> None:
+
+    # local plane（plane: local）：零 server 验证型写（共享 map_fs.validation 门禁）。
+    from cli.commands import fs as fs_cli
+
+    if fs_cli.is_local_plane():
+        from map_fs import validation as fs_validation
+
+        slug = fs_cli.local_topic_slug(topic_id)
+        actor = fs_cli.local_actor_persona()
+        fs_cli.local_validated_write_flow(
+            action_name="close",
+            topic=slug,
+            actor_persona=actor,
+            validate_call=lambda t: fs_validation.validate_close(
+                t,
+                actor=actor,
+                close_reason=reason,
+                close_note=note,
+            ),
+        )
+        return
 
     def action(c: MAPClient):
         kind, target = _resolve_topic_ref(c, topic_id, storage)

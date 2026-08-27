@@ -33,6 +33,19 @@ def inspect_config_divergences(
         cfg = load_project_map_config(project_root=project_root)
     except ValueError as exc:
         return [], _diagnostic(str(exc))
+    if cfg.plane == "local":
+        # local plane：项目永不注册平台，没有权威可对账（若落到下面会误报
+        # "project_key 未在服务端注册"）。返回 info 说明 + clean，不建客户端。
+        return (
+            [
+                (
+                    "local",
+                    "plane: local — 离线项目，不注册 MAP 平台，"
+                    "config 对账（服务端权威）不适用。",
+                )
+            ],
+            EXIT_CLEAN,
+        )
     if cfg.project_id is None:
         divergences.append(("config", f"{CONFIG_FILE} 缺 project_id（缓存副本未落权威值）"))
     divergences.extend(_workspace_duplicates(cfg, client))
@@ -162,6 +175,11 @@ def doctor_config(
             typer.echo("doctor config: diagnostic-error (2)", err=True)
         raise typer.Exit(code)
 
+    if code == EXIT_CLEAN and any(category == "local" for category, _ in divergences):
+        # local plane 特例：clean 但带说明（--check 只按码表走 clean 分支）。
+        for _, msg in divergences:
+            typer.echo(f"[info] {msg}")
+        return
     if code == EXIT_CLEAN:
         typer.echo("config 与服务端权威一致，无分叉。")
         return

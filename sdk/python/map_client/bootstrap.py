@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -578,6 +579,79 @@ def bootstrap_project_map(
     )
 
     return BootstrapResult(config=cfg, created_project=created_project, skipped_agent_names=skipped)
+
+
+def bootstrap_local_map(
+    *,
+    project_key: str,
+    project_name: str | None = None,
+    project_root: Path | None = None,
+    api_url: str | None = None,
+    personas: dict[str, dict[str, str]] | None = None,
+) -> BootstrapResult:
+    """离线本地平面（``plane: local``）bootstrap：零注册、零 token、零网络。
+
+    只写 ``.map/config.yaml``（``plane: local`` + 手写 uuid4 ``project_id``，
+    永不注册平台）与 ``.map/agents.yaml``；**不写** ``agents.local.yaml``，
+    全程不调 server。api_url 仅作占位记录（local plane 命令不建客户端）。
+    内容根目录由 CLI 层用 ``fs_init()`` 创建。
+    """
+    root = (project_root or Path.cwd()).resolve()
+    map_dir = root / MAP_DIR_NAME
+    config_path = map_dir / CONFIG_FILE
+
+    if config_path.is_file():
+        raise ValueError(
+            f"{config_path} 已存在。local plane 项目不支持重复 bootstrap；"
+            f"如想整体重做，先备份/删除 {MAP_DIR_NAME}/ 再跑 "
+            "`map bootstrap --local --key <key>`。"
+        )
+
+    resolved_api_url = (api_url or os.environ.get("MAP_API_URL") or "http://localhost:18400").rstrip("/")
+    persona_defs = personas or DEFAULT_PERSONAS
+    slug = _slug(project_key)
+    agents_yaml: dict[str, Any] = {"personas": {}}
+    for persona_key, spec in persona_defs.items():
+        suffix = spec.get("agent_name_suffix") or persona_key
+        agent_name = spec.get("agent_name") or f"{slug}-{suffix}"
+        role = spec.get("role") or "agent"
+        agents_yaml["personas"][persona_key] = {
+            "agent_name": agent_name,
+            "description": spec.get("description"),
+            "role": role,
+        }
+
+    project_id = str(uuid.uuid4())
+    config_yaml = {
+        "api_url": resolved_api_url,
+        "project_key": project_key,
+        "project_id": project_id,
+        "plane": "local",
+        "default_persona": "host",
+        "content_root": "map",
+    }
+    _write_yaml(map_dir / CONFIG_FILE, config_yaml)
+    _write_yaml(map_dir / AGENTS_FILE, agents_yaml)
+
+    cfg = ProjectMapConfig(
+        map_dir=map_dir,
+        api_url=resolved_api_url,
+        project_key=project_key,
+        project_id=project_id,
+        default_persona="host",
+        personas={
+            k: PersonaInfo(
+                name=k,
+                agent_name=v["agent_name"],
+                description=v.get("description"),
+                role=v.get("role"),
+            )
+            for k, v in agents_yaml["personas"].items()
+        },
+        tokens={},
+        plane="local",
+    )
+    return BootstrapResult(config=cfg, created_project=True, skipped_agent_names=[])
 
 
 def bootstrap_conflict_triage(project_key: str) -> str:

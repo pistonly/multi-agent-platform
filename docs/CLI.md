@@ -234,6 +234,48 @@ map sync topic --id <topic-uuid>
 > `.map/cache.db` 位于 gitignore 的 `.map/` 运行时目录，不会提交到 Git。
 > 如需将数据提交到 Git 版本控制，请使用 `map project export -o ./docs/history` 导出为 Markdown。
 
+## Local plane（离线模式，`plane: local`）
+
+零注册、零 token、零网络的纯文件系统项目：`.map/config.yaml` 带 `plane: local`
+（手写 uuid4 `project_id`，**永不注册平台**）时，话题全生命周期在本地完成，
+适合 agent workspace 内的一次性 run 级多 agent 审议。
+
+### 初始化
+
+```bash
+# 零 API：写 .map/config.yaml（plane: local）+ .map/agents.yaml，建内容根
+map bootstrap --local --key my-run [--name "My Run"] [--personas host,participant,reviewer]
+```
+
+- 不写 `.map/agents.local.yaml`（无 token 概念），不调任何 server 接口。
+- 已有 `.map/config.yaml` 时拒绝（local plane 项目不支持重复 bootstrap）。
+- persona 身份按 `.map/agents.yaml` 解析（`--persona` / `default_persona`），无需 token。
+
+### 支持的命令
+
+| 命令 | 说明 |
+|---|---|
+| `map topic init / create / comment / list / show / work / anomalies / archive / archive-index` | 与 remote 相同的纯本地行为 |
+| `map topic advance-round / close` | **本地验证型写**：门禁（ack 满员 / closed / action items 零尾款）复用 `map_fs.validation`（与 server 单一真值同源），写回 index.md 并在话题目录追加一行 `audit.jsonl`（`{ts, action, actor_persona, fields, source: "local-plane"}`） |
+| `map doctor config` | 对账不适用，输出 `[info] plane: local` 说明并 exit 0 |
+
+不支持的命令（`map sync` / `status` / `progress` / `experiment` / `todo` 等所有
+server-bound 命令）经 `resolve_client` 统一收口，返回同一提示：
+
+```text
+Error: plane: local — this command requires a MAP server, but the project is
+configured as an offline local-plane project. ...
+```
+
+### 语义要点
+
+- **owner gate**：只有 topic creator 可执行 `advance-round` / `close`（与服务端 local 模式一致）。
+- **ack 门禁**：本轮 declared participants 全部有合规 round 文件才可推进；缺员报
+  `round ack pending` 并逐行指认（含 `roundN-<persona>.md: 原因`）。`--waive-ack --waive-reason`
+  豁免（reason 落 index.md），`--ready` 标记 ready 而非进下一轮。
+- **close 门禁（D2）**：`action-items.yaml` 有 open 项时拒绝关闭；格式错漏同样拦截。
+- **local plane 项目不要跑 `map sync`**：无远端投影可同步，本地 `map/` 文件夹即唯一事实源。
+
 ## Skill 安装（`map skill install`）
 
 将 pip 包内置的 MAP Skill 文件安装到当前项目，让 AI Agent（Cursor、Claude Code 等）自动发现并遵循 MAP 协作流程。

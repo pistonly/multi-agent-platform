@@ -93,17 +93,159 @@ def _current_round(workspace: Path, slug: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def fs_init() -> None:
+def fs_init(workspace: Path | None = None) -> None:
     """创建内容根目录结构：<content_root>/topics 与 <content_root>/experiments。"""
     from map_fs import DEFAULT_CONTENT_ROOT
 
-    workspace = _workspace()
+    workspace = workspace or _workspace()
     root = workspace / _content_root_name(workspace)
     for sub in ("topics", "experiments"):
         (root / sub).mkdir(parents=True, exist_ok=True)
     typer.echo(
         f"Initialized {root / 'topics'} and {root / 'experiments'} (content_root={root.name or DEFAULT_CONTENT_ROOT})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Local plane（plane: local）：无 server 的验证型写
+# ---------------------------------------------------------------------------
+
+
+def is_local_plane(workspace: Path | None = None) -> bool:
+    """当前项目是否为离线本地平面（config.yaml ``plane: local``）；解析错误按 remote。"""
+    try:
+        from map_client.project_config import find_map_dir, load_project_map_config
+
+        map_dir = find_map_dir(workspace)
+        if map_dir is None:
+            return False
+        return load_project_map_config(map_dir=map_dir).plane == "local"
+    except ValueError:
+        return False
+
+
+def local_topic_slug(ref: str) -> str:
+    """local plane 下把话题引用解析为 slug：目录名命中或 uuid5 本地反查。"""
+    from map_fs import scan_plane
+
+    workspace = _workspace()
+    root = _content_root_name(workspace)
+    if (workspace / root / "topics" / ref).is_dir():
+        return ref
+    try:
+        ref_uuid = uuid.UUID(ref)
+    except ValueError:
+        ref_uuid = None
+    if ref_uuid is not None:
+        for t in scan_plane(workspace, root).topics:
+            if t.id == ref_uuid:
+                return t.slug
+    typer.echo(
+        f"Error: plane: local — '{ref}' is not a local topic "
+        "(use the topic slug or its uuid5 id; see `map topic list`)",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
+def local_actor_persona() -> str:
+    """local plane actor：子命令/全局 --persona > default_persona，按 agents.yaml 归一（无需 token）。"""
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
+
+    from map_client.project_config import find_map_dir, load_project_map_config
+
+    cfg = load_project_map_config(map_dir=find_map_dir(None))
+    persona = _cli_options.get("persona") or cfg.default_persona
+    return cfg.resolve_persona(str(persona))
+
+
+def _append_local_audit(
+    workspace: Path, topic: str, action_name: str, actor: str, fields: dict[str, str]
+) -> None:
+    """local plane 生命周期审计：``<topic>/audit.jsonl`` 追加一行。
+
+    不匹配 ``_ROUND_FILE_RE``，对 scan_plane / derive_work / anomaly 扫描不可见。
+    """
+    from datetime import datetime, timezone
+
+    audit_path = workspace / _content_root_name(workspace) / "topics" / topic / "audit.jsonl"
+    line = json.dumps(
+        {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "action": action_name,
+            "actor_persona": actor,
+            "fields": fields,
+            "source": "local-plane",
+        },
+        ensure_ascii=False,
+    )
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+
+
+def _render_local_validate_error(exc: Exception) -> None:
+    """local plane 校验失败 → 逐行列出可操作依据（与 remote 409 文案同源）。"""
+    from map_fs import AckPendingError, OpenActionItemsError
+
+    if isinstance(exc, AckPendingError):
+        typer.echo("Error: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
+        for persona in exc.missing:
+            reason = exc.missing_reasons.get(persona) or "缺文件（未发言）"
+            typer.echo(f"  - {persona}: {reason}", err=True)
+        return
+    if isinstance(exc, OpenActionItemsError):
+        if exc.items:
+            typer.echo("Error: action items 未清零 — 无法关闭（closed = 零尾款）", err=True)
+            for item in exc.items:
+                typer.echo(
+                    f"  - #{item.id} {item.title} (owner: {item.owner}) — "
+                    "用 `map topic action-item complete/cancel` 清零后再 close",
+                    err=True,
+                )
+        else:
+            typer.echo(f"Error: action-items.yaml 无法解析 — {exc.detail or '未知原因'}", err=True)
+        return
+    typer.echo(f"Error: {exc}", err=True)
+
+
+def local_validated_write_flow(
+    *,
+    action_name: str,
+    topic: str,
+    actor_persona: str,
+    validate_call,
+) -> dict:
+    """local plane 验证型写：本地校验 → 本地写回 → 本地审计（零客户端/零网络）。
+
+    语义与 :func:`validated_write_flow`（remote）对齐；门禁复用
+    ``map_fs.validation``（与 server 单一真值同源）。``validate_call`` 为
+    ``(FsTopic) -> dict[str, str]`` 的共享校验函数调用。
+    """
+    from map_fs import (
+        AckPendingError,
+        OpenActionItemsError,
+        TopicOwnerError,
+        TopicStateError,
+        update_topic_index,
+    )
+
+    workspace = _workspace()
+    parsed = _require_local_topic(workspace, topic)
+    try:
+        fields = validate_call(parsed)
+    except (AckPendingError, OpenActionItemsError, TopicStateError, TopicOwnerError) as exc:
+        _render_local_validate_error(exc)
+        raise typer.Exit(1) from exc
+    update_topic_index(workspace, topic, content_root=_content_root_name(workspace), **fields)
+    _append_local_audit(workspace, topic, action_name, actor_persona, fields)
+    typer.echo(f"local-plane {action_name} committed: {topic} {fields}")
+    return {
+        "action": action_name,
+        "slug": topic,
+        "fields": fields,
+        "committed": True,
+        "source": "local-plane",
+    }
 
 
 def write_new_fs_topic(
