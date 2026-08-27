@@ -28,15 +28,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from map_fs import (
+    AckPendingError,
     FsActionItem,
     FsComment,
     FsPlane,
     FsTopic,
     FsWorkItem,
+    OpenActionItemsError,
+    TopicStateError,
     derive_work,
     scan_plane,
     topic_id_for_slug,
     update_topic_index,
+    validate_advance_round,
+    validate_close,
 )
 from map_types.enums import ExperimentPhase, TopicCommentKind, TopicStatus
 from map_types.schemas.content_source import ContentSourceMeta
@@ -95,42 +100,12 @@ class FsTopicNotFoundError(Exception):
     """话题文件夹不存在。"""
 
 
-class FsAckPendingError(Exception):
-    """本轮还有参与者未发言（ack 未满）。
-
-    ``missing`` 保持 persona 列表（向后兼容）；``missing_reasons`` 为
-    persona → ``round1-participant.md: 原因`` 的逐条指认（A5）。
-    """
-
-    def __init__(
-        self, missing: list[str], missing_reasons: dict[str, str] | None = None
-    ) -> None:
-        super().__init__(f"round ack pending: {', '.join(missing)}")
-        self.missing = missing
-        self.missing_reasons = missing_reasons or {}
-
-
-class FsOpenActionItemsError(Exception):
-    """action-items.yaml 存在 open 项或格式错漏，close 被拦（D2 唯一防线）。
-
-    ``items`` 携带未清零条目（id/title/owner）供 409 逐条展示；格式错漏
-    场景 items 为空、``detail`` 携解析错误文案（A1 不静默）。
-    """
-
-    def __init__(
-        self, items: list[FsActionItem] | None = None, *, detail: str = ""
-    ) -> None:
-        self.items = items or []
-        self.detail = detail
-        if self.items:
-            joined = ", ".join(f"#{i.id} {i.title}" for i in self.items)
-            super().__init__(f"action items open: {joined}")
-        else:
-            super().__init__(f"action items unparseable: {detail}")
-
-
-class FsStateError(Exception):
-    """话题当前状态不允许该操作（如已关闭再推进）。"""
+# 门禁异常类定义在共享层 map_fs.validation（单一真值，CLI local plane 同源
+# 消费）。这里别名到同一类对象：``server/api/fs.py`` 的 isinstance 映射与
+# 409 消息格式完全不变。属性/消息契约见 map_fs.validation 对应类 docstring。
+FsAckPendingError = AckPendingError
+FsOpenActionItemsError = OpenActionItemsError
+FsStateError = TopicStateError
 
 
 class FsPlaneUnavailableError(Exception):
@@ -1005,21 +980,6 @@ def _topic_view_for_validation(
     )
 
 
-def _view_missing_reasons(view: _TopicView, missing: list[str]) -> dict[str, str]:
-    """missing persona 的逐条指认：``round1-participant.md: 原因``（A5）。
-
-    只对"有文件但不合规"的 persona 产原因；纯缺文件的 persona 不进 reasons
-    （missing 列表本身已指认其名）。
-    """
-    reasons: dict[str, str] = {}
-    for persona in missing:
-        for c in view.comments:
-            if c.round == view.round_number and c.file_persona == persona and c.ack_error:
-                reasons[persona] = f"{Path(c.file_path).name}: {c.ack_error}"
-                break
-    return reasons
-
-
 def validate_fs_advance_round(
     db: Session,
     project: Project,
@@ -1044,23 +1004,14 @@ def validate_fs_advance_round(
         raise ConflictError(
             f"projection revision conflict: expected {current_revision}, got {base_revision}"
         )
-    if view.status != "open":
-        raise FsStateError(f"fs topic '{slug}' is {view.status}; only open topics advance")
-
-    if not waive_ack:
-        authors = view.authors_in_round(view.round_number)
-        ack_list = view.ack_participants or [
-            p for p in view.participants if p != view.creator
-        ]
-        missing = [p for p in ack_list if p != view.creator and p not in authors]
-        if missing:
-            raise FsAckPendingError(missing, _view_missing_reasons(view, missing))
-
-    fields: dict[str, str] = {
-        "round": "ready" if mark_ready else f"round{view.round_number + 1}"
-    }
-    if waive_ack and waive_reason:
-        fields["waive_reason"] = waive_reason
+    # 门禁（status/ack 完整性/fields 产出）委托共享层 map_fs.validation，
+    # 与 CLI local plane 单一真值同源；owner gate 与 revision CAS 留在服务端外围。
+    fields = validate_advance_round(
+        _view_as_fs_topic(view),
+        waive_ack=waive_ack,
+        waive_reason=waive_reason,
+        mark_ready=mark_ready,
+    )
     return view, fields, current_revision
 
 
@@ -1086,22 +1037,13 @@ def validate_fs_close(
         raise ConflictError(
             f"projection revision conflict: expected {current_revision}, got {base_revision}"
         )
-    if view.status == "closed":
-        raise FsStateError(f"fs topic '{slug}' is already closed")
-
-    # D2 唯一防线（plan v3）:closed = 零尾款。action-items.yaml 存在 open 项
-    # （或格式错漏无法判定）→ 拦 close;全 done/cancelled 或无 yaml 话题放行。
-    if view.action_items_error is not None:
-        raise FsOpenActionItemsError(detail=view.action_items_error)
-    open_items = [item for item in view.action_items if item.status == "open"]
-    if open_items:
-        raise FsOpenActionItemsError(open_items)
-
-    fields: dict[str, str] = {"status": "closed"}
-    if close_reason:
-        fields["close_reason"] = close_reason
-    if close_note:
-        fields["close_note"] = close_note
+    # 门禁（已关闭拦截 / D2 action-items 零尾款 / fields 产出）委托共享层
+    # map_fs.validation，与 CLI local plane 单一真值同源。
+    fields = validate_close(
+        _view_as_fs_topic(view),
+        close_reason=close_reason,
+        close_note=close_note,
+    )
     return view, fields, current_revision
 
 

@@ -45,8 +45,17 @@ from map_fs.parser import (
     write_round_comment,
     write_topic_index,
 )
+from map_fs.validation import (
+    AckPendingError,
+    OpenActionItemsError,
+    TopicOwnerError,
+    TopicStateError,
+    validate_advance_round,
+    validate_close,
+)
 
 __all__ = [
+    "AckPendingError",
     "ArchiveEntry",
     "ArchiveStateError",
     "DEFAULT_CONTENT_ROOT",
@@ -59,6 +68,9 @@ __all__ = [
     "FsPlane",
     "FsTopic",
     "FsWorkItem",
+    "OpenActionItemsError",
+    "TopicOwnerError",
+    "TopicStateError",
     "comment_id_for_path",
     "commit_experiment_index_write",
     "derive_work",
@@ -80,6 +92,8 @@ __all__ = [
     "topic_id_for_slug",
     "update_experiment_index",
     "update_topic_index",
+    "validate_advance_round",
+    "validate_close",
     "validate_experiment_index_file",
     "validate_experiment_index_meta",
     "validate_experiment_phase_transition",
