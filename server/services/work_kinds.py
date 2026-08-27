@@ -47,7 +47,7 @@ WORK_ITEM_KINDS: tuple[WorkItemKindSpec, ...] = (
         kind="round_ack",
         clear_action=(
             "参与者交齐文件后 map topic advance-round --id <slug>"
-            "（服务端校验写回 index.md；等价 fs advance-round --topic <slug>）"
+            "（服务端校验写回 index.md；等价 topic advance-round --topic <slug>）"
         ),
         skill="topic-host",
         note="仅 host；FS 话题",
