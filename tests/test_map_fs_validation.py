@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from map_fs import (
     AckPendingError,
     FsActionItem,
@@ -27,7 +26,10 @@ from map_fs import (
 
 
 def _topic(tmp_path: Path, *, creator: str = "host", participants: list[str] | None = None):
-    write_topic_index(tmp_path, "t", title="T", creator=creator, participants=participants)
+    write_topic_index(
+        tmp_path, "t", title="T", creator=creator, participants=participants,
+        overwrite=True,
+    )
     return _parse(tmp_path)
 
 

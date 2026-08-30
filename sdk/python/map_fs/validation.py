@@ -65,6 +65,26 @@ class TopicOwnerError(Exception):
     """local plane owner gate：只有 topic creator 可执行验证型写。"""
 
 
+class OpenExperimentError(Exception):
+    """close 门禁：关联实验存在 non-terminal phase（D6 实验悬挂防线）。
+
+    ``experiments`` 携带非 terminal 的实验列表（id/title/phase/dir_path），
+    供 409 逐条展示。空列表 = 全部 terminal 或无关联实验 = 放行。
+    """
+
+    def __init__(self, experiments: list) -> None:
+        self.experiments = list(experiments)
+        joined = ", ".join(
+            f"{e.id} (phase={e.phase})" for e in self.experiments
+        )
+        super().__init__(f"experiment non-terminal: {joined}")
+
+
+# 实验 terminal phase 集合（实验 cli-fs-topic-lifecycle-invariants A4）：
+# 已落地只有 done / cancelled；FS index.md 合法 phase 见 parser.EXPERIMENT_PHASES。
+_EXPERIMENT_TERMINAL_PHASES: frozenset[str] = frozenset({"done", "cancelled"})
+
+
 def _missing_reasons(topic: FsTopic, missing: list[str]) -> dict[str, str]:
     """missing persona 的逐条指认：``round1-participant.md: 原因``（A5）。
 
@@ -129,6 +149,14 @@ def validate_close(
     """校验关闭话题的前置条件，返回应写回的 fields（不写文件）。
 
     ``actor`` 语义同 :func:`validate_advance_round`。
+
+    关闭门禁（顺序固定，全部满足才放行）：
+    1. owner：actor 非 None 时必须 = topic.creator（local plane 校验）
+    2. status：当前话题必须 open（closed → 409 TopicStateError）
+    3. action-items.yaml：D2 唯一防线——存在 open 项或格式错漏 → 拦
+    4. experiments（D6 实验悬挂防线，实验 cli-fs-topic-lifecycle-invariants A4）：
+       关联实验非空 + 任一 phase ∉ {done, cancelled} → 抛 OpenExperimentError；
+       空 / 缺失 → 放行；不提供 --force 绕过
     """
     if actor is not None and actor != topic.creator:
         raise TopicOwnerError(
@@ -145,6 +173,14 @@ def validate_close(
     open_items = [item for item in topic.action_items if item.status == "open"]
     if open_items:
         raise OpenActionItemsError(open_items)
+
+    # D6 实验 terminal 校验：避免「话题已关 + 实验悬挂」状态机不一致
+    non_terminal = [
+        exp for exp in topic.experiments
+        if exp.phase not in _EXPERIMENT_TERMINAL_PHASES
+    ]
+    if non_terminal:
+        raise OpenExperimentError(non_terminal)
 
     fields: dict[str, str] = {"status": "closed"}
     if close_reason:

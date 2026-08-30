@@ -144,6 +144,12 @@ class FsTopic:
     # 读路径 anomaly（fs-write-entry-validation R1/R2）：frontmatter 不合规的
     # round 文件报告位。只报告不阻断读、不改写；消费方不感知则为空列表。
     anomalies: list[FsAnomaly] = field(default_factory=list)
+    # 关联实验列表（实验 cli-fs-topic-lifecycle-invariants A4）：
+    # 供 close 门禁校验关联实验 phase 是否 terminal。parse_topic_dir 默认
+    # 不注入（构造时取空 list），调用方（CLI local plane _require_local_topic
+    # 或 server fs_source_service）从 FsPlane.experiments 反查 ``experiment.topic``
+    # == ``self.slug`` 后赋值；字段缺失或空 list 视为「无关联实验」放行。
+    experiments: list[FsExperiment] = field(default_factory=list)
 
     @property
     def participants(self) -> list[str]:
@@ -699,6 +705,28 @@ def _atomic_write(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
+def _created_at_equal(a: str, b: str) -> bool:
+    """ISO-8601 字符串宽松比较：去尾随零 + 视 ``+00:00`` / ``Z`` 等价。
+
+    YAML 反序列化会把 ``2026-08-30T21:58:56.109180+00:00`` 解析为 datetime 对象,
+    而 CLI 传回的是字符串。直接 ``str(a) == str(b)`` 在 datetime 上展开成
+    ``repr`` 格式（含空格、T 分隔符）会与 ISO 字符串不匹配。本函数规范化
+    两端为 ISO-8601 字符串后再比较，避免假阳性 diff。
+    """
+    from datetime import datetime as _dt
+
+    def _to_iso(value: object) -> str:
+        if isinstance(value, _dt):
+            return value.isoformat()
+        try:
+            d = _dt.fromisoformat(str(value).replace("Z", "+00:00"))
+            return d.isoformat()
+        except (TypeError, ValueError):
+            return str(value).strip()
+
+    return _to_iso(a) == _to_iso(b)
+
+
 def write_topic_index(
     workspace: Path,
     slug: str,
@@ -710,35 +738,69 @@ def write_topic_index(
     round_: int | str = 1,
     participants: list[str] | None = None,
     content_root: str = DEFAULT_CONTENT_ROOT,
+    overwrite: bool = False,
+    created_at: str | None = None,
 ) -> Path:
-    """创建（或覆盖）话题文件夹与 index.md。返回 index.md 路径。
+    """创建（或显式 ``overwrite=True`` 覆盖）话题文件夹与 index.md。返回 index.md 路径。
+
+    冲突检测：``map/topics/<slug>/index.md`` 已存在且 ``overwrite=False``
+    → 抛 :class:`FileExistsError`（文案含 "fs topic '<slug>' already exists"）。
+    CLI ``topic create`` 捕获该异常后 exit 1 + stderr 含 "already exists"。
+
+    ``overwrite=True`` 保留语义：
+    - 评论文件（``round<N>-*.md``）全部保留（不动）
+    - ``created_at`` 不变（即使 ``--force`` 也禁止覆盖）；若调用方同时传
+      ``created_at`` 参数且与旧值不同 → 抛 :class:`ValueError`
+      "created_at is immutable, use `map topic amend --created-at`"
+    - ``experiments`` 关联列表按 append 语义合并（不重置）
 
     ``participants`` 为参与人白名单（declared），写入 front-matter；
     creator 始终隐含在内（不强制写入列表）。
     """
     slug = _require_slug(slug)
     topic_dir = workspace / content_root / "topics" / slug
+    index_path = topic_dir / "index.md"
+    if index_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"fs topic '{slug}' already exists at {index_path} "
+            "(pass overwrite=True or use --force to replace)"
+        )
     round_str = round_ if isinstance(round_, str) else f"round{round_}"
     meta: dict[str, object] = {
         "title": title,
         "status": status,
         "round": round_str,
         "creator": creator,
-        "created_at": (datetime.now(timezone.utc).isoformat() if topic_dir.joinpath("index.md").exists() is False else None),
+        "created_at": (datetime.now(timezone.utc).isoformat() if not index_path.exists() else None),
         "description": description or None,
     }
     old_meta: dict[str, Any] = {}
     if meta["created_at"] is None:  # 已存在 index：保留原 created_at
-        old_meta, _ = parse_front_matter((topic_dir / "index.md").read_text(encoding="utf-8"))
+        old_meta, _ = parse_front_matter(index_path.read_text(encoding="utf-8"))
         meta["created_at"] = old_meta.get("created_at")
+    # created_at 硬约束（实验 cli-fs-topic-lifecycle-invariants A3）：
+    # overwrite 路径下，CLI 显式传 created_at 且与旧值不同 → 拒绝偷渡。
+    if created_at is not None and index_path.exists():
+        old_created = old_meta.get("created_at")
+        if old_created is not None and not _created_at_equal(created_at, old_created):
+            raise ValueError(
+                f"created_at is immutable, use `map topic amend --created-at` "
+                f"(old={old_created}, attempted={created_at})"
+            )
+        meta["created_at"] = created_at
     # participants：显式传入优先；未传且旧 index 已有 → 保留旧声明
     declared = _coerce_participants(participants)
     if not declared:
         declared = _coerce_participants(old_meta.get("participants"))
     if declared:
         meta["participants"] = declared
+    # experiments 关联列表 append 合并（A2）：保留旧条目，新条目按 id 去重追加
+    old_experiments = old_meta.get("experiments") if old_meta else None
+    if old_experiments:
+        # 由调用方传新列表时按 id 合并；本次 cli topic create 不传 experiments
+        # 字段（实验 create 命令通过其他路径回写），保持旧列表不动
+        meta["experiments"] = old_experiments
     body = f"# {title}\n\n{description}".rstrip() + "\n"
-    index_path = topic_dir / "index.md"
     _atomic_write(index_path, _render_file(meta, body))
     return index_path
 

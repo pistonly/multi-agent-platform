@@ -150,9 +150,9 @@ def local_topic_slug(ref: str) -> str:
 
 def local_actor_persona() -> str:
     """local plane actor：子命令/全局 --persona > default_persona，按 agents.yaml 归一（无需 token）。"""
-    from cli.main import _cli_options  # runtime state (monkeypatch surface)
-
     from map_client.project_config import find_map_dir, load_project_map_config
+
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
 
     cfg = load_project_map_config(map_dir=find_map_dir(None))
     persona = _cli_options.get("persona") or cfg.default_persona
@@ -185,7 +185,7 @@ def _append_local_audit(
 
 def _render_local_validate_error(exc: Exception) -> None:
     """local plane 校验失败 → 逐行列出可操作依据（与 remote 409 文案同源）。"""
-    from map_fs import AckPendingError, OpenActionItemsError
+    from map_fs import AckPendingError, OpenActionItemsError, OpenExperimentError
 
     if isinstance(exc, AckPendingError):
         typer.echo("Error: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
@@ -204,6 +204,18 @@ def _render_local_validate_error(exc: Exception) -> None:
                 )
         else:
             typer.echo(f"Error: action-items.yaml 无法解析 — {exc.detail or '未知原因'}", err=True)
+        return
+    if isinstance(exc, OpenExperimentError):
+        typer.echo(
+            "Error: experiment non-terminal — 关联实验未达 terminal，无法关闭话题",
+            err=True,
+        )
+        for exp in exc.experiments:
+            typer.echo(
+                f"  - experiment {exp.id} (phase={exp.phase}) non-terminal — "
+                "等实验 done/cancelled 后再 close",
+                err=True,
+            )
         return
     typer.echo(f"Error: {exc}", err=True)
 
@@ -224,6 +236,7 @@ def local_validated_write_flow(
     from map_fs import (
         AckPendingError,
         OpenActionItemsError,
+        OpenExperimentError,
         TopicOwnerError,
         TopicStateError,
         update_topic_index,
@@ -233,7 +246,13 @@ def local_validated_write_flow(
     parsed = _require_local_topic(workspace, topic)
     try:
         fields = validate_call(parsed)
-    except (AckPendingError, OpenActionItemsError, TopicStateError, TopicOwnerError) as exc:
+    except (
+        AckPendingError,
+        OpenActionItemsError,
+        OpenExperimentError,
+        TopicStateError,
+        TopicOwnerError,
+    ) as exc:
         _render_local_validate_error(exc)
         raise typer.Exit(1) from exc
     update_topic_index(workspace, topic, content_root=_content_root_name(workspace), **fields)
@@ -255,12 +274,17 @@ def write_new_fs_topic(
     description: str = "",
     participants: str | None = None,
     creator: str | None = None,
+    force: bool = False,
 ) -> Path:
     """离线创建话题文件夹 + index.md。``map topic create`` 使用此函数。
 
     slug 为空时由 title 生成（两个入口行为一致）。title 为空直接报错退出——
     部分 typer/click 版本组合不强制校验必填 CLI 选项，缺失的 ``--title``
     会以 None 穿透到函数体（回归见 tests/test_topic_routing.py）。
+
+    ``force=True`` 覆盖既有 index.md（保留 created_at / 评论 / experiments），
+    与 ``write_topic_index(overwrite=True)`` 路径一致；``FileExistsError``
+    留给上层 CLI 捕获并以 exit 1 + stderr 'already exists' 退出。
     """
     from map_fs import slugify, write_topic_index
 
@@ -278,6 +302,7 @@ def write_new_fs_topic(
         description=description,
         participants=declared,
         content_root=_content_root_name(workspace),
+        overwrite=force,
     )
 
 
@@ -537,8 +562,14 @@ def fs_topic_to_detail_read(topic: Any) -> Any:
 
 
 def _require_local_topic(workspace: Path, slug: str) -> Any:
-    """本地解析话题文件夹；缺失时给出可操作错误（evidence 源）。"""
-    from map_fs import parse_topic_dir
+    """本地解析话题文件夹；缺失时给出可操作错误（evidence 源）。
+
+    顺带从 :func:`map_fs.scan_plane` 关联实验列表（``experiment.topic ==
+    topic.slug``）注入 ``FsTopic.experiments``，供 close 门禁做 terminal
+    校验（实验 cli-fs-topic-lifecycle-invariants A4）。空列表或字段缺失
+    → 由 validation 层放行。
+    """
+    from map_fs import parse_topic_dir, scan_plane
 
     parsed = parse_topic_dir(
         workspace / _content_root_name(workspace) / "topics" / slug, workspace
@@ -550,6 +581,15 @@ def _require_local_topic(workspace: Path, slug: str) -> Any:
             err=True,
         )
         raise typer.Exit(1)
+    # 反查关联实验：FsPlane 已扫到全量实验，按 topic slug 字段筛选
+    try:
+        plane = scan_plane(workspace, _content_root_name(workspace))
+    except Exception:
+        plane = None
+    if plane is not None:
+        parsed.experiments = [
+            exp for exp in plane.experiments if getattr(exp, "topic", "") == slug
+        ]
     return parsed
 
 

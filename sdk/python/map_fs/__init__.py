@@ -48,6 +48,7 @@ from map_fs.parser import (
 from map_fs.validation import (
     AckPendingError,
     OpenActionItemsError,
+    OpenExperimentError,
     TopicOwnerError,
     TopicStateError,
     validate_advance_round,
@@ -69,6 +70,7 @@ __all__ = [
     "FsTopic",
     "FsWorkItem",
     "OpenActionItemsError",
+    "OpenExperimentError",
     "TopicOwnerError",
     "TopicStateError",
     "comment_id_for_path",

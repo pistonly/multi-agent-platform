@@ -510,19 +510,35 @@ def topic_create(
         "--participants",
         help="Participant whitelist (comma-separated, e.g. host,participant).",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing index.md; preserve comments, created_at, experiments.",
+    ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
-    """Create map/topics/<slug>/ + index.md."""
+    """Create map/topics/<slug>/ + index.md.
+
+    默认拒绝 slug 冲突：``map/topics/<slug>/index.md`` 已存在 → exit 1 +
+    stderr 含 "already exists"。``--force`` 显式覆盖：保留评论文件 +
+    created_at 不变 + experiments 关联列表按 append 合并；created_at 偷渡
+    （如未来 CLI 暴露 --created-at）由 parser 层 ValueError 拦截。
+    """
     from cli.commands.fs import write_new_fs_topic
     from cli.fs_projection import maybe_auto_sync
 
     _ = (project, project_key)
-    index = write_new_fs_topic(
-        title=title,
-        slug=slug,
-        description=description or "",
-        participants=participants,
-    )
+    try:
+        index = write_new_fs_topic(
+            title=title,
+            slug=slug,
+            description=description or "",
+            participants=participants,
+            force=force,
+        )
+    except FileExistsError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
     typer.echo(f"Created {index}")
     maybe_auto_sync(no_sync=no_sync)
 
