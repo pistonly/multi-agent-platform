@@ -158,9 +158,16 @@ def _resolve_whitelist(
 
 
 def _agent_name_in_whitelist(agent: Agent, whitelist: set[str]) -> bool:
-    """判断 Agent 是否在白名单内——按 agent_name 短名匹配。
+    """判断 Agent 是否在白名单内——按 persona 短名匹配。
 
-    Agent 表存的是 ``name`` 字段（短名），与 ``FsTopic.participants`` /
-    view.participants 同口径（host / participant / reviewer / admin 等）。
+    Agent 表存的是 ``name`` 字段（全名如 ``multi-agent-platform-host``），
+    与白名单（``host`` / ``participant`` / ``reviewer`` 短名）不同口径。
+    用 ``Agent.persona`` property（map_types.persona.persona_from_agent_name）
+    推短名——CLI 与 server 共用同一规则，``{project_key}-host`` 与
+    ``multi-agent-platform-host`` 都解析为 ``host``。
     """
-    return (agent.name or "") in whitelist
+    persona = getattr(agent, "persona", None)
+    if persona is None:
+        # 回退：直接用 name（兼容无 persona property 的 stub）
+        return (agent.name or "") in whitelist
+    return persona in whitelist
