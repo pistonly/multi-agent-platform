@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from server.domain.models import Agent, AgentRole, Notification, TopicActionItem
+from server.domain.models import Agent, AgentRole, Notification, Project, TopicActionItem
 from server.services import notification_stream
 from server.services.errors import ForbiddenError, NotFoundError
 
@@ -444,6 +444,26 @@ def enqueue_from_event(
         for agent in _recipients_for_project(db, project_id, actor_id)
         if agent.id not in skip
     ]
+    if not recipients:
+        return []
+
+    # 实验 8b1d20a1 I2：按事件类别 + 话题角色白名单过滤收件人（A2 + A4）。
+    # obligation-wakeable event（reviewer round2 硬边界）走全量 fan-out；
+    # topic.* 走白名单过滤；其它 event 不过滤。白名单解析失败时保守放行
+    # （宁多勿漏——obligation-wakeable 必须保留）。
+    project = db.get(Project, project_id) if project_id is not None else None
+    if project is not None:
+        from server.services.notification_fanout import filter_recipients
+
+        recipients = filter_recipients(
+            db,
+            project=project,
+            event=event,
+            target_type=target_type,
+            target_id=target_id,
+            payload=payload,
+            recipients=recipients,
+        )
     if not recipients:
         return []
 
