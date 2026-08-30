@@ -419,6 +419,46 @@ def test_wake_up_appends_multiple_entries_for_same_session(tmp_path: Path) -> No
     assert len(result_entries) == 2
 
 
+def test_wake_up_renames_provisional_log_to_real_session_id(tmp_path: Path) -> None:
+    """A fresh session's first wake logs under a provisional ``new-...`` id;
+    once the ResultMessage delivers the real session id, the log file must be
+    renamed so the next resume wake finds the same file instead of splitting
+    the transcript across two files (first turn vs the rest).
+    """
+    state = {"topics": {}, "experiments": {}}
+    log_dir = tmp_path / "session-logs"
+    messages = [
+        FakeAssistantMessage(FakeTextBlock("first turn")),
+        FakeResultMessage(session_id="fresh-sid", is_error=False),
+    ]
+
+    agent, fake = _make_client(state=state, project_root=tmp_path, messages=messages)
+    agent.session_log_dir = log_dir
+
+    import asyncio
+    import json
+
+    asyncio.run(agent.wake_up("first"))
+
+    provisional_files = list(log_dir.glob("*_host_new-*.jsonl"))
+    assert provisional_files == [], f"provisional log left behind: {provisional_files}"
+
+    # Second wake resumes the real session id and lands in the same file.
+    fake.messages = [
+        FakeAssistantMessage(FakeTextBlock("second turn")),
+        FakeResultMessage(session_id="fresh-sid", is_error=False),
+    ]
+    asyncio.run(agent.wake_up("second"))
+
+    log_path = resolve_session_log_path(log_dir, "fresh-sid", "host")
+    entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").strip().splitlines()]
+    result_entries = [e for e in entries if "status" in e]
+    assert [e["status"] for e in result_entries] == ["ok", "ok"]
+    assert [e["prompt"] for e in result_entries] == ["first", "second"]
+    # Exactly one file: no first-turn/resume split.
+    assert len(list(log_dir.glob("*.jsonl"))) == 1
+
+
 def test_wake_up_passes_d5_join_keys_to_session_log(tmp_path: Path) -> None:
     """D5: wake_up forwards event_id / event_source / fingerprint to the jsonl.
 
@@ -533,10 +573,11 @@ class PartialThenHangingReceive:
             raise StopAsyncIteration from exc  # unreachable when hang_for > wake_timeout
 
 
-def test_wake_up_aborts_with_no_response_when_receive_response_hangs(tmp_path: Path) -> None:
+def test_wake_up_aborts_with_timeout_when_receive_response_hangs(tmp_path: Path) -> None:
     """When the SDK never emits a message, wake_timeout must fire and the
-    wake must end with status="no_response" rather than blocking the waker
-    forever.
+    wake must end with status="timeout" rather than blocking the waker
+    forever. ``timeout`` is distinct from ``no_response`` (stream ended
+    cleanly without a ResultMessage) so postmortem needs no event digging.
     """
     state = {"topics": {}, "experiments": {}}
     agent, fake = _make_client(
@@ -554,8 +595,8 @@ def test_wake_up_aborts_with_no_response_when_receive_response_hangs(tmp_path: P
     status = asyncio.run(agent.wake_up("stuck agent"))
     elapsed = time.monotonic() - start
 
-    assert status == "no_response"
-    assert state["last_wakeup_status"] == "no_response"
+    assert status == "timeout"
+    assert state["last_wakeup_status"] == "timeout"
     # The 60s hang was not waited out — we returned shortly after wake_timeout.
     assert elapsed < 5.0, f"wake_up did not respect wake_timeout (elapsed={elapsed:.2f}s)"
     # query() was still called before the hang — only the receive side aborts.
@@ -625,7 +666,7 @@ def test_wake_up_aborts_when_messages_stop_mid_stream(tmp_path: Path) -> None:
     status = asyncio.run(agent.wake_up("dies mid-stream", on_event=events.append))
     elapsed = time.monotonic() - start
 
-    assert status == "no_response"
+    assert status == "timeout"
     # The text event landed before the hang; no result event after.
     assert [e["type"] for e in events] == ["text"]
     assert elapsed < 5.0, f"mid-stream hang was not aborted (elapsed={elapsed:.2f}s)"

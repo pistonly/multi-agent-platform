@@ -18,10 +18,9 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
 from cli.session_wake_log import (
-    DEFAULT_SESSION_LOG_DIR,
-    append_session_event,
-    append_session_wake_log,
-    resolve_session_log_path,
+    SessionWakeLogger,
+    provisional_session_id,
+    rename_session_log_for_id,
     text_summary,
     tool_result_summary,
     tool_use_summary,
@@ -110,7 +109,13 @@ class PersonaAgentClient:
         self.model = model or self._resolve_model()
         self.allowed_tools = list(allowed_tools or DEFAULT_ALLOWED_TOOLS)
         self.integration = integration
-        self.session_log_dir = session_log_dir
+        self._wake_logger = SessionWakeLogger(
+            persona=persona,
+            integration=integration,
+            project_root=project_root,
+            session_log_dir=session_log_dir,
+            logger=logger,
+        )
         # 单次 wake 内，两条 agent 消息之间的最大间隔（秒）。超过则判定 Agent
         # Runtime 卡死并中断，避免 bridge / waker 永久阻塞在 receive_response()
         # 上。合法长任务期间 Agent 会持续流式发消息，不会触发；真正挂起（网络
@@ -119,6 +124,15 @@ class PersonaAgentClient:
         self._client_factory = _client_factory
         self._client: PersonaAgentLike | None = None
         self._connected = False
+
+    @property
+    def session_log_dir(self) -> Path | None:
+        """Session-log dir override; delegates to the shared wake logger."""
+        return self._wake_logger.session_log_dir
+
+    @session_log_dir.setter
+    def session_log_dir(self, value: Path | None) -> None:
+        self._wake_logger.session_log_dir = value
 
     async def connect(self) -> None:
         if self._connected:
@@ -163,10 +177,11 @@ class PersonaAgentClient:
         # (wake/text/tool_use/tool_result/result) lands in one file, even when
         # the real session_id only arrives with the ResultMessage. A long
         # running turn is then observable live — a stuck agent shows up as the
-        # last event ts going stale.
-        pre_sid = resume_session_id or f"new-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}"
-        log_path = resolve_session_log_path(self._resolve_session_log_dir(), pre_sid, self.persona)
-        self._log_event(
+        # last event ts going stale. ``pre_sid`` is provisional for a fresh
+        # session; the file is renamed to the real id at the end of the wake.
+        pre_sid = resume_session_id or provisional_session_id()
+        log_path = self._wake_logger.resolve_log_path(pre_sid)
+        self._wake_logger.log_event(
             log_path,
             event="wake",
             summary=text_summary(prompt),
@@ -177,6 +192,7 @@ class PersonaAgentClient:
 
         await self._client.query(prompt)
         result: ResultMessage | None = None
+        timed_out = False
         response_parts: list[str] = []
         _response_iter = self._client.receive_response().__aiter__()
         while True:
@@ -194,7 +210,7 @@ class PersonaAgentClient:
                 # TimeoutError 不是同一类型（3.11 才合并）。与 T39
                 # simple_waker 的捕获约定一致，避免超时路径在 3.10 上
                 # 变成未捕获异常、disconnect 根本走不到。
-                self._log_event(
+                self._wake_logger.log_event(
                     log_path,
                     event="timeout",
                     summary=f"no agent message for {self.wake_timeout}s; aborting wake",
@@ -202,7 +218,9 @@ class PersonaAgentClient:
                     event_source=event_source,
                     fingerprint=fingerprint,
                 )
-                result = None
+                # 不覆盖已收到的 result：若 ResultMessage 已到达、流才挂起，
+                # 该 turn 视为完成（status 由 result 决定），仅标记超时。
+                timed_out = True
                 # T22：超时后必须断开 SDK 连接再返回。旧 client 的
                 # receive_response() 流可能仍挂起，而 ``_connected`` 残留
                 # True 会让下一轮 wake 复用同一 client、卡在同一个流上。
@@ -218,7 +236,7 @@ class PersonaAgentClient:
                         response_parts.append(block.text)
                         if on_event is not None:
                             on_event({"type": "text", "content": block.text})
-                        self._log_event(
+                        self._wake_logger.log_event(
                             log_path,
                             event="text",
                             summary=text_summary(block.text),
@@ -235,7 +253,7 @@ class PersonaAgentClient:
                                     "content": tool_use_summary(block.name, block.input),
                                 }
                             )
-                        self._log_event(
+                        self._wake_logger.log_event(
                             log_path,
                             event="tool_use",
                             summary=tool_use_summary(block.name, block.input),
@@ -256,7 +274,7 @@ class PersonaAgentClient:
                                         "content": tool_result_summary(block.content, block.is_error),
                                     }
                                 )
-                            self._log_event(
+                            self._wake_logger.log_event(
                                 log_path,
                                 event="tool_result",
                                 summary=tool_result_summary(block.content, block.is_error),
@@ -282,6 +300,10 @@ class PersonaAgentClient:
                 self._save_state_fn()
         if result is not None and getattr(result, "is_error", False):
             status = "error"
+        elif result is None and timed_out:
+            # 卡死被 wake_timeout 掐断，与「流正常结束但 SDK 没回 ResultMessage」
+            # （no_response）区分开，postmortem 不用再翻事件行。
+            status = "timeout"
         elif result is None:
             status = "no_response"
         else:
@@ -293,10 +315,17 @@ class PersonaAgentClient:
 
         response_text = "".join(response_parts)
         log_session_id = self._wake_log_session_id(result, resume_session_id)
+        # A fresh session's first wake logs under the provisional ``new-...``
+        # id; adopt the real session id in the filename so the next resume
+        # wake's lookup finds this same file instead of splitting the
+        # transcript in two. Resume wakes whose id did not change skip this.
+        real_sid = getattr(result, "session_id", None) if result is not None else None
+        if real_sid and str(real_sid) != pre_sid:
+            log_path = rename_session_log_for_id(log_path, self.persona, str(real_sid))
         # Result summary goes into the same file as the live events above; keep
         # the A3-audit field set by routing through append_session_wake_log with
         # the pre-resolved log_path.
-        self._append_wake_session_log(
+        self._wake_logger.append_wake_log(
             session_id=log_session_id,
             prompt=prompt,
             response_text=response_text,
@@ -346,14 +375,6 @@ class PersonaAgentClient:
             kwargs["model"] = self.model
         return ClaudeAgentOptions(**kwargs)
 
-    def _resolve_session_log_dir(self) -> Path:
-        if self.session_log_dir is not None:
-            return self.session_log_dir
-        override = os.environ.get("MAP_SESSION_WAKE_LOG_DIR", "").strip()
-        if override:
-            return Path(override)
-        return self.project_root / DEFAULT_SESSION_LOG_DIR
-
     @staticmethod
     def _wake_log_session_id(
         result: Any,
@@ -363,74 +384,7 @@ class PersonaAgentClient:
             return str(result.session_id)
         if resume_session_id:
             return str(resume_session_id)
-        return f"unknown-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
-
-    def _log_event(
-        self,
-        log_path: Path,
-        *,
-        event: str,
-        summary: str,
-        event_id: str | None = None,
-        event_source: str = "polling",
-        fingerprint: str | None = None,
-    ) -> None:
-        if os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
-            "0",
-            "false",
-            "no",
-            "off",
-        }:
-            return
-        try:
-            append_session_event(
-                log_path=log_path,
-                persona=self.persona,
-                integration=self.integration,
-                event=event,
-                summary=summary,
-                event_id=event_id,
-                event_source=event_source,
-                fingerprint=fingerprint,
-            )
-        except OSError as exc:
-            logger.warning("[%s] session event log write failed: %s", self.persona, exc)
-
-    def _append_wake_session_log(
-        self,
-        *,
-        session_id: str,
-        prompt: str,
-        response_text: str,
-        status: str,
-        event_id: str | None = None,
-        event_source: str = "polling",
-        fingerprint: str | None = None,
-        log_path: Path | None = None,
-    ) -> None:
-        if os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
-            "0",
-            "false",
-            "no",
-            "off",
-        }:
-            return
-        try:
-            append_session_wake_log(
-                log_dir=self._resolve_session_log_dir(),
-                session_id=session_id,
-                persona=self.persona,
-                integration=self.integration,
-                prompt=prompt,
-                response_text=response_text,
-                status=status,
-                event_id=event_id,
-                event_source=event_source,
-                fingerprint=fingerprint,
-                log_path=log_path,
-            )
-        except OSError as exc:
-            logger.warning("[%s] session wake log write failed: %s", self.persona, exc)
+        return provisional_session_id("unknown")
 
     def _system_append_prompt(self) -> str:
         if self.integration == "waker":

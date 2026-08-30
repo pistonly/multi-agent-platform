@@ -9,9 +9,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from cli.session_wake_log import (
+    SessionWakeLogger,
     append_session_event,
     append_session_wake_log,
     log_now,
+    provisional_session_id,
+    rename_session_log_for_id,
     resolve_session_log_path,
     response_preview,
     safe_session_log_name,
@@ -59,6 +62,75 @@ def test_resolve_session_log_path_reuses_legacy_filename(tmp_path: Path) -> None
     legacy = tmp_path / "sid-1.jsonl"
     legacy.write_text("{}\n", encoding="utf-8")
     assert resolve_session_log_path(tmp_path, "sid-1", "host") == legacy
+
+
+def test_provisional_session_id_uses_log_timezone(monkeypatch) -> None:
+    """临时 id 与文件名 ts 前缀必须同一时钟——一个文件名里不允许混 UTC/东八区。"""
+    fixed = datetime(2026, 8, 30, 12, 0, 0, 123456, tzinfo=ZoneInfo("Asia/Shanghai"))
+    monkeypatch.setattr("cli.session_wake_log.log_now", lambda: fixed)
+    assert provisional_session_id() == "new-20260830T120000123456"
+    assert provisional_session_id("unknown") == "unknown-20260830T120000123456"
+
+
+def test_rename_session_log_adopts_real_session_id(tmp_path: Path) -> None:
+    """首轮 provisional 文件在拿到真实 sid 后改名，且能被 resume 查找命中。"""
+    path = resolve_session_log_path(tmp_path, "new-20260830T120000000000", "host")
+    path.write_text("{}\n", encoding="utf-8")
+
+    renamed = rename_session_log_for_id(path, "host", "real-sid")
+
+    assert renamed.name.endswith("_host_real-sid.jsonl")
+    assert renamed.is_file()
+    assert not path.exists()
+    # Renamed file must be found by the resume-wake lookup.
+    assert resolve_session_log_path(tmp_path, "real-sid", "host") == renamed
+
+
+def test_rename_session_log_is_noop_when_id_unchanged(tmp_path: Path) -> None:
+    path = resolve_session_log_path(tmp_path, "real-sid", "host")
+    path.write_text("{}\n", encoding="utf-8")
+    assert rename_session_log_for_id(path, "host", "real-sid") == path
+
+
+def test_rename_session_log_keeps_existing_real_id_file_on_collision(tmp_path: Path) -> None:
+    """目标真实 sid 文件已存在时不覆盖：继续写已有文件，provisional 保留原样。"""
+    provisional = resolve_session_log_path(tmp_path, "new-20260830T120000000000", "host")
+    provisional.write_text("{}\n", encoding="utf-8")
+    real = resolve_session_log_path(tmp_path, "real-sid", "host")
+    real.write_text('{"existing": true}\n', encoding="utf-8")
+
+    assert rename_session_log_for_id(provisional, "host", "real-sid") == real
+    assert real.read_text(encoding="utf-8") == '{"existing": true}\n'
+
+
+def test_rename_session_log_noop_for_legacy_unstamped_name(tmp_path: Path) -> None:
+    """无 ts 前缀的 legacy 文件名不改名（无从保留创建时间戳）。"""
+    legacy = tmp_path / "sid-1.jsonl"
+    legacy.write_text("{}\n", encoding="utf-8")
+    assert rename_session_log_for_id(legacy, "host", "real-sid") == legacy
+
+
+def test_session_wake_logger_respects_kill_switch(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MAP_SESSION_WAKE_LOG", "0")
+    log = SessionWakeLogger(
+        persona="host",
+        integration="waker",
+        project_root=tmp_path,
+        session_log_dir=tmp_path / "logs",
+    )
+    assert log.disabled() is True
+    assert log.append_wake_log(
+        session_id="s", prompt="p", response_text="r", status="ok"
+    ) is None
+    assert list((tmp_path / "logs").glob("*.jsonl")) == []
+
+
+def test_session_wake_logger_resolves_dir_precedence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("MAP_SESSION_WAKE_LOG_DIR", raising=False)
+    log = SessionWakeLogger(persona="host", integration="waker", project_root=tmp_path)
+    assert log.resolve_log_dir() == tmp_path / ".map" / "runtime-waker-sessions"
+    monkeypatch.setenv("MAP_SESSION_WAKE_LOG_DIR", str(tmp_path / "override"))
+    assert log.resolve_log_dir() == tmp_path / "override"
 
 
 def test_append_session_wake_log_writes_jsonl(tmp_path: Path, monkeypatch) -> None:

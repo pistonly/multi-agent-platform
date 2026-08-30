@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime
@@ -15,6 +16,10 @@ DEFAULT_LOG_TIMEZONE = "Asia/Shanghai"
 RESPONSE_PREVIEW_MAX = 200
 
 _SAFE_SESSION_ID_RE = re.compile(r"[^\w.\-]+")
+# Timestamp prefix of a stamped session log filename, e.g. ``20260823-094005``.
+_LOG_NAME_TS_RE = re.compile(r"^(\d{8}-\d{6})_")
+
+_SESSION_LOG_DISABLED_VALUES = frozenset({"0", "false", "no", "off"})
 
 
 def log_timezone() -> ZoneInfo:
@@ -30,6 +35,47 @@ def safe_session_log_name(session_id: str) -> str:
     """Turn a session id into a single path segment safe for log filenames."""
     safe = _SAFE_SESSION_ID_RE.sub("_", session_id.strip())
     return safe or "unknown"
+
+
+def provisional_session_id(prefix: str = "new") -> str:
+    """Provisional id for a session whose real id is not known yet.
+
+    Uses the same log timezone as the filename timestamp (``log_now``): one
+    filename must never mix two clocks — the old UTC ``new-...`` sat next to a
+    CST prefix and the pair was 8h apart, which broke time-line correlation.
+    """
+    return f"{prefix}-{log_now().strftime('%Y%m%dT%H%M%S%f')}"
+
+
+def rename_session_log_for_id(log_path: Path, persona: str, session_id: str) -> Path:
+    """Rename a session log file so its filename carries ``session_id``.
+
+    A fresh session's first wake logs under a provisional ``new-...`` id, but
+    resume wakes look the file up by the real SDK session id; without this
+    rename the transcript of one session splits across two files (first turn
+    under ``new-...``, the rest under the real id). Returns the path callers
+    should keep writing to: the renamed file, the pre-existing real-id file on
+    collision, or ``log_path`` unchanged when renaming is impossible (legacy
+    name without a ts prefix, missing file, OSError).
+    """
+    try:
+        match = _LOG_NAME_TS_RE.match(log_path.name)
+        if match is None or not log_path.is_file():
+            return log_path
+        target = log_path.parent / (
+            f"{match.group(1)}_{safe_session_log_name(persona)}_{safe_session_log_name(session_id)}.jsonl"
+        )
+        if target == log_path:
+            return log_path
+        if target.exists():
+            # A concurrent/earlier wake already created the real-id file; keep
+            # writing there instead of clobbering it. The provisional file
+            # keeps its partial content.
+            return target
+        log_path.rename(target)
+        return target
+    except OSError:
+        return log_path
 
 
 def resolve_session_log_path(log_dir: Path, session_id: str, persona: str) -> Path:
@@ -217,15 +263,118 @@ def append_session_event(
         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+class SessionWakeLogger:
+    """Session-wake logging for one agent backend (Claude or Cursor).
+
+    Owns the pieces both backends used to duplicate: log-dir resolution
+    (explicit dir > ``MAP_SESSION_WAKE_LOG_DIR`` > ``.map/runtime-waker-sessions``),
+    the ``MAP_SESSION_WAKE_LOG`` kill switch, live-event writes, the end-of-wake
+    summary, and the provisional→real session id rename. Backends expose
+    ``session_log_dir`` as a settable attribute (tests re-point it after
+    construction) by delegating to this object.
+    """
+
+    def __init__(
+        self,
+        *,
+        persona: str,
+        integration: str,
+        project_root: Path,
+        session_log_dir: Path | None = None,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self.persona = persona
+        self.integration = integration
+        self.project_root = project_root
+        self.session_log_dir = session_log_dir
+        self._logger = logger or logging.getLogger("map.session_wake_log")
+
+    @staticmethod
+    def disabled() -> bool:
+        return os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in _SESSION_LOG_DISABLED_VALUES
+
+    def resolve_log_dir(self) -> Path:
+        if self.session_log_dir is not None:
+            return self.session_log_dir
+        override = os.environ.get("MAP_SESSION_WAKE_LOG_DIR", "").strip()
+        if override:
+            return Path(override)
+        return self.project_root / DEFAULT_SESSION_LOG_DIR
+
+    def resolve_log_path(self, session_id: str) -> Path:
+        return resolve_session_log_path(self.resolve_log_dir(), session_id, self.persona)
+
+    def log_event(
+        self,
+        log_path: Path,
+        *,
+        event: str,
+        summary: str,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
+    ) -> None:
+        if self.disabled():
+            return
+        try:
+            append_session_event(
+                log_path=log_path,
+                persona=self.persona,
+                integration=self.integration,
+                event=event,
+                summary=summary,
+                event_id=event_id,
+                event_source=event_source,
+                fingerprint=fingerprint,
+            )
+        except OSError as exc:
+            self._logger.warning("[%s] session event log write failed: %s", self.persona, exc)
+
+    def append_wake_log(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        response_text: str,
+        status: str,
+        event_id: str | None = None,
+        event_source: str = "polling",
+        fingerprint: str | None = None,
+        log_path: Path | None = None,
+    ) -> Path | None:
+        if self.disabled():
+            return None
+        try:
+            return append_session_wake_log(
+                log_dir=self.resolve_log_dir(),
+                session_id=session_id,
+                persona=self.persona,
+                integration=self.integration,
+                prompt=prompt,
+                response_text=response_text,
+                status=status,
+                event_id=event_id,
+                event_source=event_source,
+                fingerprint=fingerprint,
+                log_path=log_path,
+            )
+        except OSError as exc:
+            self._logger.warning("[%s] session wake log write failed: %s", self.persona, exc)
+            return log_path
+
+
 __all__ = [
     "DEFAULT_LOG_TIMEZONE",
     "DEFAULT_SESSION_LOG_DIR",
     "EVENT_SUMMARY_MAX",
     "RESPONSE_PREVIEW_MAX",
+    "SessionWakeLogger",
     "append_session_event",
     "append_session_wake_log",
     "log_now",
     "log_timezone",
+    "provisional_session_id",
+    "rename_session_log_for_id",
     "resolve_session_log_path",
     "response_preview",
     "safe_session_log_name",

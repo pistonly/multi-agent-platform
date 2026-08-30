@@ -15,7 +15,6 @@ import inspect
 import logging
 import os
 from collections.abc import Callable
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -23,10 +22,9 @@ from typing import Any
 from cli.agent_client import parse_export_env_file
 from cli.errors import WorkerError
 from cli.session_wake_log import (
-    DEFAULT_SESSION_LOG_DIR,
-    append_session_event,
-    append_session_wake_log,
-    resolve_session_log_path,
+    SessionWakeLogger,
+    provisional_session_id,
+    rename_session_log_for_id,
     text_summary,
 )
 from cli.wake_backend import WakeResult, clear_runtime_session_state
@@ -92,7 +90,13 @@ class CursorSdkWakeBackend:
         self._save_state_fn = save_state_fn
         self.model = model
         self.wake_timeout = wake_timeout
-        self.session_log_dir = session_log_dir
+        self._wake_logger = SessionWakeLogger(
+            persona=persona,
+            integration="waker",
+            project_root=project_root,
+            session_log_dir=session_log_dir,
+            logger=logger,
+        )
         self._launch_bridge = _launch_bridge
         self._sdk: Any | None = None
         self._client: Any | None = None
@@ -100,6 +104,15 @@ class CursorSdkWakeBackend:
         self._agent: Any | None = None
         self._agent_cm: Any | None = None
         self._connected = False
+
+    @property
+    def session_log_dir(self) -> Path | None:
+        """Session-log dir override; delegates to the shared wake logger."""
+        return self._wake_logger.session_log_dir
+
+    @session_log_dir.setter
+    def session_log_dir(self, value: Path | None) -> None:
+        self._wake_logger.session_log_dir = value
 
     async def connect(self) -> None:
         if self._connected and self._agent is not None:
@@ -153,9 +166,11 @@ class CursorSdkWakeBackend:
             await self.connect()
         assert self._agent is not None
         resume_id = self._resume_agent_id() or getattr(self._agent, "agent_id", None)
-        pre_sid = str(resume_id or f"new-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}")
-        log_path = resolve_session_log_path(self._resolve_session_log_dir(), pre_sid, self.persona)
-        self._log_event(
+        # Provisional ``new-...`` id for a fresh agent; the log file is renamed
+        # to the real agent id at the end of the wake.
+        pre_sid = str(resume_id or provisional_session_id())
+        log_path = self._wake_logger.resolve_log_path(pre_sid)
+        self._wake_logger.log_event(
             log_path,
             event="wake",
             summary=text_summary(prompt),
@@ -171,7 +186,7 @@ class CursorSdkWakeBackend:
                 timeout=self.wake_timeout,
             )
         except asyncio.TimeoutError as exc:
-            self._log_event(
+            self._wake_logger.log_event(
                 log_path,
                 event="timeout",
                 summary=f"no agent result for {self.wake_timeout}s; aborting wake",
@@ -181,8 +196,8 @@ class CursorSdkWakeBackend:
             )
             await self._cancel_run(run)
             await self.disconnect()
-            status = "no_response"
-            self._append_wake_session_log(
+            status = "timeout"
+            self._wake_logger.append_wake_log(
                 session_id=pre_sid,
                 prompt=prompt,
                 response_text="",
@@ -198,12 +213,16 @@ class CursorSdkWakeBackend:
             raise WorkerError(f"Cursor wake failed: {exc}") from exc
 
         session_id = self._persist_agent_id() or pre_sid
+        # First wake of a fresh agent logs under the provisional id; adopt the
+        # real agent id in the filename so resume wakes find the same file.
+        if str(session_id) != pre_sid:
+            log_path = rename_session_log_for_id(log_path, self.persona, str(session_id))
         status_name = str(getattr(result, "status", "") or "")
         is_error = status_name in {"error", "cancelled", "expired"}
         status = "error" if is_error else "ok"
         if not response_text:
             response_text = str(getattr(result, "result", "") or "")
-        self._log_event(
+        self._wake_logger.log_event(
             log_path,
             event="result",
             summary=status,
@@ -211,7 +230,7 @@ class CursorSdkWakeBackend:
             event_source=event_source,
             fingerprint=fingerprint,
         )
-        self._append_wake_session_log(
+        self._wake_logger.append_wake_log(
             session_id=str(session_id),
             prompt=prompt,
             response_text=response_text,
@@ -383,7 +402,7 @@ class CursorSdkWakeBackend:
             if not text:
                 continue
             parts.append(text)
-            self._log_event(
+            self._wake_logger.log_event(
                 log_path,
                 event="text",
                 summary=text_summary(text),
@@ -510,79 +529,6 @@ class CursorSdkWakeBackend:
         if file_model:
             return file_model
         return DEFAULT_CURSOR_MODEL
-
-    def _resolve_session_log_dir(self) -> Path:
-        if self.session_log_dir is not None:
-            return self.session_log_dir
-        override = os.environ.get("MAP_SESSION_WAKE_LOG_DIR", "").strip()
-        if override:
-            return Path(override)
-        return self.project_root / DEFAULT_SESSION_LOG_DIR
-
-    def _session_log_disabled(self) -> bool:
-        return os.environ.get("MAP_SESSION_WAKE_LOG", "1").strip().lower() in {
-            "0",
-            "false",
-            "no",
-            "off",
-        }
-
-    def _log_event(
-        self,
-        log_path: Path,
-        *,
-        event: str,
-        summary: str,
-        event_id: str | None = None,
-        event_source: str = "polling",
-        fingerprint: str | None = None,
-    ) -> None:
-        if self._session_log_disabled():
-            return
-        try:
-            append_session_event(
-                log_path=log_path,
-                persona=self.persona,
-                integration="waker",
-                event=event,
-                summary=summary,
-                event_id=event_id,
-                event_source=event_source,
-                fingerprint=fingerprint,
-            )
-        except OSError as exc:
-            logger.warning("[%s] session event log write failed: %s", self.persona, exc)
-
-    def _append_wake_session_log(
-        self,
-        *,
-        session_id: str,
-        prompt: str,
-        response_text: str,
-        status: str,
-        event_id: str | None = None,
-        event_source: str = "polling",
-        fingerprint: str | None = None,
-        log_path: Path | None = None,
-    ) -> None:
-        if self._session_log_disabled():
-            return
-        try:
-            append_session_wake_log(
-                log_dir=self._resolve_session_log_dir(),
-                session_id=session_id,
-                persona=self.persona,
-                integration="waker",
-                prompt=prompt,
-                response_text=response_text,
-                status=status,
-                event_id=event_id,
-                event_source=event_source,
-                fingerprint=fingerprint,
-                log_path=log_path,
-            )
-        except OSError as exc:
-            logger.warning("[%s] session wake log write failed: %s", self.persona, exc)
 
 
 __all__ = [
