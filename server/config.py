@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # ``stale_open_topic_threshold_minutes`` above.
     waker_stale_threshold_minutes: int = 15
 
+    # 实验 b3ec2e4d I3：单次 remind → claude runtime 调用的预期耗时上限
+    # （分钟）。busy 容忍阈值 = max(this, 2 × idle_stale_threshold)，
+    # 给正常 remind runtime 留缓冲又不至于让真正的「卡死」漏报。可覆盖：
+    # MAP_EXPECTED_REMIND_RUNTIME_MINUTES（默认 30 分钟，按 claude 子进程
+    # 实测平均 5-15 分钟 + 长任务 buffer）。
+    expected_remind_runtime_minutes: int = 30
+
     # T10（2026-08）：全局看板 ``GET /status`` 的进程内 TTL 缓存秒数。
     # 看板每次刷新都会触发跨项目聚合计数 + recent10 + 全部 agent 心跳
     # 扫描，短 TTL 缓存让高频刷新摊到一次构建。多 worker 部署各进程

@@ -113,3 +113,47 @@ def agent_register(
         )
 
     runner._run(action, admin=True)
+
+
+@agent_app.command("heartbeat")
+def agent_heartbeat(
+    busy_since: str | None = typer.Option(
+        None,
+        "--busy-since",
+        help="ISO-8601 UTC timestamp marking the start of a busy session "
+        "(e.g. runtime call). Mutually exclusive with --clear.",
+    ),
+    clear: bool = typer.Option(
+        False,
+        "--clear",
+        help="Reset last_busy_since to NULL (idle). Mutually exclusive with --busy-since.",
+    ),
+) -> None:
+    """PATCH ``agents.last_busy_since``（实验 b3ec2e4d I2 — A1 验收）。
+
+    与既有 ``/me/work`` 的 ``last_waker_poll_at`` 刷新（migration 050 /
+    D1）解耦——本命令由 waker 在进入 runtime 调用（remind → claude 子
+    进程）前 touch，会话结束清零。
+    """
+    if busy_since is not None and clear:
+        raise typer.BadParameter("--busy-since and --clear are mutually exclusive")
+
+    from datetime import datetime as _dt
+
+    from map_types.schemas import AgentHeartbeatCreate as _Payload
+
+    parsed_busy_since: _dt | None = None
+    if not clear and busy_since is not None:
+        try:
+            parsed_busy_since = _dt.fromisoformat(busy_since)
+        except ValueError as exc:
+            raise typer.BadParameter(
+                f"--busy-since must be ISO-8601 (e.g. 2026-08-31T11:00:00+00:00): {exc}"
+            ) from exc
+
+    def action(c: Any) -> Any:
+        return c.agent_heartbeat(
+            _Payload(busy_since=None if clear else parsed_busy_since)
+        )
+
+    runner._run(action)

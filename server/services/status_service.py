@@ -69,27 +69,51 @@ def build_waker_heartbeats(
     "only one waker" deployment (other personas never poll) stays quiet (D1 null
     semantics). Threshold falls back to ``Settings.waker_stale_threshold_minutes``
     (env ``MAP_WAKER_STALE_THRESHOLD_MINUTES``, default 15).
+
+    实验 b3ec2e4d I3：busy/stale 分支。
+
+    - ``last_busy_since`` 非空 → busy。busy 期间 polling cycle 暂停属正常
+      （runtime 调用中），不算 stale；用 busy_tolerance 判活，默认
+      ``max(expected_remind_runtime_minutes, 2 × idle_stale_threshold)``。
+      busy 超过容忍阈值 → stale=True（区别是 busy 行同时含 last_busy_since
+      字段供渲染端标 busy 状态，避免单纯显示 stale WARN 误导）。
+    - ``last_busy_since`` 空 → 沿用旧逻辑（last_waker_poll_at vs threshold）。
     """
     from server.config import get_settings
 
+    settings = get_settings()
     if threshold_minutes is None:
-        threshold_minutes = get_settings().waker_stale_threshold_minutes
-    cutoff = as_utc(now or datetime.now(timezone.utc)) - timedelta(
-        minutes=threshold_minutes
+        threshold_minutes = settings.waker_stale_threshold_minutes
+    # busy 容忍阈值：足够包住「正常 remind runtime」+ 2×idle_stale 的抖动
+    # 余量。env MAP_WAKER_BUSY_TOLERANCE_MINUTES 可覆盖。
+    busy_tolerance_minutes = max(
+        settings.expected_remind_runtime_minutes,
+        2 * threshold_minutes,
     )
+    current = as_utc(now or datetime.now(timezone.utc))
+    cutoff = current - timedelta(minutes=threshold_minutes)
+    busy_cutoff = current - timedelta(minutes=busy_tolerance_minutes)
     stmt = select(Agent)
     if project_id is not None:
         stmt = stmt.where(Agent.project_id == project_id)
     rows: list[WakerHeartbeatRead] = []
     for agent in db.scalars(stmt):
         last = as_utc(agent.last_waker_poll_at)
-        stale = last is not None and last < cutoff
+        busy_since = as_utc(agent.last_busy_since)
+        # busy 期间 polling cycle 暂停属正常；超过容忍才标 stale。
+        # idle 沿用 D1 既有语义（ever-heartbeated + 超 threshold）。
+        stale = (
+            busy_since < busy_cutoff
+            if busy_since is not None
+            else last is not None and last < cutoff
+        )
         rows.append(
             WakerHeartbeatRead(
                 agent_id=agent.id,
                 agent_name=agent.name,
                 persona=agent.persona,
                 last_waker_poll_at=last,
+                last_busy_since=busy_since,
                 stale=stale,
             )
         )

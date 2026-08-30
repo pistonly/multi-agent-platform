@@ -9,6 +9,8 @@ import httpx
 from map_types import (
     ActionItemCancel,
     AgentCreateResponse,
+    AgentHeartbeatCreate,
+    AgentHeartbeatResult,
     AgentRead,
     AgentRole,
     AgentWorkRead,
@@ -1116,6 +1118,27 @@ class MAPClient:
             json=payload.model_dump(mode="json"),
         )
         return InboundEventRecordResult.model_validate(data)
+
+    # --- waker busy heartbeat (experiment b3ec2e4d I2 — A1 验收) ---
+
+    def agent_heartbeat(
+        self,
+        payload: AgentHeartbeatCreate,
+    ) -> AgentHeartbeatResult:
+        """PATCH ``agents.last_busy_since`` for the caller.
+
+        与 ``/me/work`` 的 ``last_waker_poll_at`` 刷新（migration 050 / D1）
+        解耦——waker 在进入 runtime 调用（remind → claude 子进程）前调用，
+        期间 busy 信号由本路径承载；结束后调 ``busy_since=None`` 清零。
+        失败抛 :class:`MAPHTTPError` / :class:`MAPError`，由 waker 兜底
+        （不阻塞 remind 主流程）。
+        """
+        data = self._json(
+            "POST",
+            "/agents/me/heartbeat",
+            json=payload.model_dump(mode="json"),
+        )
+        return AgentHeartbeatResult.model_validate(data)
 
     # --- webhooks (admin) ---
 

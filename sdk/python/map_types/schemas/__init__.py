@@ -45,6 +45,8 @@ from .a2a import (
 from .agent import (
     AgentCreate,
     AgentCreateResponse,
+    AgentHeartbeatCreate,
+    AgentHeartbeatResult,
     AgentRead,
     EscalationTargetRead,
 )
@@ -269,6 +271,8 @@ __all__ = [
     "AgentRead",
     "AgentCreateResponse",
     "AgentCreate",
+    "AgentHeartbeatCreate",
+    "AgentHeartbeatResult",
     "EscalationTargetRead",
     "TopicCreate",
     "TopicUpdate",

@@ -13,6 +13,8 @@ from server.domain.models import Agent, AgentRole, Experiment, Notification, Pro
 from server.domain.schemas import (
     AgentCreate,
     AgentCreateResponse,
+    AgentHeartbeatCreate,
+    AgentHeartbeatResult,
     AgentRead,
     AgentWorkRead,
     AgentWorkSummaryRead,
@@ -30,6 +32,7 @@ from server.domain.schemas import (
     TopicReadCursorRead,
 )
 from server.services import (
+    agent_heartbeat,
     agent_work_service,
     inbound_event_service,
     mention_service,
@@ -37,9 +40,15 @@ from server.services import (
     todo_service,
     topic_service,
 )
-from server.services import auth as auth_service
-from server.services import permissions as perm
-from server.services import project_service as svc
+from server.services import (
+    auth as auth_service,
+)
+from server.services import (
+    permissions as perm,
+)
+from server.services import (
+    project_service as svc,
+)
 from server.services.errors import BadRequestError, ConflictError
 from server.services.escalation_resolver import (
     escalation_label,
@@ -244,6 +253,30 @@ def get_my_work(
         notification_limit=notification_limit,
         notification_category=normalized_category,
     )
+
+
+@agents_router.post("/me/heartbeat", response_model=AgentHeartbeatResult)
+def post_my_heartbeat(
+    body: AgentHeartbeatCreate,
+    agent: Agent = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+) -> AgentHeartbeatResult:
+    """Waker busy-since PATCH（实验 b3ec2e4d I1 — A1 验收）。
+
+    与 ``/me/work`` 的 ``last_waker_poll_at`` 刷新（migration 050 / D1）
+    解耦：busy_since 是 waker state machine 的扩展信号，刷新时机由
+    I2 cli/simple_waker.py 决定（remind 前 touch / finally 清零），
+    不是 polling cycle 副作用。设计要点：
+
+    - 单列 UPDATE（与 D1 模式一致）
+    - busy_since=None 视为 idle 清零
+    - 不动 last_waker_poll_at / last_api_seen_at（A8 边界）
+    """
+    agent_heartbeat.set_last_busy_since(
+        db, agent_id=agent.id, busy_since=body.busy_since
+    )
+    db.commit()
+    return AgentHeartbeatResult(agent_id=agent.id, busy_since=body.busy_since)
 
 
 @agents_router.get("/me/work/summary", response_model=AgentWorkSummaryRead)

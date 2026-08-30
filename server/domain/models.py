@@ -104,6 +104,11 @@ class Agent(Base):
     # 不污染归属。null → never（该 agent 无 waker 心跳记录），不进 WARN。
     last_api_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_waker_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # I1（实验 b3ec2e4d A1）：waker 长 runtime 会话（claude 子进程）期间
+    # busy 状态标记。null → idle（不在 runtime 调用中），按 D1 既有
+    # last_waker_poll_at 路径判 stale；非 null → busy，按 status_service
+    # 的 busy 容忍阈值判活，不算 stale。
+    last_busy_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project | None"] = relationship()
 

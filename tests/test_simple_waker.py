@@ -54,6 +54,15 @@ class FakeMapClient(MapCommandClient):
             },
         }
 
+    def agent_heartbeat(self, *, busy_since: Any) -> None:
+        """实验 b3ec2e4d I5：noop 默认实现。
+
+        既有的 simple_waker 测试用 FakeMapClient 时不需要真的 PATCH server
+        心跳列——只验证 wake_async 等主路径。I5 专属 busy 测试用
+        ``_RecordingHeartbeatClient`` 替换它。
+        """
+        return None
+
     def notifications_unread(self) -> list[dict[str, Any]]:
         return self._notifications
 
@@ -939,3 +948,168 @@ def build_wake_context_round(author: str, round_: str):
         },
         todos={},
     )
+
+
+# --- 实验 b3ec2e4d I5：busy 状态机回归测试 -------------------------------
+
+
+class _RecordingHeartbeatClient(FakeMapClient):
+    """FakeMapClient + 记录 ``agent_heartbeat`` 调用。"""
+
+    def __init__(self, *, persona: str, todos: dict[str, Any]) -> None:
+        super().__init__(persona=persona, todos=todos)
+        self.heartbeat_calls: list[Any] = []
+
+    def agent_heartbeat(self, *, busy_since: Any) -> None:
+        self.heartbeat_calls.append(busy_since)
+
+
+def test_touch_busy_writes_state_and_patches_server(tmp_path: Path) -> None:
+    """短 fake busy (A1)：_touch_busy 写 state 三字段 + 调 agent_heartbeat。"""
+    client = _RecordingHeartbeatClient(persona="host", todos={})
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+        dry_run=True,
+    )
+    waker = SimpleWaker(client=client, config=config, backend=MagicMock())
+    now = datetime(2026, 8, 31, 11, 0, 0, tzinfo=timezone.utc)
+    waker._touch_busy(simple_waker.SimpleWakerStats(), now=now)
+
+    state = simple_waker.load_bridge_state(
+        config.state_file,
+        bridge_name="simple-waker",
+        default_collections=("personas",),
+    )["personas"]["host"]
+    assert state["session_busy_since"] == now.isoformat()
+    assert state["busy_pid"] == os.getpid()
+    assert state["busy_started_at"] == now.isoformat()
+    assert client.heartbeat_calls == [now]
+
+
+def test_clear_busy_purges_state_and_server(tmp_path: Path) -> None:
+    """短 fake busy (A1)：_clear_busy 清 state 三字段 + 调 heartbeat(None)。"""
+    client = _RecordingHeartbeatClient(persona="host", todos={})
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+        dry_run=True,
+    )
+    waker = SimpleWaker(client=client, config=config, backend=MagicMock())
+    now = datetime(2026, 8, 31, 11, 0, 0, tzinfo=timezone.utc)
+    stats = simple_waker.SimpleWakerStats()
+    waker._touch_busy(stats, now=now)
+    assert client.heartbeat_calls == [now]
+    waker._clear_busy(stats)
+    assert client.heartbeat_calls == [now, None]
+    state = simple_waker.load_bridge_state(
+        config.state_file,
+        bridge_name="simple-waker",
+        default_collections=("personas",),
+    )["personas"]["host"]
+    assert "busy_pid" not in state
+    assert "session_busy_since" not in state
+
+
+def test_clear_busy_cross_pid_preserves_state(tmp_path: Path) -> None:
+    """A8 边界：busy_pid != own_pid 时只清 server,不动 state。"""
+    client = _RecordingHeartbeatClient(persona="host", todos={})
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+        dry_run=True,
+    )
+    waker = SimpleWaker(client=client, config=config, backend=MagicMock())
+    # 写入 busy_pid=99999(死 PID)跨进程场景
+    state = {
+        "schema_version": 1,
+        "personas": {
+            "host": {
+                "busy_pid": 99999,
+                "busy_started_at": "2026-08-31T11:00:00+00:00",
+                "session_busy_since": "2026-08-31T11:00:00+00:00",
+            }
+        },
+    }
+    simple_waker.save_bridge_state(config.state_file, state)
+    waker.state = simple_waker.load_bridge_state(
+        config.state_file,
+        bridge_name="simple-waker",
+        default_collections=("personas",),
+    )
+
+    waker._clear_busy(simple_waker.SimpleWakerStats())
+    # 跨 PID 不应清 state
+    state_after = simple_waker.load_bridge_state(
+        config.state_file,
+        bridge_name="simple-waker",
+        default_collections=("personas",),
+    )["personas"]["host"]
+    assert state_after.get("busy_pid") == 99999
+    # 但应清 server
+    assert client.heartbeat_calls == [None]
+
+
+def test_check_busy_crash_recovery_clears_dead_pid(tmp_path: Path) -> None:
+    """A2：dead busy_pid 触发 crash recovery,清 state + server。"""
+    client = _RecordingHeartbeatClient(persona="host", todos={})
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+        dry_run=True,
+    )
+    state = {
+        "schema_version": 1,
+        "personas": {
+            "host": {
+                "busy_pid": 99999,
+                "busy_started_at": "2026-08-31T11:00:00+00:00",
+                "session_busy_since": "2026-08-31T11:00:00+00:00",
+            }
+        },
+    }
+    simple_waker.save_bridge_state(config.state_file, state)
+
+    SimpleWaker(client=client, config=config, backend=MagicMock())
+    state_after = simple_waker.load_bridge_state(
+        config.state_file,
+        bridge_name="simple-waker",
+        default_collections=("personas",),
+    )["personas"]["host"]
+    assert "busy_pid" not in state_after
+    assert client.heartbeat_calls == [None]
+
+
+def test_run_once_calls_touch_and_clear_around_wake(tmp_path: Path) -> None:
+    """短 fake busy (A1)：run_once 在 wake_async 前 touch / finally clear。
+
+    不用 ``dry_run=True`` 是因为 dry_run 路径在 ``should_send_remind`` 通过
+    后会提前 return,不进入 wake_async 也不会触发 busy touch/clear——直接
+    用真实 backend.wake_async mock 走完完整流程。
+    """
+
+    async def fake_wake_async(**kwargs):  # noqa: ARG001
+        return None
+
+    backend = MagicMock()
+    backend.wake_async = fake_wake_async
+    client = _RecordingHeartbeatClient(
+        persona="host",
+        todos={"pending_topic_replies": [{"comment_id": "c1", "topic_id": "t1"}]},
+    )
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+    )
+    waker = SimpleWaker(client=client, config=config, backend=backend)
+    waker.run_once()
+
+    # touch (datetime) + clear (None) 各一次
+    assert len(client.heartbeat_calls) == 2
+    assert isinstance(client.heartbeat_calls[0], datetime)
+    assert client.heartbeat_calls[1] is None

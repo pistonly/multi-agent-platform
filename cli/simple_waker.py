@@ -672,6 +672,9 @@ class SimpleWaker:
             runtime_home=self.config.runtime_home,
         )
         self._runtime_contract_hash = runtime_contract_hash(self.config.project_root)
+        # 实验 b3ec2e4d I2：启动时回收上次 crash 残留的 busy 标记。
+        # state 文件若含 stale busy_started_at + 已死 PID → 清零本地 + server。
+        self._check_busy_crash_recovery()
 
     def run_forever(self) -> SimpleWakerStats:
         return asyncio.run(self._run_forever_async())
@@ -858,6 +861,9 @@ class SimpleWaker:
         self._apply_action_item_escalation(stats, todos=todos, now=now)
 
         self._inflight = True
+        # 实验 b3ec2e4d I2：进入 runtime 调用（remind → claude 子进程）
+        # 前 touch busy 心跳，会话结束清零。失败兜底不阻塞主流程（A8）。
+        self._touch_busy(stats, now=now)
         try:
             await self.backend.wake_async(prompt=prompt, event_source="simple-waker")
             persona_state["last_remind_at"] = now.isoformat()
@@ -877,6 +883,9 @@ class SimpleWaker:
             self._state_dirty = True
             typer.echo(f"[simple-waker:error] {exc}", err=True)
         finally:
+            # I2：busy 心跳清零（与 _touch_busy 配对），server 列
+            # agents.last_busy_since → NULL；PID 校验防止 crash 漏清。
+            self._clear_busy(stats)
             self._inflight = False
             self._save_state_if_needed(force=True)
         return stats, next_sleep_seconds(context, self.config)
@@ -1049,6 +1058,112 @@ class SimpleWaker:
             err=True,
         )
         await self.backend.reset_session()
+
+    def _touch_busy(self, stats: SimpleWakerStats, *, now: datetime) -> None:
+        """I2（A1）：标记本 waker 进入 busy session（remind → claude 调用）。
+
+        写 waker state 文件 ``session_busy_since`` + ``busy_pid`` +
+        ``busy_started_at``；PATCH server ``agents.last_busy_since``。
+        失败兜底不阻塞主流程（心跳信号不能反过来拖死 remind）。
+        """
+        persona_state = self._persona_state(self.config.persona)
+        persona_state["session_busy_since"] = now.isoformat()
+        persona_state["busy_started_at"] = now.isoformat()
+        persona_state["busy_pid"] = os.getpid()
+        self._state_dirty = True
+        self._save_state_if_needed(force=True)
+        self._patch_server_busy(stats, busy_since=now)
+
+    def _clear_busy(self, stats: SimpleWakerStats) -> None:
+        """I2（A1）：与 ``_touch_busy`` 配对，会话结束清零 busy 标记。
+
+        PID 自检：若 busy_pid != 当前 os.getpid() → 跨进程/重启场景，
+        只清 server 列（让其他 worker 不被本地 stale 状态拖累），不动
+        state 文件（避免误清别的进程 active busy 记录）。
+        """
+        persona_state = self._persona_state(self.config.persona)
+        busy_pid = persona_state.get("busy_pid")
+        own_pid = os.getpid()
+        if busy_pid is not None and int(busy_pid) != own_pid:
+            # 跨 PID：只清 server 列，本地 state 由 busy_pid 的进程负责。
+            self._patch_server_busy(stats, busy_since=None)
+            return
+        for key in ("session_busy_since", "busy_started_at", "busy_pid"):
+            persona_state.pop(key, None)
+        self._state_dirty = True
+        self._save_state_if_needed(force=True)
+        self._patch_server_busy(stats, busy_since=None)
+
+    def _check_busy_crash_recovery(self) -> None:
+        """I2（A2 + A8 边界）：启动时回收上次 crash 残留 busy 标记。
+
+        state 文件若含 ``busy_pid`` 且进程已死（kill -0 抛 ProcessLookupError）
+        → 清零本地 state + server ``agents.last_busy_since``；进程仍活则
+        视作并发 waker，不动（让对方的 _clear_busy 自己处理）。
+        """
+        persona_state = self._persona_state(self.config.persona)
+        busy_pid_raw = persona_state.get("busy_pid")
+        if busy_pid_raw is None:
+            return
+        try:
+            busy_pid = int(busy_pid_raw)
+        except (TypeError, ValueError):
+            busy_pid = None
+        if busy_pid is not None:
+            try:
+                os.kill(busy_pid, 0)
+                # 进程仍活 → 视为并发 waker，不回收
+                typer.echo(
+                    f"[simple-waker] busy_pid={busy_pid} still alive; "
+                    "skipping crash recovery",
+                    err=True,
+                )
+                return
+            except ProcessLookupError:
+                pass  # 进程已死 → 回收
+            except PermissionError:
+                # 别人的 PID（EPERM）→ 不动，由对方负责清零
+                typer.echo(
+                    f"[simple-waker] busy_pid={busy_pid} not owned; "
+                    "skipping crash recovery",
+                    err=True,
+                )
+                return
+            except OSError:
+                return
+        # 进程已死 → 清零本地 + 兜底清 server（best-effort，不抛错）
+        for key in ("session_busy_since", "busy_started_at", "busy_pid"):
+            persona_state.pop(key, None)
+        self._state_dirty = True
+        self._save_state_if_needed(force=True)
+        # 启动时无 caller context，临时 stats 仅承载计数（_patch_server_busy
+        # 当前不读 stats 字段，但保持参数形状一致便于将来加 metric）。
+        self._patch_server_busy(SimpleWakerStats(), busy_since=None)
+        typer.echo(
+            "[simple-waker] recovered from prior crash; busy_since cleared",
+            err=True,
+        )
+
+    def _patch_server_busy(
+        self,
+        stats: SimpleWakerStats,
+        *,
+        busy_since: datetime | None,
+    ) -> None:
+        """PATCH server ``agents.last_busy_since``（A1）。
+
+        失败兜底（catch WorkerError），不阻塞主流程。心跳信号本身
+        是 best-effort 可观测性扩展，server 短暂不可达不应反向
+        拖累 remind。
+        """
+        heartbeat_fn = getattr(self.client, "agent_heartbeat", None)
+        if heartbeat_fn is None:
+            # 测试 mock 可能未实现此方法；不报错也不计入 stats。
+            return
+        try:
+            heartbeat_fn(busy_since=busy_since)
+        except WorkerError as exc:
+            typer.echo(f"[simple-waker:heartbeat] {exc}", err=True)
 
     def _save_state_if_needed(self, *, force: bool = False) -> None:
         if not force and not self._state_dirty:

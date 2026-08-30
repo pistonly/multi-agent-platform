@@ -179,12 +179,19 @@ class WakerHeartbeatRead(BaseModel):
     "only one waker" deployment keeps other personas from permanently WARN-ing.
     The CLI renders this row but never re-derives the flag (single source of truth
     is the server).
+
+    实验 b3ec2e4d I3：新增 ``last_busy_since`` 字段——waker 进入 runtime
+    调用（remind → claude 子进程）时写入的 busy 心跳；非空表示 waker
+    当前正在 busy session。busy 时 ``stale`` 走 busy 容忍阈值（而非
+    last_waker_poll_at 阈值）——busy 期间的 polling cycle 暂停属正常，
+    不应被误判为 stale。CLI 渲染时 busy 行不显示 stale WARN。
     """
 
     agent_id: uuid.UUID
     agent_name: str
     persona: str | None
     last_waker_poll_at: datetime | None
+    last_busy_since: datetime | None = None
     stale: bool = False
 
 

@@ -414,6 +414,26 @@ class MapCommandClient:
         # T25：409→exit 2 走 ``map_exit``，timeout / 错误拼装复用 ``_run``。
         return self._run(args, parse_yaml=False, map_exit={0: True, 2: False})
 
+    # --- agent heartbeat (experiment b3ec2e4d I2 — A1 验收) -----------------
+
+    def agent_heartbeat(
+        self,
+        *,
+        busy_since: str | None,
+    ) -> dict[str, Any] | None:
+        """PATCH ``agents.last_busy_since`` via ``map agent heartbeat``.
+
+        ``busy_since=None`` 视为 idle 清零。waker 在 ``wake_async`` 前 touch，
+        ``finally`` 清零；非阻塞（失败抛 ``WorkerError``，由 simple_waker
+        兜底，不阻塞 remind）。
+        """
+        args = ["agent", "heartbeat"]
+        if busy_since is not None:
+            args.extend(["--busy-since", busy_since])
+        else:
+            args.append("--clear")
+        return self._run(args)
+
 
 # 会修改 MAP 状态的子命令（``map --dry-run`` 时必须跳过这些，否则会真实
 # 写入）。``_WRITE_COMMANDS_2`` 匹配两段路径 ``[group, command]``，
@@ -472,6 +492,8 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
     ("todo", "clear"),
     # agent / e2e / host 编排（369ccac 拆分后补登记，此前绕过 dry-run）
     ("agent", "register"),
+    # b3ec2e4d I2：waker busy heartbeat（PATCH agents.last_busy_since）
+    ("agent", "heartbeat"),
     ("e2e", "run"),
     ("host", "invoke"),
     # map/ folder projection publish（PUT /fs/projection）

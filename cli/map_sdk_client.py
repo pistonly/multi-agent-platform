@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -22,6 +23,7 @@ import typer
 from map_client.exceptions import MAPConflictError, MAPError
 from map_client.project_config import ProjectMapConfig, load_project_map_config
 from map_types.enums import InboundEventSource, TopicStatus
+from map_types.schemas.agent import AgentHeartbeatCreate, AgentHeartbeatResult
 from map_types.schemas.inbound_event import InboundEventCreate
 
 from cli.errors import WorkerError
@@ -177,3 +179,25 @@ class MapSdkClient:
             raise WorkerError(str(exc)) from exc
         status = getattr(result, "status", None)
         return status not in {"duplicate", "rejected_v1"}
+
+    def agent_heartbeat(
+        self,
+        *,
+        busy_since: datetime | None,
+    ) -> AgentHeartbeatResult | None:
+        """PATCH ``agents.last_busy_since``（实验 b3ec2e4d I2 — A1 验收）。
+
+        ``busy_since=None`` 视为 idle 清零。waker state machine 在
+        ``wake_async`` 前调用，``finally`` 清零。失败抛 ``WorkerError``，
+        由 simple-waker 兜底（不阻塞 remind 主流程）。
+        """
+        if self.dry_run:
+            typer.echo(f"[dry-run] agent heartbeat busy_since={busy_since}")
+            return None
+        payload = AgentHeartbeatCreate(busy_since=busy_since)
+        try:
+            return self._call(lambda: self._client().agent_heartbeat(payload))
+        except MAPError as exc:
+            raise WorkerError(str(exc)) from exc
+        except httpx.RequestError as exc:
+            raise WorkerError(str(exc)) from exc

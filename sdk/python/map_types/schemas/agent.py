@@ -55,3 +55,29 @@ class EscalationTargetRead(ORMModel):
     escalation_target_id: uuid.UUID | None
     escalation_label: str  # "@name" or "<no escalation contact>" placeholder
     tier: str  # "experiment_override" | "current_caller" | "same_role_active" | "admin" | "none"
+
+
+# --- waker busy heartbeat (experiment b3ec2e4d I1 — A1 验收) ---
+
+
+class AgentHeartbeatCreate(BaseModel):
+    """Body for ``POST /api/v1/agents/me/heartbeat``.
+
+    Waker-side PATCH：写入 ``agents.last_busy_since``。``busy_since=None``
+    视为 idle 清零。endpoint 单列 UPDATE（与既有 ``/me/work`` 的
+    ``last_waker_poll_at`` 刷新路径解耦——busy_since 是 I2 waker state
+    machine 的扩展信号，刷新时机由 waker 决定，不是 polling 副作用）。
+    """
+
+    busy_since: datetime | None = None
+
+
+class AgentHeartbeatResult(BaseModel):
+    """Return shape for ``POST /api/v1/agents/me/heartbeat``.
+
+    Echo 写入后的状态便于 waker 端校验 round-trip。``busy_since=None``
+    表示 idle 清零。
+    """
+
+    agent_id: uuid.UUID
+    busy_since: datetime | None
