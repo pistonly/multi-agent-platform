@@ -225,7 +225,9 @@ async def run_runtime_chat_async(
         agent_state.pop("claude_session_id", None)
         agent_state.pop("runtime_session_id", None)
 
-    sync_runtime_skills(project_root=root, runtime_home=resolved_runtime_home)
+    _synced, _skipped = sync_runtime_skills(  # noqa: F841 — kept for parity with simple_waker startup audit
+        project_root=root, runtime_home=resolved_runtime_home
+    )
     resolved_runtime_home.mkdir(parents=True, exist_ok=True)
 
     def save_state() -> None:

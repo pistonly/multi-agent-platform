@@ -476,7 +476,9 @@ def _build_client(
         agent_state["claude_session_id"] = resume_id
         agent_state["runtime_session_id"] = resume_id
 
-    sync_runtime_skills(project_root=scenario.project_root, runtime_home=runtime_home)
+    _synced, _skipped = sync_runtime_skills(  # noqa: F841 — kept for parity with simple_waker startup audit
+        project_root=scenario.project_root, runtime_home=runtime_home
+    )
     runtime_home.mkdir(parents=True, exist_ok=True)
 
     def save_state() -> None:

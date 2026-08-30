@@ -164,7 +164,7 @@ class TestHostOrchestrator:
         with (
             patch("cli.orchestrator.load_bridge_state", return_value={"personas": {}}),
             patch("cli.orchestrator.save_bridge_state"),
-            patch("cli.orchestrator.sync_runtime_skills"),
+            patch("cli.orchestrator.sync_runtime_skills", return_value=([], None)),
             patch("cli.orchestrator.PersonaAgentClient") as mock_client_cls,
         ):
             mock_client_cls.side_effect = [mock_participant, mock_reviewer]

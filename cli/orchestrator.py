@@ -240,7 +240,9 @@ class HostOrchestrator:
             "MAP_RUNTIME_CHAT_PERSONA": persona,
         }
 
-        sync_runtime_skills(project_root=self.project_root, runtime_home=runtime_home)
+        _synced, _skipped = sync_runtime_skills(  # noqa: F841 — kept for parity with simple_waker startup audit
+            project_root=self.project_root, runtime_home=runtime_home
+        )
         runtime_home.mkdir(parents=True, exist_ok=True)
 
         client = PersonaAgentClient(

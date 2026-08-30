@@ -152,13 +152,24 @@ TODO_BUCKET_UI_LABELS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def sync_runtime_skills(*, project_root: Path, runtime_home: Path) -> None:
+def sync_runtime_skills(
+    *, project_root: Path, runtime_home: Path
+) -> tuple[list[str], str | None]:
+    """Mirror ``.cursor/skills/<skill>`` to ``<runtime_home>/.claude/skills/<skill>``.
+
+    全量镜像（rmtree+copytree+孤儿清理）行为保持不变；返回
+    ``(synced_skills, skipped_reason)``: ``synced_skills`` 是同步成功的
+    skill 列表;``skipped_reason`` 仅在 ``synced_skills == []`` 时为
+    ``source_missing``（源 .cursor/skills 不存在）;PermissionError 由
+    调用方捕获并派生 ``permission_denied``。
+    """
     source_root = project_root / ".cursor" / "skills"
     if not source_root.is_dir():
-        return
+        return ([], "source_missing")
     target_root = runtime_home / ".claude" / "skills"
     target_root.mkdir(parents=True, exist_ok=True)
     source_names: set[str] = set()
+    synced: list[str] = []
     for source in sorted(source_root.iterdir()):
         if not source.is_dir() or not (source / "SKILL.md").is_file():
             continue
@@ -170,9 +181,11 @@ def sync_runtime_skills(*, project_root: Path, runtime_home: Path) -> None:
             else:
                 target.unlink()
         shutil.copytree(source, target)
+        synced.append(source.name)
     for existing in target_root.iterdir():
         if existing.is_dir() and existing.name not in source_names:
             shutil.rmtree(existing)
+    return (synced, None)
 
 
 # ---------------------------------------------------------------------------

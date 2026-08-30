@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
+import logging
 import os
 import signal
 import uuid
@@ -27,6 +29,7 @@ from cli.action_item_escalation import (
 from cli.agent_client import apply_project_claude_env
 from cli.bridge_state import load_bridge_state, save_bridge_state
 from cli.cursor_wake_backend import apply_project_cursor_env
+from cli.drift_detector import DriftDetector
 from cli.errors import WorkerError
 from cli.map_command_client import MapCommandClient
 from cli.map_sdk_client import MapSdkClient
@@ -41,6 +44,62 @@ from cli.wake_backend import (
 from cli.worker_cycle_log import log_cycle_summary
 
 APP = typer.Typer(add_completion=False)
+
+_skill_audit_logger = logging.getLogger("cli.simple_waker.skill_audit")
+
+
+def _startup_sync_with_audit(project_root: Path, runtime_home: Path) -> None:
+    """启动时同步 skills 并按 plan v0.x §A5 固定 JSON schema 留痕。
+
+    skipped_reason 枚举: ``source_missing`` (源 .cursor/skills 不存在)
+    / ``permission_denied`` (PermissionError 派生) / ``disabled`` (显式
+    关闭: 通过环境变量 ``WAKER_SKILL_SYNC_DISABLED=1`` 跳过)。
+    """
+    if os.environ.get("WAKER_SKILL_SYNC_DISABLED") == "1":
+        _skill_audit_logger.info(
+            json.dumps(
+                {
+                    "event": "startup_sync",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "skills_count": 0,
+                    "synced_skills": [],
+                    "skipped_reason": "disabled",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
+    try:
+        synced, skipped_reason = sync_runtime_skills(
+            project_root=project_root, runtime_home=runtime_home
+        )
+    except PermissionError as exc:
+        _skill_audit_logger.warning(
+            json.dumps(
+                {
+                    "event": "startup_sync",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "skills_count": 0,
+                    "synced_skills": [],
+                    "skipped_reason": "permission_denied",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
+    _skill_audit_logger.info(
+        json.dumps(
+            {
+                "event": "startup_sync",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "skills_count": len(synced),
+                "synced_skills": synced,
+                "skipped_reason": skipped_reason,
+            },
+            ensure_ascii=False,
+        )
+    )
 
 # Passive inventory — not used alone to wake (topic activity uses topic-progress).
 SIMPLE_WAKER_PASSIVE_BUCKETS: frozenset[str] = frozenset({"my_open_topics"})
@@ -163,6 +222,9 @@ class SimpleWakerConfig:
     # pick up the override. The server's ``Settings`` already reads the
     # env var (W21 I1(c)); this flag is just the waker-side entrypoint.
     stale_threshold_minutes: int | None = None
+    # 实验 waker-runtime-skill-hotcheck I4：每 N 个 poll cycle 跑一次
+    # runtime skill 漂移检测；<=0 表示关闭（默认 30）。
+    drift_check_interval_cycles: int = 30
 
 
 @dataclass
@@ -672,6 +734,11 @@ class SimpleWaker:
             runtime_home=self.config.runtime_home,
         )
         self._runtime_contract_hash = runtime_contract_hash(self.config.project_root)
+        # 实验 waker-runtime-skill-hotcheck I4：构造 DriftDetector。
+        # source_root = .cursor/skills；dest_root = <runtime_home>/.claude/skills。
+        # 若 source_root 不存在（极端场景），detector 退化为空 scan，resync 由
+        # detector.resync 走 source_missing 路径——不抛异常。
+        self._drift_detector = self._build_drift_detector()
         # 实验 b3ec2e4d I2：启动时回收上次 crash 残留的 busy 标记。
         # state 文件若含 stale busy_started_at + 已死 PID → 清零本地 + server。
         self._check_busy_crash_recovery()
@@ -721,6 +788,10 @@ class SimpleWaker:
                     stats = SimpleWakerStats(cycles=1, cycle_errors=1)
                     sleep_for = self._backoff_interval()
                 total.add(stats)
+                # 实验 waker-runtime-skill-hotcheck I4：每 N 个 poll cycle 跑
+                # 一次漂移检测；用 total.cycles 计数保证无论正常/异常路径都
+                # 计数。失败已在 _run_drift_check 内捕获，不阻塞主流程。
+                self._run_drift_check(cycle_index=total.cycles)
                 log_cycle_summary(
                     "simple-waker",
                     total,
@@ -905,6 +976,79 @@ class SimpleWaker:
             return
         if isinstance(result, dict):
             stats.stalled_lock_notifications += int(result.get("emitted_count") or 0)
+
+    def _build_drift_detector(self) -> DriftDetector | None:
+        """构造 DriftDetector；runtime_home 缺失或源 skills 不存在时返回 None。
+
+        source_root = ``<project_root>/.cursor/skills``；
+        dest_root   = ``<runtime_home>/.claude/skills``。
+        """
+        runtime_home = self.config.runtime_home
+        if runtime_home is None:
+            return None
+        source_root = self.config.project_root / ".cursor" / "skills"
+        if not source_root.is_dir():
+            return None
+        return DriftDetector(
+            source_root=source_root,
+            dest_root=runtime_home / ".claude" / "skills",
+        )
+
+    def _run_drift_check(self, *, cycle_index: int) -> None:
+        """每 ``drift_check_interval_cycles`` 周期跑一次漂移检测 + 立即重同步。
+
+        - 漂移为空 → 写 ``drift_no_change`` 审计行（无 alert）
+        - 漂移非空且 resync 成功 → ``drift_resync`` 审计行（alert=True 仅在失败时）
+        - resync 失败 → ``drift_resync_failed`` 审计行（alert=True），但不让 waker 崩
+        """
+        interval = self.config.drift_check_interval_cycles
+        if interval <= 0 or self._drift_detector is None:
+            return
+        if cycle_index % interval != 0:
+            return
+        try:
+            entries = self._drift_detector.check_drift()
+        except Exception as exc:
+            _skill_audit_logger.warning(
+                json.dumps(
+                    {
+                        "event": "drift_check_failed",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "cycle": cycle_index,
+                        "alert": True,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if not entries:
+            _skill_audit_logger.debug(
+                json.dumps(
+                    {
+                        "event": "drift_no_change",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "cycle": cycle_index,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return
+        result = self._drift_detector.resync(entries)
+        payload = {
+            "event": "drift_resync" if result.ok else "drift_resync_failed",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "cycle": cycle_index,
+            "drift_skills": sorted({e.skill_relpath.split("/", 1)[0] for e in entries}),
+            "resynced_skills": result.resynced_skills,
+            "duration_ms": result.duration_ms,
+            "throttled": result.skipped_due_to_throttle,
+            "alert": not result.ok,
+        }
+        if not result.ok:
+            payload["error"] = result.error
+        log_fn = _skill_audit_logger.warning if not result.ok else _skill_audit_logger.info
+        log_fn(json.dumps(payload, ensure_ascii=False))
 
     def _record_remind_inbound_event(
         self,
@@ -1256,6 +1400,16 @@ def run(
             "in-process SDK. Env: MAP_WAKER_SUBPROCESS=1."
         ),
     ),
+    drift_check_interval_cycles: int = typer.Option(
+        30,
+        "--drift-check-interval-cycles",
+        min=0,
+        help=(
+            "实验 waker-runtime-skill-hotcheck I4：每 N 个 poll cycle 跑一次"
+            " runtime skill 漂移检测；0 = 关闭。"
+            " Env fallback: WAKER_DRIFT_CHECK_INTERVAL_CYCLES。"
+        ),
+    ),
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
@@ -1273,7 +1427,7 @@ def run(
         apply_project_claude_env(root)
     resolved_runtime_home = runtime_home
     if resolved_runtime != "cursor" and resolved_runtime_home is not None and not dry_run:
-        sync_runtime_skills(project_root=root, runtime_home=resolved_runtime_home)
+        _startup_sync_with_audit(root, resolved_runtime_home)
     # f873c287 I1(g): apply threshold to env BEFORE any Settings read so
     # the ``map work`` subprocess (and any in-process server) sees the
     # override on its first ``get_settings()`` call. We export here even
@@ -1307,6 +1461,17 @@ def run(
                     f"[simple-waker] ignore invalid MAP_SIMPLE_MAX_PROMPT_TOPICS={env_value!r}",
                     err=True,
                 )
+    # I4: drift check 周期默认 30；env WAKER_DRIFT_CHECK_INTERVAL_CYCLES 覆盖。
+    if drift_check_interval_cycles == 30:
+        env_value = os.environ.get("WAKER_DRIFT_CHECK_INTERVAL_CYCLES")
+        if env_value:
+            try:
+                drift_check_interval_cycles = max(0, int(env_value))
+            except ValueError:
+                typer.echo(
+                    f"[simple-waker] ignore invalid WAKER_DRIFT_CHECK_INTERVAL_CYCLES={env_value!r}",
+                    err=True,
+                )
     config = SimpleWakerConfig(
         persona=persona,
         project_root=root,
@@ -1325,6 +1490,7 @@ def run(
         drain_topics=drain_topics,
         max_prompt_topics=max_prompt_topics,
         stale_threshold_minutes=stale_threshold_minutes,
+        drift_check_interval_cycles=drift_check_interval_cycles,
     )
     waker = SimpleWaker(client=client, config=config)
     waker.run_forever()
