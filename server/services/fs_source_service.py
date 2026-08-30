@@ -743,7 +743,33 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
                     stale_since=view.updated_at or now,
                 )
             ]
-        work_items = [*derived_items, *action_items_out, *stale_items]
+        # FS unread_change（contextual，对齐 DB 路径 _unread_change_items 的
+        # 「读即清」语义）：最后发言者不是我 → 交接信号。FS 无逐 agent 光标，
+        # 用「最新 comment 的作者」近似：对方发言后出现、我自己发言后消失。
+        # 仅限白名单（creator ∪ declared ∪ speakers，即 view.participants），
+        # reviewer 等旁观者不被讨论流量唤醒。这是 simple-waker 签名唤醒的
+        # 交接信号源：对方一发言，下一拍轮询即可唤醒，不再依赖
+        # stale_open_topics 心跳（默认 30 分钟阈值）。
+        unread_items: list[TopicWorkItemRead] = []
+        if last is not None and last.author != persona and persona in view.participants:
+            unread_items = [
+                TopicWorkItemRead(
+                    kind=resolve_kind("unread_change"),
+                    priority="contextual",
+                    topic_id=view.id,
+                    topic_title=view.title,
+                    source_comment_id=None,
+                    thread_root_id=None,
+                    required_agent_id=agent.id,
+                    reason="fs_new_comment_from_other",
+                    idempotency_key=f"fs:unread_change:{view.slug}:{last.id}",
+                    clear_action="read",
+                    excerpt=last.excerpt or "",
+                    created_at=last.posted_at or view.updated_at or now,
+                    discussion_round=view.round,
+                )
+            ]
+        work_items = [*derived_items, *action_items_out, *unread_items, *stale_items]
         if not work_items:
             continue
         results.append(

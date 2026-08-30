@@ -107,6 +107,9 @@ class WakeContext:
     # compress the event_count in the aggregated stats.
     notification_event_count_sum: int = 0
     notification_dedup_dropped: int = 0
+    # 通知身份键（group_key 或 id，排序后入 wake 签名）：签名去重需要区分
+    # 「同样是 1 条通知，但还是那条僵尸」与「来了条新通知」。
+    notification_keys: tuple[str, ...] = ()
     open_topic_count: int = 0
     open_topic_samples: tuple[dict[str, Any], ...] = ()
     drain_topics: bool = False
@@ -146,6 +149,9 @@ class SimpleWakerConfig:
     runtime: str = "claude"
     runtime_home: Path | None = None
     min_remind_seconds: float = 30.0
+    # 签名去重的兜底：工作集签名与上次唤醒一致时跳过 remind，但超过该
+    # 时长（秒）始终未唤醒则强制提醒一次，防签名漏掉某种状态信号。
+    max_silence_seconds: float = 1800.0
     drain_topics: bool = False
     # top-K 配额:单次 remind prompt 最多推送的话题义务数(obligation 优先、
     # 越老越先),余量下轮自动到。0/None = 不限制(旧行为)。CLI flag
@@ -167,6 +173,8 @@ class SimpleWakerStats:
     reminds_sent: int = 0
     remind_skips_busy: int = 0
     remind_skips_cooldown: int = 0
+    # 签名去重命中次数（工作集与上次唤醒一致 → 跳过 remind）。
+    remind_skips_unchanged: int = 0
     remind_errors: int = 0
     dry_run_actions: int = 0
     # v0.10：每次 remind 后写一条聚合 inbound_event（fingerprint=
@@ -197,6 +205,7 @@ class SimpleWakerStats:
         self.reminds_sent += other.reminds_sent
         self.remind_skips_busy += other.remind_skips_busy
         self.remind_skips_cooldown += other.remind_skips_cooldown
+        self.remind_skips_unchanged += other.remind_skips_unchanged
         self.remind_errors += other.remind_errors
         self.dry_run_actions += other.dry_run_actions
         self.inbound_events_recorded += other.inbound_events_recorded
@@ -350,6 +359,13 @@ def build_wake_context(
         notification_count=len(deduped_notifications),
         notification_event_count_sum=event_count_sum,
         notification_dedup_dropped=dropped,
+        notification_keys=tuple(
+            sorted(
+                str(n.get("group_key") or n.get("id") or "")
+                for n in deduped_notifications
+                if isinstance(n, dict)
+            )
+        ),
         open_topic_count=len(open_topics or []) if drain_topics and persona == "host" else 0,
         open_topic_samples=tuple((open_topics or [])[:10]) if drain_topics and persona == "host" else (),
         drain_topics=drain_topics,
@@ -437,6 +453,32 @@ def _filter_topic_progress_for_persona(
     return {**topic_progress_data, "items": filtered, "total": len(filtered)}
 
 
+def wake_signature(context: WakeContext) -> str:
+    """唤醒内容签名：相同工作集 → 相同签名。
+
+    高频轮询的安全网：签名不变 → 跳过 remind（冷却期之外也不再按固定
+    节奏空醒）；签名变化（新话题 / 对方发言改变 last_comment_author /
+    新通知键 / 待办计数变化）才唤醒 agent。配合 ``max_silence_seconds``
+    兜底，防签名漏掉某种信号导致永久睡死。
+    """
+    parts: list[str] = []
+    for entry in sorted(context.topic_progress, key=lambda e: e.topic_id):
+        kinds = ",".join(sorted(entry.work_item_kinds))
+        parts.append(
+            f"topic:{entry.topic_id}:{entry.discussion_round}:{kinds}"
+            f":{entry.last_comment_author_name or ''}:{entry.new_comment_count}"
+        )
+    for bucket in sorted(context.todo_buckets, key=lambda b: b.kind):
+        parts.append(f"todo:{bucket.kind}:{bucket.count}")
+    parts.extend(f"notif:{key}" for key in context.notification_keys)
+    if context.open_topic_count:
+        samples = ",".join(
+            sorted(str(s.get("slug") or s.get("id") or "") for s in context.open_topic_samples)
+        )
+        parts.append(f"open:{context.open_topic_count}:{samples}")
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
 def should_send_remind(
     context: WakeContext,
     *,
@@ -444,6 +486,9 @@ def should_send_remind(
     last_remind_at: datetime | None,
     inflight: bool,
     min_remind_seconds: float,
+    signature: str | None = None,
+    last_reminded_signature: str | None = None,
+    max_silence_seconds: float = 1800.0,
 ) -> tuple[bool, str | None]:
     if not context.has_work:
         return False, "idle"
@@ -453,6 +498,15 @@ def should_send_remind(
         elapsed = (now - last_remind_at).total_seconds()
         if elapsed < min_remind_seconds:
             return False, "cooldown"
+        # 内容级去重：工作集与上次唤醒时完全一致 → 不重复唤醒（僵尸
+        # 通知、对方未动作的等待期都命中此项）；超过 max_silence_seconds
+        # 仍未唤醒则兜底放行一次，防签名漏信号。
+        if (
+            signature is not None
+            and signature == last_reminded_signature
+            and elapsed < max_silence_seconds
+        ):
+            return False, "unchanged"
     return True, None
 
 
@@ -674,6 +728,7 @@ class SimpleWaker:
                         "reminds_sent",
                         "remind_skips_busy",
                         "remind_skips_cooldown",
+                        "remind_skips_unchanged",
                         "remind_errors",
                         "dry_run_actions",
                         "inbound_events_recorded",
@@ -765,18 +820,24 @@ class SimpleWaker:
         persona_state = self._persona_state(self.config.persona)
         last_remind_at = _parse_datetime(persona_state.get("last_remind_at"))
         now = datetime.now(timezone.utc)
+        signature = wake_signature(context)
         should_remind, skip_reason = should_send_remind(
             context,
             now=now,
             last_remind_at=last_remind_at,
             inflight=self._inflight,
             min_remind_seconds=self.config.min_remind_seconds,
+            signature=signature,
+            last_reminded_signature=persona_state.get("last_wake_signature"),
+            max_silence_seconds=self.config.max_silence_seconds,
         )
         if not should_remind:
             if skip_reason == "busy":
                 stats.remind_skips_busy = 1
             elif skip_reason == "cooldown":
                 stats.remind_skips_cooldown = 1
+            elif skip_reason == "unchanged":
+                stats.remind_skips_unchanged = 1
             self._save_state_if_needed()
             return stats, next_sleep_seconds(context, self.config)
 
@@ -802,6 +863,7 @@ class SimpleWaker:
             persona_state["last_remind_at"] = now.isoformat()
             persona_state["last_remind_work_count"] = context.total_items
             persona_state["last_remind_topic_count"] = context.topic_update_count
+            persona_state["last_wake_signature"] = signature
             self._state_dirty = True
             stats.reminds_sent = 1
             # v0.10：写一条聚合 inbound_event 作为可观测性审计。
@@ -1019,6 +1081,12 @@ def run(
         min=5.0,
         help="Minimum seconds between remind prompts while work remains.",
     ),
+    max_silence_seconds: float = typer.Option(
+        1800.0,
+        "--max-silence-seconds",
+        min=60.0,
+        help="工作集签名不变时的强制唤醒兜底间隔（秒）；签名去重后超过该时长未唤醒则兜底提醒一次。",
+    ),
     once: bool = typer.Option(False, "--once", help="Run one cycle and exit."),
     max_cycles: int | None = typer.Option(None, "--max-cycles", min=1, help="Stop after N cycles."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print remind actions without invoking runtime."),
@@ -1138,6 +1206,7 @@ def run(
         runtime=resolved_runtime,
         runtime_home=resolved_runtime_home,
         min_remind_seconds=min_remind_seconds,
+        max_silence_seconds=max_silence_seconds,
         drain_topics=drain_topics,
         max_prompt_topics=max_prompt_topics,
         stale_threshold_minutes=stale_threshold_minutes,

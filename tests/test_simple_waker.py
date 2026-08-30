@@ -817,3 +817,125 @@ def test_simple_waker_run_command_rejects_unknown_runtime(monkeypatch, tmp_path:
     )
     assert result.exit_code == 2
     assert "Unknown waker runtime" in result.output
+
+
+# ---------------------------------------------------------------------------
+# 签名去重（wake_signature + should_send_remind 的 unchanged/max_silence 分支）
+# ---------------------------------------------------------------------------
+
+
+def _handoff_context(author: str, *, notifications: list[dict[str, Any]] | None = None):
+    from cli.simple_waker import build_wake_context
+
+    return build_wake_context(
+        topic_progress_data={
+            "items": [
+                {
+                    "topic_id": "t1",
+                    "topic_title": "Handoff Demo",
+                    "discussion_round": "round1",
+                    "last_comment_author_name": author,
+                    "new_comment_count": 0,
+                    "work_items": [{"kind": "unread_change", "priority": "contextual"}],
+                }
+            ],
+            "total": 1,
+        },
+        todos={},
+        notifications=notifications,
+    )
+
+
+def test_wake_signature_unchanged_suppresses_remind() -> None:
+    """工作集与上次唤醒一致 → unchanged 跳过；超过 max_silence 兜底放行。"""
+    from cli.simple_waker import wake_signature
+
+    context = _handoff_context("participant")
+    sig = wake_signature(context)
+    now = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+
+    ok, reason = should_send_remind(
+        context,
+        now=now,
+        last_remind_at=now - timedelta(seconds=300),
+        inflight=False,
+        min_remind_seconds=30,
+        signature=sig,
+        last_reminded_signature=sig,
+        max_silence_seconds=1800,
+    )
+    assert ok is False
+    assert reason == "unchanged"
+
+    # 僵尸通知场景：同一 group_key 的通知反复出现 → 签名一致 → 持续抑制
+    zombie = _handoff_context("participant", notifications=[{"id": "n1", "group_key": "g-zombie"}])
+    zombie2 = _handoff_context("participant", notifications=[{"id": "n1", "group_key": "g-zombie"}])
+    assert wake_signature(zombie) == wake_signature(zombie2)
+
+    # 超过 max_silence → 兜底唤醒（防签名漏信号导致永久睡死）
+    ok, reason = should_send_remind(
+        context,
+        now=now,
+        last_remind_at=now - timedelta(seconds=1900),
+        inflight=False,
+        min_remind_seconds=30,
+        signature=sig,
+        last_reminded_signature=sig,
+        max_silence_seconds=1800,
+    )
+    assert ok is True
+    assert reason is None
+
+
+def test_wake_signature_changes_on_real_handoff() -> None:
+    """交接信号变化（对方作者进入快照 / 新通知键 / 轮次推进）→ 签名变化 → 唤醒。"""
+    from cli.simple_waker import wake_signature
+
+    now = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+    sig_waiting = wake_signature(_handoff_context("participant"))
+
+    # 对方又发言一轮（作者不变但轮次推进）
+    ctx_round2 = build_wake_context_round("participant", "round2")
+    sig_round2 = wake_signature(ctx_round2)
+    assert sig_round2 != sig_waiting
+
+    # 新通知键出现
+    sig_with_notif = wake_signature(
+        _handoff_context("participant", notifications=[{"id": "n9", "group_key": "g-new"}])
+    )
+    assert sig_with_notif != sig_waiting
+
+    # 签名变化时正常唤醒
+    ok, reason = should_send_remind(
+        ctx_round2,
+        now=now,
+        last_remind_at=now - timedelta(seconds=300),
+        inflight=False,
+        min_remind_seconds=30,
+        signature=sig_round2,
+        last_reminded_signature=sig_waiting,
+        max_silence_seconds=1800,
+    )
+    assert ok is True
+    assert reason is None
+
+
+def build_wake_context_round(author: str, round_: str):
+    from cli.simple_waker import build_wake_context
+
+    return build_wake_context(
+        topic_progress_data={
+            "items": [
+                {
+                    "topic_id": "t1",
+                    "topic_title": "Handoff Demo",
+                    "discussion_round": round_,
+                    "last_comment_author_name": author,
+                    "new_comment_count": 0,
+                    "work_items": [{"kind": "unread_change", "priority": "contextual"}],
+                }
+            ],
+            "total": 1,
+        },
+        todos={},
+    )

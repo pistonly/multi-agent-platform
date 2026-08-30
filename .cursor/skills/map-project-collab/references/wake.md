@@ -28,6 +28,7 @@
 | `stale_open_topics` | 复盘推进；FS 话题（仅 creator/host 可见）久未推进→ map topic close --id <slug> --note 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 map topic dismiss --id <uuid> | topic-host |  |
 | `my_open_topics` | 推进话题或 map topic dismiss --id <uuid>（与 UI ✕ 相同） | topic-host | 且无动作时 |
 | `action_items` | 完成: map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"；放弃: map topic action-item cancel --topic <slug> --id <n> --reason "..."。清零后话题才可 close（closed = 零尾款） | topic-host | FS 话题，kind 同构于 stale nudge，来源 action-items.yaml；participant 亦可为 owner |
+| `unread_change` | 读最新发言并接棒：map topic comments --id <slug> 查看后，写本轮发言文件 map topic comment --id <slug> --file <md>（写完自己成为最新发言者即消失） | map-project-collab | contextual 交接信号：对方是最新发言者时出现，我自己发言后消失；仅白名单（creator ∪ declared ∪ speakers）可见，reviewer 等旁观者不可见；simple-waker 签名唤醒的交接信号源，不再依赖 stale_open_topics 心跳 |
 <!-- END:kind-dispatch -->
 
 > **新增 kind 落地 checklist（强制，实验 d559f431 A5）**：新增 kind 必须同时改

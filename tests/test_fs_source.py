@@ -801,3 +801,64 @@ def test_work_and_advance_same_origin_reject_handwritten(
     reasons = detail["missing_reasons"]
     assert "round1-test-participant.md" in reasons["test-participant"]
     assert "frontmatter author missing" in reasons["test-participant"]
+
+
+def test_fs_unread_change_handoff(
+    client, admin_headers: dict, tmp_path: Path
+) -> None:
+    """对方发言 → 白名单内 persona 得到 unread_change contextual 项（交接信号）；
+    自己是最新发言者时消失；白名单外（reviewer）始终不可见。"""
+    project = _create_project(client, admin_headers, tmp_path)
+
+    def _make_agent(name: str) -> dict:
+        resp = client.post(
+            "/api/v1/agents",
+            headers=admin_headers,
+            json={"name": name, "role": "agent", "project_key": project["project_key"]},
+        )
+        assert resp.status_code == 201
+        return {"Authorization": f"Bearer {resp.json()['api_token']}"}
+
+    host_headers = _make_agent("fs-host")
+    participant_headers = _make_agent("fs-participant")
+    reviewer_headers = _make_agent("fs-reviewer")
+
+    def _kinds(headers: dict, slug: str) -> list[str]:
+        response = client.get("/api/v1/agents/me/work", headers=headers)
+        assert response.status_code == 200
+        return [
+            w["kind"]
+            for item in response.json()["topic_progress"]["items"]
+            if item["topic_id"] == str(topic_id_for_slug(slug))
+            for w in item["work_items"]
+        ]
+
+    write_topic_index(
+        tmp_path,
+        "handoff",
+        title="Handoff",
+        creator="host",
+        participants=["host", "participant"],
+    )
+    write_round_comment(tmp_path, "handoff", round_number=1, persona="host", body="# 开场\nhost 先说")
+
+    # host 是最新发言者 → host 无 unread_change；participant（白名单内，
+    # 最后发言者是别人）有 unread_change + pending_topic_reply
+    assert "unread_change" not in _kinds(host_headers, "handoff")
+    participant_kinds = _kinds(participant_headers, "handoff")
+    assert "unread_change" in participant_kinds
+    assert "pending_topic_reply" in participant_kinds
+    # reviewer 不在白名单 → 任何时刻都看不到
+    assert "unread_change" not in _kinds(reviewer_headers, "handoff")
+
+    # participant 发言（交接）→ host 立即得到 unread_change，无需等 stale
+    write_round_comment(tmp_path, "handoff", round_number=1, persona="participant", body="# 回应\nparticipant 意见")
+    assert "unread_change" in _kinds(host_headers, "handoff")
+    # participant 自己是最新发言者 → 自己的 unread_change 消失（仅剩义务项）
+    assert "unread_change" not in _kinds(participant_headers, "handoff")
+    assert "unread_change" not in _kinds(reviewer_headers, "handoff")
+
+    # host 再发言 → 交接回 participant
+    write_round_comment(tmp_path, "handoff", round_number=2, persona="host", body="# Summary\nhost 总结")
+    assert "unread_change" not in _kinds(host_headers, "handoff")
+    assert "unread_change" in _kinds(participant_headers, "handoff")

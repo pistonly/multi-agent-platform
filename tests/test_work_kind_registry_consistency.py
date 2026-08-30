@@ -87,8 +87,8 @@ def test_fs_source_produced_kinds_subset_of_registry() -> None:
         _SERVER_ROOT / "fs_source_service.py", "TopicWorkItemRead", "TopicWorkItem"
     )
     assert produced, "fs_source_service 应至少产一个 work item kind"
-    assert produced == {"action_items", "stale_open_topics"}, (
-        "fs_source 产 kind 集合漂移，R1 只接线了这两个 kind"
+    assert produced == {"action_items", "stale_open_topics", "unread_change"}, (
+        "fs_source 产 kind 集合漂移（已接线 action_items / stale_open_topics / unread_change）"
     )
     unregistered = produced - _REGISTERED
     assert not unregistered, (

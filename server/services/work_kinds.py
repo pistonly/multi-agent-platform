@@ -122,6 +122,19 @@ WORK_ITEM_KINDS: tuple[WorkItemKindSpec, ...] = (
         skill="topic-host",
         note="FS 话题，kind 同构于 stale nudge，来源 action-items.yaml；participant 亦可为 owner",
     ),
+    WorkItemKindSpec(
+        kind="unread_change",
+        clear_action=(
+            "读最新发言并接棒：map topic comments --id <slug> 查看后，"
+            "写本轮发言文件 map topic comment --id <slug> --file <md>（写完自己成为最新发言者即消失）"
+        ),
+        skill="map-project-collab",
+        note=(
+            "contextual 交接信号：对方是最新发言者时出现，我自己发言后消失；"
+            "仅白名单（creator ∪ declared ∪ speakers）可见，reviewer 等旁观者不可见；"
+            "simple-waker 签名唤醒的交接信号源，不再依赖 stale_open_topics 心跳"
+        ),
+    ),
 )
 
 
