@@ -54,6 +54,7 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "doctor_app": ("doctor",),
     "version_app": ("version",),
     "waker_app": ("waker",),
+    "verify_audit_app": ("fs",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -135,6 +136,8 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("sync", "status"),
     ("sync", "topic"),
     ("sync", "topics"),
+    # T7 I3：fs verify-audit 漂移检测——只读 map/ 文件夹，不写 MAP 状态。
+    ("fs", "verify-audit"),
 }
 
 # 同时匹配单行 `@x_app.command("name")` 与多行 `@x_app.command(\n  "name",`。

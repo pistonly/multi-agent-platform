@@ -86,6 +86,8 @@ EXPECTED_TOP_LEVEL_SUBAPPS = [
     "action",
     "feedback",
     "docs",
+    # T7 I3：audit 漂移检测 CLI（map fs verify-audit，cli/commands/verify_audit.py）
+    "fs",
 ]
 
 
@@ -141,6 +143,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
     "notification": ["list", "read", "read-all"],
     "inbound-event": ["record"],
     "audit": ["list"],
+    # T7 I3：audit 漂移检测 CLI
+    "fs": ["verify-audit"],
 }
 
 
@@ -238,6 +242,7 @@ EXPECTED_SUBAPP_FILES = [
     "sync.py",
     "topic.py",
     "version.py",
+    "verify_audit.py",
     "waker_status.py",
 ]
 
