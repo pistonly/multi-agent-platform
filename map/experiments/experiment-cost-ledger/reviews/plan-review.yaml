@@ -1,0 +1,7 @@
+reasonable_items:
+- plan v2 数据源修订正确：监督者独立核实 .map/runtime-waker-sessions/*.jsonl 顶层无 usage 字段（仅 waker
+  事件日志），真实 token usage 在 .map/claude-runtime-home-*/.claude/projects/ 的 session jsonl
+- I0 spike 先考证再实施的流程合规，避免了按错误数据源开工
+- 验收判据机器可判（fixture 聚合 + 缺 usage 计未知 + 全量基线 1806）
+unreasonable_items: []
+substitute_reason: null
