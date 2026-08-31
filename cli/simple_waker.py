@@ -863,6 +863,10 @@ class SimpleWaker:
     async def _run_once_async(self) -> tuple[SimpleWakerStats, float]:
         stats = SimpleWakerStats(cycles=1)
         self._scan_stalled_experiment_locks(stats)
+        # 实验 waker-status-view I2: 每个 cycle 自写 waker 状态指标 + pid 变化归档
+        # 必须放在 _scan_stalled_experiment_locks 之后、所有 return 之前，确保
+        # 每个 cycle（无论 remind / dry-run / no-remind 路径）都累加计数。
+        self._accumulate_cycle_stats(stats)
         work = self.client.work() or {}
         # T03：work 快照本身含完整 agent 身份（AgentWorkRead.agent），且认证
         # 失败时 work 子进程同样非零退出——身份直接从快照取，省掉每周期一次
@@ -1237,6 +1241,95 @@ class SimpleWaker:
         self._state_dirty = True
         self._save_state_if_needed(force=True)
         self._patch_server_busy(stats, busy_since=None)
+
+    # 实验 waker-status-view I2（A1+A3+A5）: 每个 cycle 自写 waker 状态
+    # 指标（pid / cycles / reminds / skips / errors 滚动窗口），不引入
+    # 新 IO（复用 _save_state_if_needed 路径 atomic write）。view 层派生
+    # uptime/state/busy_since；本方法只写原始计数 + 时间戳。
+    def _accumulate_cycle_stats(self, stats: SimpleWakerStats) -> None:
+        persona_state = self._persona_state(self.config.persona)
+        current_pid = os.getpid()
+        now = datetime.now(timezone.utc)
+
+        prev_pid = persona_state.get("pid")
+        if prev_pid is not None and int(prev_pid) != current_pid:
+            # A5: waker 重启（pid 变化）→ 归档旧计数 + 归零 cycles
+            self._archive_and_reset_on_restart(
+                persona_state, prev_pid=int(prev_pid), current_pid=current_pid, now=now
+            )
+
+        persona_state["pid"] = current_pid
+        persona_state.setdefault("started_at", now.isoformat())
+
+        persona_state["cycles_total"] = int(persona_state.get("cycles_total", 0)) + 1
+        persona_state["reminds_sent_total"] = int(
+            persona_state.get("reminds_sent_total", 0)
+        ) + stats.reminds_sent
+        persona_state["skips_unchanged_total"] = int(
+            persona_state.get("skips_unchanged_total", 0)
+        ) + stats.remind_skips_unchanged
+
+        had_error = 1 if (stats.cycle_errors > 0 or stats.remind_errors > 0) else 0
+        errors_window = list(persona_state.get("errors_last_n_window") or [])
+        errors_window.append(had_error)
+        if len(errors_window) > 10:
+            errors_window = errors_window[-10:]
+        persona_state["errors_last_n_window"] = errors_window
+        persona_state["errors_last_n"] = sum(errors_window)
+
+        persona_state["last_cycle_at"] = now.isoformat()
+        persona_state["last_poll_at"] = now.isoformat()
+
+        self._state_dirty = True
+
+    def _archive_and_reset_on_restart(
+        self,
+        persona_state: dict[str, Any],
+        *,
+        prev_pid: int,
+        current_pid: int,
+        now: datetime,
+    ) -> None:
+        """A5: waker pid 变化 → 写 .stale.<ts>.json 归档旧计数 + 重置 cycles。
+
+        主 state 文件保持原地（atomic write 契约）；sidecar 只记上次关键计数
+        + pid diff 供事后溯源。runtime session 字段（claude_session_id /
+        runtime_session_id / runtime_contract_hash）保留——重启不破坏既有
+        runtime 状态机连续性。
+        """
+        state_file = self.config.state_file
+        ts = now.strftime("%Y%m%dT%H%M%SZ")
+        archive_path = state_file.with_suffix(f".stale.{ts}.json")
+        archive_marker = {
+            "archived_at": now.isoformat(),
+            "previous_pid": prev_pid,
+            "new_pid": current_pid,
+            "previous_cycles_total": int(persona_state.get("cycles_total", 0)),
+            "previous_reminds_sent_total": int(
+                persona_state.get("reminds_sent_total", 0)
+            ),
+            "previous_errors_last_n": int(persona_state.get("errors_last_n", 0)),
+        }
+        with contextlib.suppress(OSError):
+            # 归档失败不阻塞主流程（best-effort）；view 仍能从 cycles=0 看到 restart
+            archive_path.write_text(
+                json.dumps(archive_marker, ensure_ascii=False, indent=2)
+            )
+
+        for key in (
+            "cycles_total",
+            "reminds_sent_total",
+            "skips_unchanged_total",
+            "errors_last_n_window",
+            "errors_last_n",
+            "started_at",
+            "last_cycle_at",
+            "last_poll_at",
+            "busy_started_at",
+            "session_busy_since",
+            "busy_pid",
+        ):
+            persona_state.pop(key, None)
 
     def _check_busy_crash_recovery(self) -> None:
         """I2（A2 + A8 边界）：启动时回收上次 crash 残留 busy 标记。

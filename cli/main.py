@@ -68,6 +68,7 @@ from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
 from cli.commands.version import version_app
+from cli.commands.waker_status import waker_app
 from cli.e2e_collab import e2e_app
 
 # T23（2026-08）：命令执行链（_run / client ctx / envelope / 序列化 /
@@ -156,6 +157,7 @@ app.add_typer(version_app, name="version")
 app.add_typer(host_app, name="host")
 app.add_typer(auth_app, name="auth")
 app.add_typer(server_app, name="server")
+app.add_typer(waker_app, name="waker")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}

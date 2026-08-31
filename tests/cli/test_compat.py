@@ -238,6 +238,7 @@ EXPECTED_SUBAPP_FILES = [
     "sync.py",
     "topic.py",
     "version.py",
+    "waker_status.py",
 ]
 
 
