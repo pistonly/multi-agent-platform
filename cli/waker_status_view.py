@@ -1,4 +1,4 @@
-"""Render ``map waker status`` view (实验 waker-status-view I3).
+"""Render ``map waker status`` view (实验 waker-status-view I3)。
 
 读 ``.map/simple-waker-state-{persona}.json`` (per-persona 进程状态；
 I2 由 waker 自写) + ``map work`` 心跳字段合成视图，输出 10 字段最小集
@@ -8,25 +8,89 @@ skips | errors | state）。
 视图只读（A4）：不写日志 / 不发通知 / 不重启 waker / 不改 state。
 与 T1-T4 单向流一致（视图是末梢，不闭环回去）。
 
-state 派生（A2）：
-  - live: ``now - last_poll_at ≤ 30s``（cycle 周期）
-  - stale: 30s < gap ≤ 300s
-  - dead: gap > 300s 或 pid 不存在
-  - busy_stale 升级：``busy_since > 5min`` 自动标 stale（防"卡死 busy"逃判）
+state 派生（实验 T6 a8b64c20 v2 plan）：
+  阈值不再硬编码，派生自 ``SimpleWakerConfig.active_interval``
+  （``cli/simple_waker.py:201`` in-memory 启动时配置）。
+  ``lib/waker_status_config.py`` 单模块导出 4 阈值派生函数：
+  - live: ``gap ≤ live_window(active_interval)`` = max(2 × active_interval, 30)
+  - stale: live_w < gap ≤ dead_window(active_interval) = 10 × active_interval
+  - dead: gap > dead_window 或 pid 不存在
+  - busy 卡死升级: ``busy_age > busy_stale(expected_remind_runtime, idle_threshold)``
+    （CLI 默认 ``expected_remind_runtime = idle_stale``，故 = 2 × idle_stale）
+
+active_interval 缺失 fallback 默认 30s + ``RuntimeWarning``（case c 覆盖）。
+多 waker 配置隔离：每个 waker 独立从 SimpleWakerConfig 派生，不允许全局缓存。
 """
 from __future__ import annotations
 
 import json
 import os
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# A2 stale 三档阈值
-LIVE_WINDOW_SECONDS = 30
-DEAD_WINDOW_SECONDS = 300
-# A2 busy 卡死升级阈值（busy_since 距今超过此值 → 升级 stale）
-BUSY_STALE_UPGRADE_SECONDS = 300
+from lib.waker_status_config import (
+    busy_stale as _busy_stale,
+    dead_window as _dead_window,
+    idle_stale as _idle_stale,
+    live_window as _live_window,
+)
+
+# active_interval 缺失 fallback 默认值（T6 v2 plan §派生公式 floor 30s 一致）
+_ACTIVE_INTERVAL_FALLBACK = 30
+_IDLE_INTERVAL_FALLBACK = 300
+
+
+def _get_active_interval() -> int:
+    """Read ``SimpleWakerConfig.active_interval`` (in-memory cli 端配置).
+
+    T5-A I2 未序列化 active_interval 到 state.json；派生源在 cli 启动时配置。
+    缺失 fallback 默认 30s + ``RuntimeWarning``（与 §派生公式 floor 一致）。
+    """
+    try:
+        from cli.simple_waker import SimpleWakerConfig  # type: ignore
+    except ImportError:
+        warnings.warn(
+            "cli.simple_waker unavailable; active_interval fallback to 30s",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return _ACTIVE_INTERVAL_FALLBACK
+    value = getattr(SimpleWakerConfig, "active_interval", None)
+    if value is None:
+        warnings.warn(
+            "SimpleWakerConfig.active_interval not found; fallback to 30s",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return _ACTIVE_INTERVAL_FALLBACK
+    return int(value)
+
+
+def _get_idle_interval() -> int:
+    """Read ``SimpleWakerConfig.idle_interval`` (in-memory cli 端配置).
+
+    缺失 fallback 默认 300s + ``RuntimeWarning``。
+    """
+    try:
+        from cli.simple_waker import SimpleWakerConfig  # type: ignore
+    except ImportError:
+        warnings.warn(
+            "cli.simple_waker unavailable; idle_interval fallback to 300s",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return _IDLE_INTERVAL_FALLBACK
+    value = getattr(SimpleWakerConfig, "idle_interval", None)
+    if value is None:
+        warnings.warn(
+            "SimpleWakerConfig.idle_interval not found; fallback to 300s",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return _IDLE_INTERVAL_FALLBACK
+    return int(value)
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -56,10 +120,14 @@ def compute_waker_state(
     persona_state: dict[str, Any],
     *,
     now: datetime | None = None,
+    active_interval: int | None = None,
+    idle_interval: int | None = None,
 ) -> str:
     """Compute live / stale / dead / busy_stale for one persona.
 
     优先级：busy 卡死 > dead > stale > live。
+    阈值派生自 ``active_interval`` / ``idle_interval``（cli 端 SimpleWakerConfig
+    in-memory 启动时配置；缺失 fallback 默认值 + RuntimeWarning）。
     """
     now = now or datetime.now(timezone.utc)
     pid = persona_state.get("pid")
@@ -72,10 +140,26 @@ def compute_waker_state(
     last_poll_at = _parse_dt(persona_state.get("last_poll_at"))
     busy_since = _parse_dt(persona_state.get("busy_started_at"))
 
+    # 派生阈值（active_interval/idle_interval 缺失时 fallback + WARN）
+    if active_interval is None:
+        active_interval = _get_active_interval()
+    if idle_interval is None:
+        idle_interval = _get_idle_interval()
+    live_w = _live_window(active_interval)
+    idle_stale_w = _idle_stale(active_interval, idle_interval)
+    dead_w = _dead_window(active_interval)
+    # busy 卡死升级：CLI 侧 expected_remind_runtime 缺省按 idle_stale 派生
+    # busy_stale(expected_remind_runtime=idle_stale_w, idle_threshold=idle_stale_w)
+    # = max(idle_stale_w, 2 × idle_stale_w) = 2 × idle_stale_w
+    busy_stale_w = _busy_stale(
+        expected_remind_runtime=idle_stale_w,
+        idle_threshold=idle_stale_w,
+    )
+
     # A2 卡死 busy 升级（防"卡死 busy 逃判"）
     if busy_since is not None and pid is not None and _pid_alive(pid):
         busy_age = (now - busy_since).total_seconds()
-        if busy_age > BUSY_STALE_UPGRADE_SECONDS:
+        if busy_age > busy_stale_w:
             return "stale"
 
     # pid 缺失或已死 → dead
@@ -87,9 +171,9 @@ def compute_waker_state(
         return "dead"
 
     gap = (now - last_poll_at).total_seconds()
-    if gap <= LIVE_WINDOW_SECONDS:
+    if gap <= live_w:
         return "live"
-    if gap <= DEAD_WINDOW_SECONDS:
+    if gap <= dead_w:
         return "stale"
     return "dead"
 
