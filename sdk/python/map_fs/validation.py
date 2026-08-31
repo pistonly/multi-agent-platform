@@ -85,6 +85,40 @@ class OpenExperimentError(Exception):
 _EXPERIMENT_TERMINAL_PHASES: frozenset[str] = frozenset({"done", "cancelled"})
 
 
+# close_reason 合法枚举（T7 I7，与 cli/verify_audit/scanner.py CLOSE_REASON_LEGAL
+# 单一真值）：sdk/python/map_fs/validation.py 定义、scanner 引用，避免双源漂移
+# （验证型写拒绝 + 审计层检测双层防线，详见 cli/verify_audit/scanner.py:32-39）。
+# 4 值含义：
+#   experiment_ready       — 收敛后开实验，等实验就绪
+#   experiment_done        — 收敛后开实验，实验已 done/cancelled
+#   cancelled              — 话题主动取消（不开实验）
+#   discussion_converged   — 讨论收敛但不开实验（仅沉淀决策 / 不挂实验链路）
+CLOSE_REASON_LEGAL: frozenset[str] = frozenset({
+    "experiment_ready",
+    "experiment_done",
+    "cancelled",
+    "discussion_converged",
+})
+
+
+class InvalidCloseReasonError(Exception):
+    """close_reason 不在合法枚举 CLOSE_REASON_LEGAL 内（T7 I7 第 4 维校验）。
+
+    ``reason`` 携带非法值；``legal`` 携带合法集合（sorted 字符串列表，便于
+    错误消息直接展示）。非法值入参 = 验证型写直接拒绝（写入未发生），
+    已存在的 close 字段值不在此范围 → 由 verify_audit D004 检测。
+    """
+
+    def __init__(self, reason: str, legal: list[str]) -> None:
+        self.reason = reason
+        self.legal = list(legal)
+        super().__init__(
+            f"close_reason='{reason}' 不在合法枚举 {legal} 内; "
+            f"请使用 4 值之一: experiment_ready / experiment_done / "
+            f"cancelled / discussion_converged"
+        )
+
+
 def _missing_reasons(topic: FsTopic, missing: list[str]) -> dict[str, str]:
     """missing persona 的逐条指认：``round1-participant.md: 原因``（A5）。
 
@@ -181,6 +215,14 @@ def validate_close(
     ]
     if non_terminal:
         raise OpenExperimentError(non_terminal)
+
+    # 第 4 维（T7 I7）：close_reason 枚举校验。close_reason 显式传入且不在
+    # CLOSE_REASON_LEGAL 内 → 拒绝写入；None（未指定）放行以兼容历史 close。
+    # 与 cli/verify_audit/scanner.py CLOSE_REASON_LEGAL 单一真值对齐。
+    if close_reason is not None and close_reason not in CLOSE_REASON_LEGAL:
+        raise InvalidCloseReasonError(
+            close_reason, sorted(CLOSE_REASON_LEGAL)
+        )
 
     fields: dict[str, str] = {"status": "closed"}
     if close_reason:

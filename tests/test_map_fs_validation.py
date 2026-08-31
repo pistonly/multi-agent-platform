@@ -107,9 +107,9 @@ def test_advance_owner_gate(tmp_path: Path) -> None:
 
 
 def test_close_ok_fields(tmp_path: Path) -> None:
-    assert validate_close(_topic(tmp_path), close_reason="done", close_note="note") == {
+    assert validate_close(_topic(tmp_path), close_reason="experiment_done", close_note="note") == {
         "status": "closed",
-        "close_reason": "done",
+        "close_reason": "experiment_done",
         "close_note": "note",
     }
     assert validate_close(_topic(tmp_path)) == {"status": "closed"}

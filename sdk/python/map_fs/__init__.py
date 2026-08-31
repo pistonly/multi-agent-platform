@@ -47,6 +47,8 @@ from map_fs.parser import (
 )
 from map_fs.validation import (
     AckPendingError,
+    CLOSE_REASON_LEGAL,
+    InvalidCloseReasonError,
     OpenActionItemsError,
     OpenExperimentError,
     TopicOwnerError,
@@ -59,6 +61,7 @@ __all__ = [
     "AckPendingError",
     "ArchiveEntry",
     "ArchiveStateError",
+    "CLOSE_REASON_LEGAL",
     "DEFAULT_CONTENT_ROOT",
     "EXPERIMENT_INDEX_REQUIRED",
     "EXPERIMENT_PHASES",
@@ -69,6 +72,7 @@ __all__ = [
     "FsPlane",
     "FsTopic",
     "FsWorkItem",
+    "InvalidCloseReasonError",
     "OpenActionItemsError",
     "OpenExperimentError",
     "TopicOwnerError",

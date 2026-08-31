@@ -146,12 +146,12 @@ def test_full_offline_lifecycle(runner: CliRunner, local_workspace: Path) -> Non
 
     # close（creator=host，无 action items）
     result = runner.invoke(
-        app, ["topic", "close", "--topic", "t1", "--reason", "no_experiment_needed"]
+        app, ["topic", "close", "--topic", "t1", "--reason", "discussion_converged"]
     )
     assert result.exit_code == 0, result.output
     idx = _index(ws, "t1")
     assert idx["status"] == "closed"
-    assert idx["close_reason"] == "no_experiment_needed"
+    assert idx["close_reason"] == "discussion_converged"
 
     # audit.jsonl 两行：advance-round → close，均为 local-plane 来源
     audit_path = ws / "map" / "topics" / "t1" / "audit.jsonl"

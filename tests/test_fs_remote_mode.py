@@ -289,7 +289,7 @@ def test_remote_close_validate_commit(client, admin_headers, tmp_path):
         f"/api/v1/projects/{pid}/fs/topics/remote-demo/close/validate",
         headers=admin_headers,
         json={
-            "close_reason": "no_experiment_needed",
+            "close_reason": "discussion_converged",
             "base_revision": meta["projection_revision"],
             "evidence": _detail_read(topic),
         },
@@ -297,7 +297,7 @@ def test_remote_close_validate_commit(client, admin_headers, tmp_path):
     assert resp.status_code == 200
     verdict = resp.json()
     assert verdict["fields"]["status"] == "closed"
-    assert verdict["fields"]["close_reason"] == "no_experiment_needed"
+    assert verdict["fields"]["close_reason"] == "discussion_converged"
 
     update_topic_index(client_ws, "remote-demo", status="closed")
     resp = client.post(

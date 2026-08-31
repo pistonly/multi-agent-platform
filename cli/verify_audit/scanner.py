@@ -29,8 +29,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-# close_reason 合法枚举 (与 sdk/python/map_fs/validation.py 同步)
-# 当前包含 3 旧值; T7 I7 扩展后加 discussion_converged → 4 值
+# close_reason 合法枚举（T7 I7 扩展后 4 值，与 sdk/python/map_fs/validation.py
+# CLOSE_REASON_LEGAL 单一真值同源；SDK 定义后此处直接构造以保双层防线对齐：
+# 验证型写（validate_close 第 4 维）拒绝非法值 + 审计层（verify_audit D004）
+# 检测已落盘非法值）。来源 sync 由 tests/test_verify_audit.py::test_d004
+# _sync_with_sdk_constant 守护。
 CLOSE_REASON_LEGAL: frozenset[str] = frozenset({
     "experiment_ready",
     "experiment_done",
