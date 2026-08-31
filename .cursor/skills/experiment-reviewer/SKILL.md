@@ -60,6 +60,16 @@ description: >-
 | 评审写空泛褒贬（「计划不错」/「有问题」） | 具体可验证：「目标清晰：验证 CLI --json 输出格式」/「缺少验收标准：未定义 ok 字段类型」 |
 | approve / start / complete 实验 | reviewer 只做 review add / accept-result / reject-result |
 
+## 写入红线（runtime 中立）
+
+**红线条款**（runtime 中立）：禁止用任何文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改 `map/**` 下任何文件；一切状态变更走 `map` CLI；如需 Read 类工具（cat/head/tail/grep）做诊断允许。
+
+**视为事故触发条件**：发现 audit 链漂移（不论 verify-audit 检测还是 agent 自己注意到，含 server 侧门禁失效导致的非手写场景）→ 停止当前话题状态变更 → 报告 → 等 host/supervisor 决定。
+
+**reviewer 响应**：停止评审提交（不调 `experiment review add`），先在评审草稿里标注『发现 audit 链漂移，待 host 修复』。
+
+> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["reviewer"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
+
 ## 参考
 
 | 场景 | 文档 |

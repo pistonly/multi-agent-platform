@@ -54,6 +54,14 @@
 | participant | [topic-participant](../../topic-participant/SKILL.md) |
 | reviewer | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
 
+## 写入红线（runtime 中立）
+
+**红线条款**（runtime 中立）：禁止用任何文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改 `map/**` 下任何文件；一切状态变更走 `map` CLI；如需 Read 类工具（cat/head/tail/grep）做诊断允许。
+
+**视为事故触发条件**：发现 audit 链漂移（不论 verify-audit 检测还是 agent 自己注意到，含 server 侧门禁失效导致的非手写场景）→ 停止当前话题状态变更 → 报告 → 等 host/supervisor 决定。
+
+> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
+
 ## 红线
 
 - `map work` / todos 即真相，以 API 返回为准，不信"上次看过"

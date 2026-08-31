@@ -96,6 +96,16 @@ map --persona host host invoke --persona reviewer \
 | result_review 阶段自审结果 | 等 reviewer；host 不执行 accept-result / reject-result |
 | `git add .` 全量提交 | 先 `git status --short` / `git diff --stat` 划边界，只 stage 当前实验文件 |
 
+## 写入红线（runtime 中立）
+
+**红线条款**（runtime 中立）：禁止用任何文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改 `map/**` 下任何文件；一切状态变更走 `map` CLI；如需 Read 类工具（cat/head/tail/grep）做诊断允许。
+
+**视为事故触发条件**：发现 audit 链漂移（不论 verify-audit 检测还是 agent 自己注意到，含 server 侧门禁失效导致的非手写场景）→ 停止当前话题状态变更 → 报告 → 等 host/supervisor 决定。
+
+**host 响应**：停止 advance-round / close / 创建实验等状态变更，先调用 `map fs verify-audit` 确认漂移范围并写诊断评论。
+
+> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["host"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
+
 ## 参考
 
 | 场景 | 文档 |
