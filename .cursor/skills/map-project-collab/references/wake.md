@@ -62,6 +62,8 @@
 
 > 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
 
+**相关 feedback memory**：`feedback_fs_round_file_bypass.md`（避免 participant 重复踩坑走手写 round 文件路径；手写路径即使在文件层可见，server 端 ack 校验 + audit 留痕都缺失，会被 verify-audit D001/D003 检出）。
+
 ## 红线
 
 - `map work` / todos 即真相，以 API 返回为准，不信"上次看过"
