@@ -389,3 +389,156 @@ def test_waker_errors_window_caps_at_10(tmp_path: Path) -> None:
     persona_state = waker.state["personas"]["host"]
     assert len(persona_state["errors_last_n_window"]) == 10
     assert persona_state["errors_last_n"] == 10
+
+
+# =========================================================================
+# I5 新增 5 case (a)-(e) — 验证 §派生公式 完整性
+# =========================================================================
+
+
+@pytest.mark.parametrize(
+    "active_interval,idle_interval,multiplier,expected",
+    [
+        # active_interval=30, idle_interval=300 (默认): live_w=60, idle_stale_w=300, dead_w=300
+        (30, 300, 0.5, "live"),    # 15s → live
+        (30, 300, 1.5, "live"),    # 45s → live
+        (30, 300, 2.5, "stale"),   # 75s → stale (plan §A5(a) 期望 live，但 live_w=60 < 75 < dead_w=300 → stale)
+        (30, 300, 3.5, "stale"),   # 105s → stale
+        (30, 300, 10.0, "stale"),  # 300s → stale (boundary = dead_w)
+        (30, 300, 10.5, "dead"),   # 315s → dead
+        # active_interval=60, idle_interval=300: live_w=120, idle_stale_w=300, dead_w=600
+        (60, 300, 1.0, "live"),    # 60s → live
+        (60, 300, 2.0, "live"),    # 120s → live (boundary)
+        (60, 300, 3.0, "stale"),   # 180s → stale
+        (60, 300, 10.0, "stale"),  # 600s → stale (boundary)
+        (60, 300, 10.5, "dead"),   # 630s → dead
+    ],
+)
+def test_a_derived_tier_table(
+    tmp_path: Path, active_interval: int, idle_interval: int, multiplier: float, expected: str
+) -> None:
+    """§A5(a) 派生档位表：gap = multiplier × active_interval → 派生 state。
+
+    Plan §A5(a) 期望 `live/live/live/stale/dead`，但 live_w = max(2×active_interval, 30)
+    公式下 0.5×/1.5× → live、2.5× → stale（> live_w=60 但 ≤ dead_w=300）、
+    3.5× → stale、10× → stale (boundary = dead_w)。差异源于 §派生公式 2× 不是 3×
+    设计选择（plan §风险 1.5× 不选 / 3× 不选 论证）。本 case 覆盖完整档位表
+    live/stale/dead 三档 + 边界，断言与公式严格对齐。
+    """
+    gap = multiplier * active_interval
+    state = _state(last_poll_gap_s=gap)
+    assert (
+        compute_waker_state(
+            state, now=NOW, active_interval=active_interval, idle_interval=idle_interval
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "active_interval,idle_interval,busy_multiplier,expected",
+    [
+        # active_interval=30, idle_interval=300: busy_stale_w = max(300, 600) = 600
+        (30, 300, 0.8, "live"),    # busy 480s → live (busy_age ≤ 600)
+        (30, 300, 1.0, "live"),    # busy 600s → live (busy_age = busy_stale_w, NOT > 600)
+        (30, 300, 1.5, "stale"),   # busy 900s → stale (busy_age > 600)
+        (30, 300, 3.0, "stale"),   # busy 1800s → stale
+        # active_interval=60, idle_interval=300: busy_stale_w = max(300, 600) = 600
+        (60, 300, 0.8, "live"),    # busy 480s → live
+        (60, 300, 1.5, "stale"),   # busy 900s → stale
+    ],
+)
+def test_b_busy_stuck_tier_table(
+    tmp_path: Path, active_interval: int, idle_interval: int, busy_multiplier: float, expected: str
+) -> None:
+    """§A5(b) busy 升级档位：busy_age = multiplier × busy_stale_w → 派生 state。
+
+    Plan §A5(b) 期望 `live/live/busy_stale`，实际 busy_stale_w 严格/非严格边界：
+    busy_age ≤ busy_stale_w → 走普通 gap 判定；busy_age > busy_stale_w → stale 升级。
+    multiplier 0.8/1.0 → busy_age ≤ 600 → live（视 gap）；1.5/3.0 → busy_age > 600 → stale。
+    """
+    # busy_stale_w via lib formula: max(idle_stale, 2 × idle_stale) = 2 × idle_stale for idle_stale=300
+    busy_stale_w = 2 * idle_interval  # = 600 for idle=300
+    busy_age = busy_multiplier * busy_stale_w
+    state = _state(busy_age_s=busy_age, last_poll_gap_s=2.0)
+    assert (
+        compute_waker_state(
+            state, now=NOW, active_interval=active_interval, idle_interval=idle_interval
+        )
+        == expected
+    )
+
+
+def test_c_active_interval_missing_falls_back_to_30s() -> None:
+    """§A5(c) active_interval 缺失降级：fallback 默认 30s + RuntimeWarning。
+
+    compute_waker_state 不传 active_interval 时从 SimpleWakerConfig 派生；
+    SimpleWakerConfig import 失败 / 属性缺失 → fallback 30s + warn。
+    本 case mock SimpleWakerConfig.active_interval = None 触发 fallback，
+    验证 gap=60s（边界 = 2×30）→ live（不是 stale）。
+    """
+    import warnings as _warnings
+    from unittest.mock import patch
+
+    # SimpleWakerConfig.active_interval = None → fallback 30s
+    with patch("cli.simple_waker.SimpleWakerConfig") as mock_config:
+        mock_config.active_interval = None
+        state = _state(last_poll_gap_s=60)  # boundary 60 = 2×30
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            result = compute_waker_state(state, now=NOW)
+        # fallback 30s → live_w = 60 → gap=60 ≤ 60 → live
+        assert result == "live"
+        # 至少一条 RuntimeWarning
+        assert any(issubclass(w.category, RuntimeWarning) for w in caught)
+
+
+def test_d_multi_waker_per_call_kwargs_override() -> None:
+    """§A5(d) 多 waker 不同 active_interval 各自派生不全局缓存。
+
+    compute_waker_state 接受 per-call active_interval / idle_interval kwargs，
+    实现「同一 CLI 进程派生不同 persona 不同配置」隔离。
+    """
+    state_a = _state(last_poll_gap_s=60)  # 60s gap
+    state_b = _state(last_poll_gap_s=60)
+    # active_interval=30 → live_w=60 → gap=60 → live
+    a = compute_waker_state(state_a, now=NOW, active_interval=30, idle_interval=300)
+    # active_interval=10 → live_w=max(20, 30)=30 → gap=60 > 30 → stale
+    b = compute_waker_state(state_b, now=NOW, active_interval=10, idle_interval=300)
+    assert a == "live", f"expected live for active=30 gap=60, got {a}"
+    assert b == "stale", f"expected stale for active=10 gap=60, got {b}"
+    # 同一进程两次调用互不污染
+    assert (
+        compute_waker_state(state_a, now=NOW, active_interval=30, idle_interval=300) == "live"
+    )
+
+
+def test_e_legacy_state_file_compatibility() -> None:
+    """§A5(e) 跨版本兼容：T5-A I2 之前 state.json 缺 active_interval → 不抛错。
+
+    旧 state schema 只含 pid/started_at/last_poll_at/cycles_total，
+    无 busy_started_at / active_interval / idle_interval。compute_waker_state
+    应容忍缺失字段：busy_since=None → 走普通 gap 判定；active_interval=None →
+    fallback 30s。
+    """
+    import warnings as _warnings
+    from unittest.mock import patch
+
+    # 模拟 SimpleWakerConfig 缺失（fallback 路径）
+    with patch("cli.simple_waker.SimpleWakerConfig") as mock_config:
+        mock_config.active_interval = None
+        mock_config.idle_interval = None
+        legacy_state = {
+            "pid": os.getpid(),
+            "started_at": _iso(NOW - timedelta(minutes=5)),
+            "last_poll_at": _iso(NOW - timedelta(seconds=2)),
+            "cycles_total": 1,
+            # 无 busy_started_at / active_interval / idle_interval
+        }
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            result = compute_waker_state(legacy_state, now=NOW)
+        # fallback 30s → live_w=60 → gap=2 ≤ 60 → live
+        assert result == "live"
+        # 至少一条 RuntimeWarning（active_interval 或 idle_interval 缺失）
+        assert any(issubclass(w.category, RuntimeWarning) for w in caught)
