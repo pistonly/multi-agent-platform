@@ -563,6 +563,105 @@ def test_runtime_backend_unchanged_does_not_reset(tmp_path: Path) -> None:
     backend.reset_session.assert_not_called()
 
 
+def _topic_progress(*topic_ids: str) -> dict[str, Any]:
+    """构造 topic_progress work 快照：每个 topic id 一条 unread_change。"""
+    return {
+        "items": [
+            {
+                "topic_id": tid,
+                "topic_title": f"T-{tid}",
+                "discussion_round": "round1",
+                "last_comment_author_name": "participant",
+                "new_comment_count": 1,
+                "new_comments": [{"author_name": "participant", "excerpt": "hi"}],
+                "work_items": [{"kind": "unread_change", "priority": "contextual"}],
+            }
+            for tid in topic_ids
+        ],
+        "total": len(topic_ids),
+    }
+
+
+def _waker_with_backend(tmp_path: Path, **topic_kwargs: Any) -> tuple[SimpleWaker, MagicMock]:
+    client = FakeMapClient(persona="host", **topic_kwargs)
+    backend = MagicMock()
+    backend.wake_async = AsyncMock(return_value=MagicMock(session_id="sess-new", skipped=False))
+    backend.reset_session = AsyncMock()
+    backend.connect = AsyncMock()
+    backend.disconnect = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        state_file=tmp_path / "state.json",
+    )
+    return SimpleWaker(client=client, config=config, backend=backend), backend
+
+
+def test_topic_switch_resets_session_before_wake(tmp_path: Path) -> None:
+    """话题切换（t1 -> t2）且将 resume 旧会话 → 先 reset_session 再唤醒。"""
+    waker, backend = _waker_with_backend(
+        tmp_path, todos={}, topic_progress=_topic_progress("t2")
+    )
+    persona_state = waker._persona_state("host")
+    persona_state["claude_session_id"] = "old-session"
+    persona_state["last_wake_topic_ids"] = ["t1"]
+
+    stats = waker.run_once()
+
+    backend.reset_session.assert_awaited_once()
+    backend.wake_async.assert_awaited_once()
+    assert stats.session_resets_topic_switch == 1
+    assert stats.reminds_sent == 1
+    assert persona_state["last_wake_topic_ids"] == ["t2"]
+
+
+def test_same_topic_set_does_not_reset(tmp_path: Path) -> None:
+    """同一话题的新一轮（id 集合不变，仅评论推进）→ 保留会话连续性。"""
+    waker, backend = _waker_with_backend(
+        tmp_path, todos={}, topic_progress=_topic_progress("t1")
+    )
+    persona_state = waker._persona_state("host")
+    persona_state["claude_session_id"] = "old-session"
+    persona_state["last_wake_topic_ids"] = ["t1"]
+
+    stats = waker.run_once()
+
+    backend.reset_session.assert_not_called()
+    assert stats.session_resets_topic_switch == 0
+    assert stats.reminds_sent == 1
+    assert persona_state["last_wake_topic_ids"] == ["t1"]
+
+
+def test_topic_closed_resets_session(tmp_path: Path) -> None:
+    """话题关闭出队（{t1} -> 空，仅 todo 工作）→ 重置会话。"""
+    waker, backend = _waker_with_backend(
+        tmp_path, todos={"pending_topic_replies": [{"comment_id": "c1"}]}
+    )
+    persona_state = waker._persona_state("host")
+    persona_state["claude_session_id"] = "old-session"
+    persona_state["last_wake_topic_ids"] = ["t1"]
+
+    stats = waker.run_once()
+
+    backend.reset_session.assert_awaited_once()
+    assert stats.session_resets_topic_switch == 1
+    assert persona_state["last_wake_topic_ids"] == []
+
+
+def test_no_existing_session_skips_reset_on_switch(tmp_path: Path) -> None:
+    """无 claude_session_id（唤醒本身就是新会话）→ 话题不同也不重置。"""
+    waker, backend = _waker_with_backend(
+        tmp_path, todos={}, topic_progress=_topic_progress("t2")
+    )
+    waker._persona_state("host")["last_wake_topic_ids"] = ["t1"]
+
+    stats = waker.run_once()
+
+    backend.reset_session.assert_not_called()
+    assert stats.session_resets_topic_switch == 0
+    assert stats.reminds_sent == 1
+
+
 def test_run_once_sends_remind_when_work_exists(tmp_path: Path) -> None:
     client = FakeMapClient(
         persona="host",

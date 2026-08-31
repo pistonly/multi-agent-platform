@@ -268,6 +268,10 @@ class SimpleWakerStats:
     # 长驻 waker 兜底跳过该 cycle 并在下一周期重试，此计数仅用于可观测性。
     cycle_errors: int = 0
     stalled_lock_notifications: int = 0
+    # 话题切换触发的 runtime session 重置次数（2026-08-31 成本战役结论：
+    # 会话以话题为边界复用；唤醒工作集话题 id 集合变化 → reset_session
+    # 后再唤醒，旧话题完整历史不背进新会话）。
+    session_resets_topic_switch: int = 0
 
     def add(self, other: SimpleWakerStats) -> None:
         self.cycles += other.cycles
@@ -853,6 +857,7 @@ class SimpleWaker:
                         "action_items_skip",
                         "action_items_errors",
                         "cycle_errors",
+                        "session_resets_topic_switch",
                     ],
                 )
                 if self.config.once:
@@ -975,6 +980,12 @@ class SimpleWaker:
         # wake_count（WAKE）或标记过期（STALE）。失败不阻塞 remind。
         self._apply_action_item_escalation(stats, todos=todos, now=now)
 
+        # 话题边界会话重置（2026-08-31 成本战役结论）：唤醒工作集的话题
+        # id 集合与上次唤醒不同（新话题出现/旧话题关闭）且将 resume 旧
+        # 会话时，先 reset_session——旧话题完整历史不背进新会话。
+        current_topic_ids = tuple(sorted({e.topic_id for e in context.topic_progress}))
+        await self._reset_session_if_topic_switched(persona_state, current_topic_ids, stats)
+
         self._inflight = True
         # 实验 b3ec2e4d I2：进入 runtime 调用（remind → claude 子进程）
         # 前 touch busy 心跳，会话结束清零。失败兜底不阻塞主流程（A8）。
@@ -985,6 +996,7 @@ class SimpleWaker:
             persona_state["last_remind_work_count"] = context.total_items
             persona_state["last_remind_topic_count"] = context.topic_update_count
             persona_state["last_wake_signature"] = signature
+            persona_state["last_wake_topic_ids"] = list(current_topic_ids)
             self._state_dirty = True
             stats.reminds_sent = 1
             # v0.10：写一条聚合 inbound_event 作为可观测性审计。
@@ -1306,6 +1318,38 @@ class SimpleWaker:
             err=True,
         )
         await self.backend.reset_session()
+
+    async def _reset_session_if_topic_switched(
+        self,
+        persona_state: dict[str, Any],
+        current_topic_ids: tuple[str, ...],
+        stats: SimpleWakerStats,
+    ) -> None:
+        """话题切换/关闭 → 重置 runtime session（2026-08-31 成本战役结论）。
+
+        会话复用（resume ``claude_session_id``）以话题为边界：同一话题的
+        多轮讨论保留上下文连续；唤醒工作集的话题 id 集合与上次唤醒不同
+        （新话题出现 / 旧话题关闭出队）且本次将 resume 旧会话时，先
+        ``reset_session()`` 再唤醒。动机：cache 未生效的端点上旧话题
+        完整历史每轮全价重发（实测单会话 16h / 23MB / 混 7 个话题）。
+
+        仅在「有旧会话可复用」时才判断；无 ``claude_session_id`` 时唤醒
+        本身就是新会话，直接返回。比较只认话题 id 集合——同集合内的
+        新评论/轮次推进（签名已变、正常唤醒）不触发重置。
+        """
+        if not persona_state.get("claude_session_id"):
+            return
+        last_ids = tuple(persona_state.get("last_wake_topic_ids") or ())
+        if tuple(current_topic_ids) == last_ids:
+            return
+        typer.echo(
+            f"[simple-waker] topic set switched for {self.config.persona} "
+            f"({list(last_ids) or '[]'} -> {list(current_topic_ids) or '[]'}); "
+            "resetting runtime session",
+            err=True,
+        )
+        await self.backend.reset_session()
+        stats.session_resets_topic_switch = 1
 
     def _touch_busy(self, stats: SimpleWakerStats, *, now: datetime) -> None:
         """I2（A1）：标记本 waker 进入 busy session（remind → claude 调用）。
