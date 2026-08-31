@@ -1,0 +1,8 @@
+event: complete
+summary: 修复 cli/waker_status_view.py:154 busy 档 fallback 偷换语义 bug（busy_stale_w 偷换
+  idle_stale_w ≈ 180s vs server 30min 容忍 10× 口径差）。I1 state.json 序列化 expected_remind_runtime_seconds；I2
+  三层 fallback chain（state.json > env > 30min default）；I3 atomic write + reader JSONDecodeError
+  重试；I4 pid zombie 排除；I5 schema dataclass 文档化；I6 fixture-based 12 case ≥6；I7 experiment-host
+  skill 视图类实验 checklist 二段式。验收：commit 7b66a38；pytest 1892 passed (基线 1875 + 17 新增)
+  / 0 failed；ruff 0；git diff 白名单 ^cli/ ^lib/ ^tests/ ^.cursor/skills/。**result_review
+  action_item：监督者手动重启 server + waker 生效（cli 改动 daemon restart）**

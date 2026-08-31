@@ -1,0 +1,5 @@
+decision: accept
+summary: T8 pending_review 路由死锁修复 v1 验收通过：review_service.py:278 carve-out plan_version
+  感知扩展落地，6 case parity + 2 回归护栏，pytest 1875 passed/0 failed，ruff 0，commit dd837ec
+  4 文件白名单合规；A7 bd9b21f6 A7 兼容 + T1 白名单不动 + review submit 路径不变；非阻塞 followup：plan A2
+  (b) 文字笔误、(j) 通知收窄验证缺失、pytest_summary 结构化格式下次实验同步

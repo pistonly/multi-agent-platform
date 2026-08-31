@@ -1,0 +1,5 @@
+event: complete
+summary: 'T8 I1+I2 实现完成: review_service.py:278 carve-out plan_version 感知扩展（修复 v1 resolved
+  误排除 → v2 未评审死锁 3h 滞留；与 bd9b21f6 A7 自动迁回机制兼容）；tests/test_review_routing.py 6 case
+  (a)(b)(f)(g)(h)(i) parity 验证；test_experiment_capabilities + test_perf_work_hotpath_bulk
+  2 回归护栏更新。全量 pytest 1875 passed（基线 1869 + 净增 6），ruff check 0，commit dd837ec'

@@ -1,0 +1,20 @@
+pytest_summary:
+  total: 1791
+  passed: 1791
+  failed: 0
+  skipped: 2
+  deselected: 359
+  new_tests: 9
+  new_test_file: tests/test_simple_waker_drift_detection.py
+  baseline: 1782
+  ruff_check: 0
+acceptance:
+  - "A1 周期自检触发: SimpleWakerConfig.drift_check_interval_cycles=30 + --drift-check-interval-cycles flag + WAKER_DRIFT_CHECK_INTERVAL_CYCLES env override；主循环 cycle_index % interval 触发 drift check；与 work 拉取 + 心跳渲染解耦；不阻塞轮询"
+  - "A2 漂移检测粒度: DriftDetector.last_seen 缓存 per-skill relpath → (mtime_ns, size)；_iter_skill_files 拆 SKILL.md + references/*.md 单文件粒度比较"
+  - "A3 双维度快检: mtime_ns + size 严格一致 → 等价；mtime 差 ≤ 1ms(1_000_000ns) + size 一致 → 视为一致；任一不一致才走 sha256 二次确认"
+  - "A4 立即重同步: resync() 调用 sync_runtime_skills；last_resync_at[skill] 1s 窗口抑制同周期同 skill 重复；不抛异常，失败 ResyncResult.ok=False"
+  - "A5 启动留痕: _startup_sync_with_audit helper，4 类 skipped_reason = source_missing/permission_denied/disabled/null，固定 JSON schema 含 skills_count/synced_skills/skipped_reason"
+  - "A6 运行中重同步留痕: 4 类审计事件 = drift_no_change (DEBUG) / drift_resync (INFO) / drift_resync_failed (WARNING alert=true) / drift_check_failed (WARNING alert=true)"
+  - "A7 9 case 全过: drift 检测重同步 (a) / 一致零开销 (b) / 重同步失败 alert (c) / 周期可配置 (d) / 启动留痕 (e1=success, e2=disabled, e3=source_missing) / 跨平台 mtime 抑制 (f1=throttle, f2=1ms tolerance)"
+  - "A8 ruff check 0；pytest 1791 passed (基线 1782 + 新增 9) / 2 skipped / 0 failed；git diff 白名单 ^cli/ ^tests/"
+  - "A9 边界: sync_runtime_skills 全量镜像语义不动；纯 waker 本地行为；无 server 端点 / DB 字段改动；不影响 83bf610 + 8b1d20a1 + b3ec2e4d 已落地链路"

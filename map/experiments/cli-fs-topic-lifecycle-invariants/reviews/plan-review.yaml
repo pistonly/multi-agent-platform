@@ -1,0 +1,25 @@
+reasonable_items:
+- 目标清晰：堵两个状态机缺口——create 静默覆盖既有话题 + close 不查关联实验 terminal；范围明确（不动 comment immutable
+  / close 既有门禁 / DB plane retire / wake signature）
+- 验收可观测（A1-A8）：A1 slug 冲突 FileExistsError 文案可复读；A2 --force 保留语义表（评论 / created_at /
+  experiments 追加合并）可复读；A3 created_at 不可变分支可复读；A4 OpenExperimentError 实验 id + phase
+  可复读；A5 close 不接受 --force 文案与 §2 硬拒绝一致；A6 CLI subprocess + validation 双层 6 case 覆盖完整；A7
+  ruff + pytest 0 failed + 窄白名单硬校验
+- 话题共识一致：完整吸收 cli-fs-invariants-topic-lifecycle 话题 Round 1+2 host + participant 双轮收口；plan
+  dependencies 引用来源话题 9100434b
+- 风险依赖充分：A8 边界段六条（comment immutable parser.py:782 不动 / close 既有 owner/status/action-items
+  不动 / DB plane retire 不碰 / 不引入 wake signature / 不动 close_reason 写入路径 / experiments
+  追加合并不重置 status）；不与 83bf610 + 8b1d20a1 + b3ec2e4d 三个实验冲突
+- 实施顺序合理：I1 parser 改造 → I2 CLI 透传 --force → I3 validation experiments 维度 → I4 CLI
+  错误捕获 → I5 测试双层 → I6 commit；既有 parser.write_topic_index 创建/覆盖合并语义 (parser.py:702)
+  + comment immutable FileExistsError (parser.py:782) 作为对照参照，符合既有架构
+- 依赖完整：来源话题 9100434b 决议、既有 write_topic_index 语义、既有 validate_close 三类门禁 (validation.py:122-154)、既有
+  CLI 调用链 (cli/commands/topic.py:492 → cli/commands/fs.py)、既有 FsTopicDetailRead.experiments
+  字段 (fs.py:74)、与 b3ec2e4d close_reason 路径解耦都已列入 dependencies
+- evidence_keys 三类齐：pytest_summary（6 CLI + 6 validation case）+ 实测输出（a-f 6 个场景完整含 stderr
+  文案）+ grep 核证（parser.py write_topic_index overwrite 参数 + created_at 不可变分支 + validation.py
+  validate_close experiments 校验）
+- follow-up 控制得当：map topic amend --created-at 仅 spec 不在本实验实施范围（避免 scope creep，A3 硬约束保证现状下无人能偷渡）；reviews/amend
+  命令留作独立实验
+unreasonable_items: []
+substitute_reason: null

@@ -1,0 +1,5 @@
+pytest_summary: "1803 + 15 = 1818 passed, 0 failed, 2 skipped, 359 deselected"
+test_summary: "tests/test_waker_status.py: 15 case (live/stale/dead/busy-stale/state-archive/errors-rolling/10-cols/read-only/warn/persona-scan)"
+smoke: "ruff check 0 + map waker status 命令实测 OK (state=dead 反映旧 state 未带新字段)"
+ruff: "All checks passed!"
+git_commit: "57d76e5"

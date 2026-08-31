@@ -1,0 +1,9 @@
+event: complete
+summary: T9-B 重新提交（修复前次 reviewer reject：A3 段二 smoke 实测数据未补全）。I1 穿透修复（commit cbad9b9,
+  cli/waker_status_view.py compute_waker_state A2 分支三段顺序固化 + busy 短路 + 新增 busy 状态）+
+  I2 fixture 归真（tests/test_waker_status_view.py 修正 T9 case (a) + 新增 4 case 共 5 case）。段二
+  smoke 实测：host-agent 在 wake 唤醒期间 busy 状态持续 347s（5 分 47 秒 > plan >5min 硬约束），12 个 30s
+  间隔采样点同帧对比 map waker status + map work，busy_since 全程逐字节一致（2026-08-31T13:36:12.869130+00:00），state
+  两边始终 busy。T+347s 时 last_poll=428s ago > dead_w=300s 但未误报 dead——T9-B 修复核心场景通过。pytest
+  1948 passed / 0 failed（baseline 1901 + 其他实验同期增量 +47，T9-B +5 全过）；ruff check 0；diff
+  严格 ^cli/ ^tests/ 白名单。A4 验收通过后由监督者重启 waker 生效（daemon restart 无 docker build）。

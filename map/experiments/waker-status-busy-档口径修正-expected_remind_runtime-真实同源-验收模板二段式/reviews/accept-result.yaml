@@ -1,0 +1,8 @@
+decision: accept
+summary: T9 waker status busy 档口径修正 v1 验收通过：cli/waker_status_view.py:154 busy_stale
+  fallback 偷换 idle_stale_w 语义 bug 消除，busy 5min host 长会话不再误报 stale/dead，与 server 30min
+  容忍口径同源（10× 差距修复）。I1-I7 全部完成：state.json 序列化 + 三层 fallback chain + atomic write reader
+  重试 + pid zombie 排除 + schema dataclass 文档化 + fixture 12 case + experiment-host skill
+  视图类实验 checklist 二段式。commit 7b66a38 收口 8 文件白名单合规，pytest 1892/0/2 通过，ruff 0，worktree
+  clean，pytest_summary 已结构化（T8 followup 落地）。A8 真实环境 smoke 由监督者重启 server+waker action_item
+  显式收口

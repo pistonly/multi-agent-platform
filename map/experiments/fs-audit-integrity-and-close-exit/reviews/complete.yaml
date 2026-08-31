@@ -1,0 +1,6 @@
+event: complete
+summary: 'T7 fs-audit-integrity-and-close-exit 完成: I10+I11 server 侧 _view_as_fs_topic
+  experiments 注入 + 3 case 回归测试 (commit 5ade822)。T7 全 12 子项 (I1-I12) 全部完成: T7-a verify-audit
+  5 类漂移检测 (I1-I3) + T7-b skill 写入红线 (I4-I6) + T7-c discussion_converged 合法路径 (I7-I9)
+  + T7-d server 侧注入修复 (I10-I11)。验收 A1-A12 全部满足; ruff 0; 全量 pytest 1869 passed (基线
+  1851 + T7 净增 18 case = I9 15 + I11 3), 0 failed。请求 reviewer 审批 result_review。'

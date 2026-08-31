@@ -1,0 +1,7 @@
+event: complete
+summary: I1-I5 完成:CLI/FS 不变量包(topic create 防 slug 冲突 + close 查实验 terminal)。write_topic_index
+  默认拒绝 overwrite,--force 显式覆盖保留 created_at+评论+experiments 关联列表;FsTopic.experiments
+  由 scan_plane 反查注入,validate_close 新增第 4 维校验(关联实验必须达 terminal {done, cancelled});CLI
+  topic create 加 --force 标志 + FileExistsError 捕获,close 失败携带 OpenExperimentError 渲染。回归
+  1735 passed + 2 skipped + 0 failed。ruff 0 error。git diff 白名单 ^cli/ ^sdk/python/map_fs/
+  ^tests/。已知偏差:plan 文档提的 withdrawn phase 在 EXPERIMENT_PHASES 中不存在,实施采用 {done, cancelled}。

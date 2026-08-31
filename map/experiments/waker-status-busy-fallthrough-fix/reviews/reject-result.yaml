@@ -1,0 +1,5 @@
+decision: reject
+summary: 驳回：A3 段二 smoke 实测数据未补全（log.md 段二节 6 项全占位符），按 plan acceptance A3 硬约束『缺段二记录
+  reviewer reject-result 拦下』；I1 穿透修复 + I2 fixture 归真 + A4 pytest 1948 passed + A5
+  白名单守住均 pass，仅 A3 阻断；需监督者触发 host busy >5min 实测 map waker status + map work 同帧对比填入段二节后
+  host 重新 complete。

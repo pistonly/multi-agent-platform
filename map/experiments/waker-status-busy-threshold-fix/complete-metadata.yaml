@@ -1,0 +1,9 @@
+pytest_summary:
+  total: 1892
+  passed: 1892
+  failed: 0
+  skipped: 2
+  deselected: 359
+test_summary: "pytest -q 全量绿（基线 1875 + I6 新加 17 case，0 failed）；test_waker_status_view.py 12 case + test_waker_state_atomic.py 4 case + test_waker_status.py fixture 升级到 1800s 阈值"
+smoke:
+  notes: "action_item 显式收口：监督者手动重启 server + waker 生效（cli 改动 daemon restart 即可，无需 docker build；Dockerfile.api 不含 cli/ 代码）；真实 3-waker 环境 busy 5min 同帧一致性 smoke 待监督者"

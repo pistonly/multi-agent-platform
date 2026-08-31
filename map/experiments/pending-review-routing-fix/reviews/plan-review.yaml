@@ -1,0 +1,20 @@
+reasonable_items:
+- carve-out 修复方向与 source-of-truth 完全对齐：判定锚点改为 plan_version；'当前版本无评审记录'是入队条件不是排除条件；plan
+  §I1 伪代码可复用既有 has_review_on_current_plan_version 函数（server/services/review_service.py:158）
+- 10 case 验收 (a)-(j) 覆盖全面：路由主路径 5 条（v1 resolved 重现 + v1 未 resolved 维持排除 + 全量测试 + 既有不回归
+  + 白名单）+ 兼容性护栏 4 条（多 reviewer 隔离 / v3+ 多次修订不重复入队 / 跨实验隔离 / archive carve-out 不影响）+
+  通知路由关联 1 条（T1 通知收窄影响验证）
+- 不动 bd9b21f6 A7 自动迁回机制（plan §A3）：与 source-of-truth line 459 '期间 reviewer 对当前 plan_version
+  提交新评审——无 open unreasonable 项即...' 一致；只改入队判定，不改迁回判定
+- 不动 T1 通知白名单语义（plan §A4）：creator∪declared∪speakers 维持；通过修复 phase 路由解决，不扩大白名单绕过
+- 不破坏 v1 未 resolved 排除语义（plan §A5）：与 bd9b21f6 A7 兼容——v1 仍有 unresolved 项 → 实验保留在 pending_reviews
+  队列
+- 不改 review submit 语义（plan §A6）：T5-B 监督者手动 review add 验证过路径正常（v2 review add 后 phase
+  自动迁回 running）；T8 只改入队判定不改动 submit 路径
+- pytest_summary 完整：基线 1850 + 10 新增 case = 1860 passed / 0 failed；evidence_keys (1)-(3)
+  实测输出覆盖（v1 resolved 出现 / v1 未 resolved 不出现 / 监督者手动 review add 仍迁回 running）
+- 白名单合规：^server/ + ^sdk/ + ^tests/；§实施 I1 server/services/review_service.py carve-out
+  扩展 + §实施 I2 tests/test_review_routing.py 10 case fixture 严格落在白名单内；A9 监督者重启 server
+  与 waker 生效（无 docker build）
+unreasonable_items: []
+substitute_reason: null

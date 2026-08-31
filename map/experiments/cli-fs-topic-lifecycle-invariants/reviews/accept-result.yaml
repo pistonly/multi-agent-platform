@@ -1,0 +1,6 @@
+decision: accept
+summary: 结果通过：commit b3e1924（7 文件 +508/-19）按 I1→I5 实施，A1-A8 验收全部满足；pytest 全量 1735
+  passed + 2 skip + 0 failed 零回归；实施偏离 {done, cancelled} 而非 plan {done, cancelled,
+  withdrawn} 是合理的 discoverability-driven 偏离（EXPERIMENT_PHASES 实际无 withdrawn，plan 错了）；与
+  b3ec2e4d 衔接形成完整 close 状态机防线；2 CLI subprocess skip 是 pytest 环境约束非实现缺陷；follow-up amend
+  命令留作独立实验

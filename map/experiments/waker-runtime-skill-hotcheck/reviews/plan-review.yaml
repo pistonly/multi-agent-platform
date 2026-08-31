@@ -1,0 +1,24 @@
+reasonable_items:
+- 目标清晰：解决「运行中 waker 全程持有旧 skill 副本 + 同步无审计」两个根因；范围明确（不改 sync_runtime_skills 全量镜像语义，只加触发时机；纯
+  waker 本地行为，不引入 server 端点 / DB 字段 / wake signature）
+- 验收可观测（A1-A9）：A1 周期自检 env 可配可复读；A2 per-skill 单文件粒度（不取目录 mtime）路径明确；A3 双维度快检 mtime_ns+size
+  + hash 二次确认 + 1ms 容差可复读；A4 立即重同步 + 抖动抑制可复读；A5/A6 固定 JSON schema 含 skills_count/synced_skills/skipped_reason/drift_skills/resync_result/alert
+  可复读；A7 6 case 含跨平台 mtime 容差真实边界覆盖完整；A8 ruff+pytest+窄白名单硬校验；A9 边界 4 条守住
+- 话题共识一致：完整吸收 waker-skill-drift-hotcheck 话题 Round 1+2 host + participant 双轮收口；plan
+  dependencies 引用来源话题 0251c6e2
+- 风险依赖充分：A9 边界段五条（不改 sync 全量镜像语义 / 不引入 server 端点或 DB 字段 / 不影响 83bf610+8b1d20a1+b3ec2e4d
+  链路 / drift_resync 期间不进 busy 与 b3ec2e4d 协调 / 审计日志走独立 logger 不进 notification 通道避免污染
+  wakeable 列表）
+- 实施顺序合理：I1 drift 检测模块新建 → I2 立即重同步 + 抖动抑制 → I3 启动留痕 → I4 周期自检触发（主循环接入）→ I5 跨平台 mtime
+  容差 → I6 回归测试 6 case → I7 commit；既有 sync_runtime_skills 全量镜像语义不动，只加触发时机与审计日志
+- 依赖完整：来源话题 0251c6e2 决议、现有 sync_runtime_skills (cli/wake_backend.py:155)、现有 simple_waker.py:1276
+  启动调用点、现有主循环 cycle 调度结构、现有 logger 审计接口、与 b3ec2e4d busy 状态机协调、与 8b1d20a1 通知 fan-out
+  链路解耦都已列入 dependencies
+- evidence_keys 三类齐：pytest_summary（6 新 case test_simple_waker_drift_detection.py 全过）+
+  实测输出（a-f 6 场景完整含 copytree 调用次数 = 0 零开销验证 + alert=true 失败告警 + env override）+ grep
+  核证（simple_waker.py 主循环 drift 调用 + wake_backend.py sync_runtime_skills 返回值 + drift_cache
+  内存 dict）
+- 与既有三个实验链路协调得当：A4 sync 期间不进 busy 状态显式与 b3ec2e4d busy 拆分协调；A9 审计日志走独立 logger 显式与 8b1d20a1
+  fan-out 收窄解耦；A8 显式不影响 83bf610 签名去重；不引入新的 wake signature / work_items kind
+unreasonable_items: []
+substitute_reason: null

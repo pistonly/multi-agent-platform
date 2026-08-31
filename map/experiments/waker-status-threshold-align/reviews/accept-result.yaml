@@ -1,0 +1,4 @@
+decision: accept
+summary: T6 (a8b64c20) waker status 阈值口径修正 v2 plan 实施完整：v1 不合理项已修复；I1-I8 全部完成；白名单遵守（+
+  .gitignore 结构性前置显式声明）；pytest 1850/1850 + ruff 0；同帧一致性测试闭环；7 commits 全部落 main。接受
+  result。

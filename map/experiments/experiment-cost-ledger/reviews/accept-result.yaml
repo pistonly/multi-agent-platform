@@ -1,0 +1,11 @@
+decision: accept
+summary: T5-B per-实验 token 成本台账 v3 验收通过：session jsonl 采集考证 + persona×实验聚合 + 只读报表完整闭环。I0-I8
+  全部完成，5 commit (c71ba28/bccd7c0/73d9f9f/76a1ffe/e60f25f) 8 文件白名单 ^cli/ ^tests/ 合规，pytest
+  1948/0/2 通过（基线 1818 + 净增 130 case），ruff 0，pre-complete 7 evidence 全绿，真实数据 smoke
+  3 命令实测（map experiment show --cost / map waker costs --by persona|experiment）。I4
+  真实数据 follow-up 4 修复（attribution._match_file_window 排除 session_id 自身 / _parse_iso
+  naive UTC / render.aggregate materialize / _fetch_experiment_windows ended_at 兜底）。非阻塞
+  followup：v3 修订无 reviewer 评审覆盖红旗（v3 是 v2 数据源修正细化非 breaking，attribution.py 实际代码符合
+  §A3）/ pytest_summary 结构化形态（T9 已落地 T5-B 落后）/ first_experiment_id 抢占边界用 updated_at
+  兜底（下 iteration Phase.Done explicit ended_at schema migration）/ 价目表未接入（下 iteration
+  价目表 spike）

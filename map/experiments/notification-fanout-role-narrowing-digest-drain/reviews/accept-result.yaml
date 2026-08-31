@@ -1,0 +1,4 @@
+decision: accept
+summary: 结果通过：4 个窄 commit 按 I1→I6 实施，A1-A8 验收全部满足；reviewer 硬边界 I6 dev server 实测通过（reviewer
+  0 条 topic.close + obligation 仍收）；pytest 全量 1764 passed 零回归；A6 审计日志复用 audit_logs
+  表合理偏离

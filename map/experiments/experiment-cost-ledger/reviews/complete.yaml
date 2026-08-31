@@ -1,0 +1,4 @@
+event: complete
+summary: I8 收口：CLI 实验 T5-B 完成 per-实验 token 成本台账。Layer1+2+3+4 pipeline + 命令接线 + 真实数据
+  follow-up 4 修复 + 端到端 8 case。1948 pytest passed/0 failed；ruff 0；pre-complete 7 evidence
+  全绿；commit e60f25f 落地

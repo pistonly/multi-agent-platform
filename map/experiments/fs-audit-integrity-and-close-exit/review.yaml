@@ -1,0 +1,53 @@
+experiment_id: e6d23886-cfa5-4252-bd5c-e245eaa69603
+reviewer: multi-agent-platform-reviewer
+reviewed_at: '2026-08-31T05:15:00+00:00'
+verdict: approve
+v2_plan_review: true
+prior_review_id: 0fe02c46-3185-4b78-815c-f06bfdb645ae
+prior_unreasonable_items_count: 9
+prior_unreasonable_items_addressed: 9
+summary: |
+  T7 plan v2 完整覆盖 v1 review 9 项不合理项（U1-U9），逐条 addressed：
+
+  U1 §背景 第 1 段：事件定性从「host 手写绕过」改为「server 侧 _view_as_fs_topic 未注入 experiments 字段导致 validate_fs_close 第 4 维门禁失效」；完整引用 round3-host.md 三段论（无 audit.jsonl 正常 + 真正根因 server 侧遗漏 + host 行为合规）。
+
+  U2 §验收 A4 + A5：A4 修复路径描述同步（补 server 侧 _view_as_fs_topic 注入 + A12 回归测试 + 检测对象根因叙事）；A5「视为事故」触发条件拓宽到「发现 audit 链漂移（含 server 侧门禁失效导致的非手写场景）」。
+
+  U3 §验收 新增 A11：server 侧 _view_as_fs_topic 注入修复（server/services/fs_source_service.py:429 + scan_plane filter by experiment.topic == view.slug + 与 T3 CLI 注入对齐 + 注入失败降级 WARN fail-safe）。
+
+  U4 §验收 新增 A12：server 侧回归测试（tests/test_fs_close_server.py + 2 case：非 terminal 拒绝 + terminal 放行；pre-fix 必失败 → post-fix 必成功配对证明）。
+
+  U5 §依赖 新增 5 文件位置：(a) fs_source_service.py:1068 validate_fs_close + (b) :429 _view_as_fs_topic + (c) :565 fs_experiments_view + (d) cli/commands/fs.py:564 _require_local_topic + (e) tests/test_fs_close_server.py 新增 fixture。
+
+  U6 §实施 新增 I10（server 侧修复，与 T3 CLI 注入对齐 + FsTopic schema 不变 + 注入失败降级）+ I11（server 侧回归测试 + pre/post-fix 配对）。
+
+  U7 §风险与边界 第 8 条新增 T5-B 现状维持说明（close 行为合规 + 门禁失效放行 + 由 I10/I11 修复 + discussion_converged 出口覆盖）。
+
+  U8 §主题联动标签修正：「权限漂移」→「门禁失效漂移」；新增「修复层」= T7-d；「阻止层」补 server 侧遗漏说明。
+
+  U9 index.md description：当前 index.md 已 closed（frontmatter 精简无 description 字段），v2 修订日志已显式记录为「未来 reopen 时的建议条目」，本条自动合规（不再有错误叙事残留）。
+
+  reviewer source-of-truth 核证（自验）：
+  - sdk/python/map_fs/parser.py:152 FsTopic schema 含 `experiments: list[FsExperiment] = field(default_factory=list)`，且 line 153-157 注释明确指出"调用方（CLI local plane _require_local_topic 或 server fs_source_service）从 FsPlane.experiments 反查 experiment.topic == self.slug 后赋值；字段缺失或空 list 视为「无关联实验」放行"——这是 round3 根因的 source-of-truth 自证
+  - sdk/python/map_fs/validation.py:179 D6 实验 terminal 校验（plan 写"第 4 维"是按维度序号；实质为 D6 维「非 terminal 实验禁止 close」）
+  - cli/commands/fs.py:162 _append_local_audit 函数（local plane 验证型写必留审计行）
+  - server/services/fs_source_service.py:429 _view_as_fs_topic（构造 FsTopic 时未注入 experiments — round3 根因核证已确认）
+  - server/services/fs_source_service.py:565 fs_experiments_view（server 侧等价查询实现参考）
+  - server/services/fs_source_service.py:1068 validate_fs_close（门禁入口，调 validate_close(_view_as_fs_topic(view))）
+
+  plan v2 与 source-of-truth 完全对齐。approve。
+
+reasonable_items:
+  - "v1 review 9 项不合理项全部 addressed：U1 §背景叙事纠正（round3 三段论完整）+ U2 A4/A5 叙事对齐 + U3 A11 server 注入 + U4 A12 server 回归测试 + U5 §依赖 5 文件位置 + U6 I10/I11 实施步骤 + U7 §风险 T5-B 现状维持 + U8 §主题联动标签修正 + U9 index.md description（自动合规：frontmatter 精简无 description 字段）"
+  - "server 侧注入方案工程边界清晰：与 T3 CLI 侧 _require_local_topic（cli/commands/fs.py:564）的 scan_plane 注入模式对齐，确保 CLI local plane + server remote plane 单一真值同源；保持 FsTopic schema（sdk/python/map_fs/parser.py:152）不变；注入失败降级返回空 list + WARN fail-safe open；最小改动原则（仅 _view_as_fs_topic 一处补 1 字段注入）"
+  - "server 侧回归测试 pre/post-fix 配对设计严密：test_remote_close_nonterminal_experiment_rejected（关联实验 phase=pending_review → 断言 409 + close_reason=fsm_violation）+ test_remote_close_terminal_experiment_allowed（关联实验 phase=done → 断言 200 通过）；fixture 模式参考 tests/test_close_reason_enum.py；本测试与 A11 修复配对证明 server 侧门禁真正生效"
+  - "v2 防御四层框架结构性强：阻止层（T3 7aeabc2e CLI local plane 已注入）+ 修复层（T7-d 本实验 I10-I11 server remote plane 注入）+ 检测层（T7-a I1-I3 verify-audit）+ 合法路径层（T7-c I7-I9 discussion_converged）；与 v1 的'防御三层'升级为'防御四层'显式记录修复层是 round3 取证的工程落地"
+  - "白名单扩展合理：原 ^cli/ ^sdk/ ^tests/ ^.cursor/skills/ + v2 新增 ^server/（server 侧 _view_as_fs_topic 注入修复）+ ^AGENTS.md（participant §10 补充）；与 9 个文件改动范围匹配；I10/I11 涉及 server/services/fs_source_service.py + tests/test_fs_close_server.py 在白名单内"
+  - "v2 验收 A1-A12 + evidence_keys (1)-(12) + pytest_summary 完整闭环：10 (verify-audit) + 3 (close_reason_enum) + 2 (fs_close_server) = 15 新增 case；基线 1850 + 15 = 1865 passed / 0 failed；evidence_keys 11-12 显式覆盖 server 侧 fixture (非 terminal 409 + terminal 200)"
+  - "依赖清单完整：§战役 T5-B 漂移事故复盘（host round3-host.md 取证更正背景）+ 11 类既有依赖（cli/commands/fs.py:162 / sdk/python/map_fs/validation.py:179 / cli/simple_waker.py / wake.md / feedback_fs_round_file_bypass.md / T4 drift_resync_failed schema / AGENTS.md / T5/T6 链路）+ 5 个 server 侧根因文件位置（v2 新增）"
+  - "v2 风险与边界 8 条完整：不做 runtime 私有权限层（已拍板）+ verify-audit 只读不改写路径 + 不改 FS plane「本地文件真相源」架构 + skill 红线 runtime 中立 + 不引入新 waker 周期 + 涉及 cli/sdk/server/.cursor/skills/ 改动重启生效（无 docker build）+ 白名单含 ^server/ + ^AGENTS.md（v2 新增）+ T5-B 现状维持说明（v2 新增）"
+
+unreasonable_items: []
+
+approvable_now: true
+approvable_after: host approve 后 executor 可启动

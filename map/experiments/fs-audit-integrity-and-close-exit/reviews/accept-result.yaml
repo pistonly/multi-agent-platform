@@ -1,0 +1,6 @@
+decision: accept
+summary: T7 (e6d23886) fs-audit-integrity-and-close-exit v2 plan 实施完整：v1 review 9
+  项不合理项（U1-U9）全部 addressed；I1-I12 全部完成；server 侧 _view_as_fs_topic 注入修复（commit 5ade822
+  I10）+ 3 case 回归测试（I11 含 cancelled 镜像）；白名单严格遵守（25 个文件落在 ^cli/ ^sdk/ ^server/ ^tests/
+  ^.cursor/skills/ ^lib/ ^AGENTS.md + log.md）；实测 pytest 1869/1869 + ruff check 0；防御四层（阻止
+  + 修复 + 检测 + 合法路径）框架完整；12 commits 全部落 main。接受 result。

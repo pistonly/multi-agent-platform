@@ -1,0 +1,29 @@
+reasonable_items:
+- v1 review 9 项不合理项全部 addressed：U1 §背景叙事纠正（round3 三段论完整）+ U2 A4/A5 叙事对齐 + U3 A11 server
+  注入 + U4 A12 server 回归测试 + U5 §依赖 5 文件位置 + U6 I10/I11 实施步骤 + U7 §风险 T5-B 现状维持 + U8
+  §主题联动标签修正 + U9 index.md description（自动合规：frontmatter 精简无 description 字段）
+- server 侧注入方案工程边界清晰：与 T3 CLI 侧 _require_local_topic（cli/commands/fs.py:564）的 scan_plane
+  注入模式对齐，确保 CLI local plane + server remote plane 单一真值同源；保持 FsTopic schema（sdk/python/map_fs/parser.py:152）不变；注入失败降级返回空
+  list + WARN fail-safe open；最小改动原则（仅 _view_as_fs_topic 一处补 1 字段注入）
+- server 侧回归测试 pre/post-fix 配对设计严密：test_remote_close_nonterminal_experiment_rejected（关联实验
+  phase=pending_review → 断言 409 + close_reason=fsm_violation）+ test_remote_close_terminal_experiment_allowed（关联实验
+  phase=done → 断言 200 通过）；fixture 模式参考 tests/test_close_reason_enum.py；本测试与 A11 修复配对证明
+  server 侧门禁真正生效
+- v2 防御四层框架结构性强：阻止层（T3 7aeabc2e CLI local plane 已注入）+ 修复层（T7-d 本实验 I10-I11 server
+  remote plane 注入）+ 检测层（T7-a I1-I3 verify-audit）+ 合法路径层（T7-c I7-I9 discussion_converged）；与
+  v1 的'防御三层'升级为'防御四层'显式记录修复层是 round3 取证的工程落地
+- 白名单扩展合理：原 ^cli/ ^sdk/ ^tests/ ^.cursor/skills/ + v2 新增 ^server/（server 侧 _view_as_fs_topic
+  注入修复）+ ^AGENTS.md（participant §10 补充）；与 9 个文件改动范围匹配；I10/I11 涉及 server/services/fs_source_service.py
+  + tests/test_fs_close_server.py 在白名单内
+- v2 验收 A1-A12 + evidence_keys (1)-(12) + pytest_summary 完整闭环：10 (verify-audit) +
+  3 (close_reason_enum) + 2 (fs_close_server) = 15 新增 case；基线 1850 + 15 = 1865 passed
+  / 0 failed；evidence_keys 11-12 显式覆盖 server 侧 fixture (非 terminal 409 + terminal
+  200)
+- 依赖清单完整：§战役 T5-B 漂移事故复盘（host round3-host.md 取证更正背景）+ 11 类既有依赖（cli/commands/fs.py:162
+  / sdk/python/map_fs/validation.py:179 / cli/simple_waker.py / wake.md / feedback_fs_round_file_bypass.md
+  / T4 drift_resync_failed schema / AGENTS.md / T5/T6 链路）+ 5 个 server 侧根因文件位置（v2 新增）
+- v2 风险与边界 8 条完整：不做 runtime 私有权限层（已拍板）+ verify-audit 只读不改写路径 + 不改 FS plane「本地文件真相源」架构
+  + skill 红线 runtime 中立 + 不引入新 waker 周期 + 涉及 cli/sdk/server/.cursor/skills/ 改动重启生效（无
+  docker build）+ 白名单含 ^server/ + ^AGENTS.md（v2 新增）+ T5-B 现状维持说明（v2 新增）
+unreasonable_items: []
+substitute_reason: null

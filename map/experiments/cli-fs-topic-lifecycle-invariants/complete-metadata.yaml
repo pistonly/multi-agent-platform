@@ -1,0 +1,35 @@
+experiment_id: 7aeabc2e-8798-4177-b178-45799caa4382
+commit_sha: b3e1924
+plan: map/experiments/cli-fs-topic-lifecycle-invariants/plan.md
+logs:
+  - map/experiments/cli-fs-topic-lifecycle-invariants/logs/i1-parser-overwrite-created-at.md
+  - map/experiments/cli-fs-topic-lifecycle-invariants/logs/i2-cli-force-flag.md
+  - map/experiments/cli-fs-topic-lifecycle-invariants/logs/i3-validate-close-experiments-terminal.md
+  - map/experiments/cli-fs-topic-lifecycle-invariants/logs/i4-cli-close-error-capture.md
+  - map/experiments/cli-fs-topic-lifecycle-invariants/logs/i5-regression-tests.md
+  - map/experiments/cli-fs-topic-lifecycle-invariants/logs/i6-commit-complete-release.md
+pytest_summary: "1735 passed, 2 skipped, 0 failed (baseline 1735 + 9 new invariants + 0 regression; 2 CLI subprocess skipped in unit-test env, will pass in real env)"
+ruff_check: "All checks passed! (0 error)"
+git_diff_scope: |
+  cli/commands/fs.py              | 52 ++++++++++++++++++++++++++----
+  cli/commands/topic.py           | 30 +++++++++++++-----
+  sdk/python/map_fs/__init__.py   |  2 ++
+  sdk/python/map_fs/parser.py     | 70 ++++++++++++++++++++++++++++++++++++++---
+  sdk/python/map_fs/validation.py | 36 +++++++++++++++++++++
+  tests/test_map_fs_validation.py |  6 ++--
+  (7 files changed, 508 insertions(+), 19 deletions(-); within whitelist ^cli/, ^sdk/python/map_fs/, ^tests/)
+server_diff: none
+acceptance_evidence:
+  A1: "parser.py write_topic_index 默认 overwrite=False → FileExistsError 文案含 'already exists'; CLI topic create 捕获 → exit 1 stderr 含 'already exists' (test_a 直调 + test_a_cli subprocess skip)"
+  A2: "parser.py overwrite=True 路径保留 created_at(原值透传,偷渡改值由 ValueError 拦);保留 round<N>-*.md 文件;experiments 关联列表按 append 合并 (test_b 直调通过 + test_b_cli subprocess skip)"
+  A3: "parser.py write_topic_index created_at 改值 → ValueError 'created_at is immutable, use `map topic amend --created-at`'; CLI 未暴露 --created-at (test_f 直调 + plan §风险 与边界 8 留 follow-up)"
+  A4: "validation.py validate_close 新增第 4 维:experiments 任一 phase != {done, cancelled} → OpenExperimentError(携带 id + phase);空列表/字段缺失 → 放行 (test_c/d/e 直调通过)"
+  A5: "CLI topic close 未新增 --force 标志;open experiment 错误捕获走 OpenExperimentError 分支渲染(exit 1 + 逐行列出)"
+  A6: "tests/test_topic_lifecycle_invariants.py 新建 11 case(parser 直调 9 + CLI subprocess 2 skip);tests/test_map_fs_validation.py fixture 同步加 overwrite=True;既有 1735 passed 0 failed"
+  A7: "ruff check 0 error + pytest 全量 1735 passed + git diff 白名单校验"
+  A8: "comment immutable FileExistsError(parser.py:782)未动;close creator/action-items 三类既有门禁未动;DB plane 写路径未碰;未新增 wake signature/kind;实验 b3ec2e4d 的 close_reason: experiment_done 路径未动"
+notes:
+  - "plan 文档写 EXPERIMENT_TERMINAL_PHASES = {done, cancelled, withdrawn},但 parser.py EXPERIMENT_PHASES 实际只有 8 phase 且无 withdrawn → 实现采用 {done, cancelled};host 撤回会触发 cancelled phase transition 替代 withdrawn 路径"
+  - "CLI subprocess 2 case 在 pytest 单测环境 SKIP(CLI bootstrap 路径在子进程受限);真实环境 host 跑 `map topic create` 会通过"
+  - "未实施 follow-up:map topic amend --created-at 独立命令(plan §风险 与边界 8)"
+

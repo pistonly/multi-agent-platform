@@ -1,0 +1,2 @@
+decision: accept
+summary: DriftDetector + 周期自检 + 启动/运行双留痕；9 case 全过；1791/2/0 baseline + 5892a83 收口

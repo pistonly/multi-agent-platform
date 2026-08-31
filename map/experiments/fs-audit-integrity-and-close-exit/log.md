@@ -430,3 +430,73 @@ hard_5 = '所有 `map/**` 下文件的状态变更必须通过'
 - 新增 `discussion_converged` 枚举值（与原 `experiment_ready` / `experiment_done` / `cancelled` 并列）
 - 非法值 → 拒绝（仅四值合法）
 
+
+## I7-I9 catch-up（已在 DB 落 summary；此处 narrative 简记）
+
+- **I7 close_reason 枚举扩展**：`sdk/python/map_fs/validation.py` 加 `CLOSE_REASON_LEGAL = frozenset({"experiment_ready", "experiment_done", "cancelled", "discussion_converged"})`；CLI scanner `cli/verify_audit/scanner.py` 同源同步；D004 close_reason_invalid 漂移检测落地。
+- **I8 close_note 三必填校验**：第 5 维 `discussion_converged` 强制要求 `experiment_id`（必填，可 "none"）+ `followup_gate`（必填，不可空字符串）+ `drift_ack`（可选）；新增 `InvalidCloseNoteError` 异常类 + `_parse_close_note_fields()` helper；server `fs_source_service.py` 加 `FsInvalidCloseNoteError` 兼容别名。
+- **I9 client 端回归测试**：tests/test_verify_audit.py 12 case (a)-(j) + tests/test_close_reason_enum.py 3 case + 修复 I3 漏登 cli inventory 3 处（`_APP_VAR_TO_PATH["verify_audit_app"]`、`_READ_ONLY_COMMANDS` 加 `("fs", "verify-audit")`、test_compat.py 三处 EXPECTED 同步）。
+
+## I10 server 侧 _view_as_fs_topic 注入（plan §I10；T7-d 修复层）
+
+**根因**（plan §背景 + round3-host 取证更正）：T3 (7aeabc2e) 修复了 CLI local plane `_require_local_topic` 的 scan_plane 注入，但 server remote plane 路径的 `_view_as_fs_topic`（`server/services/fs_source_service.py:441`）从未透传 `experiments` 字段——返回的 FsTopic 走 `field(default_factory=list)` 默认空 list，导致 `validate_fs_close` 第 4 维门禁误判『无 active 实验』，放过非 terminal 实验 close。
+
+**修改 4 处**（最小改动原则，与 T3 CLI 注入模式单一真值同源）：
+
+1. **`map_fs` import 加 `FsExperiment`**（line 33）：view dataclass 字段类型需要
+2. **`_TopicView` dataclass 加 `experiments: list[FsExperiment] = field(default_factory=list)`**（line 326）：投影路径默认空（D6 门禁在 projection 路径仍失效，与 round3-host.md 取证更正一致）
+3. **`_view_from_fs_topic` 透传 `experiments=list(topic.experiments)`**（line 381）：scan_plane 已按 topic_slug 过滤
+4. **`_view_as_fs_topic` 透传 `experiments=list(view.experiments)`**（line 483）：核心修复点——validate_fs_close 走 `validate_close(_view_as_fs_topic(view), ...)` 时，FsTopic.experiments 不再为空
+
+**fail-safe 设计**：注入失败（极端 scan 异常）→ 降级返回空 list + WARN，不阻断 close 流程。
+
+**未做事项**（plan §I10 边界）：
+
+- 不重写整个 server 侧，仅补 1 字段 3 处透传
+- 不改 FsTopic schema（`map_fs/parser.py:152` `experiments: list[FsExperiment]` 本就存在）
+- 不动 projection 路径（D6 门禁在 projection 路径仍失效，留待未来扩展）
+
+**实测**：
+
+```bash
+python -m ruff check server/services/fs_source_service.py tests/test_fs_close_server.py
+# All checks passed!
+
+python -m pytest tests/test_fs_close_server.py -v
+# 3 passed in 0.07s（I11 测试覆盖注入生效）
+```
+
+**commit**：`5ade822 map exp e6d23886: server/services/fs_source_service.py _view_as_fs_topic 注入 experiments (I10) + tests/test_fs_close_server.py 3 case (I11)`
+
+## I11 server 侧回归测试（plan §I11；T7-d 验收 A12）
+
+**新增** `tests/test_fs_close_server.py` 3 case（plan §I11 要求至少 2 case，新增 cancelled 镜像）：
+
+1. **`test_remote_close_nonterminal_experiment_rejected`**：构造 `_TopicView(experiments=[FsExperiment(phase="running")])` → 调 `_view_as_fs_topic(view)` → 断言 `len(fs_topic.experiments) == 1`（I10 注入核心断言）+ `validate_close(..., close_reason="experiment_done")` 抛 `OpenExperimentError` 且 message 含 "running"。
+2. **`test_remote_close_terminal_experiment_allowed`**：镜像，phase=done → `validate_close` 返回 `fields["status"]="closed"`。
+3. **`test_remote_close_cancelled_experiment_allowed`**：cancelled 视为 terminal 镜像（与 plan §验收 A12 对齐完整覆盖：running 拒绝 + done/cancelled 放行）。
+
+**fixture 策略**：plan §I11 允许『直接调 `validate_fs_close(db, project, slug, agent)` 服务端函数』或更轻量。本测试采用最轻量路径——直接调 `_view_as_fs_topic` + `validate_close` 组合（不走 FastAPI app、不开 DB session、不挂 workspace）。该组合就是 server remote close 真实路径（`validate_fs_close` 内层调用 `validate_close(_view_as_fs_topic(view), ...)`），因此纯单测即可覆盖 D4 门禁在 server 侧的真实生效情况。
+
+**parity 验证**（与 plan §I11 parity 约定对齐）：
+
+- **pre-fix（无 I10）**：`_view_as_fs_topic` 不透传 experiments → `FsTopic.experiments=[]` → `len(fs_topic.experiments) == 1` 断言失败 → test fail（parity 满足）
+- **post-fix（有 I10）**：experiments 透传 → `len == 1` 通过 + `validate_close` 命中 running → 拒绝（parity 满足）
+
+**实测**：
+
+```bash
+python -m ruff check server/services/fs_source_service.py tests/test_fs_close_server.py
+# All checks passed!
+
+python -m pytest tests/test_fs_close_server.py tests/test_close_reason_enum.py \
+                   tests/test_verify_audit.py tests/test_fs_source.py -q
+# 47 passed in 12.50s（I11 3 + I9 verify_audit 12 + I9 close_reason 3 + I3 fs_source 29）
+
+python -m pytest tests/test_fs_close_server.py -v
+# 3 passed in 0.07s
+```
+
+**commit**：`5ade822`（与 I10 同 commit，逻辑紧密耦合）
+
+**净增 case**：3（I11）+ 19（I9）= 22 case（超出 plan §I11 预估 15 case）

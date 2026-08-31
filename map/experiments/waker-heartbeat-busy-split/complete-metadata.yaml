@@ -1,0 +1,31 @@
+api_health: ok
+alembic_current:
+  head: "053"
+  upgrade_clean: true
+pytest_summary:
+  total: 1773
+  passed: 1773
+  failed: 0
+  skipped: 359  # deselected
+smoke:
+  api_health: ok
+  notes: |
+    busy > 2h 实测输出验证:
+
+      $ map --persona host agent heartbeat --busy-since "2026-08-30T15:00:00+00:00"
+      agent_id: 8ab78cfc-8289-442e-ae63-fa0df4d2cd68
+      busy_since: '2026-08-30T15:00:00Z'
+
+      $ map --persona host work 2>&1 1>/dev/null
+      ## waker 心跳
+      multi-agents-platform-host (host) last_waker_poll_at=2026-08-30T19:54:28.885585+00:00 last_busy_since=2026-08-30T15:00:00+00:00 busy
+      [WARN] busy > 2h for multi-agents-platform-host(host) (5:17:27.171024)
+      [HINT] busy 超过 2h 视为真卡死：ps 查 waker / runtime 子进程；或重启对应 waker（_check_busy_crash_recovery 会清 server 列）
+
+    busy_since = 5h ago → state=busy（不是 stale），[WARN] busy > 2h 软警告触发，
+    [HINT] 显示卡死排查路径，idle stale WARN 不输出。busy_since 清零后回归正常轮询心跳。
+
+    grep 核证:
+      cli/simple_waker.py 含 _touch_busy (L1062) / _clear_busy (L1077) / _check_busy_crash_recovery (L1097)
+      server/services/status_service.py 含 last_busy_since (L75/L78/L80/L102/L116)
+      server/domain/models.py 含 last_busy_since 列

@@ -1,0 +1,21 @@
+reasonable_items:
+- 目标清晰：拆分「轮询活性」与「waker 进程活性」两个心跳语义，解决长 remind 会话（实测 40+ 分钟）期间 last_waker_poll_at 误报
+  stale 的根因；范围明确（不引入新 wake signature / work_items kind，与 83bf610 + 8b1d20a1 fan-out
+  收窄链路互不干扰）
+- 验收可观测（A1-A8）：A1 busy 状态字段 + PATCH server 落库可复读；A2 崩溃护栏 ESRCH + try/finally 双保险路径明确；A3
+  busy/stale 计算分支可复读；A4 阈值动态化公式 max(expected, 2×idle_stale) 可复读；A5 渲染层 busy 标记 + soft
+  WARN 文案明确；A6 短/长 fake busy 两类 case + 崩溃恢复 case 覆盖完整；A8 窄提交白名单硬校验
+- 话题共识一致：完整吸收 round1-summary-host.md 的 T1/T2/T3 三条 + participant 第 30-43 行验收补充 + 第
+  50-56 行隐含边界；与 83bf610/8b1d20a1 不动约束已显式写入 A8
+- 风险依赖充分：A8 边界段四条（DB schema 不引入新表 + 既有 last_waker_poll_at 不动 + 既有 stale 计算分支末尾扩展 +
+  busy 不影响唤醒决策）；窄提交白名单硬校验可机械验证
+- 实施顺序合理：I1 schema + endpoint → I2 cli state machine → I3 server 计算 → I4 render →
+  I5 测试 → I6 commit；既有 last_waker_poll_at / status_service / waker_heartbeat_render
+  三条路径只在末尾扩展，符合既有架构
+- 依赖完整：来源话题 97dfb82a 决议、既有 last_waker_poll_at（D1 migration 050）参考模式 + idempotent guard、status_service
+  既有 stale 计算 + render banner 既有路径、83bf610 + 8b1d20a1 不动约束都已列入 dependencies
+- evidence_keys 三类齐：pytest_summary（test_simple_waker + test_status_service 新增）+ 实测输出（长
+  fake busy 3-5 分钟验证 busy 容忍阈值）+ grep 核证（cli/simple_waker.py + status_service.py +
+  models.py 三个关键文件）
+unreasonable_items: []
+substitute_reason: null

@@ -1,0 +1,8 @@
+event: complete
+summary: T6 (a8b64c20) 完成：waker status 阈值口径修正 I1-I8 全部完成 — I1 抽 lib/waker_status_config.py
+  单模块（cli + server 都 import）+ I2 cli/waker_status_view.py 删硬编码改派生 + I3 server/services/status_service.py
+  改用 lib.busy_stale + I4 既有 15 case 改 parametrize 档位断言 + I5 新增 5 case (a)-(e) + I6
+  回归保护 fixture + 同帧一致性 + I7 实测复核（participant/reviewer 非 busy 态 cli/server 同帧一致；host
+  busy 态分歧由 v2 plan 设计接受）+ I8 ruff fix + complete 提交。pytest 1850 passed / 0 failed（基线
+  +32）；ruff check 0；git 7 commits (2bd7cef, 19329ae, d18e0bc, a090d0f, 6967c68, de27200,
+  f8e762c)；白名单 ^lib/ ^cli/ ^server/services/ ^tests/ 严格遵守。

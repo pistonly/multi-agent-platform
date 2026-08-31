@@ -1,0 +1,7 @@
+event: complete
+summary: I1-I5 全部完成。I1 复用既有 simple-waker-state-{persona}.json（设计收敛）；I2 每个 cycle 累加
+  pid/cycles_total/reminds_sent_total/skips_unchanged_total/errors_last_n 滚动窗口(10)
+  + pid 变化写 .stale.<ts>.json sidecar；I3 cli/waker_status_view.py + map waker status
+  sub-app + 10 字段最小集 + state 三档 + busy 卡死升级；I4 tests/test_waker_status.py 15 case
+  全过；I5 ruff 0 + 全量 pytest 1818/0 failed + 窄 commit 57d76e5。验收通过后由监督者重启 simple-waker
+  让 I2 字段开始累加

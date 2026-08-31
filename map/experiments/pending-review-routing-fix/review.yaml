@@ -1,0 +1,53 @@
+experiment_id: 37bfd973-72ee-4c8a-8b2e-6c19e6d68272
+reviewer: multi-agent-platform-reviewer
+reviewed_at: '2026-08-31T07:08:00+00:00'
+verdict: approve
+summary: |
+  T8 pending-review-routing-fix 修复 T5-B e63ec33e 滞留 3h 暴露的 carve-out 路由死锁。plan v1 完整吸收
+  round1-host + round2-host + round1-participant + round2-participant 四轮共识。修复方向（carve-out 判定锚
+  点改为 plan_version + 当前 plan_version 是否有评审记录作为入队条件）与 source-of-truth 完全对齐。
+
+  reviewer 自验关键事实：
+  1. server/services/review_service.py:251 _prior_version_reviews_fully_resolved 函数定义（plan 写的 :285
+     是 host 引用 batch form docstring 行的简写；batch form 函数体 line 285 是 "excluded from
+     pending_reviews (prior-version carve-out satisfied)" 注释行，与 batch form 定义 line 278-300 同属
+     一函数）
+  2. server/services/review_service.py:285 batch form prior_version_reviews_fully_resolved_by_experiment
+     —— carve-out 判定真正实现位置
+  3. server/services/todo_service.py:404 实际 pending_reviews 排除调用点：
+     ```
+     resolved_map = prior_version_reviews_fully_resolved_by_experiment(db, pending_reviews_rows)
+     pending_reviews_eligible = [exp for exp in pending_reviews_rows if not resolved_map.get(exp.id, False)]
+     ```
+     —— 此处只调用 carve-out batch form，不修改函数本身；plan §I1 在 batch form 内部扩展 plan_version
+     上下文感知（不改签名），调用点无需改动
+  4. server/services/experiment_capabilities_service.py:167 carve-out 在 creator approve 场景调用（独立路径，
+     plan §A3 不动）
+  5. server/services/review_service.py:158 has_review_on_current_plan_version 函数已存在 —— plan §I1
+     伪代码"has_review_record"判定可复用此函数（无需新写）
+  6. T5-B e63ec33e 实测：v1 reviewer 提 8 项合理 + 全部 resolved（host revise v2 后）→ 实验从 pending_reviews
+     队列消失 3h；监督者手动 review add 验证 review submit 路径正常 → 状态机未坏，断的是「进入 reviewer 视野」
+  7. bd9b21f6 A7 自动迁回机制保留（reviewer 提交 review 后 phase 自动从 pending_review 迁回 running）——
+     plan §A3 不动，与 source-of-truth 一致
+  8. T1 8b1d20a1 通知白名单 creator∪declared∪speakers 语义保留（plan §A4 不动）
+
+  话题共识完整：index.md status=open, round=ready；round1-host §1-§5 + round1-participant §2.1
+  carve-out 判定语义伪代码 + §7 同意推进 + round2-host §实施步骤 + round2-participant §7 同意推进 +
+  同帧一致性测试硬约束沿用 T6。
+
+  评审决策：approve。8 项合理项 + 0 项不合理项。
+
+reasonable_items:
+  - "carve-out 修复方向与 source-of-truth 完全对齐：判定锚点改为 plan_version；'当前版本无评审记录'是入队条件不是排除条件；plan §I1 伪代码可复用既有 has_review_on_current_plan_version 函数（server/services/review_service.py:158）"
+  - "10 case 验收 (a)-(j) 覆盖全面：路由主路径 5 条（v1 resolved 重现 + v1 未 resolved 维持排除 + 全量测试 + 既有不回归 + 白名单）+ 兼容性护栏 4 条（多 reviewer 隔离 / v3+ 多次修订不重复入队 / 跨实验隔离 / archive carve-out 不影响）+ 通知路由关联 1 条（T1 通知收窄影响验证）"
+  - "不动 bd9b21f6 A7 自动迁回机制（plan §A3）：与 source-of-truth line 459 '期间 reviewer 对当前 plan_version 提交新评审——无 open unreasonable 项即...' 一致；只改入队判定，不改迁回判定"
+  - "不动 T1 通知白名单语义（plan §A4）：creator∪declared∪speakers 维持；通过修复 phase 路由解决，不扩大白名单绕过"
+  - "不破坏 v1 未 resolved 排除语义（plan §A5）：与 bd9b21f6 A7 兼容——v1 仍有 unresolved 项 → 实验保留在 pending_reviews 队列"
+  - "不改 review submit 语义（plan §A6）：T5-B 监督者手动 review add 验证过路径正常（v2 review add 后 phase 自动迁回 running）；T8 只改入队判定不改动 submit 路径"
+  - "pytest_summary 完整：基线 1850 + 10 新增 case = 1860 passed / 0 failed；evidence_keys (1)-(3) 实测输出覆盖（v1 resolved 出现 / v1 未 resolved 不出现 / 监督者手动 review add 仍迁回 running）"
+  - "白名单合规：^server/ + ^sdk/ + ^tests/；§实施 I1 server/services/review_service.py carve-out 扩展 + §实施 I2 tests/test_review_routing.py 10 case fixture 严格落在白名单内；A9 监督者重启 server 与 waker 生效（无 docker build）"
+
+unreasonable_items: []
+
+approvable_now: true
+approvable_after: host approve 后 executor 可启动

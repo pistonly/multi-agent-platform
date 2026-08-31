@@ -1,0 +1,17 @@
+reasonable_items:
+- 目标清晰：FS 话题事件 wakeable 按角色收窄扇出 + digest 自清，对症 reviewer waker 空唤醒回路；范围明确（不动 83bf610
+  签名去重，仅在角色维度过滤）
+- 验收可观测（A1-A8）：A1 白名单派生 view 公式可复读、A2 双层过滤顺序可复读、A4 豁免触发条件可复读、A5 自清先判 category 再判时间可复读、A7
+  三个测试文件路径明确、A8 全量 pytest 0 failed 基线 + 签名去重零回归；evidence_keys 含 pytest_summary / 实测输出
+  / grep 核证三类
+- 话题共识一致：D1-D6 决议表完整覆盖 host/participant/reviewer 三方收口；A2/A4/A5 显式引用 reviewer round2
+  第 17-22 行 / 第 30-31 行硬边界，未遗漏 obligation 豁免与 obligation-wakeable 自清豁免两条
+- 风险依赖充分：D4 obligation 豁免不能误伤 contextual kind（D4 + 边界段双重声明）+ D5 自清先 category 再时间 +
+  A1 不缓存 derived view；DB 与 FS 两条路径一致性边界已说明
+- 实施顺序合理：I1 registry 改造 → I2 双层 filter → I3 自清服务 → I4 测试 → I5 实测 → I6 重启验证；服务端既有 KINDS
+  registry 复用（加 required_role 字段）符合现有架构
+- 依赖完整：来源话题决议、reviewer 硬边界、participant 护栏、83bf610 不动约束、无代码冲突实验（fast-gate-allowlist-inversion
+  / cli-hygiene-batch / host-invoke-observability）都已列入 dependencies；服务端既有 work_kinds.py
+  与 notifications.py 起点明确
+unreasonable_items: []
+substitute_reason: null

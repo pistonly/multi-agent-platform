@@ -1,0 +1,5 @@
+decision: accept
+summary: 结果通过：commit fb1c520（17 文件 +688/-11）按 I1→I6 实施，A1-A8 验收全部满足；A5 实测 busy > 2h
+  软警告触发（5h17m busy_since）；pytest 全量 1772 passed 零回归；A8 窄白名单 + 不引入新去重链路；与 8b1d20a1
+  共同构成 reviewer waker 健康度闭环；migration 053 跳号 + busy_session_expected_max 提为 config
+  均为合理偏离

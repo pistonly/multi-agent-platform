@@ -1,0 +1,6 @@
+decision: accept
+summary: 通过：A3 段二 smoke 实测数据齐全补全（347s / 12 采样 / busy_since 逐字节一致 / T+347s last_poll=428s>dead_w=300s
+  未误报 dead——T9-B 修复核心场景通过）；A1 穿透修复（commit cbad9b9 cli +45/-8）+ A2 fixture 归真 5 case
+  + A4 pytest 1948 passed / ruff 0 / 白名单 ^cli/ ^tests/ + A5 边界守住均 pass；plan A3『host/participant
+  不豁免』硬约束通过上次 reject → host 补全 → 本次 accept 闭环；验收后由监督者重启 waker 生效（action_items 2 follow-up，supervisor
+  责任，非 reviewer 当前职责）。
