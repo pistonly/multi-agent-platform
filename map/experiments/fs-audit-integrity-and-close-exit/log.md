@@ -248,3 +248,63 @@ All checks passed!
 - 更新 `.cursor/skills/map-project-collab/references/wake.md` / `topic-host/SKILL.md` / `experiment-host/SKILL.md` / `experiment-reviewer/SKILL.md` 引用
 - 运行时中立措辞：不含『绕审计』『伪造』等描述性词，改为『禁止使用 audit.jsonl 以外路径表达 close/round_advanced/phase_transition 状态变更』
 
+## I4 lib/red_line_clause.py + 4 skill 红线条款
+
+新建 `lib/red_line_clause.py`（55 lines）+ 4 个 SKILL.md 嵌入一致副本。
+
+**lib/red_line_clause.py 三个常量**：
+
+- `RED_LINE_CLAUSE`: 基础红线条款（runtime 中立）
+- `INCIDENT_TRIGGER`: A5『视为事故』触发条件
+- `PERSONA_INCIDENT_RESPONSE`: A6 三 persona 细分响应（dict：participant / host / reviewer）
+- `red_line_section()`: 顶层 helper，返回完整 markdown 段落（wake.md 用）
+
+**措辞完全一致（单源真相）**：
+
+- markdown 4 文件无法 import Python 常量 → lib 是单源真相 + 4 文件嵌入字面一致副本
+- 副本漂移检测由 I9 `tests/test_red_line_clause.py` 承担（断言 4 文件均含 `RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` 字符串）
+- 4 个 SKILL.md 末尾加引用行『措辞与 lib/red_line_clause.py 一致；副本漂移检测见 tests/test_red_line_clause.py』，方便未来维护者定位单源
+
+**4 文件分布**：
+
+- `.cursor/skills/map-project-collab/references/wake.md`: 共享 `## 写入红线（runtime 中立）` 段（RED_LINE_CLAUSE + INCIDENT_TRIGGER）插在 `## 红线` 之前
+- `.cursor/skills/topic-host/SKILL.md`: 共享段 + participant 响应行，插在 `## 参考` 之前
+- `.cursor/skills/experiment-host/SKILL.md`: 共享段 + host 响应行，插在 `## 参考` 之前
+- `.cursor/skills/experiment-reviewer/SKILL.md`: 共享段 + reviewer 响应行，插在 `## 参考` 之前
+
+**措辞 runtime 中立**（按 plan §I4 + A5）：
+
+- 枚举（Edit/Write/sed/python/heredoc 等）是示例，非穷尽白名单
+- 判定标准 = "绕过 map CLI 直接改 map/** 下文件"（不论编辑器、脚本、还是 MCP tool）
+- "视为事故"触发 = audit 链漂移（含 server 侧门禁失效的非手写场景，与 round3 取证叙事对齐）
+
+**实测一致性**：
+
+```python
+# smoke test (跑前实测)
+from lib.red_line_clause import RED_LINE_CLAUSE, INCIDENT_TRIGGER
+checks = [
+    ('wake.md', '.cursor/skills/map-project-collab/references/wake.md'),
+    ('topic-host/SKILL.md', '.cursor/skills/topic-host/SKILL.md'),
+    ('experiment-host/SKILL.md', '.cursor/skills/experiment-host/SKILL.md'),
+    ('experiment-reviewer/SKILL.md', '.cursor/skills/experiment-reviewer/SKILL.md'),
+]
+for name, path in checks:
+    text = Path(path).read_text()
+    assert RED_LINE_CLAUSE in text, name
+    assert INCIDENT_TRIGGER in text, name
+# → 4/4 passed
+```
+
+**commit**：`TBD（待 commit）` — 包含 `lib/red_line_clause.py` + 4 个 SKILL.md
+
+**留待 I5**：
+
+- `.cursor/skills/map-project-collab/references/wake.md` 单独引用 `feedback_fs_round_file_bypass.md` memory
+- 措辞：`> **相关 feedback memory**：feedback_fs_round_file_bypass.md（避免 participant 重复踩坑走手写 round 文件路径）`
+
+**留待 I6**：
+
+- `AGENTS.md` 加根级硬性规则引用段
+- 措辞：『写操作统一走 map CLI（硬性规则）：所有 map/** 下文件的状态变更必须通过 map CLI（map topic comment / map topic advance-round / map topic close / map experiment create 等）；禁止用文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改。详见 .cursor/skills/**/SKILL.md 的红线条款。』
+
