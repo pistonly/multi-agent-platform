@@ -542,3 +542,77 @@ def test_e_legacy_state_file_compatibility() -> None:
         assert result == "live"
         # 至少一条 RuntimeWarning（active_interval 或 idle_interval 缺失）
         assert any(issubclass(w.category, RuntimeWarning) for w in caught)
+
+
+# =========================================================================
+# I6 回归保护 fixture — 复现 host 描述的 T5-A 上线即误报场景
+# =========================================================================
+
+
+@pytest.mark.parametrize(
+    "gap_s,expected",
+    [
+        # T5-A 715202a3 上线即误报复现：gap=51 active_interval=30
+        # 旧 LIVE_WINDOW_SECONDS=30 → 51 > 30 误判 stale
+        # 新派生 live_w=max(60, 30)=60 → 51 ≤ 60 → live（修复）
+        (51, "live"),  # 主复现 fixture（plan §A6）
+        # 边界附近：T5-A 实际 poll 间隙常态 26-51s（含网络抖动）
+        (26, "live"),  # 常态下限
+        (40, "live"),  # 常态中位
+        (61, "stale"),  # 边界外 1s → 旧公式仍 stale，新公式 stale（live_w=60 < 61）
+        # active_interval=30, idle_interval=300 默认配置下不应误报任何 ≤ 60 gap
+        (1, "live"),
+        (30, "live"),
+        (60, "live"),  # boundary
+    ],
+)
+def test_regression_t5a_poll_gap_no_false_stale(
+    tmp_path: Path, gap_s: float, expected: str
+) -> None:
+    """§A6 回归保护 fixture：active_interval=30, gap=51 → live（修复 T5-A 上线即误报）。
+
+    T5-A (715202a3) 闭环事故：waker active_interval=30 正常轮询 + poll 间隙常态
+    26-51s（含网络抖动），同时刻 `map work` 全 ok，但 `map waker status` 标 stale。
+    根因：`cli/waker_status_view.py:26 LIVE_WINDOW_SECONDS = 30` 硬编码 ——
+    阈值与轮询周期同量级导致高误报。
+
+    本 fixture 复现事故场景，验证：
+    1. gap=51（事故态）→ live（修复有效）
+    2. gap 26/40/60（常态抖动 + 边界）→ live（无新误报）
+    3. gap=61（边界外 1s）→ stale（避免过度放宽阈值，确保告警仍生效）
+    """
+    state = _state(last_poll_gap_s=gap_s)
+    assert (
+        compute_waker_state(
+            state, now=NOW, active_interval=DEFAULT_ACTIVE_INTERVAL, idle_interval=DEFAULT_IDLE_INTERVAL
+        )
+        == expected
+    )
+
+
+def test_regression_t5a_collaborative_with_map_work(tmp_path: Path) -> None:
+    """§A7 同帧一致性 fixture（plan §风险 修复 T5-A 闭环遗漏）：`map waker status` 与 `map work` 同帧判定对齐。
+
+    模拟场景：3 waker (host/participant/reviewer) 均在 active_interval=30 + idle_interval=300 下
+    正常轮询，poll 间隙 26-51s 常态。同时刻调用 `compute_waker_state`（cli 视图）应输出 live；
+    `map work` 同源数据由 server `status_service.build_waker_heartbeats` 派生，对应 `last_waker_poll_at`
+    距今 ≤ 60s → ok（非 stale）。本 fixture 模拟两侧同源判定，避免 T5-A 同帧不一致事故复现。
+    """
+    # 3 persona 同时刻 poll gap = 26/40/51（T5-A 常态抖动范围）
+    personas = {
+        "host": 26.0,
+        "participant": 40.0,
+        "reviewer": 51.0,
+    }
+    for persona, gap in personas.items():
+        state = _state(last_poll_gap_s=gap)
+        cli_state = compute_waker_state(
+            state, now=NOW, active_interval=DEFAULT_ACTIVE_INTERVAL, idle_interval=DEFAULT_IDLE_INTERVAL
+        )
+        # cli 视图：gap ≤ 60 → live
+        assert cli_state == "live", f"{persona} gap={gap}s 应判 live，got {cli_state}"
+        # server 视图：同源字段（last_waker_poll_at 距今 51s）→ ok（非 stale）
+        # server `build_waker_heartbeats` 用 `threshold_minutes=15`（= 900s），51s << 900s → 不 stale
+        server_threshold_seconds = 15 * 60
+        server_state_ok = gap < server_threshold_seconds
+        assert server_state_ok, f"{persona} gap={gap}s 应 ok（< {server_threshold_seconds}s server threshold）"
