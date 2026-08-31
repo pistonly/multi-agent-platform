@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from lib.waker_status_config import busy_stale
 from server.domain.models import Agent, Experiment, ExperimentPhase
 from server.domain.schemas import (
     ExperimentSummaryRead,
@@ -84,15 +85,17 @@ def build_waker_heartbeats(
     settings = get_settings()
     if threshold_minutes is None:
         threshold_minutes = settings.waker_stale_threshold_minutes
-    # busy 容忍阈值：足够包住「正常 remind runtime」+ 2×idle_stale 的抖动
-    # 余量。env MAP_WAKER_BUSY_TOLERANCE_MINUTES 可覆盖。
-    busy_tolerance_minutes = max(
-        settings.expected_remind_runtime_minutes,
-        2 * threshold_minutes,
+    # busy 容忍阈值：派生自 lib.waker_status_config.busy_stale
+    # （实验 T6 a8b64c20 I3）。minutes → seconds 转换在调用方做，
+    # lib 单模块只接 seconds 输入；公式 max(expected_remind_runtime, 2 × idle_threshold)
+    # 与原 inline max(...) 等价（纯搬位置，不改值）。
+    busy_tolerance_seconds = busy_stale(
+        expected_remind_runtime=settings.expected_remind_runtime_minutes * 60,
+        idle_threshold=threshold_minutes * 60,
     )
     current = as_utc(now or datetime.now(timezone.utc))
     cutoff = current - timedelta(minutes=threshold_minutes)
-    busy_cutoff = current - timedelta(minutes=busy_tolerance_minutes)
+    busy_cutoff = current - timedelta(seconds=busy_tolerance_seconds)
     stmt = select(Agent)
     if project_id is not None:
         stmt = stmt.where(Agent.project_id == project_id)
