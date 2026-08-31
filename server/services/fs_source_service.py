@@ -34,6 +34,7 @@ from map_fs import (
     FsPlane,
     FsTopic,
     FsWorkItem,
+    InvalidCloseNoteError,
     InvalidCloseReasonError,
     OpenActionItemsError,
     TopicStateError,
@@ -105,6 +106,7 @@ class FsTopicNotFoundError(Exception):
 # 消费）。这里别名到同一类对象：``server/api/fs.py`` 的 isinstance 映射与
 # 409 消息格式完全不变。属性/消息契约见 map_fs.validation 对应类 docstring。
 FsAckPendingError = AckPendingError
+FsInvalidCloseNoteError = InvalidCloseNoteError
 FsInvalidCloseReasonError = InvalidCloseReasonError
 FsOpenActionItemsError = OpenActionItemsError
 FsStateError = TopicStateError
@@ -1154,6 +1156,7 @@ _NO_DB: Session = _NullSession()  # type: ignore[assignment]
 
 __all__ = [
     "FsAckPendingError",
+    "FsInvalidCloseNoteError",
     "FsInvalidCloseReasonError",
     "FsOpenActionItemsError",
     "FsPlaneUnavailableError",

@@ -146,7 +146,12 @@ def test_full_offline_lifecycle(runner: CliRunner, local_workspace: Path) -> Non
 
     # close（creator=host，无 action items）
     result = runner.invoke(
-        app, ["topic", "close", "--topic", "t1", "--reason", "discussion_converged"]
+        app,
+        [
+            "topic", "close", "--topic", "t1",
+            "--reason", "discussion_converged",
+            "--note", "实验讨论收敛\n\nexperiment_id: none\nfollowup_gate: 无实验直接归档",
+        ],
     )
     assert result.exit_code == 0, result.output
     idx = _index(ws, "t1")

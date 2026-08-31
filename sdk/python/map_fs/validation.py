@@ -119,6 +119,86 @@ class InvalidCloseReasonError(Exception):
         )
 
 
+# close_note 结构化字段集合（T7 I8）：close_reason=discussion_converged
+# 触发校验。必填 = experiment_id / followup_gate；可选 = drift_ack。
+# 解析方式 = manual `key: value` 行扫描（不用 yaml.safe_load，避免 free
+# text 第一行「discussion_converged.」作为 bare string 被 merge 进 dict）。
+CLOSE_NOTE_REQUIRED_FIELDS: tuple[str, ...] = ("experiment_id", "followup_gate")
+CLOSE_NOTE_OPTIONAL_FIELDS: tuple[str, ...] = ("drift_ack",)
+CLOSE_NOTE_LEGAL_FIELDS: frozenset[str] = frozenset(
+    CLOSE_NOTE_REQUIRED_FIELDS + CLOSE_NOTE_OPTIONAL_FIELDS
+)
+
+
+def _parse_close_note_fields(close_note: str) -> dict[str, str]:
+    """从 close_note 多行文本提取结构化字段（T7 I8 第 5 维校验 helper）。
+
+    格式（来自 T7 plan §4.1）：
+        discussion_converged.        ← free text 第一行，跳过
+        experiment_id: <uuid | none>
+        followup_gate: <desc>
+        drift_ack: <desc | none>     ← 可选
+
+    行为约定：
+    - 跳过空行 / 不含 ``:`` 的行（如第一行 free text）
+    - key ∈ CLOSE_NOTE_LEGAL_FIELDS 才入 dict；非法 key → 忽略（不抛错，
+      避免 typo 误拦；冗余字段无害）
+    - value 仅做 strip，不做语法校验（如 experiment_id 是否合法 uuid）
+    """
+    fields: dict[str, str] = {}
+    for raw in close_note.splitlines():
+        line = raw.strip()
+        if not line or ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if key in CLOSE_NOTE_LEGAL_FIELDS:
+            fields[key] = value
+    return fields
+
+
+class InvalidCloseNoteError(Exception):
+    """close_note 不满足结构化字段要求（T7 I8 第 5 维校验）。
+
+    触发条件（close_reason == "discussion_converged" 时）：
+    - close_note 为空 / 缺失
+    - 缺必填字段 experiment_id / followup_gate（任意一条）
+    - followup_gate 显式为空字符串（实验追踪描述必须实际写明）
+
+    ``missing`` 携带缺字段名列表；``empty_fields`` 携带显式空字符串字段名
+    列表（与 missing 区分；missing = 字段完全没出现，empty = 出现但值为空）。
+    """
+
+    def __init__(
+        self,
+        missing: list[str] | None = None,
+        *,
+        empty_fields: list[str] | None = None,
+        detail: str = "",
+    ) -> None:
+        self.missing = list(missing or [])
+        self.empty_fields = list(empty_fields or [])
+        self.detail = detail
+        parts: list[str] = []
+        if self.missing:
+            parts.append(
+                f"close_note 缺必填字段 {self.missing}; "
+                f"discussion_converged 关闭需至少含 "
+                f"{list(CLOSE_NOTE_REQUIRED_FIELDS)}"
+            )
+        if self.empty_fields:
+            parts.append(
+                f"close_note 字段 {self.empty_fields} 显式为空字符串; "
+                f"followup_gate 必须实际写明闭环追踪描述"
+            )
+        if detail:
+            parts.append(detail)
+        if not parts:
+            parts.append("close_note 不合法")
+        super().__init__("; ".join(parts))
+
+
 def _missing_reasons(topic: FsTopic, missing: list[str]) -> dict[str, str]:
     """missing persona 的逐条指认：``round1-participant.md: 原因``（A5）。
 
@@ -223,6 +303,29 @@ def validate_close(
         raise InvalidCloseReasonError(
             close_reason, sorted(CLOSE_REASON_LEGAL)
         )
+
+    # 第 5 维（T7 I8）：close_reason=discussion_converged 时强制校验 close_note
+    # 三字段（experiment_id 必填 / followup_gate 必填 / drift_ack 可选）。
+    # 仅 discussion_converged 触发；其余三值（experiment_ready/...
+    # done/cancelled）维持原 close_note 自由描述语义以兼容历史 close。
+    if close_reason == "discussion_converged":
+        if not close_note or not close_note.strip():
+            raise InvalidCloseNoteError(
+                missing=list(CLOSE_NOTE_REQUIRED_FIELDS),
+                detail="discussion_converged 必须含结构化 close_note",
+            )
+        fields_parsed = _parse_close_note_fields(close_note)
+        missing = [
+            f for f in CLOSE_NOTE_REQUIRED_FIELDS if f not in fields_parsed
+        ]
+        empty = [
+            f for f in CLOSE_NOTE_REQUIRED_FIELDS
+            if f in fields_parsed and not fields_parsed[f]
+        ]
+        if missing or empty:
+            raise InvalidCloseNoteError(
+                missing=missing, empty_fields=empty
+            )
 
     fields: dict[str, str] = {"status": "closed"}
     if close_reason:

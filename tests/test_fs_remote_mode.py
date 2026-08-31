@@ -290,6 +290,7 @@ def test_remote_close_validate_commit(client, admin_headers, tmp_path):
         headers=admin_headers,
         json={
             "close_reason": "discussion_converged",
+            "close_note": "讨论收敛\n\nexperiment_id: none\nfollowup_gate: 无实验直接归档",
             "base_revision": meta["projection_revision"],
             "evidence": _detail_read(topic),
         },

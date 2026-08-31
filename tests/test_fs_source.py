@@ -437,7 +437,10 @@ def test_fs_close_writes_index_and_conflicts_on_reclose(
     closed = client.post(
         f"/api/v1/projects/{pid}/fs/topics/fs-close/close",
         headers=admin_headers,
-        json={"close_reason": "discussion_converged", "close_note": "结论已沉淀"},
+        json={
+            "close_reason": "discussion_converged",
+            "close_note": "结论已沉淀\n\nexperiment_id: none\nfollowup_gate: 无实验直接归档",
+        },
     )
     assert closed.status_code == 200
     assert closed.json()["status"] == "closed"
