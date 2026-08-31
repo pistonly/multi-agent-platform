@@ -107,14 +107,24 @@ def test_creator_blocked_after_plan_revise_without_rereview(
     assert pending["actions"] == ["review_add"]
 
 
-def test_prior_version_resolved_unblocks_creator_and_clears_pending_review(
+def test_prior_version_resolved_unblocks_creator_and_stays_pending_review(
     client, auth_headers, reviewer, project
 ):
-    """Feedback 6eaa4700: when a reviewer resolves every unreasonable item
-    they raised on a prior plan version, the creator may approve without a
-    fresh current-version review, and the experiment must leave the
-    reviewer's pending_reviews (else the waker wake-loops until the host
-    acts). Mirrors assert_approve_eligibility's carve-out."""
+    """Feedback 6eaa4700 + T8 (37bfd973) 修复：reviewer resolves every
+    unreasonable item on prior plan version 时：
+
+    (1) 单 review 函数 ``_prior_version_reviews_fully_resolved`` 仍返回 True
+        → creator 可不依赖 v2 review 直接 approve（bd9b21f6 A7 carve-out，
+        assert_approve_eligibility 单函数不变）
+    (2) 批量 review 函数 ``prior_version_reviews_fully_resolved_by_experiment``
+        在 v2 无 review 记录时返回 False（I1 修复：plan_version 上下文感知）
+        → 实验保留在 reviewer 的 pending_reviews 队列，等 reviewer 重评 v2
+
+    历史：该测试早期版本名 `clears_pending_review`，T8 修复后语义反向——
+    v2 未评审时必须保留在队列，waker 才能唤醒 reviewer 重评，避免
+    `revise → carve-out → invisible → never reviewed → never approve`
+    路由死锁（T5-B e63ec33e 3h 滞留根因）。
+    """
     valid_plan = (
         "---\n"
         "title: t\n"
@@ -174,17 +184,19 @@ def test_prior_version_resolved_unblocks_creator_and_clears_pending_review(
     assert revise.status_code == 201, revise.text
 
     # Creator capabilities: prior unreasonable fully resolved → may approve
-    # without a fresh current-version review.
+    # without a fresh current-version review (bd9b21f6 A7 carve-out 仍生效)。
     detail = client.get(f"/api/v1/experiments/{exp_id}", headers=auth_headers).json()
     assert detail["current_plan_version"] == 2
-    assert detail["blocked_on"] == "none"
     assert "approve" in detail["actions"]
 
-    # Reviewer pending_reviews must NOT list it — obligation complete.
+    # T8 修复后：v2 无 review 记录 → 实验必须留在 pending_reviews 队列
+    # （路由层强制 reviewer 重评 v2，避免 carve-out 误排除）。
     reviewer_todos = client.get(
         "/api/v1/agents/me/todos", headers=reviewer["headers"]
     ).json()
-    assert not any(e["id"] == exp_id for e in reviewer_todos["pending_reviews"])
+    assert any(e["id"] == exp_id for e in reviewer_todos["pending_reviews"]), (
+        "T8 I1 修复目标：v1 resolved + revise v2 后实验必须出现在 pending_reviews 队列"
+    )
 
 
 def test_same_content_plan_revise_noops_after_clean_review(

@@ -189,6 +189,20 @@ def test_list_pending_advance_rounds_reuses_preloaded_comments(db_session):
 
 
 def test_prior_version_reviews_batch_matches_single_and_one_select(db_session):
+    """Perf 性能回归 + T8 (37bfd973) 修复一致性护栏：
+
+    验证批量 carve-out 函数与单实验版**结果一致**且**单 SELECT** 完成。
+
+    T8 修复后语义变化：
+    - pre-fix (e6d23886 carve-out): v1 resolved 即满足 → batch=True
+    - post-fix (T8 plan_version-aware): v1 resolved **且** v2 有 review 记录
+      才满足 → batch=True
+    - 单函数 ``_prior_version_reviews_fully_resolved`` 仅看 prior-version
+      resolved，行为不变（creator approve 路径与 bd9b21f6 A7 兼容）
+
+    本测试更新：5 个实验都加 v2 review 记录（空 reviews，无 items），
+    让 batch 和 single 都返回 True，验证单 SELECT 性能契约。
+    """
     project = _make_project(db_session, key="perf-prior-reviews")
     host = _make_agent(db_session, project, "host-prior")
     reviewer = _make_agent(db_session, project, "reviewer-prior")
@@ -204,22 +218,31 @@ def test_prior_version_reviews_batch_matches_single_and_one_select(db_session):
         )
         db_session.add(exp)
         db_session.flush()
-        review = Review(
+        # v1 resolved
+        v1_review = Review(
             experiment_id=exp.id,
             reviewer_agent_id=reviewer.id,
             plan_version=1,
             substitute_kind="none",
         )
-        db_session.add(review)
+        db_session.add(v1_review)
         db_session.flush()
         db_session.add(
             ReviewItem(
-                review_id=review.id,
+                review_id=v1_review.id,
                 kind=ReviewItemKind.unreasonable,
                 content=f"fix me {i}",
                 status=ReviewItemStatus.resolved,
             )
         )
+        # T8 fix: v2 必须有 review 记录（空 reviews 即可），carve-out 才满足
+        v2_review = Review(
+            experiment_id=exp.id,
+            reviewer_agent_id=reviewer.id,
+            plan_version=2,
+            substitute_kind="none",
+        )
+        db_session.add(v2_review)
         experiments.append(exp)
     db_session.commit()
 
@@ -241,7 +264,10 @@ def test_prior_version_reviews_batch_matches_single_and_one_select(db_session):
     finally:
         event.remove(bind, "before_cursor_execute", _before_cursor_execute)
 
-    assert batched == single
+    assert batched == single, (
+        "T8 I1 修复目标：batch 函数与单函数语义一致；"
+        f"batch={batched} single={single}"
+    )
     assert all(batched.values())
     assert len(review_selects) == 1, (
         f"expected exactly 1 reviews SELECT, got {len(review_selects)}:\n"

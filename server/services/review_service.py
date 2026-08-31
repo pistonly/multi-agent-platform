@@ -284,6 +284,20 @@ def prior_version_reviews_fully_resolved_by_experiment(
     Returns ``{experiment_id: True}`` when that experiment should be
     excluded from ``pending_reviews`` (prior-version carve-out satisfied).
     Issues at most one ``reviews`` SELECT for the whole input set.
+
+    T8 fix (实验 37bfd973 I1): carve-out is now plan_version-aware.  An
+    experiment only satisfies the carve-out when **both** conditions hold:
+
+    (1) all unreasonable items on prior ``plan_version`` are resolved
+        (legacy bd9b21f6 A7 carve-out semantics);
+    (2) at least one review record exists on the CURRENT ``plan_version``,
+        meaning the reviewer has acknowledged the revised plan.
+
+    If condition (2) fails (host revised plan but no reviewer has reviewed
+    the new version yet), the experiment stays in ``pending_reviews`` so
+    the waker wakes the reviewer and breaks the
+    ``revise → carve-out → invisible → never reviewed → never approve``
+    deadlock (T5-B e63ec33e 3h stall root cause).
     """
     if not experiments:
         return {}
@@ -296,14 +310,20 @@ def prior_version_reviews_fully_resolved_by_experiment(
         ).unique()
     )
     grouped: dict[uuid.UUID, list[Review]] = {eid: [] for eid in exp_by_id}
+    has_current_version_review: dict[uuid.UUID, bool] = {eid: False for eid in exp_by_id}
     for review in rows:
         exp = exp_by_id[review.experiment_id]
         if review.plan_version < exp.current_plan_version:
             grouped[review.experiment_id].append(review)
+        elif review.plan_version == exp.current_plan_version:
+            has_current_version_review[review.experiment_id] = True
     return {
-        eid: _prior_version_fully_resolved_from_reviews(
-            grouped.get(eid, []),
-            creator_agent_id=exp.creator_agent_id,
+        eid: (
+            has_current_version_review.get(eid, False)
+            and _prior_version_fully_resolved_from_reviews(
+                grouped.get(eid, []),
+                creator_agent_id=exp.creator_agent_id,
+            )
         )
         for eid, exp in exp_by_id.items()
     }
