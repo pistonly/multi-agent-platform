@@ -191,11 +191,25 @@ def compute_waker_state(
     active_interval: int | None = None,
     idle_interval: int | None = None,
 ) -> str:
-    """Compute live / stale / dead / busy_stale for one persona.
+    """Compute live / stale / dead / busy for one persona.
 
-    优先级：busy 卡死 > dead > stale > live。
+    优先级：busy 短路 > busy 升级 > dead > stale > live。
     阈值派生自 ``active_interval`` / ``idle_interval``（cli 端 SimpleWakerConfig
     in-memory 启动时配置；缺失 fallback 默认值 + RuntimeWarning）。
+
+    状态机段顺序（实验 d12c328c I2 + b01d3944 T9-B 修复）：
+
+    1. ``busy_since`` 有效 + pid 存活：进入 busy 分支
+       - busy_age ≤ busy_stale_w → ``busy``（短路，不再穿透到 gap 判定）
+       - busy_age > busy_stale_w → ``stale``（卡死 busy 升级）
+    2. ``busy_since`` 有效 + pid 缺失/已死（含 defunct） → ``dead``
+       （pid 优先级最高，不绕 busy 短路——避免 defunct pid 误报 busy）
+    3. 非 busy 状态：gap 判定 + pid 兜底
+       - pid 缺失/已死 → ``dead``
+       - last_poll_at 缺失 → ``dead``
+       - gap ≤ live_w → ``live``
+       - gap ≤ dead_w → ``stale``
+       - 其余 → ``dead``
     """
     now = now or datetime.now(timezone.utc)
     pid = persona_state.get("pid")
@@ -225,18 +239,33 @@ def compute_waker_state(
         idle_threshold=idle_stale_w,
     )
 
-    # A2 卡死 busy 升级（防"卡死 busy 逃判"）
-    if busy_since is not None and pid is not None and _pid_alive(pid):
+    # A2 busy 短路 + 升级（实验 d12c328c I2 + b01d3944 T9-B 修复）
+    # 关键修复（T9-B）：busy 未超阈值时短路返回 busy，不再穿透到 gap 判定
+    # 误报 dead（真实 waker busy 期间 last_poll_at 冻结，gap=busy_age 触发
+    # 误判 dead）。
+    if busy_since is not None and pid is not None:
+        # 1. pid 校验：缺失 / ESRCH / defunct → 一律 dead（不绕 busy 短路）
+        if not _pid_alive(pid):
+            return "dead"
         busy_age = (now - busy_since).total_seconds()
+        # 2. busy 升级：busy_age > busy_stale_w → stale（卡死 busy 升级）
         if busy_age > busy_stale_w:
             return "stale"
-
-    # pid 缺失或已死 → dead
-    if pid is None or not _pid_alive(pid):
-        return "dead"
+        # 3. busy 短路：pid 存活 + busy_age ≤ busy_stale_w
+        # - last_poll_at > busy_since：poll 在 busy 期间发生过 → live
+        #   （waker 仍活跃，poll 链路没断）
+        # - 其余（last_poll <= busy_since 冻结 或 last_poll 缺失）→ busy
+        #   （T9-B 修复核心：避免 busy 期间 poll 冻结穿透到 gap 判定误报 dead）
+        if last_poll_at is not None and last_poll_at > busy_since:
+            return "live"
+        return "busy"
 
     # 没记录过 cycle → 视作 dead（首次启动前 / 旧 state 未带 last_poll_at）
     if last_poll_at is None:
+        return "dead"
+
+    # pid 缺失或已死 → dead
+    if pid is None or not _pid_alive(pid):
         return "dead"
 
     gap = (now - last_poll_at).total_seconds()

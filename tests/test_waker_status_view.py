@@ -328,3 +328,150 @@ def test_acceptance_three_waker_busy_5min_consistent() -> None:
         assert result == "live", (
             f"{persona} busy 5min should stay live (server 30min tolerance), got {result}"
         )
+
+
+# =========================================================================
+# T9-B 修复 fixture（实验 b01d3944 I2）：穿透修复 + fixture 归真 5 case 回归
+# =========================================================================
+#
+# 现象（实测）：T9 修复后真实 3-waker 环境 host busy 624s + last_poll 冻结在
+# busy 起点 → busy_age 穿透为 gap → 误报 dead。T9 case (a) fixture
+# last_poll_gap_s=2.0 编码「poll 正常」语义，恰好绕过穿透路径。
+#
+# T9-B 修复：在 compute_waker_state A2 分支加 busy 短路——busy_since 有效 +
+# pid 存活 + busy_age ≤ busy_stale_w → busy（不走 gap 判定）；busy_age >
+# busy_stale_w → stale；pid 缺失/已死（含 defunct）→ dead。
+#
+# T9-B fixture 修正：last_poll_at = busy_started_at（poll 冻结）真实编码
+# busy 期间 poll 暂停语义，5 case 覆盖完整边界：
+# - (a) busy 2s + poll 冻结 → busy（与 T9 case (a) busy 300s+新鲜 poll 对比）
+# - (b) busy 600s + poll 冻结 → busy（KEY 修复测试：busy 穿透回归 1）
+# - (c) busy 1860s + poll 冻结 → stale（busy 超阈值升级）
+# - (d) busy 600s + poll 冻结 + pid defunct → dead（zombie 优先级）
+# - (e) 旧 state 兼容：state.json 无 busy_started_at → 维持原 gap 判定
+
+
+def _state_poll_frozen(
+    *,
+    pid: int | None = os.getpid(),
+    busy_age_s: float,
+    is_defunct: bool = False,
+) -> dict:
+    """Build persona state with busy_since + last_poll_at = busy_started_at (poll frozen)."""
+    busy_started_at = NOW - timedelta(seconds=busy_age_s)
+    state: dict = {}
+    if pid is not None:
+        state["pid"] = pid
+    state["busy_started_at"] = _iso(busy_started_at)
+    state["last_poll_at"] = _iso(busy_started_at)  # poll 冻结在 busy 起点
+    state["expected_remind_runtime_seconds"] = EXPECTED_REMIND_RUNTIME_SECONDS
+    # 注：is_defunct 由 caller 通过 patch._is_zombie 注入
+    _ = is_defunct
+    return state
+
+
+# =========================================================================
+# T9-B Case (a): busy 2s + poll 冻结 → busy（与 T9 case (a) busy 300s 对比）
+# =========================================================================
+
+
+def test_t9b_case_a_busy_2s_poll_frozen_is_busy() -> None:
+    """T9-B Case (a): busy_age=2s + last_poll_at=busy_started_at + pid alive → busy。
+
+    与 T9 case (a)（busy 300s + last_poll_gap_s=2.0）形成对比：
+    - T9 case (a) 模拟「poll 正常」（gap=2s → live via gap judgment）
+    - T9-B case (a) 模拟「真实 busy 期间 poll 冻结」→ busy（短路返回）
+    """
+    state = _state_poll_frozen(busy_age_s=2)
+    assert compute_waker_state(state, now=NOW) == "busy"
+
+
+# =========================================================================
+# T9-B Case (b): busy 600s + poll 冻结 → busy（KEY 修复测试）
+# =========================================================================
+
+
+def test_t9b_case_b_busy_600s_poll_frozen_stays_busy_not_dead() -> None:
+    """T9-B Case (b): busy 600s + poll 冻结 + pid alive → busy（非 dead）。
+
+    这是 T9-B 的 KEY 测试：修复前 busy 600s 穿透到 gap 判定 → dead；
+    修复后 busy 短路 → busy。
+    """
+    state = _state_poll_frozen(busy_age_s=600)
+    result = compute_waker_state(state, now=NOW)
+    assert result == "busy", (
+        f"busy 600s + poll 冻结 + pid alive must short-circuit to busy, got {result}"
+    )
+
+
+# =========================================================================
+# T9-B Case (c): busy 1860s + poll 冻结 → stale（超阈值升级）
+# =========================================================================
+
+
+def test_t9b_case_c_busy_1860s_poll_frozen_escalates_to_stale() -> None:
+    """T9-B Case (c): busy_age=1860s + poll 冻结 + pid alive → stale。
+
+    busy_stale_w=1800s（30min default），busy_age=1860 > 1800 → 升级 stale。
+    """
+    state = _state_poll_frozen(busy_age_s=1860)
+    assert compute_waker_state(state, now=NOW) == "stale"
+
+
+# =========================================================================
+# T9-B Case (d): busy 600s + poll 冻结 + pid defunct → dead（zombie 优先级）
+# =========================================================================
+
+
+def test_t9b_case_d_pid_defunct_during_busy_is_dead() -> None:
+    """T9-B Case (d): busy 600s + poll 冻结 + pid defunct → dead。
+
+    zombie 优先级高于 busy 短路：defunct pid → _pid_alive=False → dead。
+    避免「defunct pid 误报 busy」bug（participant §2 提议）。
+    """
+    state = _state_poll_frozen(busy_age_s=600)
+    with patch.object(waker_view, "_is_zombie", return_value=True):
+        result = compute_waker_state(state, now=NOW)
+    assert result == "dead", (
+        f"defunct pid during busy must trigger dead (zombie priority), got {result}"
+    )
+
+
+# =========================================================================
+# T9-B Case (e): 旧 state 兼容 — 无 busy_started_at → 维持原 gap 判定
+# =========================================================================
+
+
+def test_t9b_case_e_legacy_state_without_busy_started_at() -> None:
+    """T9-B Case (e): state.json 无 busy_started_at → 维持原 gap 判定行为不变。
+
+    向后兼容：旧 state 行为不变（不进入 busy 分支；走 pid + gap 判定）。
+    busy_started_at 缺 + last_poll fresh → live。
+    """
+    state = _state(
+        pid=os.getpid(),
+        busy_started_at=None,
+        last_poll_gap_s=2.0,
+    )
+    # 无 busy_started_at → 跳过 busy 短路分支；走 gap=2 ≤ live_w=60 → live
+    assert compute_waker_state(state, now=NOW) == "live"
+
+
+# =========================================================================
+# T9-B Case (f): T9 case (a) 保留对比 — busy 300s + fresh poll → live
+# =========================================================================
+
+
+def test_t9b_case_f_busy_300s_with_fresh_poll_stays_live() -> None:
+    """T9-B Case (f): busy 300s + last_poll fresh (2s ago) + pid alive → live。
+
+    与 T9 case (a) 一致：poll 在 busy 期间发生过 → waker 仍活跃 → live。
+    此 case 证明 T9-B 修复未破坏 T9 已修的 busy 档（fresh poll 仍 live）。
+    """
+    state = _state(
+        pid=os.getpid(),
+        busy_started_at=NOW - timedelta(seconds=300),
+        last_poll_gap_s=2.0,
+    )
+    # busy_age=300 ≤ busy_stale_w=1800；last_poll(now-2) >= busy_since(now-300) → live
+    assert compute_waker_state(state, now=NOW) == "live"
