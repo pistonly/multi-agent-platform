@@ -46,6 +46,7 @@ from cli.worker_cycle_log import log_cycle_summary
 APP = typer.Typer(add_completion=False)
 
 _skill_audit_logger = logging.getLogger("cli.simple_waker.skill_audit")
+_audit_drift_logger = logging.getLogger("cli.simple_waker.verify_audit")
 
 
 def _startup_sync_with_audit(project_root: Path, runtime_home: Path) -> None:
@@ -792,6 +793,9 @@ class SimpleWaker:
                 # 一次漂移检测；用 total.cycles 计数保证无论正常/异常路径都
                 # 计数。失败已在 _run_drift_check 内捕获，不阻塞主流程。
                 self._run_drift_check(cycle_index=total.cycles)
+                # 实验 e6d23886 (T7-a) I3：verify-audit 检测同样按 N cycle 节流，
+                # 失败/异常在 _run_verify_audit_check 内部捕获，不阻断 waker。
+                self._run_verify_audit_check(cycle_index=total.cycles)
                 log_cycle_summary(
                     "simple-waker",
                     total,
@@ -1053,6 +1057,66 @@ class SimpleWaker:
             payload["error"] = result.error
         log_fn = _skill_audit_logger.warning if not result.ok else _skill_audit_logger.info
         log_fn(json.dumps(payload, ensure_ascii=False))
+
+    def _run_verify_audit_check(self, *, cycle_index: int) -> None:
+        """每 ``drift_check_interval_cycles`` 周期跑一次 verify-audit 扫描。
+
+        实验 e6d23886 (T7-a) I3：复用 T4 drift hotcheck 的 30-cycle 节流节奏，
+        但只扫描 + WARN 上报，不写 audit.jsonl (防递归绕过)。失败/异常被内部
+        捕获，不阻断 waker 主流程。
+
+        - 干净 → DEBUG ``audit_drift_clean``
+        - 有漂移 → WARNING ``audit_drift_detected`` (alert=True)
+        - 扫描异常 → WARNING ``audit_drift_check_failed`` (alert=True)
+        """
+        interval = self.config.drift_check_interval_cycles
+        if interval <= 0:
+            return
+        if cycle_index % interval != 0:
+            return
+        try:
+            from cli.verify_audit import scan_plane_audit
+            detector = scan_plane_audit(self.config.project_root)
+        except Exception as exc:
+            _audit_drift_logger.warning(
+                json.dumps(
+                    {
+                        "event": "audit_drift_check_failed",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "cycle": cycle_index,
+                        "alert": True,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if detector.count == 0:
+            _audit_drift_logger.debug(
+                json.dumps(
+                    {
+                        "event": "audit_drift_clean",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "cycle": cycle_index,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return
+        _audit_drift_logger.warning(
+            json.dumps(
+                {
+                    "event": "audit_drift_detected",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "cycle": cycle_index,
+                    "drift_count": detector.count,
+                    "drift_ids": [d.drift_id for d in detector.drifts],
+                    "kinds": sorted({d.kind for d in detector.drifts}),
+                    "alert": True,
+                },
+                ensure_ascii=False,
+            )
+        )
 
     def _record_remind_inbound_event(
         self,

@@ -158,6 +158,10 @@ app.add_typer(host_app, name="host")
 app.add_typer(auth_app, name="auth")
 app.add_typer(server_app, name="server")
 app.add_typer(waker_app, name="waker")
+# 实验 e6d23886 I3：verify-audit CLI 子命令（map fs verify-audit）。
+from cli.commands.verify_audit import verify_audit_app
+
+app.add_typer(verify_audit_app, name="fs")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
