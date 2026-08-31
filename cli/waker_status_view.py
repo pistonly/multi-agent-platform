@@ -30,12 +30,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lib.waker_status_config import (
-    busy_stale as _busy_stale,
-    dead_window as _dead_window,
-    idle_stale as _idle_stale,
-    live_window as _live_window,
-)
+from lib import waker_status_config as _wsc
+
+_busy_stale = _wsc.busy_stale
+_dead_window = _wsc.dead_window
+_idle_stale = _wsc.idle_stale
+_live_window = _wsc.live_window
 
 # active_interval 缺失 fallback 默认值（T6 v2 plan §派生公式 floor 30s 一致）
 _ACTIVE_INTERVAL_FALLBACK = 30
