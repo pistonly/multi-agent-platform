@@ -189,10 +189,12 @@ def aggregate_by_experiment(
     Output: ``CostBreakdown`` 含 persona_breakdown + session_kind_breakdown
     + match_breakdown + sanity_warning。
     """
+    # Materialize events once (render iterates 3 times; generator exhaustion bug 防护)
+    events_list = list(events)
     persona_acc: dict[str, PersonaCost] = {}
     sk_acc: dict[str, PersonaCost] = {}
 
-    for usage, _attr in events:
+    for usage, _attr in events_list:
         # session_kind 二维
         sk = _resolve_event_session_kind(usage)
         sk_acc[sk] = _accumulate(sk_acc.get(sk, _empty_persona(sk)), usage)
@@ -208,7 +210,7 @@ def aggregate_by_experiment(
     # sessions per persona：每个 (persona, session_id) 仅 +1（不再累加 tokens，
     # 避免与上方 _accumulate 调用双重计数）
     seen_personas_per_session: set[tuple[str, str]] = set()  # (persona, session_id)
-    for usage, attr in events:
+    for usage, attr in events_list:
         key = (usage.persona, attr.session_id)
         if key in seen_personas_per_session:
             continue
@@ -219,7 +221,7 @@ def aggregate_by_experiment(
     # match_breakdown 4 桶
     match_counter = Counter()
     seen_sessions: set[str] = set()
-    for _, attr in events:
+    for _, attr in events_list:
         if attr.session_id in seen_sessions:
             continue
         seen_sessions.add(attr.session_id)
@@ -254,8 +256,10 @@ def aggregate_by_persona(
     events: Iterable[tuple[NormalizedUsage, SessionAttribution]],
 ) -> dict[str, PersonaAggregate]:
     """Aggregate cross-experiment per-persona summary (plan §A4)。"""
+    # Materialize events once (function iterates 3 times; generator exhaustion bug 防护)
+    events_list = list(events)
     exp_per_persona: dict[str, dict[str, PersonaCost]] = {}
-    for usage, attr in events:
+    for usage, attr in events_list:
         if attr.experiment_id is None:
             continue  # unmatched 不归任何 experiment
         persona = usage.persona
@@ -264,13 +268,13 @@ def aggregate_by_persona(
 
     # 二次循环累加 tokens + session
     session_keys: set[tuple[str, str, str]] = set()  # (persona, experiment_id, session_id)
-    for usage, attr in events:
+    for usage, attr in events_list:
         if attr.experiment_id is None:
             continue
         key = (usage.persona, attr.experiment_id, attr.session_id)
         session_keys.add(key)
 
-    for usage, attr in events:
+    for usage, attr in events_list:
         if attr.experiment_id is None:
             continue
         persona = usage.persona

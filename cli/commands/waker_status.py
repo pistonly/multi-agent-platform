@@ -75,3 +75,150 @@ def waker_status(
         return
 
     typer.echo(render_waker_status_table(rows))
+
+
+@waker_app.command("costs")
+def waker_costs(
+    by: str = typer.Option(
+        "persona",
+        "--by",
+        help="聚合维度：persona（跨实验 per-persona）或 experiment（per-experiment × persona）。",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="项目根目录（含 .map/）。默认 cwd。",
+    ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help="JSON 输出（结构化；便于脚本消费）。",
+    ),
+) -> None:
+    """per-实验 token 成本跨实验汇总视图（T5-B plan §A4）。
+
+    复用 ``cli/cost_ledger/orchestrator.py``：scan → map → attribute → render。
+    价目表暂未接入，统一标 ``pricing_unavailable: true``（plan §A6 不允许 0 兜底）。
+    """
+    from cli import runner
+    from cli.cost_ledger.orchestrator import (
+        cost_breakdown_to_yaml_dict,
+        persona_aggregate_to_yaml_dict,
+        render_experiment_view,
+        render_persona_aggregate_view,
+    )
+
+    if by not in ("persona", "experiment"):
+        typer.echo(
+            f"Error: --by must be 'persona' or 'experiment' (got {by!r})", err=True
+        )
+        raise typer.Exit(1)
+
+    root = project_root or Path.cwd()
+
+    def _action(client) -> None:
+        project_id = runner._resolve_project(client, None, None)
+        experiments = _fetch_windows(client, project_id)
+
+        if by == "persona":
+            aggregate = render_persona_aggregate_view(root, experiments=experiments)
+            out = persona_aggregate_to_yaml_dict(aggregate)
+            out["pricing_unavailable"] = True
+            out["by"] = "persona"
+        else:  # by == "experiment"
+            breakdowns = [
+                render_experiment_view(root, experiment_id=w.experiment_id, experiments=experiments)
+                for w in experiments
+            ]
+            out = {
+                "by": "experiment",
+                "pricing_unavailable": True,
+                "experiments": [
+                    cost_breakdown_to_yaml_dict(b, pricing_unavailable=True) for b in breakdowns
+                ],
+            }
+
+        if as_json:
+            typer.echo(_json.dumps(out, ensure_ascii=False, indent=2, sort_keys=True))
+            return
+
+        # YAML-like text output
+        if by == "persona":
+            _emit_persona_aggregate(out)
+        else:
+            _emit_experiment_breakdown(out)
+
+    runner._run(_action)
+
+
+def _fetch_windows(client, project_id) -> list:
+    """Fetch experiments and build ``ExperimentWindow`` list。
+
+    与 ``cli/commands/experiment.py:_fetch_experiment_windows`` 同款
+    （archived_at/updated_at → ended_at）；不再重复 ended_at=None 抢占
+    first_experiment_id 的语义 bug。
+    """
+    from cli.cost_ledger.attribution import ExperimentWindow
+
+    items = client.list_experiments(project_id, page_size=100)
+    windows = []
+    for exp in items:
+        started_at = exp.created_at.isoformat() if exp.created_at else None
+        if not started_at:
+            continue
+        if exp.archived_at is not None:
+            ended_at = exp.archived_at.isoformat()
+        elif getattr(exp, "phase", None) is not None and exp.phase.value == "done":
+            ended_at = exp.updated_at.isoformat() if exp.updated_at else None
+        else:
+            ended_at = None
+        windows.append(
+            ExperimentWindow(
+                experiment_id=str(exp.id),
+                started_at=started_at,
+                ended_at=ended_at,
+            )
+        )
+    return windows
+
+
+def _emit_persona_aggregate(out: dict) -> None:
+    """Render per-persona aggregate as YAML-like text."""
+    typer.echo("by: persona")
+    typer.echo(f"pricing_unavailable: {out.get('pricing_unavailable', False)}")
+    for persona, payload in (out or {}).items():
+        if persona == "pricing_unavailable":
+            continue
+        typer.echo(f"{persona}:")
+        if not isinstance(payload, dict):
+            continue
+        total = payload.get("total")
+        if total is not None:
+            typer.echo("  total:")
+            for k, v in total.items():
+                typer.echo(f"    {k}: {v}")
+        exp_bd = payload.get("experiment_breakdown") or {}
+        if exp_bd:
+            typer.echo("  experiment_breakdown:")
+            for exp_id, cost in exp_bd.items():
+                typer.echo(f"    {exp_id}:")
+                for k, v in cost.items():
+                    typer.echo(f"      {k}: {v}")
+
+
+def _emit_experiment_breakdown(out: dict) -> None:
+    """Render per-experiment breakdown list as YAML-like text."""
+    typer.echo("by: experiment")
+    typer.echo(f"pricing_unavailable: {out.get('pricing_unavailable', False)}")
+    for exp_payload in out.get("experiments", []) or []:
+        typer.echo(f"experiment_id: {exp_payload.get('experiment_id')}")
+        typer.echo("  persona_breakdown:")
+        for persona, cost in (exp_payload.get("persona_breakdown") or {}).items():
+            typer.echo(f"    {persona}:")
+            for k, v in cost.items():
+                typer.echo(f"      {k}: {v}")
+        typer.echo("  match_breakdown:")
+        for k, v in (exp_payload.get("match_breakdown") or {}).items():
+            typer.echo(f"    {k}: {v}")
+        if exp_payload.get("sanity_warning"):
+            typer.echo(f"  sanity_warning: {exp_payload['sanity_warning']}")

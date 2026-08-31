@@ -935,10 +935,120 @@ def experiment_status(
 @experiment_app.command("show")
 def experiment_show(
     experiment_id: str | None = typer.Option(None, "--id", help=_ID_HELP),
+    cost: bool = typer.Option(
+        False,
+        "--cost",
+        help="per-实验 token 成本视图（plan §A4 + §A5；YAML 输出含 match_breakdown）",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="项目根目录（含 .map/）。默认 cwd。",
+    ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help="JSON 输出（结构化；便于脚本消费）。",
+    ),
 ) -> None:
-    """Show one experiment (including archived) by UUID, uuid5, slug, or short prefix."""
+    """Show one experiment (including archived) by UUID, uuid5, slug, or short prefix.
+
+    ``--cost`` 切换到 T5-B 成本视图：persona × session_kind 二维 +
+    match_breakdown 4 桶 + sanity_warning；缺价目表显式 pricing_unavailable 标记
+    （不允许 0 兜底；plan §A6）。
+    """
     raw = _require_id(experiment_id)
+    if cost:
+        runner._run(
+            lambda c: _show_experiment_cost(c, raw, project_root, as_json),
+            experiment_id=raw,
+        )
+        return
     runner._run(lambda c: _load_experiment(c, raw), experiment_id=raw)
+
+
+def _show_experiment_cost(
+    client: MAPClient,
+    raw: str | uuid.UUID,
+    project_root: Path | None,
+    as_json: bool,
+) -> None:
+    """Render per-experiment token cost view (plan §A4 + §A5)。
+
+    Pipeline：SDK list_experiments (ExperimentWindow) → orchestrator.scan →
+    layer2 map → attribution → render.aggregate_by_experiment → YAML 输出。
+    """
+    from cli.cost_ledger.orchestrator import (
+        cost_breakdown_to_yaml_dict,
+        render_experiment_view,
+    )
+
+    project_id = runner._resolve_project(client, None, None)
+    experiments = _fetch_experiment_windows(client, project_id)
+    exp_uuid = _rid(client, raw)
+    root = project_root or Path.cwd()
+    breakdown = render_experiment_view(
+        root,
+        experiment_id=str(exp_uuid),
+        experiments=experiments,
+    )
+    out = cost_breakdown_to_yaml_dict(breakdown, pricing_unavailable=True)
+    if as_json:
+        _print_json(out)
+        return
+    # YAML-like text output
+    typer.echo(f"experiment_id: {out['experiment_id']}")
+    typer.echo("persona_breakdown:")
+    for persona, cost_dict in (out["persona_breakdown"] or {}).items():  # type: ignore[union-attr]
+        typer.echo(f"  {persona}:")
+        for k, v in cost_dict.items():  # type: ignore[union-attr]
+            typer.echo(f"    {k}: {v}")
+    typer.echo("match_breakdown:")
+    for k, v in (out["match_breakdown"] or {}).items():  # type: ignore[union-attr]
+        typer.echo(f"  {k}: {v}")
+    if out["sanity_warning"]:
+        typer.echo(f"sanity_warning: {out['sanity_warning']}")
+    typer.echo(f"pricing_unavailable: {out['pricing_unavailable']}")
+
+
+def _fetch_experiment_windows(client: MAPClient, project_id: uuid.UUID) -> list:
+    """Fetch all experiments and build ``ExperimentWindow`` list for attribution.
+
+    **Real-data fix（T5-B I4 follow-up）**：
+    - ``started_at`` ← ``exp.created_at``（实验创建时间，DB 必有）
+    - ``ended_at`` ← ``exp.archived_at`` 或 phase=done 时 ``updated_at``
+      （默认 None 表示仍 in-progress；post_accept_continuation 会一直匹配）
+      必须显式设 ended_at 才能让 first_experiment_id 语义正确，避免最早实验
+      抢占所有 session（ended_at=None 时所有 session 都与最早实验 overlap）
+
+    注意：ExperimentSummaryRead 仅暴露 ``archived_at``；DB done phase 但
+    未 archived 的实验无显式 end，**临时**用 ``updated_at`` 兜底（与 done
+    状态的语义偏差 < 1 小时可接受；下个 I-step 引入 Phase=Done 显式时间戳）。
+    """
+    from cli.cost_ledger.attribution import ExperimentWindow
+
+    items = client.list_experiments(project_id, page_size=100)
+    windows = []
+    for exp in items:
+        started_at = exp.created_at.isoformat() if exp.created_at else None
+        if not started_at:
+            continue
+        phase_value = getattr(exp.phase, "value", exp.phase)
+        # 优先 archived_at；否则若 phase=done/cancelled 用 updated_at 兜底；其余 None
+        if exp.archived_at is not None:
+            ended_at = exp.archived_at.isoformat()
+        elif phase_value in ("done", "cancelled") and exp.updated_at:
+            ended_at = exp.updated_at.isoformat()
+        else:
+            ended_at = None
+        windows.append(
+            ExperimentWindow(
+                experiment_id=str(exp.id),
+                started_at=started_at,
+                ended_at=ended_at,
+            )
+        )
+    return windows
 
 
 @experiment_app.command("index-validate")

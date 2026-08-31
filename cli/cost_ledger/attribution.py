@@ -23,7 +23,7 @@ import logging
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cli.cost_ledger.layer1_collector import RawUsageEvent
 
@@ -86,23 +86,42 @@ def _match_file_window(raw: RawUsageEvent) -> str | None:
     """file_window：source_file 路径或 session_id 含 UUID 形式 experiment_id。
 
     典型场景：jsonl 文件名是 ``exp_<uuid>.jsonl``，或父目录含 uuid。
+
+    **Real-data fix（T5-B I4 follow-up）**：session jsonl 文件名本身就是
+    session UUID（如 ``a4e8f012-....jsonl``），朴素 ``_UUID_RE.search``
+    会把 session_id 自身误识为 experiment_id 导致 100% false positive。
+    修复：跳过与 ``raw.session_id`` 自身相等的 UUID，仅返回真正的 experiment UUID。
     """
     for src in (raw.source_file, raw.session_id):
         m = _UUID_RE.search(src)
-        if m:
-            return m.group(0).lower()
+        if not m:
+            continue
+        candidate = m.group(0).lower()
+        # 排除 session_id 自身——session 文件名 UUID 不是 experiment_id
+        if candidate == raw.session_id.lower():
+            continue
+        return candidate
     return None
 
 
 def _parse_iso(ts: str) -> datetime | None:
-    """Parse ISO 8601 字符串 → datetime；解析失败返回 None。"""
+    """Parse ISO 8601 字符串 → tz-aware UTC datetime；解析失败返回 None。
+
+    Real-data fix（T5-B I4 follow-up）：legacy experiment.created_at 可能
+    为 naive datetime（无 tzinfo），与 tz-aware session ts 比较会抛
+    ``TypeError: can't compare offset-naive and offset-aware datetimes``。
+    修复：naive 输入视作 UTC，与 aware 输入统一 tz-aware 表达。
+    """
     if not ts:
         return None
-    # Python 3.11+ 支持 fromisoformat 处理 'Z' 后缀
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+    if dt.tzinfo is None:
+        # naive 输入视作 UTC（与 MAP server 实际口径一致）
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _session_window(

@@ -130,6 +130,8 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("version", "info"),
     # 实验 waker-status-view I3：waker 巡检视图——只读 .map/simple-waker-state-*.json。
     ("waker", "status"),
+    # T5-B I4：per-实验 token 成本跨实验汇总视图（只读 jsonl + DB list；不改任何状态）
+    ("waker", "costs"),
 
 
     ("sync", "pull"),
