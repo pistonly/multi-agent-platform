@@ -106,6 +106,32 @@ map --persona host host invoke --persona reviewer \
 
 > 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["host"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
 
+## 视图类实验验收 checklist 二段式（实验 d12c328c I7）
+
+> **触发条件**：实验涉及 CLI 命令扩展 / 视图层派生 / 状态机档位调整，且验收点需要 CLI 包入口实际跑通（即 `python -m cli.<module>` 或 `map <cmd>` 子进程，不只是 pytest 直接 import 模块）。
+
+### 段一：synthetic fixture（pytest 跑，CI 自动化）
+
+- 覆盖代码层所有分支的合成 state.json / env / pid 路径
+- mock datetime / monkeypatch / freezegun 注入时间戳，避免真 sleep 拖慢 pytest
+- 至少 6 case：档位边界 + 缺字段 fallback + pid zombie / defunct + fallback chain 三层 + atomic write race + 同帧一致性
+- pytest 全量绿（基线只增不减，0 failed）
+- `ruff check` 0
+
+### 段二：真实环境 smoke（监督者手动确认，CLI 包入口 ≠ pytest 直接 import 模块）
+
+- **真实 3-waker 环境**下 host 进长会话 → `map waker status` 显示 busy（live）+ `map work` busy 状态同源对齐（实验 d12c328c 修复的目标）
+- 涉及 waker 重启 / 进程级状态变更时由监督者手动重启 server + waker 生效（daemon restart，无 docker build）
+- result_review 阶段 action_items 显式收口：监督者重启 server + waker 列入 todo，避免「验收通过却未生效」
+
+### 历史教训（T6 a8b64c20 派生公式仅 idle 档同帧 / busy 档漏核）
+
+- 实验 T6（a8b64c20）只测了 idle 档同帧一致性，busy 档漏核——验收盲区，导致 d12c328c 修复任务
+- 二段式 checklist 的目的：避免「pytest 全绿但 CLI 包入口实际行为漏检」反复发生
+- 视图类实验必须在段二显式列出「监督者手动跑哪些 CLI 命令」并写入 plan.md acceptance.evidence_keys
+
+> 措辞与 `lib/waker_state.py:WAKER_STATE_SCHEMA` 字段注释、`tests/test_waker_status_view.py` 6 case 配套；事故痕迹见 `map/topics/waker-status-busy-threshold-fix/round1-summary-host.md`。
+
 ## 参考
 
 | 场景 | 文档 |

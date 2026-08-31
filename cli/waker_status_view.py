@@ -16,7 +16,10 @@ state 派生（实验 T6 a8b64c20 v2 plan）：
   - stale: live_w < gap ≤ dead_window(active_interval) = 10 × active_interval
   - dead: gap > dead_window 或 pid 不存在
   - busy 卡死升级: ``busy_age > busy_stale(expected_remind_runtime, idle_threshold)``
-    （CLI 默认 ``expected_remind_runtime = idle_stale``，故 = 2 × idle_stale）
+    （CLI 真实同源 server 30min 容忍：expected_remind_runtime 走 fallback 链
+    state.json > env ``MAP_EXPECTED_REMIND_RUNTIME_MINUTES`` > 30min default；
+    实验 d12c328c 修复 v0.15：旧实现偷换 ``expected_remind_runtime = idle_stale_w``
+    导致 busy 180s 误报 stale/dead，已废弃）
 
 active_interval 缺失 fallback 默认 30s + ``RuntimeWarning``（case c 覆盖）。
 多 waker 配置隔离：每个 waker 独立从 SimpleWakerConfig 派生，不允许全局缓存。
@@ -31,6 +34,10 @@ from pathlib import Path
 from typing import Any
 
 from lib import waker_status_config as _wsc
+from lib.waker_state import (
+    EXPECTED_REMIND_RUNTIME_FALLBACK_SECONDS,
+    MAP_EXPECTED_REMIND_RUNTIME_ENV,
+)
 
 _busy_stale = _wsc.busy_stale
 _dead_window = _wsc.dead_window
@@ -104,7 +111,12 @@ def _parse_dt(value: Any) -> datetime | None:
 
 
 def _pid_alive(pid: int | None) -> bool:
-    """Check if pid is owned by current uid and still alive."""
+    """Check if pid is owned by current uid and not a zombie/defunct.
+
+    实验 d12c328c I4：双重校验 ``os.kill(pid, 0)`` + 读
+    ``/proc/<pid>/status`` 的 ``State`` 字段排除 zombie（defunct pid
+    的 waker 实际不在工作但 poll 链路可能仍误判存活）。
+    """
     if pid is None:
         return False
     try:
@@ -113,7 +125,63 @@ def _pid_alive(pid: int | None) -> bool:
         return False
     except OSError:
         return False
-    return True
+    return not _is_zombie(pid)
+
+
+def _is_zombie(pid: int) -> bool:
+    """Return True iff ``/proc/<pid>/status`` State starts with ``Z`` (defunct).
+
+    仅 Linux；非 Linux 平台回退 False（不影响主流程：os.kill 已确认存活）。
+    """
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("State:"):
+                    return line.split()[1] in ("Z", "z")
+    except (OSError, IndexError):
+        return False
+    return False
+
+
+def _resolve_expected_remind_runtime(
+    persona_state: dict[str, Any],
+) -> int:
+    """Resolve busy-tolerance seconds via state.json > env > 30min default.
+
+    实验 d12c328c I1+I2：CLI 真实同源 server 30min 容忍（修复 v0.15 前的
+    ``expected_remind_runtime = idle_stale_w`` fallback 偷换语义 bug）。
+
+    优先级链：
+
+    1. ``persona_state["expected_remind_runtime_seconds"]``（waker 启动时由
+       ``cli/simple_waker.py`` 写入；``MAP_EXPECTED_REMIND_RUNTIME_MINUTES``
+       env 或 default 30min × 60）。
+    2. env ``MAP_EXPECTED_REMIND_RUNTIME_MINUTES``（``int()`` 解析失败
+       → RuntimeWarning + 跳到下一段）。
+    3. ``EXPECTED_REMIND_RUNTIME_FALLBACK_SECONDS``（30 × 60）。
+
+    **绝不**回退到 ``idle_stale_w``（那是 fallback 偷换语义，正是修复的根因）。
+    """
+    # 1. state.json 字段
+    state_val = persona_state.get("expected_remind_runtime_seconds")
+    if isinstance(state_val, (int, float)) and state_val > 0:
+        return int(state_val)
+    # 2. env override
+    env_val = os.environ.get(MAP_EXPECTED_REMIND_RUNTIME_ENV)
+    if env_val:
+        try:
+            minutes = int(env_val)
+            if minutes > 0:
+                return minutes * 60
+        except ValueError:
+            warnings.warn(
+                f"{MAP_EXPECTED_REMIND_RUNTIME_ENV}={env_val!r} is not a valid integer; "
+                "falling back to 30min default",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+    # 3. default
+    return EXPECTED_REMIND_RUNTIME_FALLBACK_SECONDS
 
 
 def compute_waker_state(
@@ -148,11 +216,12 @@ def compute_waker_state(
     live_w = _live_window(active_interval)
     idle_stale_w = _idle_stale(active_interval, idle_interval)
     dead_w = _dead_window(active_interval)
-    # busy 卡死升级：CLI 侧 expected_remind_runtime 缺省按 idle_stale 派生
-    # busy_stale(expected_remind_runtime=idle_stale_w, idle_threshold=idle_stale_w)
-    # = max(idle_stale_w, 2 × idle_stale_w) = 2 × idle_stale_w
+    # busy 卡死升级：CLI 真实同源 server 30min 容忍（实验 d12c328c I2 修复）。
+    # 旧实现偷换 ``expected_remind_runtime = idle_stale_w``（≈ 90s）使
+    # busy 180s 即升级 stale，与 server 30min 容忍口径差 10×。
+    expected_remind_runtime_s = _resolve_expected_remind_runtime(persona_state)
     busy_stale_w = _busy_stale(
-        expected_remind_runtime=idle_stale_w,
+        expected_remind_runtime=expected_remind_runtime_s,
         idle_threshold=idle_stale_w,
     )
 
@@ -230,17 +299,39 @@ def collect_waker_status(
 
 
 def _load_state_file(state_path: Path) -> dict[str, Any]:
+    """Load persona state from ``.map/simple-waker-state-<persona>.json``.
+
+    实验 d12c328c I3：CLI 读时遇 ``JSONDecodeError`` 重试一次
+    （atomic write ``tmp + os.replace`` 期间可能短暂读到半截 JSON；
+    writer 已 atomic，reader 容错一次就够）。
+
+    Returns empty dict when file missing / unreadable / still unparseable
+    after retry（视图层降级为 ``state=never``）。
+    """
     if not state_path.exists():
         return {}
-    try:
-        data = json.loads(state_path.read_text())
-    except (OSError, json.JSONDecodeError):
+    data: dict[str, Any] | None = None
+    last_exc: json.JSONDecodeError | None = None
+    for _ in range(2):
+        try:
+            data = json.loads(state_path.read_text())
+            break
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+            continue
+        except OSError:
+            return {}
+    if data is None:
+        if last_exc is not None:
+            warnings.warn(
+                f"waker state file {state_path} unparseable after retry: {last_exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         return {}
     personas = data.get("personas") or {}
-    # 每个文件只有一个 persona (named same as filename)
     if not personas:
         return {}
-    # 取任意一个 persona（理论上每个文件就一个）
     for pstate in personas.values():
         return pstate if isinstance(pstate, dict) else {}
     return {}

@@ -157,26 +157,35 @@ def test_state_dead_when_last_poll_missing(tmp_path: Path) -> None:
 
 # =========================================================================
 # Case 10-11: busy 卡死升级档位 parametrize（active_interval=30, idle_interval=300）
-# busy_stale_w = max(300, 2×300) = 600
-#   busy_age ≤ 600 → 不升级；busy_age > 600 → 升级 stale
+# busy_stale_w = max(1800, 2×300) = 1800（实验 d12c328c I1+I2 修复：
+# busy 容忍真实同源 server 30min 容忍，原 T6 fixture 用 600 偷换语义，
+# 旧 busy 601s 即被误报 stale——已废弃）
+#   busy_age ≤ 1800 → 不升级；busy_age > 1800 → 升级 stale
 # =========================================================================
 
 
 @pytest.mark.parametrize(
     "busy_age_s,last_poll_gap_s,expected",
     [
-        # busy_age 未超 busy_stale（600）→ 走普通 gap 判定
-        (300.0, 2.0, "live"),  # busy 5min + gap 2s → live（busy_age ≤ 600）
-        (600.0, 2.0, "live"),  # busy 10min + gap 2s → live（busy_age = 600, NOT > 600）
+        # busy_age 未超 busy_stale（1800）→ 走普通 gap 判定
+        (300.0, 2.0, "live"),  # busy 5min + gap 2s → live（busy_age ≤ 1800）
+        (600.0, 2.0, "live"),  # busy 10min + gap 2s → live
+        (1800.0, 2.0, "live"),  # busy 30min + gap 2s → live（busy_age = 1800, NOT > 1800）
         # busy_age 超 busy_stale → 升级 stale（即便 last_poll_at 看似 live）
-        (601.0, 2.0, "stale"),  # busy 10min+1s + gap 2s → stale（busy 卡死升级）
-        (1200.0, 2.0, "stale"),  # busy 20min → stale
+        (1801.0, 2.0, "stale"),  # busy 30min+1s + gap 2s → stale（卡死 busy 升级）
+        (3600.0, 2.0, "stale"),  # busy 60min → stale
         # busy 但 gap 也 stale 时仍 stale
-        (700.0, 150.0, "stale"),  # busy_age > 600 → stale
+        (1900.0, 150.0, "stale"),  # busy_age > 1800 → stale
     ],
 )
 def test_busy_stuck_tier(tmp_path: Path, busy_age_s: float, last_poll_gap_s: float, expected: str) -> None:
-    """§派生公式 busy_stale：busy_age > 600 → 升级 stale（防「卡死 busy 逃判」）。"""
+    """§派生公式 busy_stale：busy_age > 1800（30min server 容忍）→ 升级 stale。
+
+    实验 d12c328c I1+I2：原 T6 (a8b64c20) busy_stale = max(idle_stale=300, 2*300)=600
+    偷换语义 bug——busy 601s 即误报 stale，与 server 30min 容忍口径差 10×。本测试
+    已升级到新阈值 1800s；旧 600s 阈值下的 fixture（busy_age=601/1200 等）由
+    test_waker_status_view.py case (b) 覆盖（busy 1900s → stale）。
+    """
     state = _state(busy_age_s=busy_age_s, last_poll_gap_s=last_poll_gap_s)
     assert compute_waker_state(state, now=NOW, active_interval=DEFAULT_ACTIVE_INTERVAL, idle_interval=DEFAULT_IDLE_INTERVAL) == expected
 
@@ -438,14 +447,16 @@ def test_a_derived_tier_table(
 @pytest.mark.parametrize(
     "active_interval,idle_interval,busy_multiplier,expected",
     [
-        # active_interval=30, idle_interval=300: busy_stale_w = max(300, 600) = 600
-        (30, 300, 0.8, "live"),    # busy 480s → live (busy_age ≤ 600)
-        (30, 300, 1.0, "live"),    # busy 600s → live (busy_age = busy_stale_w, NOT > 600)
-        (30, 300, 1.5, "stale"),   # busy 900s → stale (busy_age > 600)
-        (30, 300, 3.0, "stale"),   # busy 1800s → stale
-        # active_interval=60, idle_interval=300: busy_stale_w = max(300, 600) = 600
-        (60, 300, 0.8, "live"),    # busy 480s → live
-        (60, 300, 1.5, "stale"),   # busy 900s → stale
+        # active_interval=30, idle_interval=300: busy_stale_w = max(1800, 600) = 1800
+        # （实验 d12c328c I1+I2：busy 容忍同源 server 30min 容忍，旧 fixture
+        # busy_stale=600 偷换语义已废弃）
+        (30, 300, 0.8, "live"),    # busy 1440s → live (busy_age ≤ 1800)
+        (30, 300, 1.0, "live"),    # busy 1800s → live (busy_age = busy_stale_w, NOT > 1800)
+        (30, 300, 1.5, "stale"),   # busy 2700s → stale (busy_age > 1800)
+        (30, 300, 3.0, "stale"),   # busy 5400s → stale
+        # active_interval=60, idle_interval=300: busy_stale_w = max(1800, 600) = 1800
+        (60, 300, 0.8, "live"),    # busy 1440s → live
+        (60, 300, 1.5, "stale"),   # busy 2700s → stale
     ],
 )
 def test_b_busy_stuck_tier_table(
@@ -453,12 +464,11 @@ def test_b_busy_stuck_tier_table(
 ) -> None:
     """§A5(b) busy 升级档位：busy_age = multiplier × busy_stale_w → 派生 state。
 
-    Plan §A5(b) 期望 `live/live/busy_stale`，实际 busy_stale_w 严格/非严格边界：
-    busy_age ≤ busy_stale_w → 走普通 gap 判定；busy_age > busy_stale_w → stale 升级。
-    multiplier 0.8/1.0 → busy_age ≤ 600 → live（视 gap）；1.5/3.0 → busy_age > 600 → stale。
+    实验 d12c328c I1+I2 修复后：busy_stale_w = max(expected_remind_runtime=1800,
+    2 × idle_stale) = 1800（与 server 30min 容忍同源）。multiplier 0.8/1.0 →
+    busy_age ≤ 1800 → live（视 gap）；1.5/3.0 → busy_age > 1800 → stale。
     """
-    # busy_stale_w via lib formula: max(idle_stale, 2 × idle_stale) = 2 × idle_stale for idle_stale=300
-    busy_stale_w = 2 * idle_interval  # = 600 for idle=300
+    busy_stale_w = 1800  # 修复后 busy_stale = max(1800, 2×idle_stale)
     busy_age = busy_multiplier * busy_stale_w
     state = _state(busy_age_s=busy_age, last_poll_gap_s=2.0)
     assert (

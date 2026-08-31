@@ -15,6 +15,7 @@ import logging
 import os
 import signal
 import uuid
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -226,6 +227,13 @@ class SimpleWakerConfig:
     # 实验 waker-runtime-skill-hotcheck I4：每 N 个 poll cycle 跑一次
     # runtime skill 漂移检测；<=0 表示关闭（默认 30）。
     drift_check_interval_cycles: int = 30
+    # 实验 d12c328c I1：waker busy 容忍（minutes；与 server 侧
+    # Settings.expected_remind_runtime_minutes 同源）。CLI 视图层
+    # ``cli/waker_status_view.py`` 从 state.json 读 ``expected_remind_runtime_seconds``
+    # 推导 busy 容忍阈值（fallback chain：state.json > env
+    # ``MAP_EXPECTED_REMIND_RUNTIME_MINUTES`` > 30min default）。env
+    # override 在 __init__ 解析后存入实例属性。
+    expected_remind_runtime_minutes: int | None = None
 
 
 @dataclass
@@ -711,11 +719,39 @@ class SimpleWaker:
     ) -> None:
         self.client = client
         self.config = config or SimpleWakerConfig()
+        # 实验 d12c328c I1：从 env 解析 expected_remind_runtime_minutes（CLI flag
+        # 暂未暴露，与 server 侧 Settings 同源；env override 即可）。
+        if self.config.expected_remind_runtime_minutes is None:
+            env_val = os.environ.get("MAP_EXPECTED_REMIND_RUNTIME_MINUTES")
+            if env_val:
+                try:
+                    self.config.expected_remind_runtime_minutes = int(env_val)
+                except ValueError:
+                    warnings.warn(
+                        f"MAP_EXPECTED_REMIND_RUNTIME_MINUTES={env_val!r} is not a "
+                        "valid integer; falling back to 30min default",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    self.config.expected_remind_runtime_minutes = 30
+            else:
+                self.config.expected_remind_runtime_minutes = 30
         self.state = load_bridge_state(
             self.config.state_file,
             bridge_name="simple-waker",
             default_collections=("personas",),
         )
+        # 实验 d12c328c I1：每个 persona state 镜像 expected_remind_runtime_seconds
+        # （与 server 侧 Settings.expected_remind_runtime_minutes 同源）；CLI 视图层
+        # 读此字段推导 busy 容忍（fallback chain：state.json > env > 30min default）。
+        # setdefault 保证旧 state 不被覆盖（首次启动后写一次，后续保留）。
+        persona_state = self._persona_state(self.config.persona)
+        persona_state.setdefault(
+            "expected_remind_runtime_seconds",
+            int(self.config.expected_remind_runtime_minutes or 30) * 60,
+        )
+        self._state_dirty = True
+        self._save_state_if_needed(force=True)
         self._state_dirty = False
         self._inflight = False
         # T03：本周期解析出的 persona 身份（work 快照的 agent 字段）。
