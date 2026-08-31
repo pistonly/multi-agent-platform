@@ -39,6 +39,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 2. 操作前执行 `map --persona <name> persona whoami` 确认身份
 3. **实验必须由 host persona 创建**——平台只允许 `creator_agent_id` 提交/启动/撤销；host 可在 `start` 时通过 `--executor <agent>` 委派执行（`complete`），host 仍保留 cancel / withdraw 门禁
 4. 行为细节读 Skill：通用协作 [map-project-collab](.cursor/skills/map-project-collab/SKILL.md)、话题主持 [topic-host](.cursor/skills/topic-host/SKILL.md)、实验 [experiment-host](.cursor/skills/experiment-host/SKILL.md) / [experiment-reviewer](.cursor/skills/experiment-reviewer/SKILL.md)
+5. **写操作统一走 map CLI**（硬性规则）：所有 `map/**` 下文件的状态变更必须通过 `map` CLI（`map topic comment` / `map topic advance-round` / `map topic close` / `map experiment create` 等）；禁止用文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改。详见 `.cursor/skills/**/SKILL.md` 的红线条款。措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
 
 身份与 token 存在 **`.map/`** 目录（本机运行时，整目录 gitignore）。模板见 [docs/map-templates/](docs/map-templates/)。
 
