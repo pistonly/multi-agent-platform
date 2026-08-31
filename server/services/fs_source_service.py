@@ -31,6 +31,7 @@ from map_fs import (
     AckPendingError,
     FsActionItem,
     FsComment,
+    FsExperiment,
     FsPlane,
     FsTopic,
     FsWorkItem,
@@ -320,6 +321,10 @@ class _TopicView:
     comments: list[_CommentView] = field(default_factory=list)
     action_items: list[FsActionItem] = field(default_factory=list)
     action_items_error: str | None = None
+    # T7 I10：关联实验列表（topic_slug == view.slug 过滤）。workspace 可达时
+    # 由 _view_from_fs_topic 从 scan_plane 结果透传；projection 路径默认空
+    # list（D6 门禁在 projection 路径仍失效，与 round3-host.md 取证更正一致）。
+    experiments: list[FsExperiment] = field(default_factory=list)
 
     def authors_in_round(self, round_number: int) -> set[str]:
         """effective ack authors：与 parser ``FsTopic.authors_in_round`` 同源，
@@ -372,6 +377,9 @@ def _view_from_fs_topic(topic: FsTopic) -> _TopicView:
         ],
         action_items=list(topic.action_items),
         action_items_error=topic.action_items_error,
+        # T7 I10：透传关联实验列表（scan_plane 已按 topic_slug 过滤），
+        # 使 server remote close 走 validate_close 第 4 维门禁真正生效。
+        experiments=list(topic.experiments),
     )
 
 
@@ -471,6 +479,9 @@ def _view_as_fs_topic(view: _TopicView) -> FsTopic:
         or _declared_of(view.creator, list(view.participants)),
         action_items=list(view.action_items),
         action_items_error=view.action_items_error,
+        # T7 I10：透传关联实验列表（视图已透传 _view_from_fs_topic 注入），
+        # server remote close validate_close 第 4 维门禁真正生效。
+        experiments=list(view.experiments),
     )
 
 
