@@ -14,20 +14,21 @@
 话题命令统一入口 `map topic`：`--id` 接受 DB uuid、FS uuid5 id 或 slug（uuid → DB 优先、404 后本地反查 FS；slug → FS 优先、未命中查 DB slug；同名冲突时 `--storage fs|db` 显式指定）。无需先判别话题类型。
 
 <!-- BEGIN:kind-dispatch (generated: map work --kinds --kinds-format md) -->
-| kind | 清理动作 | 下一步 Skill | 说明 |
-|------|----------|--------------|------|
-| `mentions` | map mention dismiss --id <uuid> | map-project-collab | mention 功能保留；实验评论仍产生，话题域来源已随 DB 写路径退役枯竭 |
-| `pending_topic_replies` | 写本轮发言文件：map topic comment --id <slug> --file <md>（即写 map/topics/<slug>/round<N>-<persona>.md，文件存在即消失）；存量 DB 话题只读，需 host 先 topic migrate | topic-host | FS 话题 reason=fs_file_missing；participant 视角见 topic-participant |
-| `round_ack` | 参与者交齐文件后 map topic advance-round --id <slug>（服务端校验写回 index.md；等价 topic advance-round --topic <slug>） | topic-host | 仅 host；FS 话题 |
-| `pending_advance_rounds` | 读路径保留；推进已退役——host 先 topic migrate --id <uuid>迁 FS 后用 topic advance-round --id <slug> | topic-host | 存量 DB 话题 |
-| `pending_round_acks` | FS 话题=写本轮自己的发言文件（发言文件即表态）；存量 DB 话题=只读（迁移后表态），DB --ack 命令已退役 | topic-participant | reviewer 视角见 experiment-reviewer |
-| `pending_reviews` | 完成评审（experiment review add） | experiment-reviewer |  |
-| `pending_result_reviews` | accept-result / reject-result | experiment-reviewer |  |
-| `pending_replies` | 回复 | experiment-reviewer |  |
-| `my_open_experiments` | 实验 phase 推进（complete 等） | experiment-host |  |
-| `stale_open_topics` | 复盘推进；FS 话题（仅 creator/host 可见）久未推进→ map topic close --id <slug> --note 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 map topic dismiss --id <uuid> | topic-host |  |
-| `my_open_topics` | 推进话题或 map topic dismiss --id <uuid>（与 UI ✕ 相同） | topic-host | 且无动作时 |
-| `action_items` | 完成: map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"；放弃: map topic action-item cancel --topic <slug> --id <n> --reason "..."。清零后话题才可 close（closed = 零尾款） | topic-host | FS 话题，kind 同构于 stale nudge，来源 action-items.yaml；participant 亦可为 owner |
+| kind | 清理动作 | 下一步 Skill | 说明 | required_role | obligation_whitelist_exempt |
+|------|----------|--------------|------|---------------|----------------------------|
+| `mentions` | map mention dismiss --id <uuid> | map-project-collab | mention 功能保留；实验评论仍产生，话题域来源已随 DB 写路径退役枯竭 | all | False |
+| `pending_topic_replies` | 写本轮发言文件：map topic comment --id <slug> --file <md>（即写 map/topics/<slug>/round<N>-<persona>.md，文件存在即消失）；存量 DB 话题只读，需 host 先 topic migrate | topic-host | FS 话题 reason=fs_file_missing；participant 视角见 topic-participant | participant | False |
+| `round_ack` | 参与者交齐文件后 map topic advance-round --id <slug>（服务端校验写回 index.md；等价 topic advance-round --topic <slug>） | topic-host | 仅 host；FS 话题 | host | False |
+| `pending_advance_rounds` | 读路径保留；推进已退役——host 先 topic migrate --id <uuid>迁 FS 后用 topic advance-round --id <slug> | topic-host | 存量 DB 话题 | host | False |
+| `pending_round_acks` | FS 话题=写本轮自己的发言文件（发言文件即表态）；存量 DB 话题=只读（迁移后表态），DB --ack 命令已退役 | topic-participant | reviewer 视角见 experiment-reviewer | participant | False |
+| `pending_reviews` | 完成评审（experiment review add） | experiment-reviewer |  | reviewer | True |
+| `pending_result_reviews` | accept-result / reject-result | experiment-reviewer |  | reviewer | True |
+| `pending_replies` | 回复 | experiment-reviewer |  | reviewer | True |
+| `my_open_experiments` | 实验 phase 推进（complete 等） | experiment-host |  | host | False |
+| `stale_open_topics` | 复盘推进；FS 话题（仅 creator/host 可见）久未推进→ map topic close --id <slug> --note 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 map topic dismiss --id <uuid> | topic-host |  | host | False |
+| `my_open_topics` | 推进话题或 map topic dismiss --id <uuid>（与 UI ✕ 相同） | topic-host | 且无动作时 | host | False |
+| `action_items` | 完成: map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"；放弃: map topic action-item cancel --topic <slug> --id <n> --reason "..."。清零后话题才可 close（closed = 零尾款） | topic-host | FS 话题，kind 同构于 stale nudge，来源 action-items.yaml；participant 亦可为 owner | host | False |
+| `unread_change` | 读最新发言并接棒：map topic comments --id <slug> 查看后，写本轮发言文件 map topic comment --id <slug> --file <md>（写完自己成为最新发言者即消失） | map-project-collab | contextual 交接信号：对方是最新发言者时出现，我自己发言后消失；仅白名单（creator ∪ declared ∪ speakers）可见，reviewer 等旁观者不可见；simple-waker 签名唤醒的交接信号源，不再依赖 stale_open_topics 心跳 | all | False |
 <!-- END:kind-dispatch -->
 
 > **新增 kind 落地 checklist（强制，实验 d559f431 A5）**：新增 kind 必须同时改
@@ -52,6 +53,16 @@
 | host | [topic-host](../../topic-host/SKILL.md) + [experiment-host](../../experiment-host/SKILL.md) |
 | participant | [topic-participant](../../topic-participant/SKILL.md) |
 | reviewer | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
+
+## 写入红线（runtime 中立）
+
+**红线条款**（runtime 中立）：禁止用任何文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改 `map/**` 下任何文件；一切状态变更走 `map` CLI；如需 Read 类工具（cat/head/tail/grep）做诊断允许。
+
+**视为事故触发条件**：发现 audit 链漂移（不论 verify-audit 检测还是 agent 自己注意到，含 server 侧门禁失效导致的非手写场景）→ 停止当前话题状态变更 → 报告 → 等 host/supervisor 决定。
+
+> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
+
+**相关 feedback memory**：`feedback_fs_round_file_bypass.md`（避免 participant 重复踩坑走手写 round 文件路径；手写路径即使在文件层可见，server 端 ack 校验 + audit 留痕都缺失，会被 verify-audit D001/D003 检出）。
 
 ## 红线
 
