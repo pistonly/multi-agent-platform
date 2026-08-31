@@ -303,8 +303,130 @@ for name, path in checks:
 - `.cursor/skills/map-project-collab/references/wake.md` 单独引用 `feedback_fs_round_file_bypass.md` memory
 - 措辞：`> **相关 feedback memory**：feedback_fs_round_file_bypass.md（避免 participant 重复踩坑走手写 round 文件路径）`
 
+## I5 wake.md 引用 feedback_fs_round_file_bypass.md
+
+**前置发现**：plan §I5 引用的 `feedback_fs_round_file_bypass.md` memory 不存在（`.map/claude-runtime-home-host/.claude/projects/.../memory/` 目录无此文件）—— plan 漏洞。先新建该 memory，再在 wake.md 引用。
+
+**新建 memory** `feedback_fs_round_file_bypass.md`：
+
+```markdown
+---
+name: feedback-fs-round-file-bypass
+description: participant 写新发言文件必须走 map topic comment（API + audit 留痕），禁止手写 round<N>-<persona>.md 绕过 advance-round 门禁；与 I4 红线条款 + T7 防御四层（阻止/修复/检测/合法路径）一致
+metadata:
+  type: feedback
+---
+
+participant 视角下，写 FS 话题本轮发言必须走 `map topic comment --topic <slug> --file <md>` CLI
+（API 端校验 + audit.jsonl 留痕），**禁止**用 Edit/Write/sed/python/heredoc 等工具直接写
+`map/topics/<slug>/round<N>-<persona>.md` 绕过 advance-round 校验。
+
+**Why**: ...
+**How to apply**: ...
+```
+
+更新 `MEMORY.md` 索引（line 30 新增条目）。
+
+**wake.md 引用段**（加在『写入红线』段末尾，`## 红线` 之前）：
+
+```markdown
+**相关 feedback memory**：`feedback_fs_round_file_bypass.md`（避免 participant 重复踩坑走
+手写 round 文件路径；手写路径即使在文件层可见，server 端 ack 校验 + audit 留痕都缺失，
+会被 verify-audit D001/D003 检出）。
+```
+
+**git 影响**：memory 文件在 `.map/` 下，整目录 gitignore，不进 git。唯一 git 改动是 wake.md。
+
+**commit**：`TBD（待 commit）` — 仅 wake.md 一处改动
+
+**实测**：
+
+```bash
+$ grep -A 1 "feedback_fs_round_file_bypass" wake.md
+**相关 feedback memory**：`feedback_fs_round_file_bypass.md`（避免 participant 重复踩坑走
+手写 round 文件路径；手写路径即使在文件层可见，server 端 ack 校验 + audit 留痕都缺失，
+会被 verify-audit D001/D003 检出）。
+```
+
 **留待 I6**：
 
 - `AGENTS.md` 加根级硬性规则引用段
 - 措辞：『写操作统一走 map CLI（硬性规则）：所有 map/** 下文件的状态变更必须通过 map CLI（map topic comment / map topic advance-round / map topic close / map experiment create 等）；禁止用文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改。详见 .cursor/skills/**/SKILL.md 的红线条款。』
+
+## I6 AGENTS.md 加红线引用段（plan §A7 + §I6）
+
+修改 `AGENTS.md` `## Agent 身份` 段的 `### 硬性规则`：追加第 5 条『写操作统一走 map CLI』：
+
+```markdown
+5. **写操作统一走 map CLI**（硬性规则）：所有 `map/**` 下文件的状态变更必须通过 `map` CLI
+（`map topic comment` / `map topic advance-round` / `map topic close` / `map experiment create` 等）；
+禁止用文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改。详见 `.cursor/skills/**/SKILL.md`
+的红线条款。措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` 一致；
+副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
+```
+
+**插入点选择理由**：
+
+- AGENTS.md 是项目根级硬性规则文档，比 skill 优先级高（plan §A7）
+- 既有 §硬性规则 4 条覆盖：禁手写 httpx/curl、操作前 whoami、host 创建实验、读 Skill；第 5 条加入写操作红线，与既有 4 条并列形成完整硬性规则集合
+- 引用 `lib/red_line_clause.py` + I9 测试路径，方便未来维护者定位单源真相与副本漂移检测
+
+**实测（验证插入生效）**：
+
+```python
+text = open('AGENTS.md').read()
+hard_5 = '所有 `map/**` 下文件的状态变更必须通过'
+'lib/red_line_clause.py' in text  # True
+'.cursor/skills' in text  # True
+# → 三条断言全 True
+```
+
+**commit**：`1d4300d map exp e6d23886: AGENTS.md 加红线引用段 (I6)`
+
+**留待 I7**：
+
+- `sdk/python/map_fs/validation.py`:179 第 4 维 validate_close 扩展 close_reason 合法枚举
+- 新增 `discussion_converged` 枚举值（与原 `experiment_ready` / `experiment_done` / `cancelled` 并列）
+- 非法值 → 拒绝（仅四值合法）
+
+**留待 I6**：
+
+- `AGENTS.md` 加根级硬性规则引用段
+- 措辞：『写操作统一走 map CLI（硬性规则）：所有 map/** 下文件的状态变更必须通过 map CLI（map topic comment / map topic advance-round / map topic close / map experiment create 等）；禁止用文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改。详见 .cursor/skills/**/SKILL.md 的红线条款。』
+
+## I6 AGENTS.md 加红线引用段（plan §A7 + §I6）
+
+修改 `AGENTS.md` `## Agent 身份` 段的 `### 硬性规则`：追加第 5 条『写操作统一走 map CLI』：
+
+```markdown
+5. **写操作统一走 map CLI**（硬性规则）：所有 `map/**` 下文件的状态变更必须通过 `map` CLI
+（`map topic comment` / `map topic advance-round` / `map topic close` / `map experiment create` 等）；
+禁止用文本编辑器或脚本（Edit/Write/sed/python/heredoc 等）直接修改。详见 `.cursor/skills/**/SKILL.md`
+的红线条款。措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` 一致；
+副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
+```
+
+**插入点选择理由**：
+
+- AGENTS.md 是项目根级硬性规则文档，比 skill 优先级高（plan §A7）
+- 既有 §硬性规则 4 条覆盖：禁手写 httpx/curl、操作前 whoami、host 创建实验、读 Skill；第 5 条加入写操作红线，与既有 4 条并列形成完整硬性规则集合
+- 引用 `lib/red_line_clause.py` + I9 测试路径，方便未来维护者定位单源真相与副本漂移检测
+
+**实测（验证插入生效）**：
+
+```python
+text = open('AGENTS.md').read()
+hard_5 = '所有 `map/**` 下文件的状态变更必须通过'
+'lib/red_line_clause.py' in text  # True
+'.cursor/skills' in text  # True
+# → 三条断言全 True
+```
+
+**commit**：`1d4300d map exp e6d23886: AGENTS.md 加红线引用段 (I6)`
+
+**留待 I7**：
+
+- `sdk/python/map_fs/validation.py`:179 第 4 维 validate_close 扩展 close_reason 合法枚举
+- 新增 `discussion_converged` 枚举值（与原 `experiment_ready` / `experiment_done` / `cancelled` 并列）
+- 非法值 → 拒绝（仅四值合法）
 
