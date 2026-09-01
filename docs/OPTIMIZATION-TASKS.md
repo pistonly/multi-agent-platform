@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 23/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T31（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T28、T30、T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 24/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T31（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T30、T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -136,7 +136,8 @@
 - [x] **T27 收窄 SDK bootstrap 的宽泛捕获**（预估：小）✅ 2026-08-26
   落地：`bootstrap.py` 8 处 `except Exception` 按场景收窄为 YAML 探测 `(YAMLError, OSError, ValueError)`、HTTP 建连 `(HTTPError, OSError, ValueError, ImportError)`、请求 `(RequestError, OSError)`、错误体 JSON `(ValueError, TypeError)`，并 `logger.debug` 留痕。CLI：`fs_projection.maybe_auto_sync` / `warn_fs_plane_detached` 的静默 skip 与 `runner._resolve_project` 的 `load_config` 探测同步收窄，TypeError 等程序 bug 不再当「离线/缺配置」。测试 `tests/test_optimization_t27.py`。
 
-- [ ] **T28 SDK 加连接级重试**（预估：小）
+- [x] **T28 SDK 加连接级重试**（预估：小）✅ 2026-09-01
+  落地：`MAPClient.__init__` 新增 `retries: int = 1`（连接级，传 0 关闭）——transport 未显式指定时默认创建 `httpx.HTTPTransport(retries=retries, trust_env=not _is_local_url(base_url))`，「本地地址忽略环境代理、远端沿用」原语义不变（trust_env 同步下传 Client 与 HTTPTransport）；调用方显式传 transport 时不包装、`close()` 仍不代管关闭。测试 `tests/test_optimization_t28.py`（6 case：默认 retries=1 / retries=0 / 本地 trust_env=False / 远端 True / 自定义 transport 不包装 ×2）。全量快测 1957 passed 无回归。
   位置：`sdk/python/map_client/client.py` L134-140、L171-204。
   问题：`httpx.Client` 未配 retries，连接拒绝/瞬时 5xx 直接抛出，长流程被迫在 subprocess 层自建重试。
   改法：`httpx.HTTPTransport(retries=1)`（连接级）或可选的请求级 retry 参数。

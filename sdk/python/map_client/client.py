@@ -123,6 +123,7 @@ class MAPClient:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 30.0,
+        retries: int = 1,
     ) -> None:
         if not token:
             raise ValueError("API token is required")
@@ -131,8 +132,12 @@ class MAPClient:
         self._transport = transport
         # 本地地址（localhost / 127.0.0.1 / ::1）忽略环境代理，避免因
         # SOCKS 代理初始化失败等影响本地 MAP 服务访问；其他地址沿用
-        # 环境代理配置。transport 已显式指定时 trust_env 不生效。
-        trust_env = not _is_local_url(self.base_url) if transport is None else True
+        # 环境代理配置。调用方显式传 transport 时代理与重试由其自理。
+        trust_env = not _is_local_url(self.base_url)
+        if transport is None:
+            # T28：连接级重试——建连失败（连接拒绝/瞬时网络错误）自动重试
+            # 一次，长流程不必在 subprocess 层自建重试；retries=0 可关闭。
+            transport = httpx.HTTPTransport(retries=retries, trust_env=trust_env)
         self._http = httpx.Client(
             base_url=f"{self.base_url}/api/v1",
             headers={"Authorization": f"Bearer {token}"},
