@@ -170,7 +170,7 @@ def test_cli_deprecation_warning_helper_detects_legacy_aliases():
     must emit deterministic text for both renamed fields. This is the same
     code path the CLI walks on every `map work` invocation.
     """
-    from cli.main import detect_deprecated_aliases
+    from cli.runner import detect_deprecated_aliases
 
     payload = {
         "todos": {

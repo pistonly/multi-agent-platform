@@ -115,7 +115,7 @@ def test_complete_schema_template_round_trips() -> None:
     assert isinstance(parsed, dict)
     # Template provides api_health + pytest_summary + smoke — at least one
     # accepted evidence key must be present.
-    from cli.main import EVIDENCE_METADATA_KEYS, metadata_has_completion_evidence
+    from map_sdk.evidence import EVIDENCE_METADATA_KEYS, metadata_has_completion_evidence
 
     assert any(k in parsed for k in EVIDENCE_METADATA_KEYS)
     assert metadata_has_completion_evidence(parsed)

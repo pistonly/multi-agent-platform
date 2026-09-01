@@ -106,6 +106,11 @@ class PersonaAgentClient:
         self._save_state_fn = save_state_fn
         self.project_root = project_root
         self.extra_env = dict(extra_env or {})
+        # T43：rc 文件按 key×文件逐次读盘改为每文件解析一次、实例内缓存
+        #（waker 长生命周期内 .bashrc 等不会热变更，__init__ 解析 model +
+        # 每次 wake 解析 credentials 共 5 key × 4 文件，原实现重复读 20 次）。
+        # 必须先于 ``_resolve_model()`` 初始化（其查 rc 时即走缓存）。
+        self._rc_env_cache: dict[Path, dict[str, str]] | None = None
         self.model = model or self._resolve_model()
         self.allowed_tools = list(allowed_tools or DEFAULT_ALLOWED_TOOLS)
         self.integration = integration
@@ -440,11 +445,18 @@ class PersonaAgentClient:
         existing = os.environ.get(name, "").strip()
         if existing:
             return existing
-        for path in self._candidate_rc_files():
-            found = self._read_export(path, name)
-            if found:
-                return found
+        for values in self._rc_env_values().values():
+            if name in values:
+                return values[name]
         return None
+
+    def _rc_env_values(self) -> dict[Path, dict[str, str]]:
+        """每个候选 rc 文件只解析一次（T43），后续 key 查找走内存缓存。"""
+        if self._rc_env_cache is None:
+            self._rc_env_cache = {
+                path: parse_export_env_file(path) for path in self._candidate_rc_files()
+            }
+        return self._rc_env_cache
 
     def _resolve_model(self) -> str | None:
         for key in _MODEL_ENV_KEYS:
@@ -462,32 +474,13 @@ class PersonaAgentClient:
             home / ".bash_profile",
         ]
 
-    @staticmethod
-    def _read_export(path: Path, name: str) -> str | None:
-        if not path.is_file():
-            return None
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            return None
-        for line in text.splitlines():
-            match = _EXPORT_RE.match(line)
-            if match and match.group(1) == name:
-                value = match.group(2).strip()
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-                    value = value[1:-1]
-                elif value and value[0] not in {"'", '"'}:
-                    value = re.sub(r"\s+#.*$", "", value).strip()
-                if value:
-                    return value
-        return None
-
 
 def parse_export_env_file(path: Path) -> dict[str, str]:
     """Parse ``export VAR=...`` lines into {VAR: value}.
 
-    Returns {} when the file is missing or unreadable. Values mirror
-    ``_read_export`` unquoting (strip quotes / trailing comment).
+    Returns {} when the file is missing or unreadable. Unquoting rules:
+    strip paired quotes / trailing inline comment. T43 起本函数也是
+    ``PersonaAgentClient`` rc 凭证解析的唯一实现。
     """
     if not path.is_file():
         return {}

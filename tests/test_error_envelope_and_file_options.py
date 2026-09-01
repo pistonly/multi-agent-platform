@@ -21,7 +21,8 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import cli.main as cli_main
-from cli.main import CLIErrorEnvelope, app
+from cli.main import app
+from cli.runner import CLIErrorEnvelope, _emit_json_error_envelope
 
 # ---- fixtures --------------------------------------------------------------
 
@@ -90,7 +91,7 @@ def test_cli_emit_json_error_envelope_writes_pydantic_json(runner, monkeypatch, 
     （docs/cli-json-output.md 契约），内层 error 才是 ``CLIErrorEnvelope``
     字段集。此处解包后 re-validate，保证打印的形状可被规范模型回读。
     """
-    cli_main._emit_json_error_envelope(
+    _emit_json_error_envelope(
         error_code="STATE_MACHINE_INVALID_PHASE",
         message="transition rejected",
         hint="submit for review first",

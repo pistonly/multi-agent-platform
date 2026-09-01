@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from map_client import project_config
+from map_client.client import ReviewCreate
 from map_client.testing import MAPTestClientTransport
 from sqlalchemy import select
 from typer.testing import CliRunner
@@ -279,7 +280,7 @@ def test_cli_complete_submits_result_review(runner, patched_cli, project, review
     reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
     reviewer_client = cli_main.MAPClient("http://test", reviewer_token, transport=cli_main._transport)
     try:
-        reviewer_client.create_review(exp_id, cli_main.ReviewCreate(reasonable_items=["OK"]))
+        reviewer_client.create_review(exp_id, ReviewCreate(reasonable_items=["OK"]))
         creator_client.approve_experiment(exp_id)
         creator_client.start_experiment(exp_id)
     finally:
@@ -408,7 +409,7 @@ def test_cli_pre_complete_outputs_jsonable_phase(
     reviewer_token = reviewer["headers"]["Authorization"].removeprefix("Bearer ")
     reviewer_client = cli_main.MAPClient("http://test", reviewer_token, transport=cli_main._transport)
     try:
-        reviewer_client.create_review(exp_id, cli_main.ReviewCreate(reasonable_items=["OK"]))
+        reviewer_client.create_review(exp_id, ReviewCreate(reasonable_items=["OK"]))
         creator_client.approve_experiment(exp_id)
         creator_client.start_experiment(exp_id)
     finally:

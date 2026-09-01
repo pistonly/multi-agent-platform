@@ -295,6 +295,7 @@ def test_cli_reject_result_misuse_prints_subcode_and_hint(
     ``.map/agents.local.yaml`` and a ``persona`` flag at the CLI boundary.
     """
     from cli import main as cli_main
+    from cli.runner import _run
 
     class _StubClient:
         def __init__(self) -> None:
@@ -357,7 +358,7 @@ def test_cli_reject_result_misuse_prints_subcode_and_hint(
     )
 
     with pytest.raises((SystemExit, typer.Exit)) as exit_info:
-        cli_main._run(lambda c: c.reject_experiment_result(uuid.UUID(exp_id), payload))
+        _run(lambda c: c.reject_experiment_result(uuid.UUID(exp_id), payload))
 
     # ``SystemExit.code`` and ``typer.Exit.exit_code`` differ; normalise.
     exit_code = getattr(exit_info.value, "code", None)

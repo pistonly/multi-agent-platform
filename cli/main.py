@@ -1,4 +1,3 @@
-import contextlib
 import os
 import uuid
 from pathlib import Path
@@ -31,14 +30,6 @@ from map_client.project_config import (
 # when ``map_sdk`` is unavailable, so we don't gate startup on it.
 from map_types.enums import AgentRole
 
-# re-export(测试/历史引用走 cli.main 路径;实现已随 file/metadata helpers
-# 搬至 cli.commands.experiment)
-with contextlib.suppress(ImportError):  # map_sdk 可选,不阻塞 CLI 启动
-    from map_sdk.evidence import (  # noqa: F401
-        EVIDENCE_METADATA_KEYS,
-        metadata_has_completion_evidence,
-    )
-
 # arch experiment (0519e2a3) PR3/PR5: agent / notification /
 # inbound-event / audit sub-app splits. Each module only exports the
 # sub-app instance here; the helpers the commands use come from
@@ -50,13 +41,7 @@ from cli.commands.audit import audit_app
 from cli.commands.auth import auth_app
 from cli.commands.docs import docs_app
 from cli.commands.doctor import doctor_app
-from cli.commands.experiment import (  # noqa: F401 — re-export 保持 cli.main._* 兼容引用
-    _load_complete_metadata,
-    _load_review_verdict_file,
-    _print_complete_metadata_schema_and_exit,
-    _print_review_verdict_schema_and_exit,
-    experiment_app,
-)
+from cli.commands.experiment import experiment_app
 from cli.commands.feedback import feedback_app
 from cli.commands.host import host_app
 from cli.commands.notification import inbound_event_app, notification_app
@@ -74,51 +59,18 @@ from cli.e2e_collab import e2e_app
 
 # T23（2026-08）：命令执行链（_run / client ctx / envelope / 序列化 /
 # 引用解析）已拆至 ``cli.runner``，文件读取辅助拆至 ``cli.io_helpers``。
-# 此处 re-export 维持 ``from cli.main import ...`` 的既有导入路径
-# （commands 顶层导入已改走 runner / io_helpers；测试与历史调用方仍可
-# 从本模块取）。可变状态 ``_cli_options`` / ``_transport`` 仍定义在本
-# 模块——runner 经运行时读取，monkeypatch 语义不变。
-from cli.io_helpers import _read_text_file, _read_yaml_file  # noqa: F401
-
-# Persona-compare rendering moved to cli.persona_compare (main.py size
-# cap, see tests/cli/test_compat.py). Re-exported here so existing
-# `from cli.main import ...` call sites keep working.
-from cli.persona_compare import (  # noqa: F401
-    _PERSONA_COMPARE_DIFF_FIELDS,
-    _PERSONA_COMPARE_PARTITION_ALL_AGREE,
-    _PERSONA_COMPARE_PARTITION_CROSS_PHASE_FOLD,
-    _PERSONA_COMPARE_PARTITION_FULL_DIFF,
-    _PERSONA_COMPARE_PARTITION_PARTIAL_DIFF,
-    _classify_persona_compare_partition,
-    _format_compare_value,
-    _persona_compare_view,
-    _write_cross_persona_call_audit,
-)
-from cli.runner import (  # noqa: F401
-    CLIErrorEnvelope,
+# 此处导入的是本模块自用的执行链入口；``_client_ctx`` / ``_admin_client_ctx``
+# 同时是注入面——runner 经运行时 ``_main._client_ctx()`` 解析，测试 setattr
+# 替换后仍生效。其余历史 re-export 已随 T43 死代码清理移除（调用方
+# 一律直接导入 cli.runner / cli.io_helpers / cli.persona_compare）。
+# 可变状态 ``_cli_options`` / ``_transport`` 仍定义在本模块——runner
+# 经运行时读取，monkeypatch 语义不变。
+from cli.runner import (  # noqa: F401 — _client_ctx/_admin_client_ctx 为注入面
     _admin_client_ctx,
     _client_ctx,
-    _emit_deprecation_warnings,
-    _emit_evidence_parse_error,
-    _emit_json_error_envelope,
     _emit_maphttp_error,
-    _emit_similarity_warning,
-    _emit_template_warnings,
-    _load_topic_resolve_payload,
-    _print_json,
-    _print_warnings,
-    _print_yaml,
-    _require_map_dir,
-    _require_option_uuid,
-    _resolve_admin_api_url,
-    _resolve_agent_ref,
-    _resolve_creator_agent_id,
-    _resolve_executor_agent_id,
     _resolve_project,
     _run,
-    _to_jsonable,
-    _to_yamlable,
-    detect_deprecated_aliases,
 )
 from cli.subcommand_format import make_group_cls
 from cli.waker_heartbeat_render import render_waker_heartbeat_banner

@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 6/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）与 T40/T41/T42（2026-09-01 下午批，本批验证：ruff 全绿 + fast gate 1937 passed 49s，含 T41 专项测试 4 例）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 7/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）与 T40/T41/T42/T43（2026-09-01 下午批，T43 验证：ruff 全绿 + fast gate 1940 passed 49s + 受影响 slow 测试 167 passed）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -198,8 +198,9 @@
 - [x] **T42 CLI 渲染与 envelope 统一**（预估：小）✅ 2026-09-01
   落地：`cli/runner.py` 新增 `emit_json_success`（统一 `{"ok": true, "data": ...}` envelope），`_run` 与 `skill.py`/`auth.py` 手拼 JSON 共 5 处收敛到该 helper；`skill list` 手写固定宽度列改用 `cli/table_render.render_table`（表头统一大写风格），`test_skill_install.py` 断言同步更新。
 
-- [ ] **T43 零散死代码清理**（预估：小）
-  `cli/main.py:124` 死参数 `_transport`（恒 None）；`cli/main.py:46-54/72-82` 兼容 re-export（测试改直接导入后删）；`cli/wake_backend.py:197-236` legacy fingerprint 函数（随 runtime-waker 退役删除）；`cli/simple_waker.py:561-567` lambda 别名改 def；`cli/agent_client.py:464-497` 环境解析重复读盘改一次性缓存。
+- [x] **T43 零散死代码清理**（预估：小）✅ 2026-09-01
+  落地：①`cli/main.py` 兼容 re-export 清理——评审时点的「`_transport` 死参数」已过时（现为 32 处测试 monkeypatch 注入面，保留），改为删除 map_sdk.evidence / persona_compare / io_helpers 三个 re-export 块 + runner 块 24 名中 17 个纯死名，保留 main.py 自用 5 名（其中 `_client_ctx`/`_admin_client_ctx` 兼注入面）；6 个测试文件迁直接导入（runner/persona_compare/experiment/map_sdk.evidence）。②`cli/wake_backend.py` 删 runtime-waker 遗留的 `_todo_item_stable_id`/`_my_open_experiment_wake_stable_id`（生产零引用，唯一消费方是一个 noqa F401 死 import）。③`cli/simple_waker.py` `summarize_pending_work` lambda 别名改 def。④`cli/agent_client.py` rc 凭证解析由 key×文件逐次读盘（5 key×4 文件=20 次）改为每文件 `parse_export_env_file` 解析一次、实例内缓存（顺带删除重复实现的 `_read_export`）。另修复既有坏点：`tests/test_cli.py` 两处 `cli_main.ReviewCreate` AttributeError（slow 层测试，slow tier 不跑故未暴露）。
+  验证：ruff 全绿 + fast gate 1940 passed 49s（新增专项测试 `tests/test_optimization_t43.py` 3 例）+ 受影响 slow 测试 167 passed（`test_18a64691_linkage` 3 例失败为改动前既有，需 live server，已 stash 复核确认）。
 
 - [ ] **T44 本地与仓库卫生**（预估：小）⏳ 2026-09-01 落地 1/2
   落地：`build/`、`dist/`（0.8.0 过期产物）、`multi_agent_platform.egg-info/` 本地清理完成。`reference/noise_solver_agent_claudecode` 复查实为无 .gitmodules 的悬空 gitlink（mode 160000、本地目录已空、代码与 CI 零引用，仅 `map/archive/topics/` 归档讨论提及该 persona 名），按用户决定整体移除（untrack + 删空目录 + gitignore `reference/` 防误提交）。`git gc`、`test_project/` 迁移仍为可选项。

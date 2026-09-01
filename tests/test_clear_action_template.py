@@ -1,6 +1,7 @@
 """CLI helper tests for (d) clear_action templates + (c part 2) deprecation detection.
 
-The two helpers are deterministic pure functions exposed from ``cli.main``:
+The two helpers are deterministic pure functions (``render_clear_action_template``
+defined in ``cli.main``，``detect_deprecated_aliases`` defined in ``cli.runner``):
 
 * :func:`render_clear_action_template` — renders a literal CLI hint per
   ``clear_action`` value. Output is a plain string with no LLM dependency
@@ -21,9 +22,9 @@ import pytest
 
 from cli.main import (
     _CLEAR_ACTION_TEMPLATES,
-    detect_deprecated_aliases,
     render_clear_action_template,
 )
+from cli.runner import detect_deprecated_aliases
 
 pytestmark = pytest.mark.slow
 

@@ -37,7 +37,8 @@ from typer.testing import CliRunner
 
 import cli.main as cli_main
 import cli.runner as cli_runner_mod  # T23: helpers moved to runner
-from cli.main import CLIErrorEnvelope, app
+from cli.main import app
+from cli.runner import CLIErrorEnvelope
 
 PROJECT_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 AGENT_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")

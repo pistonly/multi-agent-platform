@@ -705,12 +705,17 @@ def build_waker_client(
 
 # Backward-compatible aliases for tests
 PendingWorkSummary = WakeContext
-summarize_pending_work = lambda todos, notifications=None: build_wake_context(  # noqa: E731
-    topic_progress_data={"items": []},
-    todos=todos,
-    notifications=notifications,
-    persona=None,
-)
+
+
+def summarize_pending_work(
+    todos: dict[str, Any], notifications: list[dict[str, Any]] | None = None
+) -> WakeContext:
+    return build_wake_context(
+        topic_progress_data={"items": []},
+        todos=todos,
+        notifications=notifications,
+        persona=None,
+    )
 
 
 class SimpleWaker:

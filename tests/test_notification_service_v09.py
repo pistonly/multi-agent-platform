@@ -412,9 +412,6 @@ def test_v2_fingerprint_is_canonical_format():
     fp = v2_fingerprint("participant", uuid.UUID(int=1), 7)
     assert fp == "participant:notification:00000000-0000-0000-0000-000000000001:7"
 
-    # Confirm the waker-side builder matches.
-    from cli.wake_backend import _todo_item_stable_id  # noqa: F401
-
     # Direct format check: 4 colon-separated segments, persona + literal
     # "notification" + uuid + int wake_version.
     parts = fp.split(":")

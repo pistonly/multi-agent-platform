@@ -17,8 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-import cli.main as cli_main
-from cli.main import (
+from cli.persona_compare import (
     _PERSONA_COMPARE_PARTITION_ALL_AGREE,
     _PERSONA_COMPARE_PARTITION_CROSS_PHASE_FOLD,
     _PERSONA_COMPARE_PARTITION_FULL_DIFF,
@@ -266,11 +265,14 @@ def test_single_persona_is_all_agree() -> None:
         "_PERSONA_COMPARE_PARTITION_CROSS_PHASE_FOLD",
     ],
 )
-def test_constants_are_exposed_in_cli_main(constant_name: str) -> None:
-    """Sanity: every classifier label is exported from ``cli.main`` so
+def test_constants_are_exposed_in_persona_compare_module(constant_name: str) -> None:
+    """Sanity: every classifier label is exported from ``cli.persona_compare``
+    (T43 起的权威定义处，原 cli.main re-export 已随死代码清理移除) so
     downstream callers (audit writer, web UI summary cards) can
     reference the same string."""
-    value = getattr(cli_main, constant_name)
+    import cli.persona_compare as persona_compare_module
+
+    value = getattr(persona_compare_module, constant_name)
     assert isinstance(value, str)
     # And the classifier actually returns one of these literal strings.
     assert value in {
