@@ -7,16 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  backend:
+  lint:
+    # T30：ruff/mypy/alembic/check-deprecated 拆出单版本独立 job——
+    # 原先这些 lint 类步骤在 3.10/3.11/3.12 三个 matrix leg 各跑一遍（×3 浪费），
+    # 现在测试 matrix 只跑 pytest。
     runs-on: ubuntu-latest
-    # eng experiment (55634575) PR8: pyproject requires-python=">=3.10",
-    # but the project only tested on 3.12 — a real coverage gap. Pin
-    # 3.10 / 3.11 / 3.12 in matrix; uv.lock is frozen so installs are
-    # reproducible across all three. Bump in lockstep when adding 3.13.
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -27,13 +22,13 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Install uv (cached)
         # eng experiment (55634575) PR1: pin uv to a fixed version so
         # local + CI + Dockerfile all agree. Bump in lockstep.
         # T05（2026-08）：setup-uv enable-cache 替代裸 `pip install uv`——
-        # 依赖包缓存以 uv.lock 为 key 恢复，三个 matrix leg 不再每次全量下载。
+        # 依赖包缓存以 uv.lock 为 key 恢复，不再每次全量下载。
         uses: astral-sh/setup-uv@v5
         with:
           version: "0.8.14"
@@ -63,6 +58,42 @@ jobs:
           tmpdb="$(mktemp /tmp/map-ci-XXXXXX.db)"
           MAP_DATABASE_URL="sqlite:///$tmpdb" alembic upgrade head
           rm -f "$tmpdb"
+
+  backend:
+    runs-on: ubuntu-latest
+    # eng experiment (55634575) PR8: pyproject requires-python=">=3.10",
+    # but the project only tested on 3.12 — a real coverage gap. Pin
+    # 3.10 / 3.11 / 3.12 in matrix; uv.lock is frozen so installs are
+    # reproducible across all three. Bump in lockstep when adding 3.13.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv (cached)
+        # eng experiment (55634575) PR1: pin uv to a fixed version so
+        # local + CI + Dockerfile all agree. Bump in lockstep.
+        # T05（2026-08）：setup-uv enable-cache 替代裸 `pip install uv`——
+        # 依赖包缓存以 uv.lock 为 key 恢复，三个 matrix leg 不再每次全量下载。
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.14"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dependencies (frozen)
+        # uv.lock is the source of truth; --frozen fails the build if
+        # pyproject changed without re-locking.
+        run: uv sync --frozen --extra dev --extra mcp
+
+      - name: Install package in editable mode
+        run: uv pip install --python "$(uv python find)" -e ".[dev,mcp]"
 
       - name: Pytest (unit subset)
         # PR 只跑 unit 子集（fast gate，默认 addopts 排除 slow/integration/claude_cli）求快反馈。

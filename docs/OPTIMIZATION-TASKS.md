@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 24/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T31（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T30、T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 25/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -150,7 +150,8 @@
   问题：`web_dist` 构建产物被 gitignore 且被 global-exclude 排除，干净 checkout 打的 sdist/wheel 没有 Web UI；`alembic/`、`alembic.ini` 不在 MANIFEST，wheel 用户无法跑迁移（Dockerfile 手动 COPY 掩盖了问题）。
   改法：MANIFEST 增加 `graft alembic`、`include alembic.ini`；CI 加 release job：构建 wheel → 解包检查 web_dist/assets 非空 + alembic 存在；本地打包前跑 `scripts/sync-web-dist.sh`。
 
-- [ ] **T30 CI 拆独立 lint job**（预估：小）
+- [x] **T30 CI 拆独立 lint job**（预估：小）✅ 2026-09-01
+  落地：`ci.yml` 新增单版本（Python 3.12）`lint` job 承接 check-deprecated / ruff / mypy strict / alembic 四类确定性检查（沿用 setup-uv 缓存与 editable 安装）；`backend` job 保留 3.10/3.11/3.12 矩阵只跑 pytest——lint 类步骤从 ×3 降为 ×1。YAML 结构经本地解析校验。
   位置：`.github/workflows/ci.yml` L23-59。
   问题：ruff/mypy/alembic 检查/check-deprecated 在 3.10/3.11/3.12 三个 leg 各跑一遍，lint 类步骤 ×3 浪费。
   改法：lint 拆单版本独立 job，test matrix 只跑 pytest。
