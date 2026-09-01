@@ -20,42 +20,26 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 import uuid
-from collections import OrderedDict
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from map_fs import (
     AckPendingError,
-    FsActionItem,
-    FsComment,
-    FsExperiment,
-    FsPlane,
-    FsTopic,
-    FsWorkItem,
     InvalidCloseNoteError,
     InvalidCloseReasonError,
     OpenActionItemsError,
     TopicStateError,
     derive_work,
-    scan_plane,
     topic_id_for_slug,
     update_topic_index,
     validate_advance_round,
     validate_close,
 )
 from map_types.enums import ExperimentPhase, TopicCommentKind, TopicStatus
-from map_types.schemas.content_source import ContentSourceMeta
 from map_types.schemas.fs import (
-    FsActionItemRead,
-    FsCommentRead,
-    FsExperimentRead,
-    FsPlaneStatusRead,
     FsTopicDetailRead,
     FsTopicSummaryRead,
-    FsWorkItemRead,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -124,489 +108,6 @@ class FsPlaneUnavailableError(Exception):
 # ---------------------------------------------------------------------------
 # 基础：workspace / plane / 可达性
 # ---------------------------------------------------------------------------
-
-
-def content_root_name(project: Project | None = None) -> str:
-    """Project-level content root; settings default is only for missing rows."""
-    if project is not None and getattr(project, "content_root", None):
-        return str(project.content_root)
-    return get_settings().content_root
-
-
-# T18（2026-08）：本地 FS 平面进程内缓存。键 = (workspace, content_root)，
-# 值 = (文件指纹, FsPlane)。指纹覆盖 scan_plane 实际读取的两棵树
-# （topics/ + experiments/）下全部文件的 (相对路径, mtime_ns, size, ino)——
-# 任何写路径（CLI 落盘 / 验证型写回 / Agent 直接编辑）都会改变 mtime、
-# size 或 inode（原子 replace 换 inode）。仅 (mtime, size) 在粗粒度时间戳
-# 文件系统上会漏掉「同秒、同大小覆盖写入」，inode 补上这条缺口。
-# 指纹采集只 stat 不读内容，远廉价于全量解析。FsPlane 及其
-# topic/experiment 对象在 server 侧只读消费（全部读取方只构建 Read
-# 模型 / derive_work），共享同一实例安全。
-_PLANE_CACHE_MAX_ENTRIES = 8
-_PlaneFingerprint = tuple[tuple[str, int, int, int], ...]
-_plane_cache: OrderedDict[tuple[str, str], tuple[_PlaneFingerprint, FsPlane]] = OrderedDict()
-_plane_cache_lock = threading.Lock()
-
-
-def reset_plane_cache() -> None:
-    """清空 FS 平面缓存（测试隔离钩子 / 运维排查用）。"""
-    with _plane_cache_lock:
-        _plane_cache.clear()
-
-
-def _plane_fingerprint(workspace: Path, content_root: str) -> _PlaneFingerprint | None:
-    """Collect (relpath, mtime_ns, size, ino) for every file scan_plane would read."""
-    entries: list[tuple[str, int, int, int]] = []
-    root = workspace / content_root
-    for subdir in ("topics", "experiments"):
-        base = root / subdir
-        if not base.is_dir():
-            continue
-        for path in sorted(base.rglob("*")):
-            try:
-                st = path.stat()
-            except OSError:
-                continue  # 竞态：扫描期间文件被删——scan_plane 同样会跳过
-            if path.is_file():
-                # relpath 相对 content_root，避免 topics/ 与 experiments/ 下
-                # 同名文件在指纹里撞车；st_ino 让原子 replace 在 mtime 不变
-                # （1s 粒度 FS / 同秒覆盖）时仍能失效缓存。
-                entries.append(
-                    (str(path.relative_to(root)), st.st_mtime_ns, st.st_size, st.st_ino)
-                )
-    return tuple(entries)
-
-
-def plane_for_project(project: Project) -> FsPlane:
-    from server.config import get_settings
-
-    workspace = Path(project.workspace_path)
-    root_name = content_root_name(project)
-    cacheable = get_settings().fs_plane_cache_enabled
-    fingerprint = _plane_fingerprint(workspace, root_name) if cacheable else None
-    if fingerprint:
-        key = (str(workspace), root_name)
-        with _plane_cache_lock:
-            hit = _plane_cache.get(key)
-        if hit is not None and hit[0] == fingerprint:
-            return hit[1]
-    plane = scan_plane(workspace, root_name)
-    if fingerprint:
-        key = (str(workspace), root_name)
-        with _plane_cache_lock:
-            _plane_cache[key] = (fingerprint, plane)
-            while len(_plane_cache) > _PLANE_CACHE_MAX_ENTRIES:
-                _plane_cache.popitem(last=False)
-    return plane
-
-
-def workspace_fs_available(project: Project) -> bool:
-    """server 能否直接读到该 project 的内容根目录。"""
-    return (Path(project.workspace_path) / content_root_name(project)).is_dir()
-
-
-def content_source_meta(db: Session, project: Project) -> ContentSourceMeta:
-    """Build the unified origin envelope for this project's FS plane."""
-    content_root_exists = workspace_fs_available(project)
-    row = get_fs_projection(db, project)
-    now = datetime.now(timezone.utc)
-    if content_root_exists:
-        return ContentSourceMeta(
-            content_source="local-fs",
-            source_revision="local-scan",
-            source_updated_at=now,
-            stale=False,
-        )
-    if row is None:
-        return ContentSourceMeta(
-            content_source="none",
-            stale=True,
-            stale_reason="no projection",
-        )
-    stale = False
-    stale_reason = None
-    sla = project.fs_freshness_sla_seconds
-    if sla is not None and row.pushed_at is not None:
-        pushed = row.pushed_at
-        if pushed.tzinfo is None:
-            pushed = pushed.replace(tzinfo=timezone.utc)
-        if now - pushed > timedelta(seconds=sla):
-            stale = True
-            stale_reason = "freshness_sla_exceeded"
-    return ContentSourceMeta(
-        content_source="fs-projection",
-        source_revision=str(row.revision),
-        source_content_hash=row.content_hash,
-        source_updated_at=row.pushed_at,
-        stale=stale,
-        stale_reason=stale_reason,
-    )
-
-
-def fs_plane_status(db: Session, project: Project) -> FsPlaneStatusRead:
-    """部署矩阵探测握手：local-fs / projection-cache / detached 三态。"""
-    workspace = Path(project.workspace_path)
-    workspace_exists = workspace.is_dir()
-    content_root_exists = workspace_fs_available(project)
-    row = get_fs_projection(db, project)
-    source = content_source_meta(db, project)
-    if content_root_exists:
-        mode = "local-fs"
-        hint = ""
-    elif row is not None:
-        mode = "projection-cache"
-        hint = (
-            "workspace 不可达，读路径回退到 map sync publish 的投影缓存；"
-            "验证型写走 validate → 本地写回 → commit。写文件后 CLI 会自动增量同步。"
-        )
-    else:
-        mode = "detached"
-        hint = (
-            "server 看不到 workspace（远程/容器部署），FS plane 对 server 不可见："
-            "map/ 话题不会出现在列表与 work 待办中。修复：执行 `map sync publish` "
-            "（或兼容别名 `map sync push`）上行投影缓存。"
-        )
-    return FsPlaneStatusRead(
-        workspace_path=project.workspace_path,
-        content_root=content_root_name(project),
-        workspace_exists=workspace_exists,
-        content_root_exists=content_root_exists,
-        mode=mode,
-        projection_pushed_at=row.pushed_at if row is not None else None,
-        projection_revision=row.revision if row is not None else None,
-        publisher_agent_id=row.publisher_agent_id if row is not None else None,
-        consistency_model=("single-publisher-eventual" if row is not None else None),
-        hint=hint,
-        source=source,
-    )
-
-
-# ---------------------------------------------------------------------------
-# 统一话题视图：scan 与 projection 两个来源归一到同一形态
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _CommentView:
-    id: uuid.UUID
-    round: int
-    author: str
-    kind: str
-    is_round_summary: bool
-    excerpt: str
-    content: str
-    file_path: str
-    posted_at: datetime | None
-    comment_seq: int
-    file_persona: str = ""
-    ack_valid: bool = True
-    ack_error: str | None = None
-
-
-@dataclass
-class _TopicView:
-    slug: str
-    id: uuid.UUID
-    title: str
-    description: str
-    status: str
-    round: str  # roundN | ready
-    round_number: int
-    creator: str
-    created_at: datetime | None
-    updated_at: datetime | None
-    dir_path: str
-    participants: list[str] = field(default_factory=list)
-    ack_participants: list[str] = field(default_factory=list)
-    comments: list[_CommentView] = field(default_factory=list)
-    action_items: list[FsActionItem] = field(default_factory=list)
-    action_items_error: str | None = None
-    # T7 I10：关联实验列表（topic_slug == view.slug 过滤）。workspace 可达时
-    # 由 _view_from_fs_topic 从 scan_plane 结果透传；projection 路径默认空
-    # list（D6 门禁在 projection 路径仍失效，与 round3-host.md 取证更正一致）。
-    experiments: list[FsExperiment] = field(default_factory=list)
-
-    def authors_in_round(self, round_number: int) -> set[str]:
-        """effective ack authors：与 parser ``FsTopic.authors_in_round`` 同源，
-        只统计 frontmatter 合规（ack_valid）的 comment（review 911fdb0e）。
-        """
-        return {
-            c.author for c in self.comments if c.round == round_number and c.ack_valid
-        }
-
-
-def _round_number_of(round_str: str, comments: list[_CommentView]) -> int:
-    match = _ROUND_STR_RE.match(round_str)
-    if match:
-        return int(match.group(1))
-    return max((c.round for c in comments), default=1)
-
-
-def _view_from_fs_topic(topic: FsTopic) -> _TopicView:
-    return _TopicView(
-        slug=topic.slug,
-        id=topic.id,
-        title=topic.title,
-        description=topic.description,
-        status=topic.status,
-        round=topic.round,
-        round_number=topic.round_number,
-        creator=topic.creator,
-        created_at=topic.created_at,
-        updated_at=topic.updated_at,
-        dir_path=topic.dir_path,
-        participants=list(topic.participants),
-        ack_participants=list(topic.ack_participants()),
-        comments=[
-            _CommentView(
-                id=c.id,
-                round=c.round,
-                author=c.author,
-                kind=c.kind,
-                is_round_summary=c.is_round_summary,
-                excerpt=c.excerpt,
-                content=c.content,
-                file_path=c.file_path,
-                posted_at=c.posted_at,
-                comment_seq=c.comment_seq,
-                file_persona=c.file_persona,
-                ack_valid=c.ack_valid,
-                ack_error=c.ack_error,
-            )
-            for c in topic.comments
-        ],
-        action_items=list(topic.action_items),
-        action_items_error=topic.action_items_error,
-        # T7 I10：透传关联实验列表（scan_plane 已按 topic_slug 过滤），
-        # 使 server remote close 走 validate_close 第 4 维门禁真正生效。
-        experiments=list(topic.experiments),
-    )
-
-
-def _declared_of(creator: str, participants: list[str]) -> list[str]:
-    return [p for p in participants if p != creator]
-
-
-def _view_from_projection(detail: FsTopicDetailRead) -> _TopicView:
-    comments = [
-        _CommentView(
-            id=c.id,
-            round=c.round,
-            author=c.author,
-            kind=c.kind,
-            is_round_summary=c.is_round_summary,
-            excerpt=c.excerpt,
-            content=c.content,
-            file_path=c.file_path,
-            posted_at=c.posted_at,
-            comment_seq=c.comment_seq,
-            file_persona=c.file_persona,
-            ack_valid=c.ack_valid,
-            ack_error=c.ack_error,
-        )
-        for c in detail.comments
-    ]
-    declared = list(detail.declared_participants) or _declared_of(detail.creator, list(detail.participants))
-    return _TopicView(
-        slug=detail.slug,
-        id=detail.id,
-        title=detail.title,
-        description=detail.description,
-        status=detail.status,
-        round=detail.discussion_round,
-        round_number=_round_number_of(detail.discussion_round, comments),
-        creator=detail.creator,
-        created_at=detail.created_at,
-        updated_at=detail.updated_at,
-        dir_path=detail.dir_path,
-        participants=list(detail.participants),
-        ack_participants=[detail.creator] + [p for p in declared if p != detail.creator],
-        comments=comments,
-        action_items=[
-            FsActionItem(
-                id=a.id,
-                title=a.title,
-                owner=a.owner,
-                status=a.status,
-                evidence=a.evidence,
-                reason=a.reason,
-                created_at=a.created_at,
-            )
-            for a in detail.action_items
-        ],
-        action_items_error=detail.action_items_error,
-    )
-
-
-def _view_as_fs_topic(view: _TopicView) -> FsTopic:
-    """视图 → parser FsTopic（复用 derive_work 纯函数）。
-
-    declared_participants 取非 creator 的白名单成员：FsTopic.participants =
-    creator ∪ declared ∪ speakers，与视图的 participants 列表等价。
-    """
-    return FsTopic(
-        slug=view.slug,
-        id=view.id,
-        title=view.title,
-        description=view.description,
-        status=view.status,
-        round=view.round,
-        round_number=view.round_number,
-        creator=view.creator,
-        created_at=view.created_at,
-        updated_at=view.updated_at,
-        dir_path=view.dir_path,
-        comments=[
-            FsComment(
-                id=c.id,
-                topic_slug=view.slug,
-                round=c.round,
-                author=c.author,
-                kind=c.kind,
-                is_round_summary=c.is_round_summary,
-                excerpt=c.excerpt,
-                content=c.content,
-                file_path=c.file_path,
-                posted_at=c.posted_at,
-                comment_seq=c.comment_seq,
-                file_persona=c.file_persona,
-                ack_valid=c.ack_valid,
-                ack_error=c.ack_error,
-            )
-            for c in view.comments
-        ],
-        declared_participants=_declared_of(view.creator, list(view.ack_participants))
-        or _declared_of(view.creator, list(view.participants)),
-        action_items=list(view.action_items),
-        action_items_error=view.action_items_error,
-        # T7 I10：透传关联实验列表（视图已透传 _view_from_fs_topic 注入），
-        # server remote close validate_close 第 4 维门禁真正生效。
-        experiments=list(view.experiments),
-    )
-
-
-def plane_views(db: Session, project: Project) -> list[_TopicView]:
-    """读路径统一入口：本地实时解析优先，投影缓存回退。"""
-    if workspace_fs_available(project):
-        return [_view_from_fs_topic(t) for t in plane_for_project(project).topics]
-    row = get_fs_projection(db, project)
-    return [_view_from_projection(d) for d in projection_payload_topics(row)]
-
-
-def fs_topic_or_raise(project: Project, slug: str) -> FsTopic:
-    plane = plane_for_project(project)
-    topic = plane.topic_by_slug(slug)
-    if topic is None:
-        raise FsTopicNotFoundError(f"fs topic not found: {slug}")
-    return topic
-
-
-# ---------------------------------------------------------------------------
-# 读：FS plane schema
-# ---------------------------------------------------------------------------
-
-
-def fs_topic_summary(view: _TopicView) -> FsTopicSummaryRead:
-    return FsTopicSummaryRead(
-        id=view.id,
-        slug=view.slug,
-        title=view.title,
-        description=view.description,
-        status=view.status,
-        discussion_round=view.round,
-        creator=view.creator,
-        comment_count=len(view.comments),
-        participants=view.participants,
-        created_at=view.created_at,
-        updated_at=view.updated_at,
-        dir_path=view.dir_path,
-    )
-
-
-def fs_topic_detail(view: _TopicView) -> FsTopicDetailRead:
-    return FsTopicDetailRead(
-        **fs_topic_summary(view).model_dump(),
-        comments=[
-            FsCommentRead(
-                id=c.id,
-                topic_slug=view.slug,
-                round=c.round,
-                author=c.author,
-                kind=c.kind,
-                is_round_summary=c.is_round_summary,
-                excerpt=c.excerpt,
-                content=c.content,
-                file_path=c.file_path,
-                posted_at=c.posted_at,
-                comment_seq=c.comment_seq,
-            )
-            for c in view.comments
-        ],
-        action_items=[
-            FsActionItemRead(
-                id=a.id,
-                title=a.title,
-                owner=a.owner,
-                status=a.status,
-                evidence=a.evidence,
-                reason=a.reason,
-                created_at=a.created_at,
-            )
-            for a in view.action_items
-        ],
-        action_items_error=view.action_items_error,
-    )
-
-
-def fs_experiment_read(plane: FsPlane) -> list[FsExperimentRead]:
-    return [
-        FsExperimentRead(
-            id=e.id,
-            slug=e.slug,
-            title=e.title,
-            description=e.description,
-            phase=e.phase,
-            creator=e.creator,
-            created_at=e.created_at,
-            dir_path=e.dir_path,
-            plan_path=e.plan_path,
-            log_path=e.log_path,
-            review_path=e.review_path,
-        )
-        for e in plane.experiments
-    ]
-
-
-def fs_experiments_view(db: Session, project: Project) -> list[FsExperimentRead]:
-    """实验列表读：本地解析优先，投影缓存回退（与话题读一致）。"""
-    if workspace_fs_available(project):
-        return fs_experiment_read(plane_for_project(project))
-    row = get_fs_projection(db, project)
-    if row is None:
-        return []
-    payload = row.payload_json or {}
-    try:
-        return [FsExperimentRead.model_validate(e) for e in payload.get("experiments", [])]
-    except Exception:
-        logger.warning(
-            "fs experiments 投影回退读校验失败，按空处理（project=%s revision=%s）",
-            project.id,
-            getattr(row, "revision", None),
-            exc_info=True,
-        )
-        return []
-
-
-def fs_work_items(project: Project, persona: str) -> list[FsWorkItemRead]:
-    plane = plane_for_project(project)
-    items: list[FsWorkItem] = []
-    for topic in plane.topics:
-        items.extend(derive_work(topic, persona))
-    return [
-        FsWorkItemRead(kind=i.kind, topic_slug=i.topic_slug, title=i.title, round=i.round, detail=i.detail)
-        for i in items
-    ]
-
 
 # ---------------------------------------------------------------------------
 # waker work 快照：FS topics → DB 兼容 topic-progress 投影
@@ -1204,3 +705,38 @@ __all__ = [
     "validate_fs_close",
     "workspace_fs_available",
 ]
+
+
+# ---------------------------------------------------------------------------
+# T45: plane 加载/缓存与 topic 读视图适配拆至 fs_plane_loader / fs_topic_view；
+# 此处 re-import（facade）保持既有 ``server.services.fs_source_service``
+# import 面（api/ 层多为函数内 lazy import，零改动）。
+from server.services.fs_plane_loader import (  # noqa: E402,F401
+    _PLANE_CACHE_MAX_ENTRIES,
+    _plane_cache,
+    _plane_cache_lock,
+    _plane_fingerprint,
+    _PlaneFingerprint,
+    content_root_name,
+    content_source_meta,
+    fs_plane_status,
+    plane_for_project,
+    reset_plane_cache,
+    workspace_fs_available,
+)
+from server.services.fs_topic_view import (  # noqa: E402,F401
+    _CommentView,
+    _declared_of,
+    _round_number_of,
+    _TopicView,
+    _view_as_fs_topic,
+    _view_from_fs_topic,
+    _view_from_projection,
+    fs_experiment_read,
+    fs_experiments_view,
+    fs_topic_detail,
+    fs_topic_or_raise,
+    fs_topic_summary,
+    fs_work_items,
+    plane_views,
+)

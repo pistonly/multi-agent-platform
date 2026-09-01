@@ -246,13 +246,15 @@ def test_notification_binds_to_accept_transaction(
     （enqueue_for_agents 只 flush，accept 回滚则通知随之消失）。"""
     experiment, _host, reviewer = _setup(db_session, tmp_path)
     calls: list[dict] = []
-    original = phase_service.notification_service.emit_kind
+    from server.services import notification_service as _notif_svc
+
+    original = _notif_svc.emit_kind
 
     def _spy(db, **kwargs):
         calls.append(kwargs)
         return original(db, **kwargs)
 
-    monkeypatch.setattr(phase_service.notification_service, "emit_kind", _spy)
+    monkeypatch.setattr(_notif_svc, "emit_kind", _spy)
     _accept(db_session, experiment, reviewer)
 
     assert len(calls) == 1
