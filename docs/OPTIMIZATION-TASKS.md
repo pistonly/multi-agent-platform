@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 7/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）与 T40/T41/T42/T43（2026-09-01 下午批）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 8/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）、T40/T41/T42/T43（2026-09-01 下午批）与 T33（2026-09-01）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -166,8 +166,8 @@
 
 ## P2 可排期项
 
-- [ ] **T33 超大文件与长函数拆分**（预估：大）
-  `cli/main.py`（1591 行）、`cli/commands/topic.py`（1543 行）、`cli/commands/experiment.py`（1496 行）；`skill_install` 167 行与 `skill_upgrade` 153 行共享约 40% preamble 可抽 helper；`map_dashboard` 132 行可移出 main.py。给 main.py 设硬上限（如 800 行）。
+- [x] **T33 超大文件与长函数拆分**（预估：大）✅ 2026-09-01
+  落地：`cli/main.py` 970→638 行——`map_dashboard`→`cli/dashboard.py`、clear-action 渲染→`cli/work_render.py`、n2 子命令格式化块→`cli/subcommand_format.py`；`MAX_CLI_MAIN_PY_LINES` 硬上限按任务要求 1600→800（test_compat 守卫）。`cli/commands/topic.py` 1737→1148 行——话题路由 helpers→`cli/topic_routing.py`、action_item 子应用→`cli/commands/action_item.py`。`cli/commands/experiment.py` 1573→1423 行——review/plan 子应用→`cli/commands/experiment_review.py`：宿主模块底部注册 apps 打破循环导入，`_ID_HELP`（装饰期求值）保持模块级导入，`_rid`/`_run_lifecycle` 等 monkeypatch 面留守宿主并在命令体内 call-time lazy 导入（T23 模式）。`skill_install`/`skill_upgrade` 共享 preamble 抽为 `_skill_cmd_preamble` + `_select_skill_candidates` 两个 helper（skill.py 624→617 行）。`cli/commands/` 新增 2 模块已登记 test_compat 目录清单。验证：ruff 全绿 + fast gate 1945 passed 52s。
 
 - [x] **T34 tests 加速与覆盖率可见性**（预估：中）✅ 2026-09-01
   落地：`pytest-xdist>=3.6` dev 依赖 + `-n auto` 并行（`scripts/test-fast.sh` / CI PR gate / nightly 全量；本地实测 1933 例 213s→44s）；PR gate 加 `--cov --cov-report=term` 展示 unit subset 覆盖率（不 fail_under——unit 覆盖率不代表整体，全量门禁仍走 nightly → Codecov）；修复 CI 上游连红：`uv sync` 后 `.venv/bin` 不在 PATH，裸调 ruff/mypy/pytest 全部 exit 127，lint 从未真正执行（两 job 各注入 `$GITHUB_PATH`）；`tests/conftest.py` 新增 autouse `reset_cli_options`——CLI 测试改写 `cli.main._cli_options` 泄漏全局态，xdist worker 分组下人类可读断言随机失败；顺带清 ruff 积压（B904/E402/SIM108/I001/F541 等）。**降级**：204 文件按域分子目录机械量大、git 历史噪声高且收益低（pytest 已按 marker 分层），独立为将来可选重构，不再列待办。

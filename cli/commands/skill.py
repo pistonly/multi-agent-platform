@@ -160,6 +160,46 @@ def _resolve_target(target: Path | None, runtime: str) -> Path:
     return Path(RUNTIME_TARGETS[runtime])
 
 
+def _skill_cmd_preamble(target: Path | None, runtime: str) -> tuple[str, Path, Path]:
+    """Shared ``install`` / ``upgrade`` setup (T33: both commands repeated
+    this block verbatim).
+
+    Resolves ``--target``/``--runtime``, verifies the bundled Skills root.
+    Returns ``(fmt, target, skills_root)``; ``fmt`` comes from the runtime
+    ``_cli_options`` state (lazy import — monkeypatch surface).
+    """
+    from cli.main import _cli_options  # runtime state (monkeypatch surface)
+
+    fmt = _cli_options.get("format", "yaml")
+    resolved = _resolve_target(target, runtime)
+
+    skills_root = _get_bundled_skills_dir()
+    if not skills_root.is_dir():
+        typer.echo(
+            "Error: bundled Skills directory not found. "
+            "This may indicate a broken pip installation.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return fmt, resolved, skills_root
+
+
+def _select_skill_candidates(skill: list[str] | None, available: list[str]) -> list[str]:
+    """Validate ``--skill`` names against the bundled dirs (T33: shared by
+    ``install`` / ``upgrade``). Returns the names to process."""
+    if skill:
+        missing = [s for s in skill if s not in available]
+        if missing:
+            typer.echo(
+                f"Error: unknown Skill(s): {', '.join(missing)}. "
+                f"Available: {', '.join(available)}",
+                err=True,
+            )
+            raise typer.Exit(1)
+        return skill
+    return available
+
+
 def _skill_diff(src: Path, dst: Path) -> dict[str, Any]:
     """Diff summary between bundled (``src``) and installed (``dst``) Skill dirs.
 
@@ -364,19 +404,7 @@ def skill_install(
     """
     import shutil
 
-    from cli.main import _cli_options  # runtime state (monkeypatch surface)
-
-    fmt = _cli_options.get("format", "yaml")
-    target = _resolve_target(target, runtime)
-
-    skills_root = _get_bundled_skills_dir()
-    if not skills_root.is_dir():
-        typer.echo(
-            "Error: bundled Skills directory not found. "
-            "This may indicate a broken pip installation.",
-            err=True,
-        )
-        raise typer.Exit(1)
+    fmt, target, skills_root = _skill_cmd_preamble(target, runtime)
 
     # Determine which Skills to install
     available = _list_skill_dirs()
@@ -384,19 +412,7 @@ def skill_install(
         typer.echo("Error: no Skills found to install.", err=True)
         raise typer.Exit(1)
 
-    if skill:
-        # Validate requested skill names
-        missing = [s for s in skill if s not in available]
-        if missing:
-            typer.echo(
-                f"Error: unknown Skill(s): {', '.join(missing)}. "
-                f"Available: {', '.join(available)}",
-                err=True,
-            )
-            raise typer.Exit(1)
-        to_install = skill
-    else:
-        to_install = available
+    to_install = _select_skill_candidates(skill, available)
 
     # Create target directory
     target.mkdir(parents=True, exist_ok=True)
@@ -515,33 +531,10 @@ def skill_upgrade(
     """
     import shutil
 
-    from cli.main import _cli_options  # runtime state (monkeypatch surface)
-
-    fmt = _cli_options.get("format", "yaml")
-    target = _resolve_target(target, runtime)
-
-    skills_root = _get_bundled_skills_dir()
-    if not skills_root.is_dir():
-        typer.echo(
-            "Error: bundled Skills directory not found. "
-            "This may indicate a broken pip installation.",
-            err=True,
-        )
-        raise typer.Exit(1)
+    fmt, target, skills_root = _skill_cmd_preamble(target, runtime)
 
     available = _list_skill_dirs()
-    if skill:
-        missing = [s for s in skill if s not in available]
-        if missing:
-            typer.echo(
-                f"Error: unknown Skill(s): {', '.join(missing)}. "
-                f"Available: {', '.join(available)}",
-                err=True,
-            )
-            raise typer.Exit(1)
-        candidates = skill
-    else:
-        candidates = available
+    candidates = _select_skill_candidates(skill, available)
 
     if not target.is_dir():
         typer.echo(

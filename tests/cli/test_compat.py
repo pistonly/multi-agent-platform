@@ -201,14 +201,16 @@ def test_topic_write_commands_still_have_help(runner: CliRunner) -> None:
 # adding the `dashboard` command (~130 lines) and `--format table` support
 # (~25 lines in _run). After 369ccac the package split left main.py at 1662
 # (over cap); the persona-compare rendering block (~275 lines) moved to
-# cli/persona_compare.py bringing it back to ~1400. Hold the line at
-# <= 1600 — intentional growth requires bumping this + a commit note
-# explaining why.
-MAX_CLI_MAIN_PY_LINES = 1600
+# cli/persona_compare.py bringing it back to ~1400. T33 (2026-09-01) split
+# the dashboard / clear-action / n2 blocks out (cli/dashboard.py,
+# cli/work_render.py, cli/subcommand_format.py), leaving main.py at ~640 —
+# the cap is tightened to 800 accordingly. Intentional growth beyond the
+# cap requires bumping this + a commit note explaining why.
+MAX_CLI_MAIN_PY_LINES = 800
 
 
 def test_cli_main_py_under_size_cap() -> None:
-    """Monolith regression guard: ``cli/main.py`` must stay under 1600 lines."""
+    """Monolith regression guard: ``cli/main.py`` must stay under 800 lines."""
     actual = sum(1 for _ in CLI_MAIN_PY.open(encoding="utf-8"))
     assert actual <= MAX_CLI_MAIN_PY_LINES, (
         f"cli/main.py grew to {actual} lines (cap={MAX_CLI_MAIN_PY_LINES}); "
@@ -224,12 +226,14 @@ def test_cli_main_py_under_size_cap() -> None:
 EXPECTED_SUBAPP_FILES = [
     "__init__.py",
     "action.py",
+    "action_item.py",  # T33: action_item sub-app extracted from topic.py
     "agent.py",
     "audit.py",
     "auth.py",
     "docs.py",
     "doctor.py",
     "experiment.py",
+    "experiment_review.py",  # T33: review/plan sub-apps extracted from experiment.py
     "feedback.py",
     "fs.py",
     "host.py",

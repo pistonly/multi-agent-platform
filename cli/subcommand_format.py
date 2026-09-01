@@ -16,10 +16,11 @@ returned command:
 
 * **leaf command** — append a ``--format`` option and wrap the
   callback so the parsed value is handed to ``apply_hook`` *before* the
-  command body runs. The hook (``_apply_sub_format`` in ``cli/main.py``)
-  resolves/validates the value and writes it into ``_cli_options``, so an
-  explicit subcommand value wins over the global flag / ``MAP_CLI_FORMAT``
-  (the global callback already ran by then).
+  command body runs. The hook (``_apply_sub_format`` in this module,
+  T33) resolves/validates the value and writes it into
+  ``cli.main._cli_options``, so an explicit subcommand value wins over
+  the global flag / ``MAP_CLI_FORMAT`` (the global callback already ran
+  by then).
 * **nested group** — instance-patch its ``get_command`` with the same
   wrapper, recursively. This covers sub-apps created with the default
   ``TyperGroup`` (e.g. ``experiment`` → ``review`` / ``plan`` / ``lock``).
@@ -49,16 +50,19 @@ construction and group detection therefore branch on ``typer._click``.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable
 from difflib import get_close_matches
+from pathlib import Path
 from typing import Any
 
 import typer
+import yaml
 from typer.core import TyperGroup
 
 #: Hook that receives the raw ``--format`` string (``None`` when absent).
-#: ``cli.main._apply_sub_format`` implements resolution / validation.
+#: ``_apply_sub_format`` below implements resolution / validation.
 ApplyHook = Callable[[str | None], None]
 
 _PATCH_FLAG = "_map_sub_format_patched"
@@ -285,3 +289,189 @@ def make_group_cls(apply: ApplyHook) -> type[TyperGroup]:
             return _patch_any(sub, apply)
 
     return _SubFormatGroup
+
+
+# ---- T33: N=2 release cutoff + subcommand --format resolution --------------
+# Moved verbatim from ``cli/main.py`` (8a8822b5). ``MAP_CLI_RELEASE_VERSION``
+# controls whether the post-N=2 behavior is active. The build / release
+# script is expected to set this env var at install time once N=2 ships;
+# for now we default to "0.x" so legacy yaml stays default. The
+# hard-cutover behavior is:
+#   * if release >= N=2, ``yaml`` / ``legacy`` formats are force-overridden
+#     to ``json`` regardless of flag / env, with a one-shot stderr warning;
+#   * if ``.map/config.yaml`` declares ``cli.default_format: yaml`` under
+#     N=2 release, the same warning fires and the value is ignored.
+_N2_RELEASE_MAJOR = 1  # bump here when N=2 ships
+_N2_DEFAULT_RELEASE = "0.9"
+
+
+def _parse_release_version(raw: str | None) -> tuple[int, int]:
+    """Parse ``MAJOR.MINOR`` release tuple; return ``(0, 9)`` on any failure.
+
+    The parser is intentionally permissive — anything we cannot interpret
+    is treated as pre-N=2 so we never accidentally hard-cutover a script.
+    """
+    if not raw:
+        return (0, 9)
+    raw = raw.strip()
+    if not raw:
+        return (0, 9)
+    parts = raw.split(".")
+    try:
+        major = int(parts[0])
+    except (ValueError, IndexError):
+        return (0, 9)
+    try:
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return (major, 0)
+    return (major, minor)
+
+
+def _is_n2_released() -> bool:
+    """True iff ``MAP_CLI_RELEASE_VERSION`` parses to ``>= (_N2_RELEASE_MAJOR, 0)``."""
+    raw = os.environ.get("MAP_CLI_RELEASE_VERSION")
+    major, minor = _parse_release_version(raw)
+    if major > _N2_RELEASE_MAJOR:
+        return True
+    if major < _N2_RELEASE_MAJOR:
+        return False
+    return minor >= 0  # any minor in the N=2 major line is in release
+
+
+def _project_cli_default_format(project_root: Path | None) -> str | None:
+    """Read ``cli.default_format`` from ``.map/config.yaml``.
+
+    Returns ``None`` when the project root is not provided, when
+    ``.map/config.yaml`` is missing, or when the key is absent. The check
+    is intentionally narrow — we only look at the explicit key the release
+    checklist flips; everything else (including unknown keys) is ignored.
+    """
+    if project_root is None:
+        return None
+    config_path = project_root / ".map" / "config.yaml"
+    if not config_path.is_file():
+        return None
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    cli_block = data.get("cli")
+    if not isinstance(cli_block, dict):
+        return None
+    value = cli_block.get("default_format")
+    if not isinstance(value, str):
+        return None
+    return value.strip().lower() or None
+
+
+def _apply_n2_hard_cutover(
+    *,
+    current_format: str,
+    current_source: str,
+    project_root: Path | None,
+) -> tuple[str, str, list[str]]:
+    """Apply 8a8822b5 (a) post-N=2 yaml hard-cutover.
+
+    Returns ``(new_format, new_source, warnings)``. Warnings are emitted
+    by the caller; this function is pure so it is unit-testable without
+    touching ``typer.echo``.
+    """
+    if not _is_n2_released():
+        return current_format, current_source, []
+
+    warnings: list[str] = []
+    config_default = _project_cli_default_format(project_root)
+    if config_default == "yaml":
+        warnings.append(
+            "Warning: .map/config.yaml `cli.default_format: yaml` is "
+            "deprecated in N=2; CLI is forcing json output."
+        )
+        return "json", "n2-release-cutover", warnings
+
+    # Only warn when the user EXPLICITLY asked for yaml (flag / env / config).
+    # The implicit default is the CLI's own choice — N=2 silently swaps it
+    # to json without a deprecation warning, since the user never asked for
+    # yaml in the first place.
+    if current_format == "yaml" and current_source in {
+        "explicit --format",
+        "MAP_CLI_FORMAT env",
+        "config cli.default_format",
+    }:
+        warnings.append(
+            "Warning: yaml output format is removed in N=2; "
+            "CLI is forcing json output."
+        )
+        return "json", "n2-release-cutover", warnings
+
+    # Silent default-yaml → json transition (no warning).
+    if current_format == "yaml" and current_source == "default":
+        return "json", "n2-release-cutover", []
+
+    return current_format, current_source, warnings
+
+
+def _apply_sub_format(raw: str | None) -> None:
+    """v0.12 M54A: resolve a subcommand-level ``--format`` value.
+
+    Invoked from the leaf-command callback wrapper (``make_group_cls``),
+    i.e. AFTER the global callback already resolved the global flag / env
+    var — so an explicit subcommand value simply wins. Mirrors the global
+    path (legacy alias handling, validation, N=2 hard cutover) so both
+    spellings stay equivalent: ``map experiment list --format json`` and
+    ``map --format json experiment list``.
+
+    Runtime state ``cli.main._cli_options`` is resolved through the module
+    object at call time (T23 injection-surface pattern) — monkeypatching
+    ``cli.main._cli_options`` keeps affecting this hook.
+    """
+    from cli import main as _main  # runtime state (injection surface)
+
+    _cli_options = _main._cli_options
+    if raw is None:
+        return
+    resolved = raw.strip().lower()
+    if resolved == "legacy":
+        typer.echo(
+            "Warning: --format legacy is deprecated; "
+            "use 'yaml' explicitly. The 'legacy' alias will be removed in N=2.",
+            err=True,
+        )
+        resolved = "yaml"
+    if resolved not in ("yaml", "json", "table"):
+        typer.echo(
+            f"Error: unknown --format {resolved!r}; expected 'table', 'yaml', 'json', or 'legacy'.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    prev = _cli_options.get("format")
+    prev_source = _cli_options.get("format_source", "default")
+    if prev is not None and prev != resolved:
+        if prev_source == "explicit --format":
+            typer.echo(
+                f"Warning: subcommand --format={resolved} overrides "
+                f"global --format={prev}",
+                err=True,
+            )
+        elif prev_source == "explicit --json":
+            typer.echo(
+                f"Warning: subcommand --format={resolved} overrides global --json",
+                err=True,
+            )
+        elif prev_source == "MAP_CLI_FORMAT env":
+            typer.echo(
+                f"Warning: subcommand --format={resolved} overrides "
+                f"MAP_CLI_FORMAT={prev}",
+                err=True,
+            )
+    resolved, source, n2_warnings = _apply_n2_hard_cutover(
+        current_format=resolved,
+        current_source="explicit --format",
+        project_root=_cli_options.get("project_root"),
+    )
+    for warning in n2_warnings:
+        typer.echo(warning, err=True)
+    _cli_options["format"] = resolved
+    _cli_options["format_source"] = f"{source} (subcommand)"

@@ -5,7 +5,6 @@ from typing import Any
 
 import httpx
 import typer
-import yaml
 
 # T23：``admin_client`` / ``resolve_client`` 的执行体已迁 ``cli.runner``，
 # 此处 re-export 是测试注入面（monkeypatch ``cli.main.admin_client`` /
@@ -72,13 +71,22 @@ from cli.runner import (  # noqa: F401 — _client_ctx/_admin_client_ctx 为注�
     _resolve_project,
     _run,
 )
-from cli.subcommand_format import make_group_cls
-from cli.waker_heartbeat_render import render_waker_heartbeat_banner
 
 # v0.12 M54A: root group class injects a subcommand-level ``--format``
 # option into every leaf command (E1). The lambda defers resolution of
-# ``_apply_sub_format`` (defined further down, next to the other format
-# helpers) — it is only called inside command callbacks at parse time.
+# ``_apply_sub_format`` (T33: defined in ``cli/subcommand_format.py``,
+# next to the leaf-patch machinery) — it is only called inside command
+# callbacks at parse time. The N=2 hard-cutover helpers co-live there;
+# the ones used by the global callback below are imported explicitly.
+from cli.subcommand_format import (
+    _apply_n2_hard_cutover,
+    _apply_sub_format,
+    _is_n2_released,
+    _project_cli_default_format,
+    make_group_cls,
+)
+from cli.waker_heartbeat_render import render_waker_heartbeat_banner
+
 app = typer.Typer(
     name="map",
     help="Multi-Agent Platform CLI",
@@ -116,184 +124,6 @@ app.add_typer(verify_audit_app, name="fs")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
-
-
-# 8a8822b5 (a): N=2 release cutoff. ``MAP_CLI_RELEASE_VERSION`` controls
-# whether the post-N=2 behavior is active. The build / release script is
-# expected to set this env var at install time once N=2 ships; for now
-# we default to "0.x" so legacy yaml stays default. The hard-cutover
-# behavior is:
-#   * if release >= N=2, ``yaml`` / ``legacy`` formats are force-overridden
-#     to ``json`` regardless of flag / env, with a one-shot stderr warning;
-#   * if ``.map/config.yaml`` declares ``cli.default_format: yaml`` under
-#     N=2 release, the same warning fires and the value is ignored.
-_N2_RELEASE_MAJOR = 1  # bump here when N=2 ships
-_N2_DEFAULT_RELEASE = "0.9"
-
-
-def _parse_release_version(raw: str | None) -> tuple[int, int]:
-    """Parse ``MAJOR.MINOR`` release tuple; return ``(0, 9)`` on any failure.
-
-    The parser is intentionally permissive — anything we cannot interpret
-    is treated as pre-N=2 so we never accidentally hard-cutover a script.
-    """
-    if not raw:
-        return (0, 9)
-    raw = raw.strip()
-    if not raw:
-        return (0, 9)
-    parts = raw.split(".")
-    try:
-        major = int(parts[0])
-    except (ValueError, IndexError):
-        return (0, 9)
-    try:
-        minor = int(parts[1]) if len(parts) > 1 else 0
-    except ValueError:
-        return (major, 0)
-    return (major, minor)
-
-
-def _is_n2_released() -> bool:
-    """True iff ``MAP_CLI_RELEASE_VERSION`` parses to ``>= (_N2_RELEASE_MAJOR, 0)``."""
-    raw = os.environ.get("MAP_CLI_RELEASE_VERSION")
-    major, minor = _parse_release_version(raw)
-    if major > _N2_RELEASE_MAJOR:
-        return True
-    if major < _N2_RELEASE_MAJOR:
-        return False
-    return minor >= 0  # any minor in the N=2 major line is in release
-
-
-def _project_cli_default_format(project_root: Path | None) -> str | None:
-    """Read ``cli.default_format`` from ``.map/config.yaml``.
-
-    Returns ``None`` when the project root is not provided, when
-    ``.map/config.yaml`` is missing, or when the key is absent. The check
-    is intentionally narrow — we only look at the explicit key the release
-    checklist flips; everything else (including unknown keys) is ignored.
-    """
-    if project_root is None:
-        return None
-    config_path = project_root / ".map" / "config.yaml"
-    if not config_path.is_file():
-        return None
-    try:
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except (yaml.YAMLError, OSError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    cli_block = data.get("cli")
-    if not isinstance(cli_block, dict):
-        return None
-    value = cli_block.get("default_format")
-    if not isinstance(value, str):
-        return None
-    return value.strip().lower() or None
-
-
-def _apply_n2_hard_cutover(
-    *,
-    current_format: str,
-    current_source: str,
-    project_root: Path | None,
-) -> tuple[str, str, list[str]]:
-    """Apply 8a8822b5 (a) post-N=2 yaml hard-cutover.
-
-    Returns ``(new_format, new_source, warnings)``. Warnings are emitted
-    by the caller; this function is pure so it is unit-testable without
-    touching ``typer.echo``.
-    """
-    if not _is_n2_released():
-        return current_format, current_source, []
-
-    warnings: list[str] = []
-    config_default = _project_cli_default_format(project_root)
-    if config_default == "yaml":
-        warnings.append(
-            "Warning: .map/config.yaml `cli.default_format: yaml` is "
-            "deprecated in N=2; CLI is forcing json output."
-        )
-        return "json", "n2-release-cutover", warnings
-
-    # Only warn when the user EXPLICITLY asked for yaml (flag / env / config).
-    # The implicit default is the CLI's own choice — N=2 silently swaps it
-    # to json without a deprecation warning, since the user never asked for
-    # yaml in the first place.
-    if current_format == "yaml" and current_source in {
-        "explicit --format",
-        "MAP_CLI_FORMAT env",
-        "config cli.default_format",
-    }:
-        warnings.append(
-            "Warning: yaml output format is removed in N=2; "
-            "CLI is forcing json output."
-        )
-        return "json", "n2-release-cutover", warnings
-
-    # Silent default-yaml → json transition (no warning).
-    if current_format == "yaml" and current_source == "default":
-        return "json", "n2-release-cutover", []
-
-    return current_format, current_source, warnings
-
-
-def _apply_sub_format(raw: str | None) -> None:
-    """v0.12 M54A: resolve a subcommand-level ``--format`` value.
-
-    Invoked from the leaf-command callback wrapper (cli/subcommand_format.py),
-    i.e. AFTER the global callback already resolved the global flag / env
-    var — so an explicit subcommand value simply wins. Mirrors the global
-    path (legacy alias handling, validation, N=2 hard cutover) so both
-    spellings stay equivalent: ``map experiment list --format json`` and
-    ``map --format json experiment list``.
-    """
-    if raw is None:
-        return
-    resolved = raw.strip().lower()
-    if resolved == "legacy":
-        typer.echo(
-            "Warning: --format legacy is deprecated; "
-            "use 'yaml' explicitly. The 'legacy' alias will be removed in N=2.",
-            err=True,
-        )
-        resolved = "yaml"
-    if resolved not in ("yaml", "json", "table"):
-        typer.echo(
-            f"Error: unknown --format {resolved!r}; expected 'table', 'yaml', 'json', or 'legacy'.",
-            err=True,
-        )
-        raise typer.Exit(2)
-    prev = _cli_options.get("format")
-    prev_source = _cli_options.get("format_source", "default")
-    if prev is not None and prev != resolved:
-        if prev_source == "explicit --format":
-            typer.echo(
-                f"Warning: subcommand --format={resolved} overrides "
-                f"global --format={prev}",
-                err=True,
-            )
-        elif prev_source == "explicit --json":
-            typer.echo(
-                f"Warning: subcommand --format={resolved} overrides global --json",
-                err=True,
-            )
-        elif prev_source == "MAP_CLI_FORMAT env":
-            typer.echo(
-                f"Warning: subcommand --format={resolved} overrides "
-                f"MAP_CLI_FORMAT={prev}",
-                err=True,
-            )
-    resolved, source, n2_warnings = _apply_n2_hard_cutover(
-        current_format=resolved,
-        current_source="explicit --format",
-        project_root=_cli_options.get("project_root"),
-    )
-    for warning in n2_warnings:
-        typer.echo(warning, err=True)
-    _cli_options["format"] = resolved
-    _cli_options["format_source"] = f"{source} (subcommand)"
 
 
 def _cli_version() -> str:
@@ -432,48 +262,6 @@ def cli_global_options(
     _cli_options["project_root"] = project_root
     _cli_options["format"] = resolved
     _cli_options["format_source"] = source
-
-_CLEAR_ACTION_TEMPLATES: dict[str, str] = {
-    # v0.13 M58: topic write paths are FS-only. The DB-era hints
-    # ("--reply-to" thread reply / "advance-round --ack accept") pointed at
-    # retired commands; both obligations are now cleared by writing the
-    # agent's own round speech file via ``map topic comment``.
-    "comment": "map topic comment --topic {topic_id} --file <your-round-speech.md>",
-    "ack": "map topic comment --topic {topic_id} --file <your-round-speech.md>  # speech file = your ack (v0.13 M58)",
-    "dismiss": "map mention dismiss --id {mention_id}",
-    "read": "Read latest comments on topic '{topic_title}'",
-}
-
-
-def render_clear_action_template(work_item: dict[str, Any]) -> str:
-    """Render a deterministic CLI hint for a topic work item's clear_action.
-
-    Returns the literal string for the ``clear_action`` value with the
-    placeholder fields replaced from the work item payload. The four
-    ``clear_action`` values are mapped to the matching ``map`` CLI
-    command; ``read`` is a free-form reading instruction (no CLI verb).
-
-    The output is purely mechanical — no LLM, no environment lookups —
-    so callers can diff the rendered strings in tests.
-    """
-    clear_action = work_item.get("clear_action")
-    template = _CLEAR_ACTION_TEMPLATES.get(clear_action or "")
-    if template is None:
-        return f"(unknown clear_action: {clear_action})"
-    if clear_action == "read":
-        topic_title = work_item.get("topic_title") or "(untitled)"
-        return template.format(topic_title=topic_title)
-    if clear_action == "dismiss":
-        mention_id = (
-            work_item.get("mention_id")
-            or work_item.get("idempotency_key")
-            or work_item.get("source_comment_id")
-            or ""
-        )
-        return template.format(mention_id=mention_id)
-    topic_id = work_item.get("topic_id") or ""
-    source_comment_id = work_item.get("source_comment_id") or ""
-    return template.format(topic_id=topic_id, source_comment_id=source_comment_id)
 
 
 def _warn_fs_plane_detached(config: Any, *, transport: Any = None) -> None:
@@ -799,133 +587,13 @@ def project_or_global_status(
 def map_dashboard() -> None:
     """One-glance markdown overview: identity, open topics, experiments, todos.
 
-    Aggregates multiple read-only API calls into a single human-friendly
-    markdown snapshot. Unlike ``status`` (which returns the server's
-    status_md narrative) or ``work`` (which returns structured YAML for
-    wakers), ``dashboard`` renders a compact, scannable view designed for
-    humans who want to see "what's going on" without running several
-    commands.
-
-    Data is fetched live on each invocation — no stale snapshots.
+    T33: rendering lives in ``cli.dashboard`` (lazy import keeps the CLI
+    startup path free of the renderer; no import cycle since that module
+    reads runtime state through this module object).
     """
-    from datetime import datetime
+    from cli.dashboard import render_dashboard
 
-    from map_types import ExperimentPhase, TopicStatus
-
-    try:
-        ctx = _client_ctx()
-        with ctx as client:
-            me = client.get_me()
-            project_id = _resolve_project(client, None, None)
-            open_topics = client.list_topics(project_id, status=TopicStatus.open)
-            experiments = client.list_experiments(project_id)
-            todos = client.get_todos()
-    except MAPHTTPError as exc:
-        _emit_maphttp_error(exc, experiment_id=None, output_format=_cli_options.get("format", "yaml"))
-        raise typer.Exit(1) from exc
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1) from exc
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    persona = _cli_options.get("persona") or "default"
-    lines: list[str] = []
-    lines.append(f"# MAP Dashboard — {me.name}")
-    lines.append(f"_Generated: {now} (persona: {persona})_")
-    lines.append("")
-
-    # --- Open Topics ---
-    lines.append(f"## Open Topics ({len(open_topics)})")
-    if open_topics:
-        lines.append("| # | Title | Round | Comments | Experiments | Creator | Created |")
-        lines.append("|---|-------|-------|----------|-------------|---------|---------|")
-        for i, t in enumerate(open_topics, 1):
-            title = (t.title or "").replace("|", "\\|")
-            if len(title) > 60:
-                title = title[:57] + "..."
-            creator = (t.creator_name or "-").replace("|", "\\|")
-            created = (t.created_at.strftime("%Y-%m-%d %H:%M") if t.created_at else "-")
-            round_label = t.discussion_round.value if hasattr(t.discussion_round, "value") else str(t.discussion_round)
-            lines.append(
-                f"| {i} | {title} | {round_label} | {t.comment_count} | "
-                f"{t.experiment_count} | {creator} | {created} |"
-            )
-    else:
-        lines.append("_(none)_")
-    lines.append("")
-
-    # --- Experiments by phase ---
-    active_phases = {
-        ExperimentPhase.draft,
-        ExperimentPhase.review,
-        ExperimentPhase.approved,
-        ExperimentPhase.running,
-        ExperimentPhase.result_review,
-    }
-    active_exps = [e for e in experiments if e.phase in active_phases]
-    done_exps = [e for e in experiments if e.phase == ExperimentPhase.done]
-    cancelled_exps = [e for e in experiments if e.phase == ExperimentPhase.cancelled]
-
-    lines.append(f"## Experiments ({len(active_exps)} active / {len(done_exps)} done / {len(cancelled_exps)} cancelled)")
-    if active_exps:
-        lines.append("| # | Title | Phase | Plan v | Topic | Updated |")
-        lines.append("|---|-------|-------|--------|-------|---------|")
-        for i, e in enumerate(active_exps, 1):
-            title = (e.title or "").replace("|", "\\|")
-            if len(title) > 50:
-                title = title[:47] + "..."
-            updated = (e.updated_at.strftime("%Y-%m-%d %H:%M") if e.updated_at else "-")
-            topic = str(e.topic_id)[:8] + "…" if e.topic_id else "-"
-            phase_label = e.phase.value if hasattr(e.phase, "value") else str(e.phase)
-            lines.append(
-                f"| {i} | {title} | {phase_label} | v{e.current_plan_version} | "
-                f"{topic} | {updated} |"
-            )
-    else:
-        lines.append("_(no active experiments)_")
-    lines.append("")
-
-    # --- Todos summary ---
-    todo_buckets = [
-        ("pending_reviews", "Pending Reviews", todos.pending_reviews),
-        ("pending_result_reviews", "Result Reviews", todos.pending_result_reviews),
-        ("pending_topic_replies", "Topic Replies", todos.pending_topic_replies),
-        ("pending_round_acks", "Round Acks", todos.pending_round_acks),
-        ("pending_advance_rounds", "Advance Rounds", todos.pending_advance_rounds),
-        ("stale_open_topics", "Stale Topics", todos.stale_open_topics),
-        ("mentions", "Mentions", todos.mentions),
-        ("action_items", "Action Items", todos.action_items),
-    ]
-    obligation_count = sum(len(items) for _, _, items in todo_buckets)
-    lines.append(f"## Todos ({obligation_count} obligation items)")
-    for _label, display, items in todo_buckets:
-        if items:
-            lines.append(f"- **{display}**: {len(items)}")
-    if obligation_count == 0:
-        lines.append("_(no pending obligations)_")
-    lines.append("")
-
-    # --- Contextual lists ---
-    if todos.my_open_topics:
-        lines.append(f"### My Open Topics ({len(todos.my_open_topics)})")
-        for t in todos.my_open_topics:
-            title = (t.title or "").replace("|", "\\|")
-            if len(title) > 60:
-                title = title[:57] + "..."
-            round_label = t.discussion_round.value if hasattr(t.discussion_round, "value") else str(t.discussion_round)
-            lines.append(f"- `{t.id}` — {title} ({round_label}, {t.comment_count} comments)")
-        lines.append("")
-    if todos.my_open_experiments:
-        lines.append(f"### My Open Experiments ({len(todos.my_open_experiments)})")
-        for e in todos.my_open_experiments:
-            title = (e.title or "").replace("|", "\\|")
-            if len(title) > 50:
-                title = title[:47] + "..."
-            phase_label = e.phase.value if hasattr(e.phase, "value") else str(e.phase)
-            lines.append(f"- `{e.id}` — {title} ({phase_label})")
-        lines.append("")
-
-    typer.echo("\n".join(lines))
+    render_dashboard()
 
 
 def _verify_runtime_imports() -> None:

@@ -238,8 +238,8 @@ def test_cli_review_list_default_include_archived_is_true():
     import inspect
 
     # 50cddb7e I3: review_list 从 cli.main 迁到 cli.commands.experiment；
-    # cli.main 不再 re-export，锚点更新到宿主模块。
-    from cli.commands.experiment import review_list
+    # T33: 随命令体再迁 cli.commands.experiment_review（锚点随源码走）。
+    from cli.commands.experiment_review import review_list
 
     src = inspect.getsource(review_list)
     # typer.Option may be formatted across multiple lines by ruff; match the
@@ -255,7 +255,7 @@ def test_cli_review_list_supports_plan_version_flag():
     """CLI 提供 --plan-version flag 并向下游透传。"""
     import inspect
 
-    from cli.commands.experiment import review_list
+    from cli.commands.experiment_review import review_list
 
     src = inspect.getsource(review_list)
     assert '"--plan-version"' in src

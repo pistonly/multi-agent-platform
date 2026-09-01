@@ -440,7 +440,9 @@ def ai_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _invoke(*args: str) -> Any:
-    from cli.commands.topic import action_item_app
+    # T33: action-item sub-app moved to its own module (registered under
+    # `map topic action-item` by cli.commands.topic).
+    from cli.commands.action_item import action_item_app
 
     return runner.invoke(action_item_app, list(args))
 

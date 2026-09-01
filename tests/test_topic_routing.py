@@ -25,7 +25,10 @@ from map_client.exceptions import MAPNotFoundError
 from map_fs import topic_id_for_slug, write_round_comment, write_topic_index
 from typer.testing import CliRunner
 
-from cli.commands.topic import (
+# T33: routing helpers moved to cli.topic_routing (tests pin them at the
+# source); the Typer apps stay in cli.commands.topic.
+from cli.commands.topic import topic_app
+from cli.topic_routing import (
     _filter_local_summaries,
     _fs_topic_to_detail,
     _looks_like_uuid,
@@ -33,7 +36,6 @@ from cli.commands.topic import (
     _resolve_topic_ref,
     _scan_local_fs_summaries,
     _slice_page,
-    topic_app,
 )
 
 runner = CliRunner()

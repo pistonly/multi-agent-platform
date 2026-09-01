@@ -24,13 +24,16 @@ from map_client.exceptions import MAPNotFoundError
 from typer.testing import CliRunner
 
 import cli.main as cli_main
-from cli.main import (
+
+# T33: n2 cutoff helpers moved to ``cli.subcommand_format`` (imported into
+# ``cli.main`` for the global callback; tests pin them at the source).
+from cli.main import app
+from cli.subcommand_format import (
     _N2_RELEASE_MAJOR,
     _apply_n2_hard_cutover,
     _is_n2_released,
     _parse_release_version,
     _project_cli_default_format,
-    app,
 )
 
 # ---- fixtures --------------------------------------------------------------
