@@ -205,8 +205,9 @@ simple-waker 是 FS 话题轮次推进后的主唤醒链路，但 waker 状态�
 
 - `agents` 表新增双时间戳：`last_api_seen_at`（任意 `GET /agents/me/work` 刷新）
   与 `last_waker_poll_at`（仅带 `--client waker` 特征标记的轮询刷新）。
-- simple-waker 每个 cycle 的 `map work` 子进程带 `--client waker`（
-  `cli/map_command_client.py`），CLI 透传 server；人工 `map work` 不带此参数。
+- simple-waker 每个 cycle 的 work 轮询带 `--client waker` 特征标记（T24 起默认走
+  in-process `cli/map_sdk_client.py`，回退子进程 `cli/map_command_client.py`），
+  两条路径均透传 server；人工 `map work` 不带此参数。
 - stale 判定只看 `last_waker_poll_at`：降级场景（invoke 补位期间被唤醒 agent
   频繁手动跑 `map work`）只刷新 `last_api_seen_at`，**不污染** waker 存活判定。
 - stale =「曾有心跳（`last_waker_poll_at` 非 null）AND 距今超过阈值

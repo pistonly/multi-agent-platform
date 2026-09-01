@@ -13,11 +13,18 @@ from cli.errors import WorkerError
 
 
 class MapCommandClient:
-    """Subprocess ``map`` client used by orchestrator / e2e.
+    """DEPRECATED (T24)：subprocess ``map`` 客户端。
 
-    T24: ``simple-waker`` defaults to :class:`cli.map_sdk_client.MapSdkClient`
-    (in-process ``MAPClient``). Keep this class until those callers migrate.
-    Rollback for waker: ``--subprocess-client`` or ``MAP_WAKER_SUBPROCESS=1``.
+    simple-waker 与 e2e driver 均已默认迁移
+    :class:`cli.map_sdk_client.MapSdkClient`（in-process ``MAPClient``）。
+    本类仅保留两个用途：
+
+    1. waker 回退路径：``map-simple-waker --subprocess-client`` 或
+       ``MAP_WAKER_SUBPROCESS=1``（SDK in-process 路径出问题时降级）。
+    2. 既有测试注入面（``_run`` monkeypatch）。
+
+    新代码不要再新增方法；写命令 dry-run 拦截注册表
+    （``_WRITE_COMMANDS_*``）继续维护——回退路径仍需正确拦截。
     """
     def __init__(
         self,

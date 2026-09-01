@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -184,3 +185,137 @@ def test_build_waker_client_subprocess_env(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("MAP_WAKER_SUBPROCESS", "1")
     client = build_waker_client(persona="host", project_root=None, map_cmd="map", dry_run=False)
     assert isinstance(client, MapCommandClient)
+
+
+# ---------------------------------------------------------------------------
+# T24 2/2：e2e driver 读查询迁 in-process SDK client
+# ---------------------------------------------------------------------------
+
+
+class _StubTopicRead:
+    def model_dump(self, mode: str = "json") -> dict:
+        return {"id": "11111111-1111-1111-1111-111111111111", "status": "open", "title": "demo"}
+
+
+class _StubExperimentSummary:
+    def model_dump(self, mode: str = "json") -> dict:
+        return {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "topic_id": "11111111-1111-1111-1111-111111111111",
+            "phase": "review",
+        }
+
+
+class _StubExperimentDetail:
+    def model_dump(self, mode: str = "json") -> dict:
+        return {"id": "22222222-2222-2222-2222-222222222222", "phase": "running"}
+
+
+class _E2EStubSdk:
+    def __init__(self) -> None:
+        self.topic_calls: list[uuid.UUID] = []
+        self.list_experiments_calls: list[uuid.UUID] = []
+
+    def get_topic(self, topic_id: uuid.UUID):
+        self.topic_calls.append(topic_id)
+        return _StubTopicRead()
+
+    def list_experiments(self, project_id: uuid.UUID, *, phase=None, **kwargs):
+        self.list_experiments_calls.append(project_id)
+        return [_StubExperimentSummary()]
+
+
+def _make_e2e_client() -> tuple[MapSdkClient, _E2EStubSdk]:
+    from map_client.project_config import ProjectMapConfig
+
+    stub = _E2EStubSdk()
+    client = MapSdkClient(persona="host", sdk=stub)
+    client._cfg = ProjectMapConfig(
+        map_dir=Path("/tmp/.map"),
+        api_url="http://localhost:18400",
+        project_key="demo",
+        project_id="99999999-9999-9999-9999-999999999999",
+        default_persona="host",
+        personas={},
+        tokens={},
+    )
+    return client, stub
+
+
+def test_topic_show_dumps_get_topic() -> None:
+    client, stub = _make_e2e_client()
+    data = client.topic_show("11111111-1111-1111-1111-111111111111")
+    assert stub.topic_calls == [uuid.UUID("11111111-1111-1111-1111-111111111111")]
+    assert data["status"] == "open"
+
+
+def test_experiment_list_falls_back_to_sdk_without_workspace(monkeypatch) -> None:
+    import cli.experiment_fs as experiment_fs
+
+    monkeypatch.setattr(experiment_fs, "should_scan_local_experiments", lambda *a, **k: False)
+    client, stub = _make_e2e_client()
+    rows = client.experiment_list()
+    assert stub.list_experiments_calls == [uuid.UUID("99999999-9999-9999-9999-999999999999")]
+    assert rows[0]["phase"] == "review"
+
+
+def test_experiment_list_merges_local_workspace(monkeypatch) -> None:
+    import cli.commands.experiment as commands_experiment
+    import cli.experiment_fs as experiment_fs
+
+    monkeypatch.setattr(experiment_fs, "should_scan_local_experiments", lambda *a, **k: True)
+    monkeypatch.setattr(experiment_fs, "workspace_root", lambda: Path("/tmp/ws"))
+    monkeypatch.setattr(experiment_fs, "iter_indexed_experiments", lambda workspace: [])
+    monkeypatch.setattr(
+        experiment_fs,
+        "merge_experiment_summaries",
+        lambda fs_items, api_items, pid, workspace: api_items,
+    )
+    monkeypatch.setattr(
+        experiment_fs, "filter_experiment_summaries", lambda items, **kw: list(items)
+    )
+    monkeypatch.setattr(
+        commands_experiment,
+        "_list_api_experiments_all",
+        lambda client, pid, **kw: [_StubExperimentSummary()],
+    )
+
+    client, stub = _make_e2e_client()
+    rows = client.experiment_list(phase="review")
+    # workspace 合并路径下不再走裸 SDK list_experiments
+    assert stub.list_experiments_calls == []
+    assert rows[0]["topic_id"] == "11111111-1111-1111-1111-111111111111"
+
+
+def test_experiment_status_reuses_load_experiment(monkeypatch) -> None:
+    import cli.commands.experiment as commands_experiment
+
+    seen: dict = {}
+
+    def fake_load(client, raw):
+        seen["client"] = client
+        seen["raw"] = raw
+        return _StubExperimentDetail()
+
+    monkeypatch.setattr(commands_experiment, "_load_experiment", fake_load)
+    client, stub = _make_e2e_client()
+    data = client.experiment_status("22222222-2222-2222-2222-222222222222")
+    assert seen["client"] is stub
+    assert seen["raw"] == "22222222-2222-2222-2222-222222222222"
+    assert data["phase"] == "running"
+
+
+def test_e2e_driver_uses_sdk_client(tmp_path: Path) -> None:
+    from cli.e2e_collab import E2EDriver, Scenario
+
+    scenario = Scenario(
+        subject="s",
+        topic_title="t",
+        project_root=tmp_path,
+        run_dir=tmp_path / "run",
+        plan_file=tmp_path / "plan.md",
+        log_file=tmp_path / "log.md",
+    )
+    driver = E2EDriver(scenario=scenario, clients={})
+    assert isinstance(driver.map_host, MapSdkClient)
+    driver.map_host.close()

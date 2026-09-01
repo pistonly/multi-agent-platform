@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 logger = logging.getLogger("map.experiment_lock")
 
@@ -378,96 +378,8 @@ def new_lock_id() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Helper: server-side backend adapter for ``MapCommandClient``
-# ---------------------------------------------------------------------------
-
-
-class MapClientLockBackend:
-    """Adapter that turns a ``MapCommandClient`` into a ``LockBackend``.
-
-    The adapter reads lock state from ``experiments.status`` and writes through
-    the ``force-release-lock`` and ``update-lock`` subcommands. It never raises
-    — failed writes are logged and treated as no-ops so the host worker can
-    continue.
-    """
-
-    def __init__(self, client: Any, *, dry_run: bool = False) -> None:
-        self.client = client
-        self.dry_run = dry_run
-
-    def _project_running_experiment(self, project_id: str) -> dict[str, Any] | None:
-        try:
-            experiments = self.client.todos().get("my_open_experiments") or []
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("lock backend todos() failed: %s", exc)
-            return None
-        for summary in experiments:
-            if str(summary.get("project_id") or "") != str(project_id):
-                continue
-            try:
-                detail = self.client.experiment_status(str(summary.get("id")))
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("lock backend status() failed: %s", exc)
-                continue
-            if detail.get("phase") == "running":
-                return detail
-        return None
-
-    def get_lock_state(self, project_id: str) -> LockState:
-        if self.dry_run:
-            return LockState(project_id=project_id)
-        detail = self._project_running_experiment(project_id)
-        if not detail:
-            return LockState(project_id=project_id)
-        return LockState(
-            project_id=project_id,
-            lock_holder_experiment_id=str(detail.get("lock_holder_experiment_id") or detail.get("id")),
-            lock_acquired_at=detail.get("lock_acquired_at"),
-            lock_ttl_seconds=int(detail.get("lock_ttl_seconds") or DEFAULT_LOCK_TTL_SECONDS),
-        )
-
-    def write_lock(self, project_id: str, experiment_id: str, *, ttl: int) -> LockState:
-        if self.dry_run:
-            return LockState(
-                project_id=project_id,
-                lock_holder_experiment_id=experiment_id,
-                lock_acquired_at=datetime.now(timezone.utc).isoformat(),
-                lock_ttl_seconds=ttl,
-            )
-        try:
-            self.client.experiment_acquire_lock(experiment_id, ttl_seconds=ttl)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("lock backend acquire failed: %s", exc)
-        return self.get_lock_state(project_id)
-
-    def clear_lock(self, project_id: str, *, experiment_id: str | None = None) -> bool:
-        if self.dry_run:
-            return True
-        state = self.get_lock_state(project_id)
-        holder = experiment_id or state.lock_holder_experiment_id
-        if not holder:
-            return False
-        try:
-            self.client.experiment_release_lock(holder)
-            return True
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("lock backend release failed: %s", exc)
-            return False
-
-    def bump_skip_count(self, project_id: str, experiment_id: str, *, next_attempt_at: str) -> LockState:
-        if self.dry_run:
-            state = self.get_lock_state(project_id)
-            state.lock_skip_count += 1
-            state.next_attempt_at = next_attempt_at
-            return state
-        try:
-            self.client.experiment_record_skip(experiment_id, next_attempt_at=next_attempt_at)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("lock backend bump_skip_count failed: %s", exc)
-        return self.get_lock_state(project_id)
-
-
 # Re-exports
+# ---------------------------------------------------------------------------
 __all__ = [
     "DEFAULT_LOCK_TIMEOUT_SECONDS",
     "DEFAULT_LOCK_TTL_SECONDS",
@@ -487,7 +399,6 @@ __all__ = [
     "LOG_STUCK",
     "LOG_TIMEOUT",
     "LOG_TTL_MISCONFIG",
-    "MapClientLockBackend",
     "SKIP_BACKOFF_BASE_SECONDS",
     "SKIP_BACKOFF_CAP_SECONDS",
     "SKIP_STUCK_THRESHOLD",

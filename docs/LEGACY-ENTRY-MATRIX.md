@@ -77,6 +77,7 @@ console scripts 层当前 3 个入口（`map` / `map-server` / `map-mcp`）全�
 | JSON 字段别名 `advance_round_pending_since` | `cli/runner.py` `_DEPRECATED_ALIAS_RENAMES` | `stale_since` |
 | JSON 字段别名 `partition_visibility` | `cli/runner.py` `_DEPRECATED_ALIAS_RENAMES` | `visibility` |
 | API `?page_size=` 查询参数 | `server/api/experiments.py` 列表端点（已带 `Deprecation`/`Sunset: v0.12` 响应头） | `?limit=` |
+| Python 类 `MapCommandClient`（subprocess 客户端） | `cli/map_command_client.py`（T24 标记 deprecated；simple-waker 与 e2e 已迁 `MapSdkClient`） | `cli.map_sdk_client.MapSdkClient`（保留用途：waker `--subprocess-client` 回退 + 测试注入面） |
 
 ## 迁移指引
 

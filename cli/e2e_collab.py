@@ -6,8 +6,8 @@ the per-persona Agent runtime (``PersonaAgentClient`` with
 tells the agent what to do; the agent reads the relevant Skill under
 ``.cursor/skills/`` and uses ``map --persona <name>`` CLI to act. The
 orchestrator never mutates MAP state directly — it only reads MAP (via
-``MapCommandClient``) between steps to discover ``topic_id`` / ``experiment_id``
-and to branch when a decision step picks the "no" path.
+in-process ``MapSdkClient``, T24) between steps to discover ``topic_id`` /
+``experiment_id`` and to branch when a decision step picks the "no" path.
 
 This is a demo / E2E entry, NOT a replacement for ``simple-waker``. The waker
 remains the default production path (reactive, polled, multi-topic); this
@@ -33,7 +33,7 @@ import typer
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
 from cli.errors import WorkerError
-from cli.map_command_client import MapCommandClient
+from cli.map_sdk_client import MapSdkClient
 from cli.runtime_chat import (
     default_runtime_home,
     default_state_file,
@@ -132,7 +132,7 @@ class E2EDriver:
     ) -> None:
         self.scenario = scenario
         self.clients = clients
-        self.map_host = MapCommandClient(persona="host", project_root=scenario.project_root)
+        self.map_host = MapSdkClient(persona="host", project_root=scenario.project_root)
         self.steps: list[StepResult] = []
 
     # ---- single step execution ----
@@ -529,6 +529,7 @@ async def _run_e2e_async(scenario: Scenario, ignore_waker: bool) -> None:
     try:
         await driver.run_scenario()
     finally:
+        driver.map_host.close()
         for client in clients.values():
             await client.disconnect()
 

@@ -1,4 +1,4 @@
-"""In-process MAP client with the waker-facing MapCommandClient surface (T24).
+"""In-process MAP client with the waker/e2e-facing MapCommandClient surface (T24).
 
 ``simple-waker`` used to pay a full ``map`` subprocess (Typer + pydantic cold
 start) on every ``work`` / ``whoami`` / mark-* call. This adapter talks to
@@ -6,7 +6,12 @@ start) on every ``work`` / ``whoami`` / mark-* call. This adapter talks to
 waker's existing dict parsing stays unchanged, and maps SDK errors to
 ``WorkerError``.
 
-``MapCommandClient`` remains for orchestrator / e2e until those migrate.
+The e2e driver (:mod:`cli.e2e_collab`) migrated here in T24 2/2 — its
+read-only state queries (``topic_show`` / ``experiment_list`` /
+``experiment_status``) reuse the same FS merge helpers as the CLI commands,
+so local ``map/`` folders stay the display authority without a subprocess.
+``MapCommandClient`` is deprecated and remains only as the waker's
+``--subprocess-client`` rollback path.
 Rollback: ``map-simple-waker --subprocess-client`` or ``MAP_WAKER_SUBPROCESS=1``.
 """
 
@@ -131,6 +136,53 @@ class MapSdkClient:
                 break
             page += 1
         return all_rows
+
+    # --- e2e driver read queries (T24 2/2) ------------------------------------
+
+    def topic_show(self, topic_id: str) -> dict[str, Any]:
+        """GET ``/topics/{id}`` — server 端已合并 FS uuid5 与 DB 话题。"""
+        return _dump(self._call(lambda: self._client().get_topic(uuid.UUID(str(topic_id)))))
+
+    def experiment_list(self, *, phase: str | None = None) -> list[dict[str, Any]]:
+        """与 CLI ``experiment list`` 同源的合并视图（本地 map/experiments 显示权威）。
+
+        lazy import 复用 ``cli.commands.experiment`` / ``cli.experiment_fs``
+        的合并编排，waker 热路径不拖入 commands 模块。
+        """
+        from map_types.enums import ExperimentPhase
+
+        from cli.commands.experiment import _list_api_experiments_all
+        from cli.experiment_fs import (
+            filter_experiment_summaries,
+            iter_indexed_experiments,
+            merge_experiment_summaries,
+            should_scan_local_experiments,
+            workspace_root,
+        )
+
+        pid = self._project_id()
+        phase_filter = ExperimentPhase(phase) if phase else None
+        if should_scan_local_experiments(None, None, pid):
+            workspace = workspace_root()
+            if workspace is not None:
+                api_items = self._call(
+                    lambda: _list_api_experiments_all(self._client(), pid)
+                )
+                merged = merge_experiment_summaries(
+                    iter_indexed_experiments(workspace), api_items, pid, workspace
+                )
+                rows = filter_experiment_summaries(merged, phase=phase_filter)
+                return [_dump(row) for row in rows]
+        rows = self._call(
+            lambda: self._client().list_experiments(pid, phase=phase_filter)
+        )
+        return [_dump(row) for row in rows]
+
+    def experiment_status(self, experiment_id: str) -> dict[str, Any]:
+        """与 CLI ``experiment status`` 同源：DB GET + FS overlay，404 时从 index.md 合成。"""
+        from cli.commands.experiment import _load_experiment
+
+        return _dump(self._call(lambda: _load_experiment(self._client(), experiment_id)))
 
     def experiment_scan_stalled_locks(self) -> dict[str, Any] | None:
         if self.dry_run:

@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 7/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）与 T40/T41/T42/T43（2026-09-01 下午批，T43 验证：ruff 全绿 + fast gate 1940 passed 49s + 受影响 slow 测试 167 passed）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 7/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）与 T40/T41/T42/T43（2026-09-01 下午批）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -120,11 +120,10 @@
   落地：新建 `cli/runner.py`（`_run` 执行链、client ctx、JSON error envelope、序列化、`_resolve_project` / creator / executor / `_require_*` / `_load_topic_resolve_payload`）与 `cli/io_helpers.py`（`_read_text_file` / `_read_yaml_file`，原定义在 experiment.py 又被 main re-export 回去）。commands / audit_target / persona_compare / fs_projection 的 40+ 处函数内 lazy import 改顶层导入；main.py 1591 → 970 行（size-cap 守卫 1600 内），保留 re-export 兼容层与 `_cli_options` / `_transport` 状态。
   关键设计：`_run` / `_resolve_project` 经 `runner._xxx` 模块属性调用（而非 from-import 固化绑定），runner 内部对 `_client_ctx` / `resolve_client` / `admin_client` / `find_map_dir` / `load_project_map_config` 运行时经 `cli.main` 解析——保住测试的全部 monkeypatch 注入面（`cli.main._transport` / `cli.main._client_ctx` / `cli.main.resolve_client` / `cli.runner._run` 等）；4 个测试的 patch 目标同步迁移（shortid / json_schema / m55 / notification_bulk_filter / fs_projection_cli）。剩余函数内 lazy import 仅 `_cli_options` / `_transport` / `_cli_version` / `_project_cli_default_format` 运行时状态（monkeypatch 面，按设计保留）。验证：全量 1580 passed；slow 门控的 test_cli.py 8 个失败经 HEAD 基线对比确认为既存（SOCKS 代理环境 + ReviewCreate 等，非本次引入）。
 
-- [ ] **T24 waker 迁移到 SDK，收敛双客户端层**（预估：大，T03 的中期项）⏳ 2026-08-26 落地 1/2
-  落地 1/2：`simple-waker` 默认走 `cli/map_sdk_client.py`（in-process `MAPClient`，`work`/`whoami`/lock scan/inbound-event/mark-wake|stale 不再起 `map` 子进程）；`--subprocess-client` 与 `MAP_WAKER_SUBPROCESS=1` 回退。`MapCommandClient` 仍服务 orchestrator/e2e。测试 `tests/test_optimization_t24.py`。
-  位置：`sdk/python/map_client/client.py`（1212 行，in-process）与 `cli/map_command_client.py`（525 行，subprocess）方法集几乎一一对应。
-  问题：两套平行 API 层；waker/orchestrator/e2e 走 subprocess 层导致 T03 的进程税。
-  改法：simple_waker/orchestrator/e2e 逐步迁 `MAPClient`，`MapCommandClient` 标记 deprecated；`--dry-run` 写拦截语义在 SDK 层用 dry_run 回调实现。
+- [x] **T24 waker 迁移到 SDK，收敛双客户端层**（预估：大，T03 的中期项）✅ 2026-09-01（分两批）
+  落地 1/2（2026-08-26）：`simple-waker` 默认走 `cli/map_sdk_client.py`（in-process `MAPClient`，`work`/`whoami`/lock scan/inbound-event/mark-wake|stale 不再起 `map` 子进程）；`--subprocess-client` 与 `MAP_WAKER_SUBPROCESS=1` 回退。
+  落地 2/2（2026-09-01）：①`MapSdkClient` 补 e2e 面 3 个读方法——`topic_show`（server 端已合并 FS uuid5 与 DB）、`experiment_list`（lazy import 复用 `cli.experiment_fs` 合并编排，本地 map/experiments 显示权威不变）、`experiment_status`（复用 `_load_experiment`：DB GET + FS overlay + 404 index.md 合成）；②`cli/e2e_collab.py` 整体迁 `MapSdkClient`，run 收尾补 `map_host.close()`；③`MapCommandClient` 标记 deprecated（docstring + LEGACY-ENTRY-MATRIX v1.0 移除时间表登记，保留用途：waker `--subprocess-client` 回退 + 测试注入面）；④顺手删 `run_lock.MapClientLockBackend`（host bridge 退役后零引用的死适配器，且耦合 deprecated 类）。`--dry-run` 写拦截按 1/2 已落地的 per-method bool 拦截（waker 面方法全覆盖；e2e 纯只读无需拦截）。测试 `tests/test_optimization_t24.py` 扩至 16 例。
+  说明：任务原文「orchestrator 走 subprocess 层」已过时——orchestrator（`cli/orchestrator.py`）只用 `PersonaAgentClient` 唤醒 Agent，从不直接读 MAP；e2e 才是最后一个 subprocess 消费方。
 
 - [x] **T25 inbound_event_record 去重 _run 逻辑**（预估：小）✅ 2026-08-26
   落地：`MapCommandClient._run` 增加 ``map_exit``（把特定非零退出码映射成返回值）；`inbound_event_record` 用 `{0: True, 2: False}` 表达 409→CLI exit 2 的去重语义，timeout/错误拼装与 dry-run 登记复用 `_run`，删除约 40 行复制品。测试 `tests/test_optimization_t25.py`。
