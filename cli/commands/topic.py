@@ -23,14 +23,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
-import yaml
 from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.commands.action_item import action_item_app  # noqa: E402
 from cli.io_helpers import _read_text_file  # noqa: E402
 from cli.runner import (  # noqa: E402
-    _client_ctx,
     _load_topic_resolve_payload,
     _resolve_creator_agent_id,
 )
@@ -43,13 +41,11 @@ from cli.topic_routing import (  # noqa: E402
     _filter_local_summaries,
     _fs_projection_noop,
     _fs_slug_by_uuid,
-    _fs_topic_to_detail,
     _fs_transition_rejected,
     _fs_workspace_and_root,
     _list_api_topics_all,
     _looks_like_uuid,
     _merge_topic_summaries,
-    _optional_workspace,
     _resolve_topic_ref,
     _scan_local_fs_summaries,
     _should_scan_local_fs,
@@ -244,125 +240,6 @@ def topic_list(
         return _slice_page(merged, page, page_size)
 
     runner._run(action, table_renderer=_render_topic_table)
-
-
-@topic_app.command("show")
-def topic_show(
-    topic_id: str = typer.Option(
-        ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
-    ),
-    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
-    full: bool = typer.Option(False, "--full", help="Print full comment bodies for local folder topics."),
-) -> None:
-    if storage != "db":
-        workspace = _optional_workspace()
-        if workspace is not None:
-            from map_fs import parse_topic_dir
-
-            from cli.commands.fs import _content_root_name, fs_show
-
-            root = _content_root_name(workspace)
-            slug = topic_id
-            if _looks_like_uuid(topic_id):
-                found = _fs_slug_by_uuid(topic_id)
-                if found:
-                    slug = found
-            parsed = parse_topic_dir(workspace / root / "topics" / slug, workspace)
-            archived = (workspace / root / "archive" / "topics" / slug).is_dir()
-            if parsed is not None or archived:
-                fs_show(topic=slug, full=full)
-                return
-
-    def action(c: MAPClient):
-        kind, target = _resolve_topic_ref(c, topic_id, storage)
-        if kind == "fs":
-            from map_fs import parse_topic_dir
-
-            from cli.commands.fs import _content_root_name
-
-            workspace = _optional_workspace()
-            if workspace is not None:
-                parsed = parse_topic_dir(
-                    workspace / _content_root_name(workspace) / "topics" / target, workspace
-                )
-                if parsed is not None:
-                    return _fs_topic_to_detail(parsed)
-            return c.get_fs_topic(runner._resolve_project(c, None, None), target)
-        return c.get_topic(target)
-
-    runner._run(action)
-
-
-@topic_app.command("history")
-def topic_history(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
-    kind: str | None = typer.Option(
-        None,
-        "--kind",
-        help="Optional AuditLog.action filter applied after merge.",
-    ),
-    limit: int = typer.Option(
-        50,
-        "--limit",
-        min=1,
-        max=200,
-        help="Max merged rows after sorting (≤200).",
-    ),
-) -> None:
-    """Topic-dimension audit timeline (ops-visibility-batch C2).
-
-    ``GET /audit?target_type=topic`` plus audit events of experiments whose
-    ``topic_id`` matches, sorted by time descending. Host and participant
-    share the same GET /audit permission check — no new ACL.
-    """
-    from map_client.exceptions import MAPHTTPError, MAPPermissionError
-    from map_fs import topic_id_for_slug
-
-    from cli.audit_target import (
-        ResolvedTarget,
-        emit_audit_timeline,
-        fetch_topic_history,
-        resolve_audit_target,
-    )
-
-    try:
-        with _client_ctx() as client:
-            # Prefer slug/uuid via shared resolver; if it lands on an
-            # experiment (same string), still force topic semantics via
-            # _resolve_topic_ref so `topic history --id <exp-slug>` 报错清晰.
-            kind_ref, target = _resolve_topic_ref(client, topic_id, None)
-            if kind_ref == "fs":
-                resolved = ResolvedTarget(
-                    "topic", topic_id_for_slug(str(target)), str(target)
-                )
-            else:
-                resolved = resolve_audit_target(client, str(target))
-                if resolved.target_type != "topic":
-                    typer.echo(
-                        f"Error: '{topic_id}' resolved to an experiment; "
-                        "topic history needs a topic slug/uuid "
-                        "(use `map audit list --target` for experiments)",
-                        err=True,
-                    )
-                    raise typer.Exit(2)
-            items = fetch_topic_history(
-                client, resolved, limit=limit, kind=kind
-            )
-    except MAPPermissionError as exc:
-        typer.echo(f"Error {exc.status_code}: {exc.detail}", err=True)
-        raise typer.Exit(1) from exc
-    except MAPHTTPError as exc:
-        suffix = ""
-        if exc.error_code:
-            suffix += f" [error_code={exc.error_code}]"
-        if exc.hint:
-            suffix += f"\nHint: {exc.hint}"
-        typer.echo(f"Error {exc.status_code}: {exc.detail}{suffix}", err=True)
-        raise typer.Exit(1) from exc
-    emit_audit_timeline(
-        items,
-        empty_message=f"No audit events for topic '{resolved.label}'.",
-    )
 
 
 @topic_app.command("progress")
@@ -863,239 +740,6 @@ def topic_archive(
     fs_archive(topic=topic, undo=undo or unarchive)
 
 
-def _plan_db_to_fs_migration(topic: Any, workspace: Path) -> dict[str, Any]:
-    """DB TopicRead → FS 写入计划（纯函数，便于测试）。
-
-    轮次启发式：round summary 评论界定轮次（summary 归属其所在轮），
-    其后的评论进入下一轮；index 轮号不低于 topic.discussion_round。
-    同人同轮的多条 DB 评论合并进一个 round<N>-<persona>.md（--- 分隔）。
-    """
-
-    def persona_of(agent_name: str | None) -> str:
-        if not agent_name:
-            return "host"
-        cfg = workspace / ".map" / "agents.yaml"
-        if cfg.is_file():
-            try:
-                data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
-            except yaml.YAMLError:
-                data = {}
-            personas = data.get("personas") if isinstance(data, dict) else None
-            if isinstance(personas, dict):
-                for key, meta in personas.items():
-                    if isinstance(meta, dict) and meta.get("agent_name") == agent_name:
-                        return str(key)
-        return agent_name
-
-    def flatten(nodes: Any, out: list[Any]) -> list[Any]:
-        for n in nodes or []:
-            out.append(n)
-            flatten(getattr(n, "children", None), out)
-        return out
-
-    groups: dict[tuple[int, str], dict[str, Any]] = {}
-    order: list[tuple[int, str]] = []
-
-    def bucket(rn: int, persona: str) -> dict[str, Any]:
-        key = (rn, persona)
-        g = groups.get(key)
-        if g is None:
-            g = groups[key] = {"bodies": [], "summary": False, "all_system": True}
-            order.append(key)
-        return g
-
-    round_number = 1
-    seen: set[str] = set()
-    for cm in sorted(flatten(topic.comments, []), key=lambda x: (x.created_at, x.comment_seq)):
-        persona = persona_of(cm.author_name)
-        seen.add(persona)
-        g = bucket(round_number, persona)
-        body = (cm.body or cm.excerpt or "").strip()
-        if cm.file_path:
-            body = f"*content: {cm.file_path}*\n\n{body}" if body else f"*content: {cm.file_path}*"
-        if body:
-            g["bodies"].append(body)
-        if cm.is_round_summary:
-            g["summary"] = True
-            round_number += 1
-        if str(enum_value(cm.kind)) != "system":
-            g["all_system"] = False
-
-    decision = getattr(topic, "decision", None)
-    if decision is not None:
-        try:
-            dump = yaml.safe_dump(decision.model_dump(mode="json"), allow_unicode=True, sort_keys=False)
-        except Exception:
-            dump = str(decision)
-        bucket(round_number, persona_of(getattr(topic, "creator_name", None)))["bodies"].append(
-            f"## Decision\n\n```yaml\n{dump}```"
-        )
-
-    files: list[tuple[int, str, str, str, bool]] = []
-    max_round = 0
-    for rn, persona in order:
-        g = groups[(rn, persona)]
-        files.append(
-            (
-                rn,
-                persona,
-                "\n\n---\n\n".join(g["bodies"]) or "*(no content)*",
-                "system" if g["all_system"] else "user",
-                g["summary"],
-            )
-        )
-        max_round = max(max_round, rn)
-    dr = str(enum_value(topic.discussion_round))
-    if dr.startswith("round") and dr[5:].isdigit():
-        max_round = max(max_round, int(dr[5:]))
-    creator_persona = persona_of(getattr(topic, "creator_name", None))
-    return {
-        "index": {
-            "title": topic.title,
-            "creator": creator_persona,
-            "description": topic.description or "",
-            "status": "closed" if str(enum_value(topic.status)) == "closed" else "open",
-            "round_": max_round or 1,
-            "participants": sorted(seen | {creator_persona}),
-        },
-        "files": files,
-    }
-
-
-@topic_app.command("migrate")
-def topic_migrate(
-    topic_id: uuid.UUID = typer.Option(..., "--id", help="DB topic UUID to migrate."),
-    slug: str = typer.Option(..., "--slug", help="Target folder name: map/topics/<slug>/"),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="List planned writes without touching files or the DB."
-    ),
-) -> None:
-    """Migrate a DB topic to the map/ folder source of truth (one-way, M51).
-
-    FS 完整落盘（index.md + 全部 round 文件）成功后才 archive DB 记录
-    （列表默认隐藏，show 仍可见）；中途失败不产生半迁移。
-    """
-
-    runner._run(lambda c: _execute_db_to_fs_migration(c, topic_id, slug, dry_run=dry_run))
-
-
-def _execute_db_to_fs_migration(
-    c: MAPClient, topic_id: uuid.UUID, slug: str, *, dry_run: bool = False
-) -> Any:
-    from map_fs import write_round_comment, write_topic_index
-    from map_types.schemas import TopicUpdate
-
-    workspace, root = _fs_workspace_and_root()
-    target_dir = workspace / root / "topics" / slug
-    if target_dir.exists():
-        typer.echo(f"Error: target already exists: {target_dir} (pick another --slug)", err=True)
-        raise typer.Exit(1)
-
-    topic = c.get_topic(topic_id)
-    plan = _plan_db_to_fs_migration(topic, workspace)
-    if dry_run:
-        idx = plan["index"]
-        typer.echo(
-            f"[dry-run] write {target_dir / 'index.md'} "
-            f"(status={idx['status']}, round={idx['round_']}, participants={','.join(idx['participants'])})"
-        )
-        for rn, persona, _body, _kind, summary in plan["files"]:
-            suffix = " (round summary)" if summary else ""
-            typer.echo(f"[dry-run] write {target_dir / f'round{rn}-{persona}.md'}{suffix}")
-        typer.echo(f"[dry-run] archive DB topic {topic_id} (archived=true)")
-        return None
-    index_path = write_topic_index(workspace, slug, content_root=root, **plan["index"])
-    typer.echo(f"Wrote {index_path}")
-    for rn, persona, body, kind, summary in plan["files"]:
-        path = write_round_comment(
-            workspace,
-            slug,
-            round_number=rn,
-            persona=persona,
-            body=body,
-            kind=kind,
-            is_round_summary=summary,
-            content_root=root,
-        )
-        typer.echo(f"Wrote {path}")
-    updated = c.update_topic(topic_id, TopicUpdate(archived=True))
-    typer.echo(f"Archived DB topic {topic_id} (hidden from list; show still works)")
-    return updated
-
-
-# ---------------------------------------------------------------------------
-# mention_app
-# ---------------------------------------------------------------------------
-
-
-@mention_app.command("dismiss")
-def mention_dismiss(
-    mention_id: uuid.UUID = typer.Option(..., "--id", help="Mention UUID from `map todos`."),
-) -> None:
-    """Dismiss one @mention for the current persona (removes it from `map todos`).
-
-    Idempotent: dismissing an already-dismissed mention returns the same result.
-    """
-
-    runner._run(lambda c: c.dismiss_mention(mention_id))
-
-
-@mention_app.command("list")
-def mention_list() -> None:
-    """List open @mentions for the current persona."""
-
-    runner._run(lambda c: c.get_todos().mentions)
-
-
-@mention_app.command("dismiss-all")
-def mention_dismiss_all() -> None:
-    """Dismiss all open @mentions for the current persona."""
-
-    runner._run(lambda c: c.dismiss_all_mentions())
-
-
-@mention_app.command("reconcile-stale")
-def mention_reconcile_stale() -> None:
-    """Admin stub: offline stale mention reconciliation (T1 D5 MVP — not implemented)."""
-    typer.echo(
-        "mention reconcile-stale: stub only — stale mentions are filtered in "
-        "topic-progress/todos projection; use write-path dismiss on comment."
-    )
-
-
-# ---------------------------------------------------------------------------
-# todo_app — explicit_only partition clear router
-# ---------------------------------------------------------------------------
-
-
-@todo_app.command("clear")
-def todo_clear(
-    key: str = typer.Option(..., "--key", help="Work-item idempotency_key or partition id"),
-) -> None:
-    """Route explicit_only todo partitions to the canonical clear CLI (T1 D7)."""
-
-    if key.startswith("notification:"):
-        notification_id = uuid.UUID(key.split(":", 1)[1])
-        runner._run(lambda c: c.mark_notification_read(notification_id))
-        return
-    if key.startswith("action_item:"):
-        item_id = uuid.UUID(key.split(":", 1)[1])
-        runner._run(lambda c: c.complete_action_item(item_id))
-        return
-    if key.startswith("my_open_topics:") or key.startswith("topic:"):
-        topic_id = uuid.UUID(key.rsplit(":", 1)[-1])
-        runner._run(lambda c: c.dismiss_topic(topic_id))
-        return
-    if key.startswith("unread_change:"):
-        topic_id = uuid.UUID(key.split(":", 2)[1])
-        runner._run(lambda c: c.mark_topic_read(topic_id))
-        return
-    raise typer.BadParameter(
-        f"unsupported todo clear key {key!r}; explicit_only: notification, action_item, "
-        "my_open_topics, unread_change"
-    )
-
-
 @topic_app.command("init")
 def topic_init() -> None:
     """创建内容根目录结构：map/topics 与 map/experiments。"""
@@ -1126,23 +770,13 @@ def topic_work(
     fs_work(persona=persona)
 
 
-@topic_app.command("archive-index")
-def topic_archive_index(
-    rebuild: bool = typer.Option(
-        False, "--rebuild", help="全量重建（生成式投影，唯一模式）"
-    ),
-) -> None:
-    """重建 map/archive/INDEX.md。"""
-    from cli.commands.fs import fs_archive_index
+# ---------------------------------------------------------------------------
+# T45: read-view（show/history）与 migrate 域（migrate/archive-index/
+# migrate-from-docs）命令块拆至 topic_view / topic_migrate；``mention`` /
+# ``todo`` 子 app 拆至 mention.py / todo.py（cli.main 直接挂载）。本模块
+# 保留 topic_app 主体与共享 helpers。底部挂载使两种 import 顺序均可解析。
+from cli.commands.topic_migrate import register as _register_migrate  # noqa: E402
+from cli.commands.topic_view import register as _register_view  # noqa: E402
 
-    fs_archive_index(rebuild=rebuild)
-
-
-@topic_app.command("migrate-from-docs")
-def topic_migrate_from_docs(
-    dry_run: bool = typer.Option(False, "--dry-run"),
-) -> None:
-    """存量迁移：docs/{topics,experiments,map-history} → map/ 下的事实源布局。"""
-    from cli.commands.fs import fs_migrate_from_docs
-
-    fs_migrate_from_docs(dry_run=dry_run)
+_register_view(topic_app)
+_register_migrate(topic_app)

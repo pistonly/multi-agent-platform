@@ -234,6 +234,8 @@ EXPECTED_SUBAPP_FILES = [
     "doctor.py",
     "experiment.py",
     "experiment_review.py",  # T33: review/plan sub-apps extracted from experiment.py
+    "experiment_lifecycle.py",  # T45: lifecycle commands extracted from experiment.py
+    "experiment_inspect.py",  # T45: log/logs/status/show extracted from experiment.py
     "feedback.py",
     "fs.py",
     "host.py",
@@ -244,7 +246,11 @@ EXPECTED_SUBAPP_FILES = [
     "server.py",
     "skill.py",
     "sync.py",
+    "mention.py",  # T45: mention sub-app extracted from topic.py
+    "todo.py",  # T45: todo sub-app extracted from topic.py
     "topic.py",
+    "topic_migrate.py",  # T45: migrate domain extracted from topic.py
+    "topic_view.py",  # T45: show/history extracted from topic.py
     "version.py",
     "verify_audit.py",
     "waker_status.py",

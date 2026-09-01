@@ -22,7 +22,7 @@ import yaml
 from map_fs import scan_plane
 from typer.testing import CliRunner
 
-from cli.commands.topic import _execute_db_to_fs_migration, _plan_db_to_fs_migration
+from cli.commands.topic_migrate import _execute_db_to_fs_migration, _plan_db_to_fs_migration
 
 runner = CliRunner()
 

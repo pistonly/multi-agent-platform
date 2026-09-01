@@ -43,6 +43,7 @@ from cli.commands.doctor import doctor_app
 from cli.commands.experiment import experiment_app
 from cli.commands.feedback import feedback_app
 from cli.commands.host import host_app
+from cli.commands.mention import mention_app  # T45: split from topic.py
 from cli.commands.notification import inbound_event_app, notification_app
 from cli.commands.persona import persona_app
 from cli.commands.project import project_app
@@ -50,7 +51,8 @@ from cli.commands.runtime import runtime_app
 from cli.commands.server import server_app
 from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
-from cli.commands.topic import mention_app, todo_app, topic_app
+from cli.commands.todo import todo_app  # T45: split from topic.py
+from cli.commands.topic import topic_app
 from cli.commands.verify_audit import verify_audit_app
 from cli.commands.version import version_app
 from cli.commands.waker_status import waker_app

@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from cli.bridge_state import load_bridge_state, save_bridge_state
+
 simple_waker = importlib.import_module("cli.simple_waker")
 MapCommandClient = importlib.import_module("cli.map_command_client").MapCommandClient
 SimpleWaker = simple_waker.SimpleWaker
@@ -1076,7 +1078,7 @@ def test_touch_busy_writes_state_and_patches_server(tmp_path: Path) -> None:
     now = datetime(2026, 8, 31, 11, 0, 0, tzinfo=timezone.utc)
     waker._touch_busy(simple_waker.SimpleWakerStats(), now=now)
 
-    state = simple_waker.load_bridge_state(
+    state = load_bridge_state(
         config.state_file,
         bridge_name="simple-waker",
         default_collections=("personas",),
@@ -1103,7 +1105,7 @@ def test_clear_busy_purges_state_and_server(tmp_path: Path) -> None:
     assert client.heartbeat_calls == [now]
     waker._clear_busy(stats)
     assert client.heartbeat_calls == [now, None]
-    state = simple_waker.load_bridge_state(
+    state = load_bridge_state(
         config.state_file,
         bridge_name="simple-waker",
         default_collections=("personas",),
@@ -1133,8 +1135,8 @@ def test_clear_busy_cross_pid_preserves_state(tmp_path: Path) -> None:
             }
         },
     }
-    simple_waker.save_bridge_state(config.state_file, state)
-    waker.state = simple_waker.load_bridge_state(
+    save_bridge_state(config.state_file, state)
+    waker.state = load_bridge_state(
         config.state_file,
         bridge_name="simple-waker",
         default_collections=("personas",),
@@ -1142,7 +1144,7 @@ def test_clear_busy_cross_pid_preserves_state(tmp_path: Path) -> None:
 
     waker._clear_busy(simple_waker.SimpleWakerStats())
     # 跨 PID 不应清 state
-    state_after = simple_waker.load_bridge_state(
+    state_after = load_bridge_state(
         config.state_file,
         bridge_name="simple-waker",
         default_collections=("personas",),
@@ -1171,10 +1173,10 @@ def test_check_busy_crash_recovery_clears_dead_pid(tmp_path: Path) -> None:
             }
         },
     }
-    simple_waker.save_bridge_state(config.state_file, state)
+    save_bridge_state(config.state_file, state)
 
     SimpleWaker(client=client, config=config, backend=MagicMock())
-    state_after = simple_waker.load_bridge_state(
+    state_after = load_bridge_state(
         config.state_file,
         bridge_name="simple-waker",
         default_collections=("personas",),

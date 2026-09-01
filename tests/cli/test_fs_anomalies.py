@@ -32,10 +32,11 @@ def ws(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         encoding="utf-8",
     )
     import cli.commands.fs as fs_cli
-    import cli.commands.topic as topic_cli
+    import cli.commands.topic_view as topic_view_cli
 
     monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
-    monkeypatch.setattr(topic_cli, "_optional_workspace", lambda: tmp_path)
+    # T45: `topic show` 移入 topic_view，_optional_workspace 的 patch 面随迁
+    monkeypatch.setattr(topic_view_cli, "_optional_workspace", lambda: tmp_path)
     return tmp_path
 
 

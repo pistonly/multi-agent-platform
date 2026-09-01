@@ -592,7 +592,7 @@ def test_authorization_item_id_from_different_review_rejected(
 
 
 def test_cli_load_review_verdict_file_happy_path(tmp_path: Path):
-    from cli.commands.experiment import _load_review_verdict_file
+    from cli.commands.experiment_lifecycle import _load_review_verdict_file
 
     review_id = str(uuid.uuid4())
     item_id = str(uuid.uuid4())
@@ -612,7 +612,7 @@ def test_cli_load_review_verdict_file_happy_path(tmp_path: Path):
 
 
 def test_cli_load_review_verdict_file_returns_none_when_omitted():
-    from cli.commands.experiment import _load_review_verdict_file
+    from cli.commands.experiment_lifecycle import _load_review_verdict_file
 
     assert _load_review_verdict_file(None) is None
 
