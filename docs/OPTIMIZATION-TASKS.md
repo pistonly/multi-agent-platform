@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 9/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）、T40/T41/T42/T43（2026-09-01 下午批）与 T33/T36（2026-09-01）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 10/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）、T40/T41/T42/T43（2026-09-01 下午批）与 T33/T36/T37（2026-09-01）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -178,8 +178,8 @@
 - [x] **T36 前端依赖升级**（预估：中）✅ 2026-09-01
   落地：vite 5→8（rolldown 构建）+ @vitejs/plugin-react 4→6；vitest 2→4 + coverage-v8 4（v8 provider 默认改 AST-aware remapping，函数/分支口径更严，coverage thresholds 30/30/30/55 按新口径一次性校准 30/30/25/35）；tailwind 3→4 CSS-first——theme 移入 `index.css` `@theme`、`@tailwindcss/vite` 插件替代 postcss+autoprefixer 链（删 tailwind.config.js / postcss.config.js），`.btn` 改 `@utility` 注册适配 v4 `@apply` 仅引用 utility 的限制；grep 核查无裸 `border` / `ring-*` / `shadow-sm` / `outline-none` 等改名或默认值变化类，零视觉回归。react-router-dom 6→7.18.3 修复 2 个既有 moderate（CVE-2025-68470 open redirect + SSR hydration 注入），npm audit 归零；删 `@types/diff`（diff ^9 自带类型）；CI/nightly node 20（2026-04 EOL 且低于 vite 8 下限 22.12）→24。验证：vitest 150 passed + coverage 达标 + tsc/vite build 通过。
 
-- [ ] **T37 web 大文件拆分**（预估：中）
-  `web/src/pages/TopicPage.tsx`（646 行）拆子区块；`web/src/api/client.ts`（593 行）按资源域拆模块。
+- [x] **T37 web 大文件拆分**（预估：中）✅ 2026-09-01
+  落地（**缩小范围**：按行数拆分否决，只拆有内部复杂度/边界天然清晰的部分）：`pages/TopicPage.tsx` 646→225 行——结构化 decision 面板（`TopicDecisionPanel` 含私有 `DecisionSubsection`）与递归评论树（`TopicCommentNodes` 含私有 `TopicCommentContent`）原样搬入新目录 `pages/topic/` 两组件文件，宿主组件零改动；`api/client.ts` 593→478 行——notifications 端点 + SSE 重连状态机（Last-Event-ID 回放 + 指数退避 jitter + 401/403 fatal）整体移入新模块 `api/notifications.ts`（client.ts 中唯一有状态的块；其余 ~60 个平铺 CRUD 函数一个端点一个函数零耦合，按资源域全拆纯属搬代码，保留不动）。调用方 `useNotificationStream.ts`/`NotificationsPage.tsx` import 改指新模块；SSE 测试块（5 例，只 stub 全局 fetch 无 axios 依赖）随代码移入 `notifications.test.ts`，测试总数不变。验证：vitest 150 passed + tsc/vite build 通过 + coverage 阈值达标。
 
 - [x] **T38 一次性产物归档**（预估：小）✅ 2026-09-01
   落地：`scripts/migrate_action_items_closed_topics.py`、`reports/` 3 个 e2e 报告、6 个退役 bridge runner（`claude-*-runner.py` / `cursor-*-runner.py`）移入 `scripts/archive/`（报告在 `scripts/archive/reports/`），grep 确认无代码引用（conftest 注释与 `docs/MAP-AGENT-RUNTIME-UNIFIED.md` 的路径引用同步）；`map/` 存量归档：HEAD 时 `map/topics/` 剩余 12 个 closed 话题（waker-status/cost-ledger 系列、pending-review-routing-deadlock 等）全部移入 `map/archive/topics/`（35→47），`map/archive/INDEX.md` 重建；`map fs verify-audit` 归档后 clean（0 drift）。后续新增 closed 话题按 `docs/PROJECT-ARCHIVE-PLAN.md` 定期归档。

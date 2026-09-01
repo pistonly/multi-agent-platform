@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { streamNotifications } from "../api/client";
+// T37: SSE stream lives in its own module (extracted from client.ts).
+import { streamNotifications } from "../api/notifications";
 
 export function useNotificationStream(token: string | null, enabled: boolean) {
   const queryClient = useQueryClient();

@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+// T37: notification endpoints live in their own module (extracted from client.ts).
 import {
   fetchNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-} from "../api/client";
+} from "../api/notifications";
 import type { Notification } from "../api/types";
 import { withCommentAnchor } from "../utils/commentAnchor";
 
