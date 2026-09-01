@@ -36,6 +36,7 @@ class TestBundledSkills:
             "topic-host",
             "topic-participant",
             "experiment-host",
+            "experiment-executor",
             "experiment-reviewer",
         }
         assert expected.issubset(names), f"Missing skills: {expected - names}"

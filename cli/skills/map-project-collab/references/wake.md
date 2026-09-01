@@ -13,7 +13,7 @@
 
 话题命令统一入口 `map topic`：`--id` 接受 DB uuid、FS uuid5 id 或 slug（uuid → DB 优先、404 后本地反查 FS；slug → FS 优先、未命中查 DB slug；同名冲突时 `--storage fs|db` 显式指定）。无需先判别话题类型。
 
-<!-- BEGIN:kind-dispatch (generated: map work --kinds --kinds-format md) -->
+<!-- BEGIN:kind-dispatch (generated: map work --kinds --kinds-format md)  -->
 | kind | 清理动作 | 下一步 Skill | 说明 | required_role | obligation_whitelist_exempt |
 |------|----------|--------------|------|---------------|----------------------------|
 | `mentions` | map mention dismiss --id <uuid> | map-project-collab | mention 功能保留；实验评论仍产生，话题域来源已随 DB 写路径退役枯竭 | all | False |
@@ -25,6 +25,7 @@
 | `pending_result_reviews` | accept-result / reject-result | experiment-reviewer |  | reviewer | True |
 | `pending_replies` | 回复 | experiment-reviewer |  | reviewer | True |
 | `my_open_experiments` | 实验 phase 推进（complete 等） | experiment-host |  | host | False |
+| `executor_assignments` | 被委派 participant 通过 lock acquire → 改仓库 → 写 experiment log → complete → release 推进 | experiment-executor | running 实验且 executor_agent_id == me.id；查询排除 creator_agent_id == executor_agent_id 的自执行（避免与 my_open_experiments 重复）。仅 participant 角色；host 已委派即 对其 informational_only。 | participant | False |
 | `stale_open_topics` | 复盘推进；FS 话题（仅 creator/host 可见）久未推进→ map topic close --id <slug> --note 落结论即清理（dismiss 对 FS 是 no-op）；存量 DB 话题纯等待他人则 map topic dismiss --id <uuid> | topic-host |  | host | False |
 | `my_open_topics` | 推进话题或 map topic dismiss --id <uuid>（与 UI ✕ 相同） | topic-host | 且无动作时 | host | False |
 | `action_items` | 完成: map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytest/路径>"；放弃: map topic action-item cancel --topic <slug> --id <n> --reason "..."。清零后话题才可 close（closed = 零尾款） | topic-host | FS 话题，kind 同构于 stale nudge，来源 action-items.yaml；participant 亦可为 owner | host | False |
@@ -51,7 +52,7 @@
 | persona | 必读 |
 |---------|------|
 | host | [topic-host](../../topic-host/SKILL.md) + [experiment-host](../../experiment-host/SKILL.md) |
-| participant | [topic-participant](../../topic-participant/SKILL.md) |
+| participant | [topic-participant](../../topic-participant/SKILL.md) + [experiment-executor](../../experiment-executor/SKILL.md)（host 委派的 direct 实验） |
 | reviewer | [experiment-reviewer](../../experiment-reviewer/SKILL.md) |
 
 ## 写入红线（runtime 中立）

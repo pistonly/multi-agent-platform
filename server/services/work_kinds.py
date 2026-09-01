@@ -129,6 +129,22 @@ WORK_ITEM_KINDS: tuple[WorkItemKindSpec, ...] = (
         obligation_whitelist_exempt=False,
     ),
     WorkItemKindSpec(
+        kind="executor_assignments",
+        clear_action=(
+            "被委派 participant 通过 lock acquire → 改仓库 → 写 experiment log "
+            "→ complete → release 推进"
+        ),
+        skill="experiment-executor",
+        note=(
+            "running 实验且 executor_agent_id == me.id；查询排除 "
+            "creator_agent_id == executor_agent_id 的自执行（避免与 "
+            "my_open_experiments 重复）。仅 participant 角色；host 已委派即 "
+            "对其 informational_only。"
+        ),
+        required_role="participant",
+        obligation_whitelist_exempt=False,
+    ),
+    WorkItemKindSpec(
         kind="stale_open_topics",
         clear_action=(
             "复盘推进；FS 话题（仅 creator/host 可见）久未推进→ "

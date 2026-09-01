@@ -23,12 +23,35 @@ map --persona host work                             # 统一快照：whoami + to
 # 短发言：内联 body
 map --persona host topic comment --topic <slug> --body "回复内容"
 
-# 长发言 / Round Summary：本地 MD 文件（推荐）
-# 路径约定：map/topics/<slug>/round<N>-host.md（同轮覆盖需 --force，遵守 immutable 约定）
+# 长发言 / Round Summary（推荐：单文件 round<N>-<persona>.md 同文件承载
+# 正文 + Summary 同发，避免产生两份 round 文件）
+# 路径约定：map/topics/<slug>/round<N>-<persona>.md（默认 immutable；同文件
+# 追加需 --force，遵守 immutable 约定）
 map --persona host topic comment --topic <slug> --file map/topics/<slug>/round1-host.md
 
-# 发布 Round Summary（显式标记，平台据此可靠识别）
-map --persona host topic comment --topic <slug> --file map/topics/<slug>/round1-summary-host.md --round-summary
+# 发布 Round Summary（同文件重发，必须同时给 --force + --round-summary）：
+#   --force           允许同文件追加（不写新文件）。round1-host.md 已存在时
+#                    缺它会因 immutable 约束 422 失败；第一次写也建议带，
+#                    避免新建与追加路径分叉。
+#   --round-summary   标记 Summary 性质，触发 ack 流。缺它走普通评论路径，
+#                    并污染轮次 ack 状态机（host advance-round 时认为本轮
+#                    未发 Summary）。
+# 这两个 flag 是 Round Summary 同文件重发的最小必需集。
+#
+# 可选项（CLI 真实语义，非必需，按需加）：
+#   --no-sync         **跳过本地写入后的远端 projection sync**。仅在以下
+#                    场景使用：
+#                      - 隔离 / 离线工作（远端 MAP server 暂时不可达）
+#                      - 远端 projection cache 故障或回滚中
+#                    默认不加——普通在线协作本地写完即 sync 是预期行为。
+# 例（默认 / 在线协作）：
+map --persona host topic comment --topic <slug> \
+  --force --round-summary \
+  --file map/topics/<slug>/round1-host.md
+# 例（隔离 / 离线 / 远端不可用时再加 --no-sync）：
+map --persona host topic comment --topic <slug> \
+  --force --round-summary --no-sync \
+  --file map/topics/<slug>/round1-host.md
 ```
 
 @ 必须用 `map persona list` 的 **agent_name 全名**（如 `@multi-agent-platform-participant`）；FS 评论 @ 提及只起视觉提示作用（唤醒依赖 `topic advance-round` 事件与待办投影，见 2c）。

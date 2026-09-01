@@ -87,8 +87,19 @@ def _get(db: Session, experiment_id: uuid.UUID) -> Experiment:
 
 
 def _ensure_can_modify_lock(actor: Agent, experiment: Experiment) -> None:
-    if experiment.creator_agent_id != actor.id and actor.role.value != "admin":
-        raise ForbiddenError("Only the creator or admin can manage the experiment lock")
+    if actor.role.value == "admin":
+        return
+    if experiment.creator_agent_id == actor.id:
+        return
+    # plan-mode-direct-execution-productization I1: the designated executor
+    # (or the legacy creator-as-executor fallback) must also be able to
+    # acquire/release the soft lock so direct-mode participants can
+    # actually run the experiment. Without this the executor is structurally
+    # forbidden from taking the lock that prevents concurrent edits.
+    executor_id = experiment.executor_agent_id or experiment.creator_agent_id
+    if executor_id == actor.id:
+        return
+    raise ForbiddenError("Only the creator, executor, or admin can manage the experiment lock")
 
 
 def _find_project_holder(db: Session, project_id: uuid.UUID, *, exclude_id: uuid.UUID | None = None) -> Experiment | None:

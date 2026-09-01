@@ -543,6 +543,7 @@ def make_wakeup_prompt(persona: str, todos: dict[str, Any]) -> str:
     pending_topic_replies = todos.get("pending_topic_replies") or []
     pending_reviews = todos.get("pending_reviews") or []
     my_open_experiments = todos.get("my_open_experiments") or []
+    executor_assignments = todos.get("executor_assignments") or []
     my_open_topics = todos.get("my_open_topics") or []
     mentions = todos.get("mentions") or []
 
@@ -554,6 +555,11 @@ def make_wakeup_prompt(persona: str, todos: dict[str, Any]) -> str:
         lines.append(f"- {len(pending_reviews)} pending review(s)")
     if my_open_experiments:
         lines.append(f"- {len(my_open_experiments)} open experiment(s)")
+    if executor_assignments:
+        lines.append(
+            f"- {len(executor_assignments)} executor assignment(s) "
+            "(see experiment-executor Skill)"
+        )
     if my_open_topics:
         lines.append(f"- {len(my_open_topics)} open topic(s)")
     if mentions:
@@ -564,6 +570,7 @@ def make_wakeup_prompt(persona: str, todos: dict[str, Any]) -> str:
             pending_topic_replies,
             pending_reviews,
             my_open_experiments,
+            executor_assignments,
             my_open_topics,
             mentions,
         ]

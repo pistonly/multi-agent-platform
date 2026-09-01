@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from server.domain.models import Agent, AgentRole, Experiment, ExperimentPhase, Project
 from server.services import lock_service
 from server.services.auth import create_agent
-from server.services.errors import ConflictError
+from server.services.errors import ConflictError, ForbiddenError
 
 
 def _project(db_session) -> Project:
@@ -51,6 +51,85 @@ def _running_experiment(db_session, project: Project, host: Agent, title: str) -
     db_session.add(exp)
     db_session.flush()
     return exp
+
+
+# ---------------------------------------------------------------------------
+# plan-mode-direct-execution-productization I1: executor permission gate
+# ---------------------------------------------------------------------------
+
+
+def test_executor_can_acquire_lock(db_session):
+    """Migration 042: the designated executor (set via start --executor)
+    must be allowed to acquire the soft lock — not just the creator."""
+    project = _project(db_session)
+    host = _host(db_session, project)
+    executor, _ = create_agent(db_session, "executor-svc", AgentRole.agent, project_id=project.id)
+    exp = _running_experiment(db_session, project, host, "delegated")
+    exp.executor_agent_id = executor.id
+    db_session.flush()
+
+    result = lock_service.acquire_experiment_lock(db_session, exp.id, executor)
+    assert result.holder == exp.id
+
+
+def test_executor_can_release_lock(db_session):
+    """The executor must also be able to release their own lock."""
+    project = _project(db_session)
+    host = _host(db_session, project)
+    executor, _ = create_agent(db_session, "executor-svc", AgentRole.agent, project_id=project.id)
+    exp = _running_experiment(db_session, project, host, "delegated-release")
+    exp.executor_agent_id = executor.id
+    db_session.flush()
+
+    lock_service.acquire_experiment_lock(db_session, exp.id, executor)
+    released = lock_service.release_experiment_lock(db_session, exp.id, executor)
+    assert released.holder is None
+
+
+def test_third_party_cannot_acquire_lock_after_delegation(db_session):
+    """A random project member (not creator, not executor, not admin) is
+    still forbidden from acquiring the lock even when delegation has
+    happened. The new executor branch must NOT lower the bar for everyone."""
+    project = _project(db_session)
+    host = _host(db_session, project)
+    executor, _ = create_agent(db_session, "executor-svc", AgentRole.agent, project_id=project.id)
+    intruder, _ = create_agent(db_session, "intruder-svc", AgentRole.agent, project_id=project.id)
+    exp = _running_experiment(db_session, project, host, "delegated-intruder")
+    exp.executor_agent_id = executor.id
+    db_session.flush()
+
+    with pytest.raises(ForbiddenError):
+        lock_service.acquire_experiment_lock(db_session, exp.id, intruder)
+
+
+def test_force_release_still_strict_for_creator_admin(db_session):
+    """force_release gate stays strict (creator/admin only); the executor
+    permission widening only applies to acquire / release / skip, never
+    to force-release."""
+    project = _project(db_session)
+    host = _host(db_session, project)
+    executor, _ = create_agent(db_session, "executor-svc", AgentRole.agent, project_id=project.id)
+    exp = _running_experiment(db_session, project, host, "force-strict")
+    exp.executor_agent_id = executor.id
+    db_session.flush()
+
+    with pytest.raises(ForbiddenError):
+        lock_service.force_release_experiment_lock(
+            db_session, exp.id, executor, reason="should be denied"
+        )
+
+
+def test_legacy_creator_executor_fallback_still_admits_creator(db_session):
+    """Legacy experiments with ``executor_agent_id IS NULL`` keep the
+    pre-I1 behaviour: creator (== executor by fallback) can still acquire."""
+    project = _project(db_session)
+    host = _host(db_session, project)
+    exp = _running_experiment(db_session, project, host, "legacy")
+    # executor_agent_id is NULL (pre-042); the fallback branch must admit host.
+    assert exp.executor_agent_id is None
+
+    result = lock_service.acquire_experiment_lock(db_session, exp.id, host)
+    assert result.holder == exp.id
 
 
 def test_acquire_then_release_roundtrip(db_session):

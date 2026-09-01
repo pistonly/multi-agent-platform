@@ -652,6 +652,9 @@ def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: 
     return client.resolve_project_id(project, project_key=key)
 
 
+_PERSONA_SHORT_NAMES: frozenset[str] = frozenset({"host", "participant", "reviewer"})
+
+
 def _resolve_agent_ref(
     client: MAPClient,
     project_id: uuid.UUID,
@@ -660,17 +663,38 @@ def _resolve_agent_ref(
     flag: str,
     label: str,
 ) -> uuid.UUID:
-    """Resolve ``--creator`` / ``--executor`` (name or UUID) via one lookup path (T26).
+    """Resolve ``--creator`` / ``--executor`` (UUID, agent_name, or persona short name).
 
-    - Valid UUID → pass through (skip ``/agents`` lookup).
-    - Name → ``list_agents(project_id)`` exact match, ignoring admin rows.
-      0 hits → error + list available names; >1 hits → error (ambiguous).
+    Resolution order (T26 + plan-mode-direct-execution-productization A):
+
+    1. Valid UUID → pass through (skip ``/agents`` lookup).
+    2. Persona short name (``host`` / ``participant`` / ``reviewer``) →
+       resolve via ``map_types.persona.pick_agent_by_persona`` against
+       ``list_agents(project_id)``, preferring ``{project_key}-{persona}``
+       over the trailing-suffix fallback. ``project_key`` comes from
+       ``client.get_me().project_key`` so the resolution works in remote
+       and isolated projects (no FS read).
+    3. Literal agent_name → ``list_agents(project_id)`` exact match,
+       ignoring admin rows. 0 hits → error + list available names;
+       >1 hits → error (ambiguous).
     """
     try:
         return uuid.UUID(value)
     except ValueError:
         pass
     agents = client.list_agents(project_id=project_id)
+    project_key: str | None = None
+    if value in _PERSONA_SHORT_NAMES:
+        from map_types.persona import pick_agent_by_persona
+
+        try:
+            me = client.get_me()
+            project_key = getattr(me, "project_key", None)
+        except Exception:  # pragma: no cover - get_me is part of the runtime
+            project_key = None
+        resolved = pick_agent_by_persona(agents, value, project_key=project_key)
+        if resolved is not None:
+            return resolved.id
     matches = [
         a
         for a in agents

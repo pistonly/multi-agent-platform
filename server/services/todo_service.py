@@ -366,6 +366,33 @@ def get_todos(
         )
     )
 
+    # plan-mode-direct-execution-productization I1: running experiments
+    # where the current agent is the designated executor. Restricted to
+    # ``running`` because that is the only phase the executor has any
+    # authority over (acquire/release/complete); for other active phases
+    # the executor is correctly invisible to the todo surface.
+    #
+    # I2 carve-out: the case ``executor_agent_id == creator_agent_id ==
+    # agent.id`` (host self-executes without delegating) is filtered out
+    # so the experiment shows up exactly once in ``my_open_experiments``
+    # rather than duplicated in both partitions. Cross-persona delegation
+    # (host delegates to a different participant) keeps the partition
+    # semantics: the executor sees it in ``executor_assignments``; the
+    # host/creator still sees it in ``my_open_experiments``.
+    executor_assignments_rows = list(
+        db.scalars(
+            select(Experiment)
+            .where(
+                Experiment.executor_agent_id == agent.id,
+                Experiment.creator_agent_id != agent.id,
+                Experiment.deleted_at.is_(None),
+                Experiment.archived_at.is_(None),
+                Experiment.phase == ExperimentPhase.running,
+            )
+            .order_by(Experiment.updated_at.desc())
+        )
+    )
+
     # Reuse bundle.open_topics (already loaded for work items) instead of a
     # second SELECT; keep dismiss-suppression semantics for my_open_topics.
     open_topics = [
@@ -429,9 +456,9 @@ def get_todos(
     # so a 5-experiment get_todos call used to spend ~15 wasted SELECTs.
     all_experiment_ids: list[uuid.UUID] = [
         e.id for e in my_open_experiments_rows
-    ] + [e.id for e in pending_reviews_eligible] + [
-        e.id for e in pending_result_reviews_rows
-    ]
+    ] + [e.id for e in executor_assignments_rows] + [
+        e.id for e in pending_reviews_eligible
+    ] + [e.id for e in pending_result_reviews_rows]
     batch_log_counts = log_counts_by_experiment(db, all_experiment_ids)
     batch_latest_logs = latest_log_by_experiment(db, all_experiment_ids)
     batch_open_unreasonable = open_unreasonable_count_by_experiment(
@@ -449,6 +476,11 @@ def get_todos(
     my_open_experiments = [
         _experiment_summary_with_open_unreasonable(db, e, agent, **_bulk_kwargs(e))
         for e in my_open_experiments_rows
+    ]
+
+    executor_assignments = [
+        _experiment_summary_with_open_unreasonable(db, e, agent, **_bulk_kwargs(e))
+        for e in executor_assignments_rows
     ]
 
     # Carve-out: when every unreasonable item from prior plan-version reviews
@@ -620,6 +652,7 @@ def get_todos(
 
     return TodoRead(
         my_open_experiments=my_open_experiments,
+        executor_assignments=executor_assignments,
         pending_reviews=pending_reviews,
         pending_result_reviews=pending_result_reviews,
         experiment_review_informational=experiment_review_informational,

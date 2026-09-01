@@ -180,11 +180,34 @@ def _run_lifecycle(
         after = result if hasattr(result, "phase") else c.get_experiment(rid)
         actual = enum_value(getattr(after, "phase", planned))
         snapshot = after if hasattr(after, "plan_file_path") else before
+        # plan-mode-direct-execution-productization: always derive the
+        # executor persona label from the resolved agent, even when the
+        # caller passed a full ``agent_name`` to ``--executor``. Without
+        # this the FS ``index.md`` records ``executor: host`` (the caller)
+        # for delegated runs and the readback cannot tell who is executing.
         persona = executor_persona
         if persona is None and hasattr(after, "executor_agent_id"):
+            executor_id = after.executor_agent_id
             me = c.get_me()
-            if after.executor_agent_id in (None, after.creator_agent_id, me.id):
+            if executor_id is None or executor_id == after.creator_agent_id or executor_id == me.id:
                 persona = getattr(me, "persona", None) or "host"
+            else:
+                from map_types.persona import persona_from_agent_name
+
+                project_id = getattr(after, "project_id", None) or getattr(
+                    before, "project_id", None
+                )
+                if project_id is not None:
+                    try:
+                        agents = c.list_agents(project_id=project_id)
+                    except Exception:  # pragma: no cover - list_agents is runtime
+                        agents = []
+                    for agent in agents:
+                        if getattr(agent, "id", None) == executor_id:
+                            label = persona_from_agent_name(getattr(agent, "name", None))
+                            if label is not None:
+                                persona = label
+                            break
         try:
             writeback_after_transition(
                 snapshot,

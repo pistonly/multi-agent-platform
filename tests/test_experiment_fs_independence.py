@@ -98,6 +98,60 @@ def test_overlay_prefers_index_phase_and_keeps_db_id(tmp_path: Path) -> None:
     assert overlaid.title == "From FS"
 
 
+# ---------------------------------------------------------------------------
+# plan-mode-direct-execution-productization Blocker B: overlay must
+# resolve ``phase_owner`` through the resolver so direct-mode running
+# surfaces ``participant`` instead of the static-table ``host``.
+# ---------------------------------------------------------------------------
+
+
+def test_overlay_direct_running_owner_is_participant(tmp_path: Path) -> None:
+    """Direct mode + phase=running in index.md → phase_owner must be
+    ``participant`` (the executor), not ``host``."""
+    from map_types.enums import ExperimentMode, PhaseOwner
+
+    db_id = uuid.uuid4()
+    _write_index(
+        tmp_path,
+        "direct-running",
+        phase="running",
+        title="Direct running",
+        projection_id=db_id,
+    )
+    db = _summary(
+        id=db_id,
+        title="Direct running",
+        phase=ExperimentPhase.running,
+        plan_file_path="map/experiments/direct-running/plan.md",
+        mode=ExperimentMode.direct,
+    )
+    overlaid = overlay_fs_authority(db, tmp_path)
+    assert overlaid.phase_owner == PhaseOwner.participant
+
+
+def test_overlay_standard_running_owner_is_host(tmp_path: Path) -> None:
+    """Standard mode + phase=running → phase_owner stays ``host``."""
+    from map_types.enums import ExperimentMode, PhaseOwner
+
+    db_id = uuid.uuid4()
+    _write_index(
+        tmp_path,
+        "std-running",
+        phase="running",
+        title="Standard running",
+        projection_id=db_id,
+    )
+    db = _summary(
+        id=db_id,
+        title="Standard running",
+        phase=ExperimentPhase.running,
+        plan_file_path="map/experiments/std-running/plan.md",
+        mode=ExperimentMode.standard,
+    )
+    overlaid = overlay_fs_authority(db, tmp_path)
+    assert overlaid.phase_owner == PhaseOwner.host
+
+
 def test_merge_includes_fs_only_once(tmp_path: Path) -> None:
     db_id = uuid.uuid4()
     _write_index(tmp_path, "db-matched", phase="done", projection_id=db_id)

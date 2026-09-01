@@ -38,6 +38,24 @@ _FALLBACK_PROJECT_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-project")
 
 _SummaryT = TypeVar("_SummaryT", bound=ExperimentSummaryRead)
 
+
+def _resolve_mode(raw: Any) -> ExperimentMode:
+    """Best-effort ``ExperimentMode`` coercion for FS readback / overlay.
+
+    The FS ``index.md`` frontmatter currently does not store ``mode`` (it
+    lives in DB only), so callers without a real ``mode`` value get
+    ``standard`` as the safe default. When ``mode`` is later added to the
+    FS schema, callers should still tolerate raw strings here.
+    """
+    if isinstance(raw, ExperimentMode):
+        return raw
+    value = getattr(raw, "value", raw)
+    try:
+        return ExperimentMode(str(value))
+    except ValueError:
+        return ExperimentMode.standard
+
+
 _PHASE_OWNER = {
     ExperimentPhase.draft: PhaseOwner.host,
     ExperimentPhase.review: PhaseOwner.reviewer,
@@ -48,6 +66,20 @@ _PHASE_OWNER = {
     ExperimentPhase.done: PhaseOwner.host,
     ExperimentPhase.cancelled: PhaseOwner.host,
 }
+
+
+def _phase_owner_for(phase: ExperimentPhase, mode: ExperimentMode | str) -> PhaseOwner:
+    """Phase owner lookup that honours ``ExperimentMode.direct``.
+
+    CLI 是轻依赖面，不 import server 模块。本地表只覆盖两个 mode × phase
+    交叉点；其它 (phase, mode) 组合走与 server 静态表一致的 ``_PHASE_OWNER``。
+    任何新增 direct-mode 差异都必须同步 server
+    ``server.services.phase_owner_resolver.owner_for``，避免漂移。
+    """
+    mode_value = mode.value if isinstance(mode, ExperimentMode) else str(mode)
+    if mode_value == ExperimentMode.direct.value and phase == ExperimentPhase.running:
+        return PhaseOwner.participant
+    return _PHASE_OWNER.get(phase, PhaseOwner.host)
 
 _CONTENT_ROOT = "map"
 
@@ -240,12 +272,13 @@ def overlay_fs_authority(experiment: _SummaryT, workspace: Path | None = None) -
     if fs is None or not has_experiment_index(root, fs):
         return experiment
     phase = _coerce_phase(fs.phase)
+    overlay_mode = _resolve_mode(getattr(experiment, "mode", ExperimentMode.standard))
     updates: dict[str, Any] = {
         "phase": phase,
         "current_plan_version": int(fs.current_plan_version or 1),
         "title": fs.title or experiment.title,
         "source": _fs_source_meta(fs),
-        "phase_owner": _PHASE_OWNER.get(phase, PhaseOwner.host),
+        "phase_owner": _phase_owner_for(phase, overlay_mode),
     }
     if fs.description:
         updates["description"] = fs.description
@@ -276,6 +309,10 @@ def fs_experiment_to_summary(
     phase = _coerce_phase(fs.phase)
     exp_id = fs.projection_id or fs.id or experiment_id_for_slug(fs.slug)
     fs_only = fs.projection_id is None
+    # FS-only synthesis has no DB-derived mode; standard is the safe
+    # default and matches the historical contract. Direct-mode FS-only
+    # records will be re-overlaid by the API path on top of this.
+    fs_mode = ExperimentMode.standard
     return ExperimentSummaryRead(
         id=exp_id,
         project_id=project_id,
@@ -284,7 +321,7 @@ def fs_experiment_to_summary(
         title=fs.title,
         description=fs.description or None,
         phase=phase,
-        mode=ExperimentMode.standard,
+        mode=fs_mode,
         current_plan_version=int(fs.current_plan_version or 1),
         topic_id=_topic_id_from_fs(fs),
         warnings=["fs_only_no_db_projection"] if fs_only else [],
@@ -295,7 +332,7 @@ def fs_experiment_to_summary(
         source=_fs_source_meta(fs),
         actions=[],
         blocked_on="no_db_projection" if fs_only else None,
-        phase_owner=_PHASE_OWNER.get(phase, PhaseOwner.host),
+        phase_owner=_phase_owner_for(phase, fs_mode),
         informational_only=fs_only,
     )
 

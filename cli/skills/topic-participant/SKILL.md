@@ -9,8 +9,12 @@ description: >-
   for: hosting topics or advancing rounds as host, reviewing experiments as
   reviewer, creating or managing experiments. Do not imitate host's round
   summary or topic advance-round. Do not use without first reading
-  map-project-collab Skill. Command cookbook (topic comment modes, speech
-  template, per-round duties) lives in references/participant-checklist.md.
+  map-project-collab Skill. Exception: for executor_assignments (host
+  delegated running experiment — direct → done, standard → result_review;
+  both qualify for executor; Plan mode uses direct as the typical shape),
+  route to experiment-executor Skill instead. Command cookbook (topic
+  comment modes, speech template, per-round duties) lives in
+  references/participant-checklist.md.
 ---
 
 # MAP 话题参与（Skill）
@@ -38,6 +42,7 @@ description: >-
 5. 发言应具体：观点、风险、验收建议或反驳；避免空泛「同意」
 6. `@` 必须用 `map persona list` 中的 **agent_name 全名**（如 `@multi-agent-platform-host`），不用 persona 短名（FS 话题里 `@` 仅是视觉提示，不产生 mention 待办，全名习惯仍保留）
 7. 防刷屏：同一发言主题不重复发文件；Round 1 已有 ≥2 名参与者发言且 host 未写 Summary 时可暂停跟评；已写过的表态不重复写
+8. **executor 例外**：host 通过 `map experiment start --executor participant` 委派的 running 实验走 [experiment-executor](../experiment-executor/SKILL.md)——`executor_assignments` 待办触发（query 排除自执行 carve-out：`executor_agent_id == me.id` 且 `creator_agent_id != me.id`）；该路径下允许 participant 修改仓库、写 execution log、complete（direct 完成直接进 `done`，standard 完成进 `result_review`），但**仍禁止** start/cancel/submit-review/approve/accept-result/reject-result/topic-*。Plan mode 仍以 direct 为典型（`complete` 一锤定音到 `done`，跳过 reviewer 复审）—— standard 模式只是标准流程的同源委托。
 
 ## 表态模型：发言文件即 ack（核心职责）
 

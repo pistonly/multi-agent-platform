@@ -494,7 +494,7 @@ def build_remind_prompt(persona: str, context: WakeContext) -> str:
         f"1. `{command} persona whoami`",
         f"2. `{command} work` 或 `{command} topic progress` — topic work items 统一视图（obligation + contextual；与 todos 话题分区同源）",
         f"3. `{command} todos` — 实验/评审/mention 等待办分区",
-        "4. 按 work_items.kind 或 todos.actions 逐项处理（obligation 优先）；topic 用 topic-host，pending_reviews 用 experiment-reviewer，my_open_experiments 用 experiment-host",
+        "4. 按 work_items.kind 或 todos.actions 逐项处理（obligation 优先）；topic 用 topic-host，pending_reviews 用 experiment-reviewer，my_open_experiments 用 experiment-host，executor_assignments 用 experiment-executor",
         "",
     ]
 

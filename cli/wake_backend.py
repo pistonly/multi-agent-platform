@@ -127,6 +127,7 @@ TODO_WAKE_BUCKETS: tuple[str, ...] = (
     "pending_round_acks",
     "pending_advance_rounds",
     "my_open_experiments",
+    "executor_assignments",
     "my_open_topics",
 )
 
@@ -142,6 +143,7 @@ TODO_BUCKET_UI_LABELS: dict[str, str] = {
     "pending_round_acks": "你有 Round Summary 待 ack",
     "pending_advance_rounds": "你有话题待推进轮次（ack 已齐）",
     "my_open_experiments": "你有进行中的实验需关注",
+    "executor_assignments": "你有被委派执行的 running 实验",
     "my_open_topics": "你有进行中的话题需关注",
     "notification": "你有未读通知",
 }

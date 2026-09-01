@@ -179,8 +179,9 @@ def register(app: typer.Typer) -> None:
             None,
             "--executor",
             help=(
-                "Delegate execution to another agent (name or UUID). The designated "
-                "executor becomes the sole non-admin caller allowed to ``complete``. "
+                "Delegate execution to another agent (name, UUID, or persona "
+                "short name host/participant/reviewer). The designated executor "
+                "becomes the sole non-admin caller allowed to ``complete``. "
                 "Omit to self-execute (host runs the experiment)."
             ),
         ),
@@ -188,19 +189,34 @@ def register(app: typer.Typer) -> None:
         """Start experiment execution (approved → running, or draft → running in direct mode).
 
         Migration 042 adds optional executor delegation: pass ``--executor``
-        with an agent name or UUID to designate who may call ``complete``.
+        with an agent name, UUID, or persona short name (``host`` /
+        ``participant`` / ``reviewer``) to designate who may call
+        ``complete``. Resolution order: UUID pass-through → persona short
+        name via ``map_types.persona.pick_agent_by_persona`` against
+        ``client.list_agents(project_id)`` (with ``project_key`` from
+        ``client.get_me()``) → literal ``agent_name`` exact match. The
+        CLI never reads ``.map/agents.yaml`` so resolution stays correct
+        in remote and isolated projects.
+
         The host retains all other lifecycle gates (cancel / withdraw / etc).
 
         v0.10: in ``direct`` mode, the experiment goes from ``draft`` directly
         to ``running`` (skipping review/approved). Use ``--executor participant``
-        to delegate execution to the participant persona.
+        to delegate execution to the participant persona; the persona string
+        is preserved on ``map/experiments/<slug>/index.md`` as the executor
+        label so FS readback shows the right owner.
         """
         from cli.commands.experiment import _run_lifecycle
+        from cli.runner import _PERSONA_SHORT_NAMES
 
+        executor_persona: str | None = (
+            executor if executor in _PERSONA_SHORT_NAMES else None
+        )
 
         _run_lifecycle(
             experiment_id,
             target_phase="running",
+            executor_persona=executor_persona,
             call=lambda c, rid, _before: (
                 c.start_experiment(
                     rid,

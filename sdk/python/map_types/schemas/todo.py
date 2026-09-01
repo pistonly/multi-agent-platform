@@ -164,6 +164,18 @@ class ExperimentReviewInformationalRead(BaseModel):
 
 class TodoRead(BaseModel):
     my_open_experiments: list[ExperimentSummaryRead] = Field(default_factory=list)
+    executor_assignments: list[ExperimentSummaryRead] = Field(
+        default_factory=list,
+        description=(
+            "Running experiments delegated to the current agent as the "
+            "executor (``executor_agent_id == me.id`` and "
+            "``creator_agent_id != me.id``). Self-execution carve-out: "
+            "when the host delegates to themselves the row lives only in "
+            "``my_open_experiments`` — never duplicated here. Visible to "
+            "the participant persona; for the host creator the same "
+            "experiment is in ``my_open_experiments`` instead."
+        ),
+    )
     pending_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     pending_result_reviews: list[ExperimentSummaryRead] = Field(default_factory=list)
     experiment_review_informational: list[ExperimentReviewInformationalRead] = Field(

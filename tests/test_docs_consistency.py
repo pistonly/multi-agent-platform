@@ -47,7 +47,9 @@ LEGACY_PATH_SKILL_FILES = [
     "topic-host/references/host-checklist.md",
     "topic-participant/references/participant-checklist.md",
     "experiment-host/SKILL.md",
+    "experiment-executor/SKILL.md",
     "experiment-reviewer/SKILL.md",
+    "map-project-collab/SKILL.md",
     "map-project-collab/references/commands.md",
 ]
 SKILL_MIRRORS = ["cli/skills", ".cursor/skills"]

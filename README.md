@@ -71,6 +71,7 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 - **多入口接入**：Python SDK + `map` CLI + MCP stdio/HTTP（`map-mcp`）
 - **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
+- **Plan mode (direct)**：跳过 review/result_review 的快速执行通道；host 通过 `start --executor participant` 委派后由 `experiment-executor` Skill 接管（complete 即 `done`，见下方使用示例）
 
 **当前主线**：v0.15 已收口（v0.11–v0.14 均已落地）。下一刀产品工作是实验生命周期 FS 化 M2。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v11.md](docs/status-md-v11.md)。
 
@@ -138,6 +139,7 @@ export MAP_TOKEN=<your-token>
 map --version
 map project list
 map status
+# 标准模式（host 自执行 / 委派 → standard）：full review → approved → running → result_review
 map experiment start --id <exp-id>
 map experiment status --id <exp-id>            # 含 acceptance_status
 map experiment pre-complete --id <exp-id> --metadata evidence.yaml
@@ -145,6 +147,19 @@ map experiment complete --id <exp-id> --summary "提交结果" --file log.md --m
 map experiment accept-result --id <exp-id> --summary "通过" --file review.md
 map experiment reject-result --id <exp-id> --summary "驳回" --file review.md
 map experiment archive --id <exp-id>           # 归档实验
+# Plan mode (direct)：跳过 review/result_review。host 在 create 时指定 mode=direct（默认 standard），
+# start 时 --executor participant 委派（典型是 participant；--executor <agent-name>
+# 也支持精确 agent_name 全名，persona 短名解析细则见
+# `map experiment start --help`）。executor 通过 `executor_assignments` todo
+# 触发，按 experiment-executor Skill 走完五步剧本（complete 直接 done）。
+# 例：host 创建 direct 实验并委派给 participant → participant 接手直到 done：
+#   map --persona host experiment create --title "Quick fix" --plan-file plan.md --mode direct
+#   map --persona host experiment start --id <exp-id> --executor participant
+#   # participant 端（待 executor_assignments 触发）：
+#   map --persona participant experiment lock acquire --id <exp-id>
+#   # ... 改仓库、窄 commit、写 log ...
+#   map --persona participant experiment complete --id <exp-id> --summary "..." --file log.md --metadata evidence.yaml   # running -> done
+#   map --persona participant experiment lock release --id <exp-id>
 map topic create --title "..." --slug <name>
 map topic comment --topic <slug> --file comment.md
 map topic comment --topic <slug> --body "..." --round-summary   # 标记 Round Summary（触发 ack 流）

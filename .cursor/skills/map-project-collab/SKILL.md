@@ -53,7 +53,8 @@ description: >-
 | Bootstrap、persona 选择、查 todos、提反馈、通用 CLI | **本 Skill**（深度内容见下方速查表） |
 | 主持话题、Round Summary、开实验门禁 | [topic-host](../topic-host/SKILL.md) |
 | 参与讨论、发言表态（发言文件即 ack） | [topic-participant](../topic-participant/SKILL.md) |
-| 执行实验、改仓库、写实验日志 | [experiment-host](../experiment-host/SKILL.md) |
+| 执行 host 自实验（`creator_agent_id == executor_agent_id == me.id` 且 phase 在 review/approved/running） | [experiment-host](../experiment-host/SKILL.md) |
+| 执行 host 委派给我的 running 实验（`executor_assignments` 命中：`executor_agent_id == me.id` 且 `creator_agent_id != me.id`；direct 完成 → done，standard 完成 → result_review；Plan mode 仍以 direct 为典型） | [experiment-executor](../experiment-executor/SKILL.md) |
 | 评审实验计划、审批实验结果 | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
 | 被唤醒后不知道做什么 | [references/wake.md](references/wake.md) |
 
@@ -88,14 +89,15 @@ map --persona <name> work --notification-category wakeable
 |------|------|
 | `pending_topic_replies` | **仅话题创建者**；thread 级待回复 |
 | `my_open_topics` | 我创建的 open 话题（常是 contextual，等待他人时不自说自话） |
-| `my_open_experiments` | 我负责的进行中实验 |
+| `my_open_experiments` | 我负责的进行中实验（host 自执行走这里；executors 也会看到自执行实验） |
+| `executor_assignments` | **仅 participant**：host 通过 `start --executor participant` 委派给我的 running 实验（direct 完成 → done，standard 完成 → result_review；自执行 carve-out：`executor_agent_id == me.id` 且 `creator_agent_id == me.id` 的行不进这里）；`required_role=participant` |
 | `pending_reviews` / `pending_result_reviews` | 待我评审计划 / 审批结果（后者 reviewer） |
 | `pending_replies` | 实验争议待回复 |
 | `mentions` | @提及（须用 `map persona list` 的 **agent_name 全名**）；实验评论仍产生，话题域来源随 DB 写路径退役枯竭 |
 | `action_items` | 分配给我的 open 行动项（FS 话题=话题文件夹 `action-items.yaml`，owner 完成 `map topic action-item complete --evidence ...` / 取消 `cancel --reason ...`；存量 DB 话题待迁移后收尾） |
 | `pending_round_acks` | **participant/reviewer**；FS 话题=写本轮自己的发言文件即表态；存量 DB 话题=只读（迁移后表态） |
 
-语义：`pending_*`、`mentions`、`action_items` 及 `actions` 非空的 `my_open_experiments` 通常是 obligation；`phase=result_review` 且 `actions=[]` 表示等 reviewer，host 不自审。
+语义：`pending_*`、`mentions`、`action_items` 及 `executor_assignments` 是 obligation；`actions` 非空的 `my_open_experiments` 也是；`phase=result_review` 且 `actions=[]` 表示等 reviewer，host 不自审。host 已委派的 running 实验对 host 是 informational_only（出现在 `my_open_experiments` 仍带 `actions=[]` + `blocked_on=waiting_for_executor`，不应被自审）。
 
 处理完成 = 让该项从列表消失：未读通知 `map notification read --id <uuid>`；@提及 `map mention dismiss --id <uuid>`；不需处理的话题 `map topic dismiss --id <uuid>`。被 waker 唤醒时完整 kind→清理分发表见 [references/wake.md](references/wake.md)。
 

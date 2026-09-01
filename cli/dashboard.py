@@ -148,5 +148,14 @@ def render_dashboard() -> None:
             phase_label = e.phase.value if hasattr(e.phase, "value") else str(e.phase)
             lines.append(f"- `{e.id}` — {title} ({phase_label})")
         lines.append("")
+    if todos.executor_assignments:
+        lines.append(f"### Executor Assignments ({len(todos.executor_assignments)})")
+        for e in todos.executor_assignments:
+            title = (e.title or "").replace("|", "\\|")
+            if len(title) > 50:
+                title = title[:47] + "..."
+            phase_label = e.phase.value if hasattr(e.phase, "value") else str(e.phase)
+            lines.append(f"- `{e.id}` — {title} ({phase_label})")
+        lines.append("")
 
     typer.echo("\n".join(lines))

@@ -80,6 +80,12 @@ def test_skill_is_known_persona_skill(kind: str) -> None:
         "topic-participant",
         "experiment-host",
         "experiment-reviewer",
+        # plan-mode-direct-execution-productization I1: the executor Skill
+        # is the routing target for executor_assignments. Creation of the
+        # actual Skill markdown is deferred (I2 next round) — the kind
+        # registry keeps referencing it so waker dispatch stays
+        # single-sourced.
+        "experiment-executor",
     }
     spec = get_kind_spec(kind)
     assert spec is not None

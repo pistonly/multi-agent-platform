@@ -23,10 +23,11 @@ description: >-
 
 | 我看到 | 我该做 |
 |--------|--------|
-| `phase=running` | acquire lock → 改仓库 → 跑验证 → 窄 commit → 写 log（每次 wake 至少推进一个 plan 子项） |
+| `phase=running` 且 `executor_agent_id == my-id`（自执行） | acquire lock → 改仓库 → 跑验证 → 窄 commit → 写 log（每次 wake 至少推进一个 plan 子项） |
+| `phase=running` 且 `executor_agent_id != my-id`（已委派给 participant） | **放手**（informational_only）：participant 通过 `executor_assignments` 接管；host 不要自审、不要写 log、不要代 complete。只剩 `cancel` 权限 |
 | `phase=review` 且 `open_unreasonable_count > 0` | `revise_plan` 修订并 `--addressed-item` 回应（[cookbook](references/execution-cookbook.md)） |
 | `phase=review` 且 `open_unreasonable_count = 0` | `experiment approve`；`approved` → `experiment start`（可 `--executor participant` 委派执行） |
-| `phase=result_review` 且 `actions=[]` | 等 reviewer 审批，不继续执行、不 accept/reject |
+| `phase=result_review` 且 `actions=[]` | 等 reviewer 审批，不继续执行、不 accept/reject（direct 模式不进 result_review） |
 | 全部 acceptance 满足 | 窄 commit → `pre-complete` → `complete` → release lock → 刷新 status/work |
 
 ```bash
@@ -39,10 +40,10 @@ git status --short
 ## 硬性规则
 
 1. 只用 `map --persona host ...` 写 MAP；禁止 MCP 写操作与手写 HTTP
-2. **`phase=running` 表示由你执行**——不要写「等 host bridge / auto-experiment-lifecycle 接手」
-3. 一次 wake 完成**当前 phase 的下一步**；`running` 每次至少推进**一个 plan 子项**（如 I1），写 log 后结束
+2. **`phase=running` 且 `executor_agent_id == my-id` 表示由你执行**——`executor_agent_id != my-id` 表示已委派给 participant，对 host 是 informational_only，不要写 log、不要代 complete、不要写「等桥接」（participant 在另一条 persona 路径上推进）
+3. 一次 wake 完成**当前 phase 的下一步**；自执行时 `running` 每次至少推进**一个 plan 子项**（如 I1），写 log 后结束
 4. 实验须由本 host persona 创建，否则 approve/start/complete 会 403
-5. `complete` 只表示**提交结果待审批**（`running -> result_review`）；host 禁止自审结果
+5. `complete` 只表示**提交结果待审批**（standard `running -> result_review`；direct `running -> done` 由 [experiment-executor](../experiment-executor/SKILL.md) 推进）；host 禁止自审结果
 6. `running` 产生仓库改动时，默认必须提交**窄 git commit**；无法安全区分当前实验改动与其他 dirty worktree 时，停下并在 `experiment log` 记录 blocker，不要继续下一个实验
 7. 收尾必须：提交当前实验改动（若有）→ release lock（若已 acquire）→ 刷新 `experiment status` 和 `work`
 8. **日志纪律（v0.12 M55F，E5 教训）**：create / revise / submit 等任何一次失败后重试成功，都必须补一条 `experiment log` 记录失败原文（422/409 的 error_code 与 hint）与修复动作——踩坑只存在日志里，不依赖会话记忆（log 白名单已放宽到 draft/review/approved 全阶段，阶段拒绝路径已随 cli-hygiene-batch A3 删除）

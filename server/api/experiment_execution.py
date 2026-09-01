@@ -24,7 +24,7 @@ from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.auth import experiment_access
 from server.db.session import get_db
-from server.domain.models import Agent
+from server.domain.models import Agent, ExperimentPhase
 from server.domain.schemas import (
     AuditLogRead,
     CrossPersonaCallRecord,
@@ -121,6 +121,15 @@ def complete_experiment(
         log_link_count=template_result.log_link_count,
         valid=template_result.valid,
     )
+    # plan-mode-direct-execution-productization 复核 SSE/audit 文案按完成后的
+    # phase 区分：direct 完成即 done → "已完成"；standard 完成进 result_review
+    # → "待审批"。reviewer / waker / Web UI 看到一致语义。
+    is_done = experiment.phase == ExperimentPhase.done
+    event_summary = (
+        f"实验已完成（{experiment.title}）"
+        if is_done
+        else f"提交实验结果待审批（{experiment.title}）"
+    )
     emit(
         db,
         agent,
@@ -128,9 +137,16 @@ def complete_experiment(
         target_type="experiment",
         target_id=experiment_id,
         project_id=experiment.project_id,
-        summary=f"提交实验结果待审批（{experiment.title}）",
+        summary=event_summary,
         event="experiment.phase_changed",
-        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
+        event_payload={
+            "id": str(experiment_id),
+            "phase": experiment.phase.value,
+            "title": experiment.title,
+            # plan-mode-direct-execution-productization 复核：在 SSE payload 显式
+            # 标注终态语义，waker/UI 不需要再回头查 mode 字段。
+            "completion_state": "done" if is_done else "pending_review",
+        },
     )
     return _summary_for_agent(
         db, experiment, agent, template_validation=template_validation
@@ -334,7 +350,15 @@ def acquire_experiment_lock_endpoint(
     # authz (0e6926fa) PR1: two-gate guard (404 then 403) — must run
     # before any state mutation. Order is load-bearing: a 404 must not
     # be leaked as 403 (or vice versa) for cross-project probes.
-    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
+    # plan-mode-direct-execution-productization I1: also admit the
+    # designated executor (or legacy creator fallback) so direct-mode
+    # participants can acquire the soft lock. The project-scope gate
+    # comes from ``perm.ensure_experiment_access`` (404 vs 403 ordering);
+    # the creator/executor/admin check lives in
+    # ``lock_service._ensure_can_modify_lock`` so other API surfaces
+    # stay strict.
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    lock_service._ensure_can_modify_lock(agent, experiment)
     result = lock_service.acquire_experiment_lock(
         db,
         experiment_id,
@@ -353,7 +377,10 @@ def release_experiment_lock_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
-    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
+    # plan-mode-direct-execution-productization I1: executor can release
+    # their own soft lock; see acquire endpoint for the gate rationale.
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    lock_service._ensure_can_modify_lock(agent, experiment)
     result = lock_service.release_experiment_lock(db, experiment_id, agent)
     return ExperimentLockRead.model_validate(result)
 
@@ -388,7 +415,10 @@ def record_experiment_lock_skip_endpoint(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentLockRead:
-    experiment_access.ensure_experiment_creator_or_admin(db, agent, experiment_id)
+    # plan-mode-direct-execution-productization I1: executor can skip
+    # their own retry timer (matches the acquire/release gate).
+    experiment = perm.ensure_experiment_access(db, agent, experiment_id)
+    lock_service._ensure_can_modify_lock(agent, experiment)
     result = lock_service.record_experiment_lock_skip(
         db,
         experiment_id,

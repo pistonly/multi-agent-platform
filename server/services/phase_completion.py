@@ -330,6 +330,12 @@ def _complete_direct_mode(
 
     Evidence metadata 是软警告不是硬门禁；A2 cascade 把关联 open
     action_items 一并置 done（与 standard 的 accept_result 相同）。
+
+    plan-mode-direct-execution-productization 复核：direct 模式下 complete 直接
+    进 done，与 standard 的 accept_result 终态对齐——同事务触发
+    ``_notify_topic_close_pending`` 唤醒话题 host 收尾（commit=False 复用
+    既有通道，B6）。原本该通知只在 reviewer accept 时触发，direct 跳过 reviewer
+    所以必须在这里补上，否则话题卡在 ready 等不到收尾。
     """
     from server.services.phase_service import _sync_phase_owner
 
@@ -380,6 +386,17 @@ def _complete_direct_mode(
             "cascaded_action_items": cascaded,
         },
     )
+
+    # 事件桥（同事务）：direct 完成即 done 唤醒话题 host 收尾，
+    # 与 standard 的 accept_result 行为一致（B1-B5）。
+    executor_name = None
+    if experiment.executor_agent_id is not None:
+        executor_agent = db.get(Agent, experiment.executor_agent_id)
+        executor_name = executor_agent.name if executor_agent is not None else None
+    _notify_topic_close_pending(
+        db, experiment, actor_id=actor.id, executor_name=executor_name
+    )
+
     db.commit()
 
 
@@ -477,10 +494,14 @@ def _notify_topic_close_pending(
 ) -> None:
     """实验 done→话题收尾事件桥（experiment-done-topic-close-event B1-B5）。
 
-    accept-result 分支触发：给话题 creator persona 发 wakeable 通知
-    （``topic.close_pending``，复用既有通道，不新增 work kind），实验 done
-    的瞬间唤醒收尾，不再等 30 分钟 stale nudge。reject 不触发；stale nudge
-    兜底互补不变。通知随调用方事务（``commit=False``，B6）。
+    两条调用路径共用本函数：
+    - **standard accept-result**（actor=reviewer，phase `result_review → done`）
+    - **direct complete_experiment**（actor=executor/host，phase `running → done`）
+
+    给话题 creator persona 发 wakeable 通知（``topic.close_pending``，复用
+    既有通道，不新增 work kind），实验 done 的瞬间唤醒收尾，不再等 30
+    分钟 stale nudge。reject 不触发；stale nudge 兜底互补不变。通知随调用
+    方事务（``commit=False``，B6）。
     """
     if experiment.topic_id is None:
         return  # B5：无话题实验（TOPIC='-'）无 close 收尾语义，跳过不发
@@ -521,13 +542,20 @@ def _notify_topic_close_pending(
     notification_service.emit_kind(
         db,
         project_id=experiment.project_id,
-        # actor=触发 accept 的 reviewer（emit 默认 exclude_actor：不能传
-        # creator，否则 creator 收件人会被当作 self-mention 排除成零通知）
+        # actor=本次触发的角色，分三种合法路径：
+        # 1. standard accept-result：actor=reviewer，host 在 personas 里 → host 收到通知。
+        # 2. direct delegated（host start --executor participant）：actor=executor，
+        #    host 在 personas 里 → host 收到通知。
+        # 3. direct host self-exec（actor 与 creator 同人）：actor=host creator，
+        #    host 也在 personas 里。emit 默认 exclude_actor 会把 actor 从收件人
+        #    集合里排除掉——这是合理的：creator 已经在做事了，自通知无信息量，
+        #    抑制可避免噪音；如果 host 真要追这条线，靠 stale nudge 或自己
+        #    `map status` 看到 done 后推进。
         actor_id=actor_id,
         personas=personas,
         event="topic.close_pending",
         summary=(
-            f"实验已验收（{str(experiment.id)[:8]}），请收尾话题 {label}{executor_fragment}："
+            f"实验已完成（{str(experiment.id)[:8]}），请收尾话题 {label}{executor_fragment}："
             "确认 action-items.yaml 清零/全 done 后 close（3d519184 close 门禁），"
             "或按需继续推进"
         ),
