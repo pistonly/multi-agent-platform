@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 3/12：T39（2026-08-27）与 T34/T38（2026-09-01，本批验证：ruff 全绿 + fast gate 1933 passed 44s + `map fs verify-audit` clean）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 6/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）与 T40/T41/T42（2026-09-01 下午批，本批验证：ruff 全绿 + fast gate 1937 passed 49s，含 T41 专项测试 4 例）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -188,14 +188,15 @@
 - [x] **T39 waker 退避与优雅退出**（预估：小）
   `cli/simple_waker.py` 固定 300s 重试无指数退避；`run_forever` 无 SIGTERM handler，`backend.disconnect()` 不保证执行。已按连续失败次数指数退避（idle×2^n，cap 30min）+ 注册 signal handler（SIGTERM/SIGINT 置位 + `asyncio.Event` 唤醒睡眠，finally 统一 disconnect）。补充 8 个专项测试 `tests/test_simple_waker_backoff_graceful.py`；顺带修复 Py3.10 下 `asyncio.wait_for` 超时抛 `asyncio.TimeoutError`（3.11 前与内置 `TimeoutError` 非同一类型）导致退避睡眠未被捕获的 bug。
 
-- [ ] **T40 依赖与入口清理**（预估：小）
-  `pyproject.toml` dev 组 httpx 冗余声明删除；mcp extra 拉入整个 server 依赖，可拆 `server-core`（仅 fastapi/starlette+mcp）减重 Dockerfile.mcp；deprecated entry points 按 LEGACY-ENTRY-MATRIX 定 1.0 移除时间表。
+- [x] **T40 依赖与入口清理**（预估：小）✅ 2026-09-01
+  落地：dev 组 httpx 冗余声明删除（核心 dependencies 已含）；`mcp` extra 移除 `multi-agent-platform[server]`——经 import 链核查 map_mcp 全模块零 server 依赖（httpx/pydantic/typer 来自核心依赖，starlette 随 mcp 装），原拆 `server-core` 方案直接升级为"不需要"，Dockerfile.mcp Layer 1 依赖清单同步去掉 server extra（fastapi/sqlalchemy/alembic 等不再进镜像，显著减重；server/ 源码仍 COPY 仅为 wheel 打包完整性）；deprecated entry points 1.0 时间表评估完成——console scripts 层零 deprecated（3 入口全主路径），warning 级兼容面（`--format legacy`、2 个 JSON 别名、API `page_size`）在 LEGACY-ENTRY-MATRIX.md 登记「连续两个 minor 无使用告警即移除，最迟 v1.0」。uv.lock 手工同步（requires-dist + optional-dependencies）。
+  验证：ruff 全绿 + fast gate 1937 passed（含 test_mcp 全套）。
 
-- [ ] **T41 API 一致性小项**（预估：小）
-  `list_agents` / webhooks / projects 列表无分页（与 experiments/topics/audit 风格不一致）；`agents.py` L222-234 与 L332-344 的 category 归一化逐行雷同，抽公共 helper。
+- [x] **T41 API 一致性小项**（预估：小）✅ 2026-09-01
+  落地：`/agents`、`/webhooks`、`/projects` 三个列表端点补齐 `page`/`page_size` 参数 + `X-Total-Count` 响应头（与 experiments/topics/audit 风格对齐）；`agents.py` 两处 category 归一化抽为 `_normalize_notification_category` helper，422 报错带上参数名；SDK `list_agents`/`list_webhooks`/`list_projects` 透传分页参数；`status_service` 看板聚合显式传 `page_size=None` 取全量。专项测试 `tests/test_optimization_t41.py` 4 例（分页 + total 头 + 422 文案）。
 
-- [ ] **T42 CLI 渲染与 envelope 统一**（预估：小）
-  成功侧 JSON envelope 手拼散落（`skill.py:458-478/618-637`、`main.py:820-827`），抽 `_emit_json_success`；`skill_list` 手写固定宽度列，改用 `cli/table_render.render_table`。
+- [x] **T42 CLI 渲染与 envelope 统一**（预估：小）✅ 2026-09-01
+  落地：`cli/runner.py` 新增 `emit_json_success`（统一 `{"ok": true, "data": ...}` envelope），`_run` 与 `skill.py`/`auth.py` 手拼 JSON 共 5 处收敛到该 helper；`skill list` 手写固定宽度列改用 `cli/table_render.render_table`（表头统一大写风格），`test_skill_install.py` 断言同步更新。
 
 - [ ] **T43 零散死代码清理**（预估：小）
   `cli/main.py:124` 死参数 `_transport`（恒 None）；`cli/main.py:46-54/72-82` 兼容 re-export（测试改直接导入后删）；`cli/wake_backend.py:197-236` legacy fingerprint 函数（随 runtime-waker 退役删除）；`cli/simple_waker.py:561-567` lambda 别名改 def；`cli/agent_client.py:464-497` 环境解析重复读盘改一次性缓存。

@@ -188,6 +188,18 @@ def _print_json(data: Any) -> None:
     typer.echo(json.dumps(_to_jsonable(data), ensure_ascii=False, indent=2))
 
 
+def emit_json_success(data: Any) -> None:
+    """T42：统一成功侧 JSON envelope ``{"ok": true, "data": ...}``（stdout）。
+
+    ``_run`` 之外的直出命令（skill install/upgrade/list、auth reissue 等）
+    统一走这里，勿再手拼 ``json.dumps``（错误侧对应
+    ``_emit_json_error_envelope``）。
+    """
+    typer.echo(
+        json.dumps({"ok": True, "data": _to_jsonable(data)}, ensure_ascii=False, indent=2)
+    )
+
+
 def _print_yaml(data: Any) -> None:
     """Dump data as YAML to stdout (default / ``--format yaml``)."""
     typer.echo(yaml.safe_dump(_to_yamlable(data), allow_unicode=True, sort_keys=False))
@@ -571,13 +583,7 @@ def _run(
             if output_format == "table" and table_renderer is not None:
                 typer.echo(table_renderer(result))
             elif output_format == "json":
-                typer.echo(
-                    json.dumps(
-                        {"ok": True, "data": _to_jsonable(result)},
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-                )
+                emit_json_success(result)
             else:
                 _print_yaml(result)
     except MAPHTTPError as exc:

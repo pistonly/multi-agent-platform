@@ -13,6 +13,8 @@ import typer
 from map_client.bootstrap import reissue_map_token
 from map_client.exceptions import MAPHTTPError
 
+from cli.runner import emit_json_success
+
 auth_app = typer.Typer(help="Manage MAP credentials (token recovery)")
 
 
@@ -109,25 +111,16 @@ def auth_reissue(
             typer.echo(f"[WARN] --rewrite-config 顺带修复未完成: {exc}", err=True)
 
     if fmt == "json":
-        import json
-
-        typer.echo(
-            json.dumps(
-                {
-                    "ok": True,
-                    "data": {
-                        "agent_id": result.agent_id,
-                        "agent_name": result.agent_name,
-                        "persona": result.persona_key,
-                        "api_url": result.api_url,
-                        "wrote_back": str(result.local_path),
-                        "previous_token_revoked": True,
-                        "config_rewritten": healed,
-                    },
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        emit_json_success(
+            {
+                "agent_id": result.agent_id,
+                "agent_name": result.agent_name,
+                "persona": result.persona_key,
+                "api_url": result.api_url,
+                "wrote_back": str(result.local_path),
+                "previous_token_revoked": True,
+                "config_rewritten": healed,
+            }
         )
         return
 

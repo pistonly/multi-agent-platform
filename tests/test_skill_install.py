@@ -223,6 +223,8 @@ class TestSkillJsonOutput:
         try:
             result = runner.invoke(skill_app, ["list"])
             assert result.exit_code == 0
-            assert "Skill Name" in result.stdout
+            # T42：render_table 输出大写表头
+            assert "SKILL NAME" in result.stdout
+            assert "VERSION" in result.stdout
         finally:
             _cli_options["format"] = original

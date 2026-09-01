@@ -20,6 +20,9 @@ from typing import Any
 
 import typer
 
+from cli.runner import emit_json_success
+from cli.table_render import render_table
+
 skill_app = typer.Typer(help="Manage MAP Skills (install bundled Skills to your project)")
 
 # Directory name inside the cli package
@@ -274,8 +277,6 @@ def skill_list(
     target_dir = _resolve_target(target, runtime)
 
     if fmt == "json":
-        import json
-
         skills_data: list[dict[str, Any]] = []
         for name in skill_names:
             entry: dict[str, Any] = {
@@ -289,36 +290,32 @@ def skill_list(
                 entry["installed_version"] = inst
                 entry["drift"] = _drift_label(inst, entry["version"])
             skills_data.append(entry)
-        typer.echo(
-            json.dumps(
-                {"ok": True, "data": {"skills": skills_data, "target": str(target_dir)}},
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        emit_json_success({"skills": skills_data, "target": str(target_dir)})
         return
 
+    # T42：表格统一走 render_table（自动列宽 + 大写表头），与其他列表命令一致。
     if installed:
         typer.echo(f"Target: {target_dir}/")
-        typer.echo(
-            f"{'Skill Name':<24} {'Bundled':<10} {'Installed':<10} Drift"
-        )
-        typer.echo("-" * 72)
+        rows: list[list[str]] = []
         for name in skill_names:
             bundled = _read_version(skills_root / name) or "-"
             inst_dir = target_dir / name
             inst = _read_version(inst_dir) if inst_dir.is_dir() else None
             inst_label = inst or ("-" if not inst_dir.is_dir() else "unknown")
             drift = _drift_label(inst, _read_version(skills_root / name)) if inst_dir.is_dir() else "not installed"
-            typer.echo(f"{name:<24} {bundled:<10} {inst_label:<10} {drift}")
+            rows.append([name, bundled, inst_label, drift])
+        typer.echo(render_table(["Skill Name", "Bundled", "Installed", "Drift"], rows))
         return
 
-    typer.echo(f"{'Skill Name':<30} {'Version':<10} {'Has SKILL.md'}")
-    typer.echo("-" * 58)
-    for name in skill_names:
-        has_md = (skills_root / name / "SKILL.md").exists()
-        version = _read_version(skills_root / name) or "-"
-        typer.echo(f"{name:<30} {version:<10} {'yes' if has_md else 'no'}")
+    basic_rows = [
+        [
+            name,
+            _read_version(skills_root / name) or "-",
+            "yes" if (skills_root / name / "SKILL.md").exists() else "no",
+        ]
+        for name in skill_names
+    ]
+    typer.echo(render_table(["Skill Name", "Version", "Has SKILL.md"], basic_rows))
 
 
 @skill_app.command("install")
@@ -456,24 +453,15 @@ def skill_install(
             typer.echo(f"  Installed: {skill_name}/ ({file_count} file(s), v{version})")
 
     if fmt == "json":
-        import json
-
-        typer.echo(
-            json.dumps(
-                {
-                    "ok": True,
-                    "data": {
-                        "installed": installed_list,
-                        "skipped": skipped_list,
-                        "installed_count": installed_count,
-                        "skipped_count": skipped_count,
-                        "target": str(target),
-                        "next_step": "map --persona host persona whoami",
-                    },
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        emit_json_success(
+            {
+                "installed": installed_list,
+                "skipped": skipped_list,
+                "installed_count": installed_count,
+                "skipped_count": skipped_count,
+                "target": str(target),
+                "next_step": "map --persona host persona whoami",
+            }
         )
         return
 
@@ -616,24 +604,15 @@ def skill_upgrade(
             typer.echo(f"  Upgraded: {skill_name}/ → v{version}")
 
     if fmt == "json":
-        import json
-
-        typer.echo(
-            json.dumps(
-                {
-                    "ok": True,
-                    "data": {
-                        "upgraded": [u["name"] for u in upgraded_list],
-                        "upgraded_count": len(upgraded_list),
-                        "unchanged": unchanged_list,
-                        "not_installed": not_installed_list,
-                        "target": str(target),
-                        "next_step": "map --persona host persona whoami",
-                    },
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        emit_json_success(
+            {
+                "upgraded": [u["name"] for u in upgraded_list],
+                "upgraded_count": len(upgraded_list),
+                "unchanged": unchanged_list,
+                "not_installed": not_installed_list,
+                "target": str(target),
+                "next_step": "map --persona host persona whoami",
+            }
         )
         return
 
