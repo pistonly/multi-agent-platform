@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 2/12：T39（2026-08-27）与 T34（2026-09-01）。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 3/12：T39（2026-08-27）与 T34/T38（2026-09-01，本批验证：ruff 全绿 + fast gate 1933 passed 44s + `map fs verify-audit` clean）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -182,8 +182,8 @@
 - [ ] **T37 web 大文件拆分**（预估：中）
   `web/src/pages/TopicPage.tsx`（646 行）拆子区块；`web/src/api/client.ts`（593 行）按资源域拆模块。
 
-- [ ] **T38 一次性产物归档**（预估：小）
-  `scripts/migrate_action_items_closed_topics.py`（标注一次性）、`reports/` 3 个 e2e 报告、`scripts/claude-*-runner.py` 与 `cursor-*-runner.py`（先 grep 确认无引用）移入 `scripts/archive/`；`map/`（346 个文件，每次实验净增 5-10 个）按 `docs/PROJECT-ARCHIVE-PLAN.md` 定期归档。
+- [x] **T38 一次性产物归档**（预估：小）✅ 2026-09-01
+  落地：`scripts/migrate_action_items_closed_topics.py`、`reports/` 3 个 e2e 报告、6 个退役 bridge runner（`claude-*-runner.py` / `cursor-*-runner.py`）移入 `scripts/archive/`（报告在 `scripts/archive/reports/`），grep 确认无代码引用（conftest 注释与 `docs/MAP-AGENT-RUNTIME-UNIFIED.md` 的路径引用同步）；`map/` 存量归档：HEAD 时 `map/topics/` 剩余 12 个 closed 话题（waker-status/cost-ledger 系列、pending-review-routing-deadlock 等）全部移入 `map/archive/topics/`（35→47），`map/archive/INDEX.md` 重建；`map fs verify-audit` 归档后 clean（0 drift）。后续新增 closed 话题按 `docs/PROJECT-ARCHIVE-PLAN.md` 定期归档。
 
 - [x] **T39 waker 退避与优雅退出**（预估：小）
   `cli/simple_waker.py` 固定 300s 重试无指数退避；`run_forever` 无 SIGTERM handler，`backend.disconnect()` 不保证执行。已按连续失败次数指数退避（idle×2^n，cap 30min）+ 注册 signal handler（SIGTERM/SIGINT 置位 + `asyncio.Event` 唤醒睡眠，finally 统一 disconnect）。补充 8 个专项测试 `tests/test_simple_waker_backoff_graceful.py`；顺带修复 Py3.10 下 `asyncio.wait_for` 超时抛 `asyncio.TimeoutError`（3.11 前与内置 `TimeoutError` 非同一类型）导致退避睡眠未被捕获的 bug。

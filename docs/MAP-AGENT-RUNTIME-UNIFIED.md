@@ -19,7 +19,7 @@ Session ids are stored per persona in `.map/simple-waker-state-*.json`:
 - Both write `runtime_backend` so switching runtimes starts a fresh session
 
 Legacy `runtime-waker` / host-bridge paths are retired. Do not use
-`MAP_USE_LEGACY_WAKER` or `scripts/cursor-*-runner.py` (old JSON bridge
+`MAP_USE_LEGACY_WAKER` or `scripts/archive/cursor-*-runner.py` (old JSON bridge
 contract) for new work.
 
 ## Quick start

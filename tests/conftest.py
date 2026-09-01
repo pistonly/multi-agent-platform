@@ -20,7 +20,7 @@ from server.main import create_app
 # claude_cli marker：未登录时 skip 而非 fail
 # ---------------------------------------------------------------------------
 # 真调用 `claude --print` 的测试（waker phase2 e2e_a1b / a1_total 等）依赖
-# claude CLI 凭证。凭证解析顺序与 scripts/claude-{host,participant,reviewer}-runner.py
+# claude CLI 凭证。凭证解析顺序与 scripts/archive/claude-{host,participant,reviewer}-runner.py
 # 保持一致：
 #   1. 已存在的环境变量（ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL）
 #   2. 项目根目录 .map/.claude-env（export VAR=... 格式）
