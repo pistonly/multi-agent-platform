@@ -66,6 +66,9 @@ data/
 node_modules/
 web/dist/
 *.tsbuildinfo
+# T31：tsc -b 经 tsconfig.node.json（composite）每次 build 再生成的编译产物
+web/vite.config.js
+web/vite.config.d.ts
 
 # Bundled SPA copied by scripts/sync-web-dist.sh (hashed Vite assets).
 # The directory placeholder is tracked; the build output is not.
@@ -81,9 +84,15 @@ test_project/output/
 # Local scratch (experiment drafts, one-off scripts, notes)
 tmp/
 
+# T44：reference/ 为悬空 gitlink 参考材料（无 .gitmodules、本地已空、代码零引用，
+# 2026-09-01 按用户决定整体移除；防止再次克隆后被误提交）
+reference/
+
 # Local git worktrees (metadata lives in .git/worktrees/)
 .worktrees/
 .claude/worktrees/
+# T31：Claude 巡检运行时状态（历史遗留，已停止）
+.claude/topic_watch_state.json
 
 # OS
 .DS_Store

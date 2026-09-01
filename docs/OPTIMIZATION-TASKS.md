@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 22/27：T06-T23、T25-T27、T29（2026-08-25/26）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T28、T30-T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 23/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T31（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T28、T30、T32。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -154,7 +154,8 @@
   问题：ruff/mypy/alembic 检查/check-deprecated 在 3.10/3.11/3.12 三个 leg 各跑一遍，lint 类步骤 ×3 浪费。
   改法：lint 拆单版本独立 job，test matrix 只跑 pytest。
 
-- [ ] **T31 untrack 编译产物与运行时状态文件**（预估：小）
+- [x] **T31 untrack 编译产物与运行时状态文件**（预估：小）✅ 2026-09-01
+  落地：`git rm --cached` 三个文件 + `.gitignore` 分节排除；本地陈旧的 `web/vite.config.js`/`.d.ts` 副本一并删除（`tsc -b` 经 composite 的 `tsconfig.node.json` 每次 `npm run build` 会再生成，且 vite 解析 `vite.config.js` 优先于 `.ts`，保留陈旧副本有配置漂移风险；删后 dev 直读 `.ts`）。`.claude/skills` 保持跟踪。`git status` 仅剩本次任务变更。
   位置：`web/vite.config.js`、`web/vite.config.d.ts`（tsc 编译产物，会漂移）；`.claude/topic_watch_state.json`（运行时状态，"巡检已停止"）。
   改法：`git rm --cached` + `.gitignore` 排除；保留 `.claude/skills` 跟踪。
 
@@ -198,7 +199,8 @@
 - [ ] **T43 零散死代码清理**（预估：小）
   `cli/main.py:124` 死参数 `_transport`（恒 None）；`cli/main.py:46-54/72-82` 兼容 re-export（测试改直接导入后删）；`cli/wake_backend.py:197-236` legacy fingerprint 函数（随 runtime-waker 退役删除）；`cli/simple_waker.py:561-567` lambda 别名改 def；`cli/agent_client.py:464-497` 环境解析重复读盘改一次性缓存。
 
-- [ ] **T44 本地与仓库卫生**（预估：小）
+- [ ] **T44 本地与仓库卫生**（预估：小）⏳ 2026-09-01 落地 1/2
+  落地：`build/`、`dist/`（0.8.0 过期产物）、`multi_agent_platform.egg-info/` 本地清理完成。`reference/noise_solver_agent_claudecode` 复查实为无 .gitmodules 的悬空 gitlink（mode 160000、本地目录已空、代码与 CI 零引用，仅 `map/archive/topics/` 归档讨论提及该 persona 名），按用户决定整体移除（untrack + 删空目录 + gitignore `reference/` 防误提交）。`git gc`、`test_project/` 迁移仍为可选项。
   `build/`、`dist/`（过期 0.8.0 产物，当前 0.9.1）、`*.egg-info/` 均已被 gitignore，本地清理即可；偶跑 `git gc --prune=now`（实测 2055 loose objects）；`reference/noise_solver_agent_claudecode` 确认是否仍需跟踪；`test_project/` 是测试 fixture 保留，可选迁 `tests/fixtures/`。
 
 ## 审查确认无需改动
