@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from map_types.enums import TopicActionItemStatus
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -45,18 +45,28 @@ def create_project(
 
 @router.get("", response_model=list[ProjectRead])
 def list_projects(
+    response: Response,
     include_archived: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[ProjectRead]:
-    if perm.is_admin(agent):
-        projects = svc.list_projects(db, include_archived=include_archived)
-    elif agent.project_id is None:
-        projects = []
-    else:
-        projects = svc.list_projects(
-            db, include_archived=include_archived, project_id=agent.project_id
-        )
+    # T41：page/page_size + X-Total-Count，与 topics/audit 列表风格一致。
+    scoped_project_id: uuid.UUID | None = None
+    if not perm.is_admin(agent):
+        if agent.project_id is None:
+            response.headers["X-Total-Count"] = "0"
+            return []
+        scoped_project_id = agent.project_id
+    projects, total = svc.list_projects(
+        db,
+        include_archived=include_archived,
+        project_id=scoped_project_id,
+        page=page,
+        page_size=page_size,
+    )
+    response.headers["X-Total-Count"] = str(total)
     return [ProjectRead.model_validate(p) for p in projects]
 
 

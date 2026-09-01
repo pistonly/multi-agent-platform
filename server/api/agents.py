@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from map_types.enums import NotificationCategory
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from server.api.deps import get_current_agent, get_optional_current_agent
@@ -59,10 +59,34 @@ from server.services.notification_stream import notification_sse_response
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
 
 
+def _normalize_notification_category(
+    value: NotificationCategory | str | None, param_name: str
+) -> NotificationCategory | None:
+    """T41：``/me/work`` 与 ``/me/notifications`` 共用的 category 归一化。
+
+    ``None`` / ``"all"`` → ``None``（不过滤）；enum 直通；字符串按
+    ``NotificationCategory`` 值解析，非法值 422（错误信息带参数名）。
+    """
+    if value is None or value == "all":
+        return None
+    if isinstance(value, NotificationCategory):
+        return value
+    try:
+        return NotificationCategory(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{param_name} must be wakeable, digest, or all",
+        ) from exc
+
+
 @agents_router.get("", response_model=list[AgentRead])
 def list_agents(
+    response: Response,
     role: AgentRole | None = Query(default=None),
     project_id: uuid.UUID | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[AgentRead]:
@@ -70,6 +94,9 @@ def list_agents(
 
     - Admins see every agent (with optional filters).
     - Project-bound agents see admins and agents within their own project.
+
+    T41: ``page`` / ``page_size`` + ``X-Total-Count``，与 topics/audit
+    列表风格一致（默认 100 覆盖现实规模，超量客户端按 header 翻页）。
     """
     stmt = select(Agent).order_by(Agent.created_at.asc())
     if not perm.is_admin(agent):
@@ -81,7 +108,9 @@ def list_agents(
     if project_id is not None:
         stmt = stmt.where(Agent.project_id == project_id)
 
-    agents = list(db.scalars(stmt))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    response.headers["X-Total-Count"] = str(total)
+    agents = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)))
     project_keys: dict[uuid.UUID, str] = {}
     project_ids = {a.project_id for a in agents if a.project_id is not None}
     if project_ids:
@@ -228,19 +257,9 @@ def get_my_work(
     ``get_current_agent`` middleware) so the waker's whoami+work double touch does
     not blur the semantics — stale detection reads only ``last_waker_poll_at``.
     """
-    normalized_category: NotificationCategory | None
-    if notification_category is None or notification_category == "all":
-        normalized_category = None
-    elif isinstance(notification_category, NotificationCategory):
-        normalized_category = notification_category
-    else:
-        try:
-            normalized_category = NotificationCategory(notification_category)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="notification_category must be wakeable, digest, or all",
-            ) from exc
+    normalized_category = _normalize_notification_category(
+        notification_category, "notification_category"
+    )
     now = datetime.now(timezone.utc)
     values: dict[str, datetime] = {"last_api_seen_at": now}
     if client == "waker":
@@ -362,19 +381,7 @@ def list_my_notifications(
     agent: Agent = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ) -> NotificationListRead:
-    normalized_category: NotificationCategory | None
-    if category is None or category == "all":
-        normalized_category = None
-    elif isinstance(category, NotificationCategory):
-        normalized_category = category
-    else:
-        try:
-            normalized_category = NotificationCategory(category)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="category must be wakeable, digest, or all",
-            ) from exc
+    normalized_category = _normalize_notification_category(category, "category")
     items, total = notification_service.list_for_agent(
         db,
         agent,

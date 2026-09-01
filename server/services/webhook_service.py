@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from server.db import session as db_session_module
@@ -56,11 +56,22 @@ def create_webhook(db: Session, payload: WebhookCreate) -> tuple[Webhook, str]:
     return webhook, secret
 
 
-def list_webhooks(db: Session, project_id: uuid.UUID | None = None) -> list[Webhook]:
+def list_webhooks(
+    db: Session,
+    project_id: uuid.UUID | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 100,
+) -> tuple[list[Webhook], int]:
+    """T41：``page`` / ``page_size`` + total（与 topics/audit service 风格一致）。"""
     stmt = select(Webhook).order_by(Webhook.created_at.desc())
     if project_id is not None:
         stmt = stmt.where((Webhook.project_id == project_id) | (Webhook.project_id.is_(None)))
-    return list(db.scalars(stmt))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    page = max(1, page)
+    page_size = max(1, min(page_size, 200))
+    rows = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)))
+    return rows, total
 
 
 def get_webhook(db: Session, webhook_id: uuid.UUID) -> Webhook:

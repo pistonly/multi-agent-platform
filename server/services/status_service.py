@@ -173,7 +173,8 @@ def _build_global_status(
             waker_heartbeats=build_waker_heartbeats(db, project_id=project_id),
         )
 
-    projects = list_projects(db)
+    # T41：list_projects 默认分页（page_size=100），看板聚合需全量，显式传 None。
+    projects, _ = list_projects(db, page_size=None)
     project_statuses = build_projects_status(db, projects)
 
     counts_stmt = (

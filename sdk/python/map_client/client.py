@@ -233,12 +233,18 @@ class MAPClient:
         *,
         project_id: uuid.UUID | None = None,
         role: AgentRole | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
     ) -> list[AgentRead]:
         params: dict[str, str] = {}
         if project_id is not None:
             params["project_id"] = str(project_id)
         if role is not None:
             params["role"] = role.value
+        if page is not None:
+            params["page"] = str(page)
+        if page_size is not None:
+            params["page_size"] = str(page_size)
         data = self._json("GET", "/agents", params=params)
         return [AgentRead.model_validate(item) for item in data]
 
@@ -323,8 +329,19 @@ class MAPClient:
         data = self._json("POST", "/projects", json=payload.model_dump())
         return ProjectRead.model_validate(data)
 
-    def list_projects(self, *, include_archived: bool = False) -> list[ProjectRead]:
-        data = self._json("GET", "/projects", params={"include_archived": include_archived})
+    def list_projects(
+        self,
+        *,
+        include_archived: bool = False,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> list[ProjectRead]:
+        params: dict[str, str] = {"include_archived": str(include_archived)}
+        if page is not None:
+            params["page"] = str(page)
+        if page_size is not None:
+            params["page_size"] = str(page_size)
+        data = self._json("GET", "/projects", params=params)
         return [ProjectRead.model_validate(item) for item in data]
 
     def get_project(self, project_id: uuid.UUID) -> ProjectRead:
@@ -1151,9 +1168,21 @@ class MAPClient:
         data = self._json("POST", "/webhooks", json=payload.model_dump(mode="json"))
         return WebhookCreateResponse.model_validate(data)
 
-    def list_webhooks(self, project_id: uuid.UUID | None = None) -> list[WebhookRead]:
-        params = {"project_id": str(project_id)} if project_id else None
-        data = self._json("GET", "/webhooks", params=params)
+    def list_webhooks(
+        self,
+        project_id: uuid.UUID | None = None,
+        *,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> list[WebhookRead]:
+        params: dict[str, str] = {}
+        if project_id is not None:
+            params["project_id"] = str(project_id)
+        if page is not None:
+            params["page"] = str(page)
+        if page_size is not None:
+            params["page_size"] = str(page_size)
+        data = self._json("GET", "/webhooks", params=params or None)
         return [WebhookRead.model_validate(w) for w in data]
 
     def delete_webhook(self, webhook_id: uuid.UUID) -> None:

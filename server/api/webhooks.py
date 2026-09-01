@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from server.api.deps import get_current_agent
@@ -32,12 +32,19 @@ def create_webhook(
 
 @webhooks_router.get("", response_model=list[WebhookRead])
 def list_webhooks(
+    response: Response,
     project_id: uuid.UUID | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[WebhookRead]:
+    # T41：page/page_size + X-Total-Count，与 topics/audit 列表风格一致。
     perm.require_admin(agent)
-    webhooks = webhook_service.list_webhooks(db, project_id=project_id)
+    webhooks, total = webhook_service.list_webhooks(
+        db, project_id=project_id, page=page, page_size=page_size
+    )
+    response.headers["X-Total-Count"] = str(total)
     return [WebhookRead.model_validate(w) for w in webhooks]
 
 

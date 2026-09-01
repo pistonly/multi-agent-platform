@@ -76,13 +76,27 @@ def list_projects(
     *,
     include_archived: bool = False,
     project_id: uuid.UUID | None = None,
-) -> list[Project]:
+    page: int = 1,
+    page_size: int | None = 100,
+) -> tuple[list[Project], int]:
+    """T41：``page`` / ``page_size`` + total（与 topics/audit service 风格一致）。
+
+    ``page_size=None`` 表示全量（status 看板等聚合场景用，与
+    ``topic_lifecycle_service.list_topics`` 的约定一致）。
+    """
     stmt = select(Project).order_by(Project.created_at.desc())
     if project_id is not None:
         stmt = stmt.where(Project.id == project_id)
     if not include_archived:
         stmt = stmt.where(Project.archived_at.is_(None))
-    return list(db.scalars(stmt))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    if page_size is None:
+        rows = list(db.scalars(stmt))
+    else:
+        page = max(1, page)
+        page_size = max(1, min(page_size, 200))
+        rows = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)))
+    return rows, total
 
 
 def get_project_by_key(db: Session, project_key: str) -> Project:
