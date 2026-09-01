@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 25/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下、T32。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -161,10 +161,9 @@
   位置：`web/vite.config.js`、`web/vite.config.d.ts`（tsc 编译产物，会漂移）；`.claude/topic_watch_state.json`（运行时状态，"巡检已停止"）。
   改法：`git rm --cached` + `.gitignore` 排除；保留 `.claude/skills` 跟踪。
 
-- [ ] **T32 Dockerfile 镜像源 ARG 化 + 非 root 运行**（预估：小）
+- [x] **T32 Dockerfile 镜像源 ARG 化 + 非 root 运行**（预估：小）✅ 2026-09-01
+  落地：Dockerfile.api / Dockerfile.mcp 新增 `ARG PIP_INDEX_URL`（默认空=官方源，国内构建传 `--build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple`，`--timeout 120 --retries 5` 保留）；`ARG UID/GID=1000` 创建 map 用户（api 侧 `chown -R map:map /app/data` 后 `USER map`，mcp 侧无持久写入统一安全基线）。docker-compose.fs.yml 的 build.args 透传 `MAP_UID/MAP_GID`（默认 1000，建议 `export MAP_UID=$(id -u) MAP_GID=$(id -g)` 对齐宿主），原「root-owned 文件」已知权衡改为 UID/GID 对齐方案。未动 web/Dockerfile（nginx 基础镜像，不在本项位置清单内）。
   位置：`Dockerfile.api` L17-18、`Dockerfile.mcp` L6-7。
-  问题：硬编码 `-i mirrors.aliyun.com`，海外/官方环境不可用；镜像以 root 运行。
-  改法：`ARG PIP_INDEX_URL=` 默认官方、国内构建传 build-arg；加非 root 用户（注意 `/app/data` 与 fs.yml 的 UID/GID 对齐）。
 
 ## P2 可排期项
 

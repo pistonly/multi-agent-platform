@@ -9,12 +9,20 @@
 #
 # 已知权衡（因此定位为过渡方案，长期形态是 map sync publish + validate/commit）：
 # - macOS 的 bind mount 性能明显低于 Linux（map/ 全量实时扫描会更慢）；
-# - 容器进程写 index.md 会产生 root-owned 文件，注意 UID/GID 对齐；
+# - 容器进程写 index.md 的文件属主：Dockerfile.api 已支持 UID/GID build-arg
+#   （T32 非 root 化）。默认 1000:1000；传 MAP_UID/MAP_GID（建议
+#   `export MAP_UID=$(id -u) MAP_GID=$(id -g)`）对齐宿主用户；
 # - 仅适用于「单机 Docker」；多机 / 远程 server 请走 map sync publish。
 #
 # 未设置 MAP_WORKSPACE_PATH 时 compose 会直接报错（:? 语法），避免把
 # workspace 静默挂错路径。
 services:
   api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        UID: ${MAP_UID:-1000}
+        GID: ${MAP_GID:-1000}
     volumes:
       - ${MAP_WORKSPACE_PATH:?export MAP_WORKSPACE_PATH=/abs/path/to/repo}:${MAP_WORKSPACE_PATH:?export MAP_WORKSPACE_PATH=/abs/path/to/repo}

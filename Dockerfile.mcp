@@ -1,9 +1,13 @@
 FROM python:3.12-slim
 WORKDIR /app
 
+# T32：镜像源 ARG 化——默认官方 PyPI；国内构建传
+# --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+ARG PIP_INDEX_URL=""
+
 # Layer 1: install third-party deps (CLI + server + mcp package)
 COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --timeout 120 --retries 5 \
+RUN pip install --no-cache-dir --timeout 120 --retries 5 ${PIP_INDEX_URL:+-i ${PIP_INDEX_URL}} \
     $(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); deps=d['project']['dependencies']+d['project']['optional-dependencies']['server']+['mcp>=1.26.0,<2.0']; print(' '.join(deps))")
 
 # Layer 2: copy application source
@@ -11,7 +15,13 @@ COPY server ./server
 COPY cli ./cli
 COPY sdk ./sdk
 
-RUN pip install --no-cache-dir --no-deps -i https://mirrors.aliyun.com/pypi/simple --timeout 120 --retries 5 ".[mcp]"
+RUN pip install --no-cache-dir --no-deps --timeout 120 --retries 5 ${PIP_INDEX_URL:+-i ${PIP_INDEX_URL}} ".[mcp]"
+
+# T32：非 root 运行（mcp 容器无持久写入，统一安全基线）。
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g "${GID}" map && useradd -u "${UID}" -g "${GID}" -m -s /bin/sh map
+USER map
 
 EXPOSE 8080
 ENV MAP_MCP_TRANSPORT=streamable-http

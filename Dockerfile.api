@@ -12,9 +12,13 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
+# T32：镜像源 ARG 化——默认官方 PyPI；国内构建传
+# --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+ARG PIP_INDEX_URL=""
+
 # Layer 1: install third-party deps (CLI + server, invalidated only when pyproject.toml changes)
 COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --timeout 120 --retries 5 \
+RUN pip install --no-cache-dir --timeout 120 --retries 5 ${PIP_INDEX_URL:+-i ${PIP_INDEX_URL}} \
     $(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); deps=d['project']['dependencies']+d['project']['optional-dependencies']['server']; print(' '.join(deps))")
 
 # Layer 2: copy application source
@@ -27,8 +31,16 @@ COPY MANIFEST.in ./
 COPY --from=web /web/dist ./server/web_dist
 
 # Install local package only (deps already present)
-RUN pip install --no-cache-dir --no-deps -i https://mirrors.aliyun.com/pypi/simple --timeout 120 --retries 5 .
+RUN pip install --no-cache-dir --no-deps --timeout 120 --retries 5 ${PIP_INDEX_URL:+-i ${PIP_INDEX_URL}} .
 
-RUN mkdir -p /app/data
+# T32：非 root 运行。默认 1000:1000；fs.yml bind-mount 场景传
+# --build-arg UID=$(id -u) GID=$(id -g) 对齐宿主用户，容器写 index.md /
+# map.db 不再产生 root-owned 文件（见 docker-compose.fs.yml）。
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g "${GID}" map && useradd -u "${UID}" -g "${GID}" -m -s /bin/sh map \
+    && mkdir -p /app/data && chown -R map:map /app/data
+USER map
+
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && map-server"]
