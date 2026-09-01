@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from map_fs.parser import FsActionItem, FsTopic
+from map_fs.model import FsActionItem, FsTopic
 
 
 class AckPendingError(Exception):

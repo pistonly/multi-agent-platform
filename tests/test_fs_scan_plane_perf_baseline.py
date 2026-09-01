@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from map_fs.parser import scan_plane
+from map_fs.topic_parser import scan_plane
 
 pytestmark = pytest.mark.slow
 

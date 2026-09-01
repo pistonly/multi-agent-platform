@@ -51,7 +51,7 @@ EXPERIMENT_PHASE_AUDIT_REQUIRED: frozenset[str] = frozenset({
     "approved",
 })
 
-# 实验合法 phase (与 sdk/python/map_fs/parser.py EXPERIMENT_PHASES 同步)
+# 实验合法 phase (与 sdk/python/map_fs/model.py EXPERIMENT_PHASES 同步)
 EXPERIMENT_PHASES_LEGAL: frozenset[str] = frozenset({
     "draft",
     "review",

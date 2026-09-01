@@ -19,12 +19,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from map_fs.parser import (
-    DEFAULT_CONTENT_ROOT,
-    _atomic_write,
-    parse_front_matter,
-    parse_topic_dir,
-)
+from map_fs.frontmatter import parse_front_matter
+from map_fs.index_io import _atomic_write
+from map_fs.model import DEFAULT_CONTENT_ROOT
+from map_fs.topic_parser import parse_topic_dir
 
 _DECISION_RE = re.compile(r'^decision:\s*["\']?(.+?)["\']?\s*$', re.M)
 _LEGACY_TITLE_RE = re.compile(r"^#\s+(.+?)\s*$", re.M)

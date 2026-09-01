@@ -53,7 +53,7 @@
 - **FsTopic** = `map/topics/<slug>/` 文件夹（`index.md` + round 文件）；id = `uuid5(NS, "topic:<slug>")` 确定性派生，跨解析稳定
 - **FsComment** = `round<N>-<persona>.md`；id = `uuid5(NS, "comment:<rel_path>")`
 - **FsExperiment** = `map/experiments/<name>/`（`index.md` + `plan.md` + `log.md` + `review.yaml`）
-- 解析器：`sdk/python/map_fs/parser.py`（`scan_plane` 全量扫描、`derive_work` 文件存在性推导待办）
+- 解析器：`sdk/python/map_fs/`（`topic_parser.scan_plane` 全量扫描、`derive_work` 文件存在性推导待办）
 
 ### 3.3 双平面合并与迁移
 
