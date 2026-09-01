@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 10/12：T39（2026-08-27）、T34/T38（2026-09-01 上午批）、T40/T41/T42/T43（2026-09-01 下午批）与 T33/T36/T37（2026-09-01）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
+统计：P0 × 5｜P1 × 27｜P2 × 13，共 45 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 11/13：T39（2026-08-27）、T34/T38（2026-09-01 上午批）、T40/T41/T42/T43（2026-09-01 下午批）与 T33/T36/T37（2026-09-01）、T45（2026-09-02）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -204,6 +204,10 @@
 - [ ] **T44 本地与仓库卫生**（预估：小）⏳ 2026-09-01 落地 1/2
   落地：`build/`、`dist/`（0.8.0 过期产物）、`multi_agent_platform.egg-info/` 本地清理完成。`reference/noise_solver_agent_claudecode` 复查实为无 .gitmodules 的悬空 gitlink（mode 160000、本地目录已空、代码与 CI 零引用，仅 `map/archive/topics/` 归档讨论提及该 persona 名），按用户决定整体移除（untrack + 删空目录 + gitignore `reference/` 防误提交）。`git gc`、`test_project/` 迁移仍为可选项。
   `build/`、`dist/`（过期 0.8.0 产物，当前 0.9.1）、`*.egg-info/` 均已被 gitignore，本地清理即可；偶跑 `git gc --prune=now`（实测 2055 loose objects）；`reference/noise_solver_agent_claudecode` 确认是否仍需跟踪；`test_project/` 是测试 fixture 保留，可选迁 `tests/fixtures/`。
+
+- [x] **T45 剩余超大模块拆分 + 800 行上限守卫**（预估：大）✅ 2026-09-02
+  落地：全仓 10 个超 800 行源码模块全部拆到上限以下，手法延续 T33/T23/T17（宿主底部 `register(app)` 破环、monkeypatch 面留守宿主 + 命令体 call-time 导入、审计 logger 名固定）。`cli/simple_waker.py` 1742→728——工作集/签名/prompt→`cli/waker_context.py`，drift/audit/escalation→`cli/waker_checks.py`（mixin），busy/状态持久化→`cli/waker_state.py`（mixin）。`cli/commands/experiment.py` 1423→635——生命周期命令→`experiment_lifecycle.py`，log/logs/status/show→`experiment_inspect.py`。`cli/commands/topic.py` 1148→782——migrate 域→`topic_migrate.py`，show/history→`topic_view.py`，mention/todo 子应用→`mention.py`/`todo.py`（cli.main 直接挂载）。`cli/commands/fs.py` 1149→755——验证型写→`cli/fs_write_flow.py`，投影同步/迁移→`cli/fs_sync.py`（宿主 re-import 保住 `fs_cli.*` 属性访问与 `"cli.commands.fs._workspace"` patch 面）。`sdk/python/map_fs/parser.py` 1247 删除→`model`/`frontmatter`/`action_items`/`topic_parser`/`index_io` 五模块（不留 shim，`__init__` 导出面不变）。`sdk/python/map_client/client.py` 1269→190——`client_mixins/` 按域 4 mixin 组合 MAPClient，44 处外部 import 零改动。`server/domain/models.py` 842→`models/` 包按域 6 子模块（`__init__` 全量 re-export 含 map_types 枚举面；Alembic env 只依赖 import 时全量注册，`configure_mappers()` 23 表通过）。`server/services/fs_source_service.py` 1206→742——plane 加载缓存→`fs_plane_loader.py`，双源读视图→`fs_topic_view.py`（facade re-export，api/ 层 lazy import 零改动）。`server/services/notification_service.py` 871→621——inbox/admin wake→`notification_inbox.py`（照 T17 stalled 手法 lazy 依赖 fanout）。`server/services/phase_service.py` 856→196——完成域（pytest gate/verdict/direct+standard）→`phase_completion.py`（`_sync_phase_owner` 等 helpers call-time 导入）。新增 `tests/test_module_size_caps.py` 登记 39 文件 800 行上限；`EXPECTED_SUBAPP_FILES` 登记 5 个新 commands 模块。测试同步：`test_topic_migrate`/`test_accept_result_verdict` 改导入新模块；`test_fs_anomalies` 的 `_optional_workspace` patch 随 `topic show` 迁至 `topic_view`；`test_simple_waker` 的 bridge_state helpers 改从 `cli.bridge_state` 直导；`test_topic_close_pending_event` 改引用 `notification_service` 模块本体。
+  验证：ruff 全绿 + fast gate 1985 passed 3m31s + `python -m cli.simple_waker --help` 入口可用；全仓超 800 行 .py 仅剩 3 个测试文件（test_simple_waker/test_cli/test_fs_source，属测试拆分范畴，未设 cap）。
 
 ## 审查确认无需改动
 
