@@ -534,10 +534,7 @@ def _run(
     error_format = "yaml" if output_format == "table" else output_format
 
     try:
-        if client_ctx is not None:
-            ctx = client_ctx
-        else:
-            ctx = _current_admin_client_ctx() if admin else _current_client_ctx()
+        ctx = client_ctx if client_ctx is not None else (_current_admin_client_ctx() if admin else _current_client_ctx())
         with ctx as client:
             result = action(client)
         if result is not None:

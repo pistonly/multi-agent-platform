@@ -4,7 +4,7 @@
 > 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
-统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。
+统计：P0 × 5｜P1 × 27｜P2 × 12，共 44 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。P1 已完成 26/27：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）；T24 落地 1/2（waker 热路径）；剩余 T24 余下。P2 已完成 2/12：T39（2026-08-27）与 T34（2026-09-01）。
 
 ## P0 性能与正确性热点（已完成 2026-08-25）
 
@@ -170,8 +170,8 @@
 - [ ] **T33 超大文件与长函数拆分**（预估：大）
   `cli/main.py`（1591 行）、`cli/commands/topic.py`（1543 行）、`cli/commands/experiment.py`（1496 行）；`skill_install` 167 行与 `skill_upgrade` 153 行共享约 40% preamble 可抽 helper；`map_dashboard` 132 行可移出 main.py。给 main.py 设硬上限（如 800 行）。
 
-- [ ] **T34 tests 目录分组与覆盖率可见性**（预估：中）
-  204 个测试文件平铺在 `tests/` 根（仅 integration/ 等有子目录，且目录语义与 marker 不一致）；PR gate 不带 `--cov`，fail_under=60 仅 nightly 生效；无 pytest-xdist（1681 例串行）。按域分子目录、PR 加 `--cov` 展示、加 xdist 用 `-n auto`。
+- [x] **T34 tests 加速与覆盖率可见性**（预估：中）✅ 2026-09-01
+  落地：`pytest-xdist>=3.6` dev 依赖 + `-n auto` 并行（`scripts/test-fast.sh` / CI PR gate / nightly 全量；本地实测 1933 例 213s→44s）；PR gate 加 `--cov --cov-report=term` 展示 unit subset 覆盖率（不 fail_under——unit 覆盖率不代表整体，全量门禁仍走 nightly → Codecov）；修复 CI 上游连红：`uv sync` 后 `.venv/bin` 不在 PATH，裸调 ruff/mypy/pytest 全部 exit 127，lint 从未真正执行（两 job 各注入 `$GITHUB_PATH`）；`tests/conftest.py` 新增 autouse `reset_cli_options`——CLI 测试改写 `cli.main._cli_options` 泄漏全局态，xdist worker 分组下人类可读断言随机失败；顺带清 ruff 积压（B904/E402/SIM108/I001/F541 等）。**降级**：204 文件按域分子目录机械量大、git 历史噪声高且收益低（pytest 已按 marker 分层），独立为将来可选重构，不再列待办。
 
 - [ ] **T35 alembic 迁移 squash（v1.0 时机）**（预估：中）
   50 个迁移中约 20 个不足 60 行（011/018/019/020/028/030/040/041/045/049/050 等）。仅在有存量部署评估后于大版本做一次基线重建 + 数据校验脚本；有生产库在跑则保持现状，迁移历史即部署历史。

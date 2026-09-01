@@ -39,7 +39,9 @@ jobs:
         # -m "" 表示不应用 marker 过滤（跑全部）；
         # 再用 --deselect 之类排除 claude_cli 不通用，故用 -m "not claude_cli"
         # 让 marker 显式排除。slow / integration 这两个 marker 在 nightly 必须跑。
-        run: pytest -m "not claude_cli" --cov --cov-report=xml --cov-report=term
+        # T34（2026-09-01）：-n auto 并行缩短全量套件墙钟时间（coverage
+        # 经 --cov 合并各 worker 数据，结果与串行一致）。
+        run: pytest -m "not claude_cli" -n auto --cov --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         if: ${{ !cancelled() }}

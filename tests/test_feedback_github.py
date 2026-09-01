@@ -39,7 +39,7 @@ def test_bare_feedback_generates_prefilled_bug_url() -> None:
     body = params["body"]
     assert "## Problem" in body
     assert f"map version: {map_sdk.__version__}" in body
-    assert f"Python: " in body
+    assert "Python: " in body
     assert "OS: " in body
     assert "MAP server: " in body
 

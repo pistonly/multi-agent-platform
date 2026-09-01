@@ -11,13 +11,13 @@ import json
 import uuid
 from pathlib import Path
 
+import map_client.project_config as pc
 import pytest
 import yaml
 from typer.testing import CliRunner
 
-import cli.main
 import cli.commands.fs as fs_cli
-import map_client.project_config as pc
+import cli.main
 from cli.main import app
 
 

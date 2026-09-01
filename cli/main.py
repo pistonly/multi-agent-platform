@@ -67,6 +67,7 @@ from cli.commands.server import server_app
 from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.topic import mention_app, todo_app, topic_app
+from cli.commands.verify_audit import verify_audit_app
 from cli.commands.version import version_app
 from cli.commands.waker_status import waker_app
 from cli.e2e_collab import e2e_app
@@ -159,8 +160,6 @@ app.add_typer(auth_app, name="auth")
 app.add_typer(server_app, name="server")
 app.add_typer(waker_app, name="waker")
 # 实验 e6d23886 I3：verify-audit CLI 子命令（map fs verify-audit）。
-from cli.commands.verify_audit import verify_audit_app
-
 app.add_typer(verify_audit_app, name="fs")
 
 _transport: httpx.BaseTransport | None = None

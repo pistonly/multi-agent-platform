@@ -170,11 +170,11 @@ def _run_lifecycle(
         rid = _rid(c, experiment_id)
         try:
             before = c.get_experiment(rid)
-        except MAPNotFoundError:
+        except MAPNotFoundError as exc:
             hint = lifecycle_missing_projection_message(experiment_id)
             if hint:
                 typer.echo(f"Error: {hint}", err=True)
-                raise typer.Exit(1)
+                raise typer.Exit(1) from exc
             raise
         from_phase = enum_value(before.phase)
         planned = target_phase or from_phase

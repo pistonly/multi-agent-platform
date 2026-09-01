@@ -146,6 +146,23 @@ def reset_status_cache():
     status_service.reset_status_cache()
 
 
+@pytest.fixture(autouse=True)
+def reset_cli_options():
+    """T34：每个测试后还原 ``cli.main._cli_options`` 全局可变 dict。
+
+    ``format`` / ``format_source`` / ``persona`` 等被多个 CLI 测试直接
+    改写（如 test_cli_format_priority 断言全局为 json 后不复位）——
+    泄漏给同 worker 的后续测试会让 ``_run`` 走 JSON envelope 路径，
+    人类可读断言（'Hint:' 等）随机失败（xdist worker 分组决定是否命中）。
+    """
+    from cli import main as cli_main
+
+    saved = dict(cli_main._cli_options)
+    yield
+    cli_main._cli_options.clear()
+    cli_main._cli_options.update(saved)
+
+
 @pytest.fixture
 def claude_cli_env() -> dict[str, str]:
     """供 claude_cli 测试使用的子进程环境（已合并 .map/.claude-env）。"""

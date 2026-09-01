@@ -11,7 +11,7 @@ cd "$ROOT"
 GATE_MAX_SECONDS="${MAP_TEST_GATE_MAX_SECONDS:-90}"
 START=$(date +%s)
 
-python3 -m pytest -m "not slow and not integration and not claude_cli" "$@"
+python3 -m pytest -m "not slow and not integration and not claude_cli" -n auto "$@"
 STATUS=$?
 
 END=$(date +%s)
