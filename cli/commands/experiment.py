@@ -143,6 +143,43 @@ def _require_id(raw: str | None) -> str:
     return raw
 
 
+def resolve_writer_persona(me: Any) -> str:
+    """Resolve the persona label for the writer of an FS ``index.md``.
+
+    CLI runtime callers (e.g. ``MAPClient.get_me()``) typically hand back an
+    ``AgentRead`` schema that has no ``persona`` field at all — only
+    ``id``/``name``/``role``/``project_id``/``project_key``/``created_at``.
+    The earlier code ``getattr(me, "persona", None) or "host"`` therefore
+    silently attributed every delegated executor write-back to ``host``,
+    breaking downstream topic routing for participant / reviewer writers.
+
+    Resolution chain (most specific first):
+      1. ``me.persona`` when the schema carries it (future-proofing; not
+         yet on ``AgentRead`` but cheap to keep).
+      2. ``persona_from_agent_name(me.name)`` — the canonical trailing
+         ``-{persona}`` suffix. ``multi-agent-platform-plan-dogfood-participant``
+         → ``participant``, ``...-host`` → ``host``,
+         ``...-reviewer`` → ``reviewer``.
+      3. Conservative ``"host"`` fallback — only if both above miss
+         (anonymous / custom agent name without canonical suffix).
+
+    The fallback is deliberately biased toward ``host`` (rather than
+    raising) because lifecycle writebacks happen for every phase transition
+    and a crash would break every experiment. The fix's correctness
+    guarantee is the strict order — never default ``"host"`` while
+    ``me.name`` resolves to participant/reviewer.
+    """
+    explicit = getattr(me, "persona", None)
+    if explicit:
+        return explicit
+    from map_types.persona import persona_from_agent_name
+
+    by_name = persona_from_agent_name(getattr(me, "name", None))
+    if by_name:
+        return by_name
+    return "host"
+
+
 def _run_lifecycle(
     experiment_id: str,
     *,
@@ -190,7 +227,11 @@ def _run_lifecycle(
             executor_id = after.executor_agent_id
             me = c.get_me()
             if executor_id is None or executor_id == after.creator_agent_id or executor_id == me.id:
-                persona = getattr(me, "persona", None) or "host"
+                # Self-exec / creator-exec / no-executor cases: writer persona
+                # comes from ``me``. ``AgentRead`` has no ``persona`` field,
+                # so resolve_writer_persona falls back to the agent name
+                # suffix before defaulting to ``host``.
+                persona = resolve_writer_persona(me)
             else:
                 from map_types.persona import persona_from_agent_name
 
@@ -354,7 +395,7 @@ def experiment_create(
         write_index_after_create(
             created,
             plan_file_path=plan_file_path,
-            creator_persona=getattr(me, "persona", None) or "host",
+            creator_persona=resolve_writer_persona(me),
             topic_ref=topic_ref_for_create(topic_id),
         )
         return overlay_fs_authority(created)
