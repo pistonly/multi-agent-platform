@@ -936,7 +936,6 @@ dev = [
     { name = "bcrypt" },
     { name = "cryptography" },
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "mcp", version = "1.27.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "mcp", version = "1.28.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic-settings" },
@@ -951,16 +950,8 @@ dev = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 mcp = [
-    { name = "alembic" },
-    { name = "bcrypt" },
-    { name = "cryptography" },
-    { name = "fastapi" },
     { name = "mcp", version = "1.27.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "mcp", version = "1.28.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "sqlalchemy" },
-    { name = "uvicorn", extra = ["standard"] },
 ]
 server = [
     { name = "alembic" },
@@ -982,11 +973,9 @@ requires-dist = [
     { name = "cursor-sdk", marker = "extra == 'cursor-runtime'", specifier = ">=1.0,<2.0" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0,<1" },
     { name = "httpx", specifier = ">=0.28.0,<1" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.0,<1" },
     { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.26.0,<2.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.26.0,<2.0" },
     { name = "multi-agent-platform", extras = ["server"], marker = "extra == 'dev'" },
-    { name = "multi-agent-platform", extras = ["server"], marker = "extra == 'mcp'" },
     { name = "pydantic", specifier = ">=2.10.0,<3" },
     { name = "pydantic-settings", marker = "extra == 'server'", specifier = ">=2.6.0,<3" },
     { name = "pydantic-to-typescript", marker = "extra == 'dev'", specifier = ">=2.0.0,<3.0" },

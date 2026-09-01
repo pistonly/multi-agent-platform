@@ -53,15 +53,16 @@ dev = [
     "pytest-cov>=5.0.0,<8.0",
     # T34：xdist 并行跑测试（-n auto），2000 例串行 220s → 并行后显著缩短。
     "pytest-xdist>=3.6.0,<4.0",
-    "httpx>=0.28.0,<1",
     "mcp>=1.26.0,<2.0",
     "ruff>=0.8.0,<1.0",
     # codegen：从 Pydantic schema 生成 web/src/api/types.generated.ts
     # （配合 web 的 json-schema-to-typescript 提供 json2ts CLI，见 scripts/gen_types.py）。
     "pydantic-to-typescript>=2.0.0,<3.0",
 ]
+# T40：map_mcp import 链零 server 依赖（httpx/mcp/starlette/pydantic 均由
+# 核心依赖或 mcp 自带），原 multi-agent-platform[server] 拉入整个 server
+# 依赖树属过度声明——MCP server 经 httpx 调远端 API，不 import server 模块。
 mcp = [
-    "multi-agent-platform[server]",  # 需要 fastapi/starlette
     "mcp>=1.26.0,<2.0",
 ]
 claude-runtime = [

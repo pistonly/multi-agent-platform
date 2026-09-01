@@ -5,12 +5,16 @@ WORKDIR /app
 # --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 ARG PIP_INDEX_URL=""
 
-# Layer 1: install third-party deps (CLI + server + mcp package)
+# Layer 1: install third-party deps (CLI + mcp package).
+# T40: map_mcp import 链零 server 依赖（经 httpx 调远端 API），不再装
+# server extra（fastapi/sqlalchemy/alembic 等）——镜像显著减重。
 COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir --timeout 120 --retries 5 ${PIP_INDEX_URL:+-i ${PIP_INDEX_URL}} \
-    $(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); deps=d['project']['dependencies']+d['project']['optional-dependencies']['server']+['mcp>=1.26.0,<2.0']; print(' '.join(deps))")
+    $(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); deps=d['project']['dependencies']+d['project']['optional-dependencies']['mcp']; print(' '.join(deps))")
 
-# Layer 2: copy application source
+# Layer 2: copy application source.
+# server/ 源码仍需 COPY：setuptools packages.find 打包 server*（map_mcp
+# 不 import 它，仅为 wheel 完整性随包分发）。
 COPY server ./server
 COPY cli ./cli
 COPY sdk ./sdk

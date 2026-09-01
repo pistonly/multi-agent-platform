@@ -67,6 +67,17 @@ check-deprecated.sh 同时执行两条防回潮规则（实验 124e9a00 A3）：
 
 （T20 后本清单暂无在册 DEPRECATED 条目——bridge 簇已整体退役，如未来再引入 deprecated 入口按上格式登记。）
 
+## v1.0 移除时间表（T40，2026-09-01 评估）
+
+console scripts 层当前 3 个入口（`map` / `map-server` / `map-mcp`）全部为主路径或独立线，**无 deprecated entry point，v1.0 无需移除计划**。仍处于 warning 级 deprecated（未删、不阻断）的兼容面如下，按「连续两个 minor 版本无使用告警即移除」执行，最迟 v1.0：
+
+| 兼容面 | 位置 | 迁移目标 |
+|--------|------|----------|
+| CLI `--format legacy` 值 | `cli/main.py`（`--format` / `MAP_CLI_FORMAT`） | `--format table` |
+| JSON 字段别名 `advance_round_pending_since` | `cli/runner.py` `_DEPRECATED_ALIAS_RENAMES` | `stale_since` |
+| JSON 字段别名 `partition_visibility` | `cli/runner.py` `_DEPRECATED_ALIAS_RENAMES` | `visibility` |
+| API `?page_size=` 查询参数 | `server/api/experiments.py` 列表端点（已带 `Deprecation`/`Sunset: v0.12` 响应头） | `?limit=` |
+
 ## 迁移指引
 
 ```bash
