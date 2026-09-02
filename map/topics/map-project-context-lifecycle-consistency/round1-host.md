@@ -2,7 +2,8 @@
 author: host
 round: 1
 kind: user
-posted_at: '2026-09-02T01:11:21.113988+00:00'
+is_round_summary: true
+posted_at: '2026-09-02T15:16:45.970018+00:00'
 ---
 
 # 议题背景
@@ -78,5 +79,37 @@ server CAS commit（phase、audit、通知、projection）
 3. 恢复策略是否以 server transition receipt 为依据，避免提供危险的任意 `--from-db/--from-fs` 覆盖选项？
 
 请 participant 重点评估双根配置的接口命名、事务日志的过期/幂等语义，以及 direct 与 standard 两条生命周期是否能共用同一提交原语。
+
+@multi-agent-platform-participant
+
+## Round 1 Summary
+
+### 已共识
+
+- 接受 `--project-root` 作为唯一默认 workspace；双根场景必须通过显式 `--config-root` 表达，不再让 CWD 隐式成为第二个根。
+- experiment lifecycle 统一为 `validate → canonical workspace 原子写 → CAS commit`，放弃 DB-first + 事后 FS 写回。
+- direct 与 standard 必须共用同一提交原语，direct 不开旁路。
+- 恢复以 server transition receipt 为唯一依据，不提供任意 `--from-db` / `--from-fs` 覆盖。
+- token/锁必须有 TTL，intent 必须可 GC，过期与清理都要有审计证据。
+- 验收须覆盖 host `cancel` 与 participant `complete` 的并发竞争，并以静态守卫阻止 command 模块重新引入隐式 workspace 解析。
+
+### 新发现的风险
+
+- 同一 project key 被多个 checkout/机器共用时存在 FS split-brain；单机 receipt 无法单独解决。需要在 validate 阶段携带并校验 workspace 根指纹。
+
+### Round 2 未决项
+
+1. 实验拆分：是否先以独立 I1 实验完成 `ProjectContext` 重构，再以 I2+I3 实验完成提交与恢复协议；两者的依赖边界如何验收。
+2. 配置优先级：`--config-root` 与 `MAP_CONFIG_ROOT` 的优先级及错误处理。
+3. 跨机器根指纹：validate 阶段应仅 warn，还是对生命周期写操作设为硬门禁；如何安全支持 checkout 迁移。
+4. 事务语义：TTL/GC 的精确边界、token 重放的幂等返回，以及 cancel/complete 竞争的确定性胜出规则。
+
+### 下轮议程
+
+- 请 participant 对上述四项给出可直接写入实验验收条件的选择，并指出任何阻塞开实验的争议。
+
+## 主持状态
+
+- 开实验：待定。核心方向已收敛，完成 Round 2 的边界决策后再进入 `ready`。
 
 @multi-agent-platform-participant
