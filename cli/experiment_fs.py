@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
 
-from map_client.project_config import find_map_dir
+from map_client.project_config import (
+    find_map_dir,  # noqa: F401 — 测试注入面（error envelope 等 monkeypatch）；无调用（实验 e7244a91 A5）
+)
 from map_fs import (
     commit_experiment_index_write,
     experiment_id_for_slug,
@@ -85,19 +87,23 @@ _CONTENT_ROOT = "map"
 
 
 def workspace_root() -> Path | None:
-    map_dir = find_map_dir(None)
-    return None if map_dir is None else map_dir.parent
+    """实验 e7244a91（A1）：workspace 经 ProjectContext 单点解析；解析不出返回 None。
+
+    调用方自行降级（本模块历史语义：None → 只读 API 视角），严格版错误
+    由 ``cli.commands.fs._workspace`` 统一给出 bootstrap 指引。
+    """
+    from cli.project_context import optional_context
+
+    context = optional_context()
+    return None if context is None else context.workspace_root
 
 
 def content_root_name(workspace: Path) -> str:
-    cfg = workspace / ".map" / "config.yaml"
-    if cfg.is_file():
-        import yaml
+    """内容根名单点（context.config.content_root）；``workspace`` 参数仅为调用面保留。"""
+    del workspace
+    from cli.project_context import current_context
 
-        data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
-        if isinstance(data, dict) and data.get("content_root"):
-            return str(data["content_root"])
-    return _CONTENT_ROOT
+    return current_context().content_root
 
 
 def slug_from_plan_file_path(path: str | None) -> str | None:

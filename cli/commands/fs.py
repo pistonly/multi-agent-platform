@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-import yaml
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
 
@@ -23,38 +22,41 @@ from cli.table_render import render_table, truncate
 
 
 def _workspace() -> Path:
-    """定位 workspace（.map/ 的父目录），失败则提示先跑 map bootstrap。"""
-    from map_client.project_config import find_map_dir
+    """定位 workspace（实验 e7244a91 A1：ProjectContext 单点解析）。
 
-    map_dir = find_map_dir(None)
-    if map_dir is None:
-        typer.echo("Error: .map/config.yaml not found. Run `map bootstrap` first.", err=True)
-        raise typer.Exit(1)
-    return map_dir.parent
+    命令模块不再自行 ``find_map_dir(None)``——统一经 ``current_context()``
+    拿入口一次性解析好的 ``workspace_root``（显式 ``--project-root`` 永远
+    优先；未传时 CWD 向上查找一次）。失败则提示先跑 ``map bootstrap``。
+    """
+    from cli.project_context import ProjectRootNotFoundError, current_context
 
-
-def _content_root_name(workspace: Path) -> str:
-    map_cfg = workspace / ".map" / "config.yaml"
-    if map_cfg.is_file():
-        try:
-            data = yaml.safe_load(map_cfg.read_text(encoding="utf-8")) or {}
-        except yaml.YAMLError:
-            data = {}
-        if isinstance(data, dict) and data.get("content_root"):
-            return str(data["content_root"])
-    return "map"
+    try:
+        return current_context().workspace_root
+    except ProjectRootNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
-def _default_persona(workspace: Path) -> str:
-    map_cfg = workspace / ".map" / "config.yaml"
-    if map_cfg.is_file():
-        try:
-            data = yaml.safe_load(map_cfg.read_text(encoding="utf-8")) or {}
-        except yaml.YAMLError:
-            data = {}
-        if isinstance(data, dict) and data.get("default_persona"):
-            return str(data["default_persona"])
-    return "host"
+def _content_root_name(workspace: Path | None = None) -> str:
+    """内容根名（单点：context.config.content_root，默认 ``map``）。
+
+    ``workspace`` 参数仅为既有调用面保留（``fs_write_flow`` / 测试）；
+    值一律来自 ProjectContext 解析的 config——写根永远在 workspace 下
+    （A3：config_root 不改变 map/** 写入根）。
+    """
+    del workspace
+    from cli.project_context import current_context
+
+    return current_context().content_root
+
+
+def _default_persona(workspace: Path | None = None) -> str:
+    """默认 persona（单点：context.config.default_persona，默认 ``host``）。"""
+    del workspace
+    from cli.project_context import current_context
+
+    config = current_context().config
+    return config.default_persona or "host"
 
 
 def _persona(persona: str | None) -> str:
@@ -109,14 +111,16 @@ def fs_init(workspace: Path | None = None) -> None:
 
 
 def is_local_plane(workspace: Path | None = None) -> bool:
-    """当前项目是否为离线本地平面（config.yaml ``plane: local``）；解析错误按 remote。"""
-    try:
-        from map_client.project_config import find_map_dir, load_project_map_config
+    """当前项目是否为离线本地平面（config.yaml ``plane: local``）；解析错误按 remote。
 
-        map_dir = find_map_dir(workspace)
-        if map_dir is None:
-            return False
-        return load_project_map_config(map_dir=map_dir).plane == "local"
+    实验 e7244a91（A1）：plane 是身份配置属性，取
+    ``context.config.plane``（A3 双根——显式 ``--config-root`` 时随配置根）；
+    workspace/config 解析不出（含 ``workspace`` 参数位置传 None）按 remote。
+    """
+    try:
+        from cli.project_context import current_context
+
+        return current_context().config.plane == "local"
     except ValueError:
         return False
 
@@ -146,12 +150,15 @@ def local_topic_slug(ref: str) -> str:
 
 
 def local_actor_persona() -> str:
-    """local plane actor：子命令/全局 --persona > default_persona，按 agents.yaml 归一（无需 token）。"""
-    from map_client.project_config import find_map_dir, load_project_map_config
+    """local plane actor：子命令/全局 --persona > default_persona，按 agents.yaml 归一（无需 token）。
 
+    实验 e7244a91（A1）：config 经 ProjectContext 单点解析，不再裸
+    ``find_map_dir(None)``（.map 缺失时由统一入口给出 bootstrap 指引）。
+    """
     from cli.main import _cli_options  # runtime state (monkeypatch surface)
+    from cli.project_context import current_context
 
-    cfg = load_project_map_config(map_dir=find_map_dir(None))
+    cfg = current_context().config
     persona = _cli_options.get("persona") or cfg.default_persona
     return cfg.resolve_persona(str(persona))
 
@@ -489,16 +496,26 @@ def fs_status(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
 ) -> None:
-    """部署矩阵握手：本地 plane 概览 + server 可达性（local-fs / projection-cache / detached）。"""
+    """部署矩阵握手：本地 plane 概览 + server 可达性（local-fs / projection-cache / detached）。
+
+    实验 e7244a91（A4）：读路径输出 workspace 根指纹（``st_dev + st_ino``
+    锚点，非路径字符串）——server 记录的 ``workspace_path`` 在本机可 stat
+    时比对指纹：同 inode 双挂载（如 /Users/x 与 /Volumes/x）不误报，指纹
+    不一致（疑似两个 clone）warn。lifecycle 写 fail closed 门禁归实验 B。
+    """
     from cli.commands.doctor import warn_config_divergence
     from cli.main import _cli_options  # runtime state (monkeypatch surface)
+    from cli.project_context import current_context
 
     if _cli_options.get("format") in (None, "yaml"):
         warn_config_divergence(project_root=_cli_options.get("project_root"))
 
-    workspace = _workspace()
+    context = current_context()
+    workspace = context.workspace_root
+    local_fingerprint = context.workspace_fingerprint()
 
     def action(c: MAPClient):
+        from map_client.project_context import fingerprint_warnings
         from map_fs import scan_plane
 
         from cli.fs_projection import build_diff_payload
@@ -507,9 +524,17 @@ def fs_status(
         plane = scan_plane(workspace, _content_root_name(workspace))
         status = c.fs_plane_status(pid)
         diff = build_diff_payload(c, pid=pid, workspace=workspace)
+        # A4 读路径 warn：stderr 输出（全格式可见），stdout 保持结构化。
+        # 只警告不阻断——lifecycle 写 fail closed 门禁归实验 B。
+        for warning in fingerprint_warnings(
+            local_fingerprint=local_fingerprint,
+            server_workspace_path=status.workspace_path,
+        ):
+            typer.echo(warning, err=True)
         return {
             "local": {
                 "workspace": str(workspace),
+                "workspace_fingerprint": local_fingerprint,
                 "content_root": _content_root_name(workspace),
                 "topics": len(plane.topics),
                 "experiments": len(plane.experiments),
@@ -526,6 +551,7 @@ def fs_status(
             f"local    : {local['topics']} topic(s), {local['experiments']} experiment(s) "
             f"({local['workspace']}/{local['content_root']}) "
             f"hash={(local.get('content_hash') or '-')[:12]}",
+            f"           fingerprint={local.get('workspace_fingerprint') or '-'}",
             f"server   : mode={server['mode']} workspace_exists={server['workspace_exists']} "
             f"content_root_exists={server['content_root_exists']}",
         ]

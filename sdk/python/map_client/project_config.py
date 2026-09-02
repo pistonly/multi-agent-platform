@@ -56,6 +56,10 @@ class ProjectMapConfig:
     # 平面模式：``local`` = 离线本地平面（零注册/零 token/零 server，见
     # map bootstrap --local）；缺省 ``remote`` = 现状行为。
     plane: str = "remote"
+    # 内容根名（``config.yaml`` ``content_root``，默认 ``map``）。此前由
+    # cli.commands.fs._content_root_name 裸读 yaml；实验 e7244a91（A1）把
+    # 它收进模型，供 ProjectContext.content_root 单点使用。文件格式不变。
+    content_root: str | None = None
 
     def resolve_persona(self, persona: str) -> str:
         """归一到 personas 短名 key：已接受短名，也接受 agent_name 长名。
@@ -158,6 +162,7 @@ def load_project_map_config(
         personas=personas,
         tokens=tokens,
         plane=plane,
+        content_root=str(config["content_root"]) if config.get("content_root") else None,
     )
 
 

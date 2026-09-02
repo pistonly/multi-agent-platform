@@ -89,11 +89,14 @@ def _client_ctx() -> Iterator[MAPClient]:
     # ``resolve_client`` resolved through ``cli.main`` at call time: tests
     # monkeypatch ``cli.main.resolve_client`` to inject stub clients.
     from cli import main as _main
+    from cli.project_context import identity_root
 
     try:
         client = _main.resolve_client(
             persona=_cli_options().get("persona"),
-            project_root=_cli_options().get("project_root"),
+            # A3 双根：身份/API 配置来源根（--config-root > MAP_CONFIG_ROOT >
+            # --project-root）；None 保持 resolve_client 既有 ~/.map 兜底。
+            project_root=identity_root(),
             transport=_transport(),
         )
     except ValueError as exc:
@@ -124,8 +127,9 @@ def _resolve_admin_api_url() -> str:
     bootstrapped project.
     """
     from cli import main as _main  # test injection surface: cli.main.load_project_map_config
+    from cli.project_context import identity_root
 
-    project_root = _cli_options().get("project_root")
+    project_root = identity_root()
     try:
         return _main.load_project_map_config(project_root=project_root).api_url
     except ValueError:
@@ -617,28 +621,41 @@ def _require_option_uuid(value: uuid.UUID | None, *, option: str = "--id") -> uu
 
 
 def _require_map_dir(project_root: Path | None = None) -> Path:
-    """Require `.map/config.yaml`; exit with bootstrap hint if missing."""
-    from cli import main as _main  # test injection surface: cli.main.find_map_dir
+    """Require `.map/config.yaml`; exit with bootstrap hint if missing.
 
-    root = project_root or _cli_options().get("project_root")
-    map_dir = _main.find_map_dir(root)
-    if map_dir is None:
+    实验 e7244a91（A1）：不再自行 ``find_map_dir``，统一走 ProjectContext
+    单点解析；身份 map_dir 取 ``context.config.map_dir``（A3 双根——显式
+    ``--config-root`` 时身份来自 config 根）。子命令级 ``--project-root``
+    沿用 ``persona whoami`` 既有模式：写回 ``_cli_options`` 后解析。
+    """
+    from cli import project_context as ctx_mod
+
+    if project_root is not None:
+        opts = _cli_options()
+        if opts.get("project_root") != project_root:
+            opts["project_root"] = Path(project_root)
+            ctx_mod.reset_context_cache()
+    try:
+        context = ctx_mod.current_context()
+    except (ctx_mod.ProjectRootNotFoundError, ctx_mod.ConfigRootNotFoundError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
         from map_client.project_config import missing_map_config_message
 
-        typer.echo(f"Error: {missing_map_config_message()}", err=True)
-        raise typer.Exit(1)
-    return map_dir
+        typer.echo(f"Error: {missing_map_config_message()} ({exc})", err=True)
+        raise typer.Exit(1) from exc
+    return context.config.map_dir
 
 
 def _resolve_project(client: MAPClient, project: uuid.UUID | None, project_key: str | None) -> uuid.UUID:
-    from cli import main as _main  # test injection surface (find_map_dir / load_project_map_config)
+    from cli.project_context import optional_context
 
-    map_dir = _main.find_map_dir(_cli_options().get("project_root"))
-    if map_dir is not None:
+    context = optional_context()
+    if context is not None:
         try:
-            cfg = _main.load_project_map_config(map_dir=map_dir)
             if project is None and project_key is None:
-                return client.get_project_by_key(cfg.project_key).id
+                return client.get_project_by_key(context.config.project_key).id
         except ValueError:
             pass
     cfg_key = None

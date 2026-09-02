@@ -188,10 +188,11 @@ def topic_list(
     from cli.commands import fs as fs_cli
 
     if fs_cli.is_local_plane():
-        from map_client.project_config import find_map_dir, load_project_map_config
+        from cli.project_context import current_context
 
         def local_action(_c):
-            cfg = load_project_map_config(map_dir=find_map_dir(None))
+            # 实验 e7244a91（A1）：config 经 ProjectContext 单点解析。
+            cfg = current_context().config
             if not cfg.project_id:
                 typer.echo(
                     "Error: plane: local requires project_id in .map/config.yaml",

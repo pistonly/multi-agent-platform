@@ -18,6 +18,7 @@ import platform as _platform
 import urllib.parse
 import webbrowser
 from enum import Enum
+from pathlib import Path
 
 import typer
 
@@ -53,14 +54,16 @@ def _env_lines() -> list[str]:
 
 def _detect_api_url(project_root) -> str:
     try:
-        import yaml
-        from map_client.project_config import find_map_dir
+        if project_root is not None:
+            from map_client.project_config import load_project_map_config
 
-        map_dir = find_map_dir(project_root)
-        if map_dir is None:
+            return str(load_project_map_config(project_root=Path(project_root)).api_url)
+        from cli.project_context import optional_context
+
+        context = optional_context()
+        if context is None:
             return "(no .map/config.yaml found)"
-        config = yaml.safe_load((map_dir / "config.yaml").read_text(encoding="utf-8")) or {}
-        return str(config.get("api_url") or "(api_url not set)")
+        return str(context.config.api_url or "(api_url not set)")
     except Exception:
         return "(unknown)"
 

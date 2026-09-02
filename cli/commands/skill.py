@@ -266,11 +266,15 @@ def _echo_diff_summary(skill_name: str, diff: dict[str, Any]) -> None:
 
 def _post_install_self_check(target: Path) -> None:
     """M52A 装后自检：输出验证链路的下一步命令与故障定位锚点。"""
+    from cli.project_context import optional_context
+
     typer.echo(
         "\nSelf-check: verify the chain with:\n"
         "  map --persona host persona whoami"
     )
-    if not (Path.cwd() / ".map" / "config.yaml").is_file():
+    # 实验 e7244a91（A5）：不再裸看 CWD——显式 --project-root / 向上解析
+    # 均找不到 MAP workspace 时才告警。
+    if optional_context() is None:
         typer.echo(
             "  [WARN] .map/config.yaml not found in the current directory — "
             "run `map bootstrap --key <project-key> --name \"<Project Name>\" "

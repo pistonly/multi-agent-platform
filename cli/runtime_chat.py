@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from map_client.project_config import find_map_dir
 
 from cli.agent_client import PersonaAgentClient, WakeUpEvent
 from cli.bridge_state import load_bridge_state, save_bridge_state
@@ -34,10 +33,22 @@ Commands:
 
 
 def resolve_project_root(project_root: Path | None) -> Path:
+    """实验 e7244a91（A1）：workspace 经 ProjectContext 单点解析。
+
+    解析不出（无 .map/config.yaml）时给出 bootstrap 指引并退出——此前
+    map_dir 为 None 会以 AttributeError 裸崩。
+    """
+    import typer as _typer
+
+    from cli.project_context import ProjectRootNotFoundError, current_context
+
     if project_root is not None:
         return project_root.resolve()
-    map_dir = find_map_dir(None)
-    return map_dir.parent.resolve()
+    try:
+        return current_context().workspace_root.resolve()
+    except ProjectRootNotFoundError as exc:
+        _typer.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
 
 
 def default_state_file(project_root: Path, persona: str) -> Path:

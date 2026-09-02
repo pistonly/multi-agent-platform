@@ -9,7 +9,6 @@ from pathlib import Path
 
 import typer
 from map_client.client import MAPClient
-from map_client.project_config import find_map_dir  # noqa: E402
 from map_types.schemas import ProjectStatusRevise
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
@@ -120,9 +119,14 @@ def project_export(
     from cli.project_export import export_project_history
 
     if output_dir is None:
-        from cli.main import _cli_options  # runtime state (monkeypatch surface)
-        map_dir = find_map_dir(_cli_options.get("project_root"))
-        output_dir = map_dir / "history" if map_dir is not None else Path(".map") / "history"
+        from cli.project_context import optional_context
+
+        # 实验 e7244a91（A1）：默认导出到 workspace 的 .map/history/；
+        # workspace 解析不出时保持既有相对路径降级。
+        context = optional_context()
+        output_dir = (
+            context.map_dir / "history" if context is not None else Path(".map") / "history"
+        )
 
     def action(c: MAPClient):
         pid = runner._resolve_project(c, project, project_key)

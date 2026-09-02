@@ -19,10 +19,11 @@ from map_client.bootstrap import (
 from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
 from map_client.project_config import (
-    find_map_dir,
-    load_project_map_config,
+    find_map_dir,  # noqa: F401 — 注入面：cli 侧经运行时读取（cli.project_context）
+    load_project_map_config,  # noqa: F401 — 同上（runner._resolve_admin_api_url 注入面）
     resolve_client,  # noqa: F401
 )
+from map_client.project_context import ConfigRootNotFoundError
 
 # arch experiment (0519e2a3) PR1: shared SDK umbrella. Later PRs move
 # shared helpers here (see plan). The CLI must stay importable even
@@ -57,6 +58,12 @@ from cli.commands.verify_audit import verify_audit_app
 from cli.commands.version import version_app
 from cli.commands.waker_status import waker_app
 from cli.e2e_collab import e2e_app
+
+# 实验 e7244a91（A1）：CLI 进程内 ProjectContext 单点解析入口。命令模块
+# 一律经 ``cli.project_context.current_context()`` 取 workspace/config 根，
+# 不再各自 ``find_map_dir(None)`` / ``Path.cwd()`` 隐式解析（静态守卫
+# tests/test_cli_context_guard.py 强制）。
+from cli.project_context import default_bootstrap_root, identity_root
 
 # T23（2026-08）：命令执行链（_run / client ctx / envelope / 序列化 /
 # 引用解析）已拆至 ``cli.runner``，文件读取辅助拆至 ``cli.io_helpers``。
@@ -125,7 +132,12 @@ app.add_typer(waker_app, name="waker")
 app.add_typer(verify_audit_app, name="fs")
 
 _transport: httpx.BaseTransport | None = None
-_cli_options: dict[str, Any] = {"persona": None, "project_root": None, "format": "yaml"}
+_cli_options: dict[str, Any] = {
+    "persona": None,
+    "project_root": None,
+    "config_root": None,  # 实验 e7244a91 A3：--config-root 双根显式化
+    "format": "yaml",
+}
 
 
 def _cli_version() -> str:
@@ -159,6 +171,20 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def _identity_root_safe() -> Path | None:
+    """A3 显式 config 根 fail closed 在回调早期生效（干净报错，不裸 traceback）。
+
+    仅在 ``--config-root`` / ``MAP_CONFIG_ROOT`` 显式给出且缺
+    ``.map/config.yaml`` 时报错退出；未显式给根时返回现有 project_root
+    （可能为 None，读不到配置即走默认格式，行为不变）。
+    """
+    try:
+        return identity_root()
+    except ConfigRootNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
 @app.callback()
 def cli_global_options(
     version_flag: bool = typer.Option(
@@ -179,6 +205,16 @@ def cli_global_options(
         "--project-root",
         help="Code repo root containing .map/ (default: search upward from cwd)",
     ),
+    config_root: Path | None = typer.Option(
+        None,
+        "--config-root",
+        help=(
+            "Identity/API config root (A3 dual-root): priority --config-root > "
+            "MAP_CONFIG_ROOT env > workspace root. Explicit root must contain "
+            ".map/config.yaml (fail closed, no CWD fallback). Never changes the "
+            "map/** write root — that always follows the workspace root."
+        ),
+    ),
     output_format: str | None = typer.Option(
         None,
         "--format",
@@ -198,6 +234,12 @@ def cli_global_options(
         help="Shortcut for --format json. Overrides --format and MAP_CLI_FORMAT.",
     ),
 ) -> None:
+    # 先落位全局选项再解析 format：_identity_root_safe() 经 _cli_options
+    # 读 project/config 根（实验 e7244a91 A3），读取必须发生在写入之后。
+    _cli_options["persona"] = persona
+    _cli_options["project_root"] = project_root
+    _cli_options["config_root"] = config_root
+
     # 8a8822b5 (f): resolve --format / MAP_CLI_FORMAT priority.
     # --json shortcut > Explicit --format flag > MAP_CLI_FORMAT env var > default 'yaml'.
     env_format = os.environ.get("MAP_CLI_FORMAT", "").strip().lower() or None
@@ -231,7 +273,7 @@ def cli_global_options(
         and output_format is None
         and env_format is None
     ):
-        config_default = _project_cli_default_format(project_root)
+        config_default = _project_cli_default_format(_identity_root_safe())
         if config_default in ("yaml", "json"):
             resolved = config_default
             source = "config cli.default_format"
@@ -255,13 +297,11 @@ def cli_global_options(
     resolved, source, n2_warnings = _apply_n2_hard_cutover(
         current_format=resolved,
         current_source=source,
-        project_root=project_root,
+        project_root=_identity_root_safe(),
     )
     for warning in n2_warnings:
         typer.echo(warning, err=True)
 
-    _cli_options["persona"] = persona
-    _cli_options["project_root"] = project_root
     _cli_options["format"] = resolved
     _cli_options["format_source"] = source
 
@@ -300,7 +340,9 @@ def map_bootstrap(
     ),
 ) -> None:
     """Register MAP project + persona agents; write .map/ config (requires admin token)."""
-    root = (project_root or Path.cwd()).resolve()
+    # 创建型命令：CWD 是「创建 .map/ 的默认目标根」，不是隐式 workspace
+    # 解析（唯一被守卫允许的 Path.cwd() 语义落在 cli.project_context）。
+    root = (project_root or default_bootstrap_root()).resolve()
     workspace = path or root
     display_name = name or key
 
@@ -426,10 +468,12 @@ def map_me() -> None:
         payload = me.model_dump(mode="json")
         if _cli_options.get("persona"):
             payload["persona"] = _cli_options["persona"]
-        elif find_map_dir(_cli_options.get("project_root")):
-            payload["persona"] = load_project_map_config(
-                project_root=_cli_options.get("project_root")
-            ).default_persona
+        else:
+            from cli.project_context import optional_context
+
+            context = optional_context()
+            if context is not None:
+                payload["persona"] = context.config.default_persona
         return payload
 
     _run(action)

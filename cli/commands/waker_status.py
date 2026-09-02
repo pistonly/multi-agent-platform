@@ -15,9 +15,20 @@ waker_app = typer.Typer(help="Waker 运维视图（实验 waker-status-view；�
 
 
 def _resolve_state_dir(project_root: Path | None) -> Path:
-    """Resolve ``.map/`` directory under project_root (or cwd)。"""
-    root = project_root or Path.cwd()
-    return root / ".map"
+    """Resolve ``.map/`` directory under project_root（实验 e7244a91 A1：经
+    ProjectContext 单点解析；子命令级 ``--project-root`` 优先）。
+
+    解析不出时回退 cwd-relative ``.map``（waker 视图对未 bootstrap 目录
+    只读探测，保持「state 文件不存在 → 空视图」的既有降级）。
+    """
+    if project_root is not None:
+        return Path(project_root) / ".map"
+    from cli.project_context import optional_context
+
+    context = optional_context()
+    if context is not None:
+        return context.map_dir
+    return Path(".map")
 
 
 @waker_app.callback()
@@ -114,7 +125,15 @@ def waker_costs(
         )
         raise typer.Exit(1)
 
-    root = project_root or Path.cwd()
+    if project_root is not None:
+        root = Path(project_root)
+    else:
+        from cli.project_context import optional_context
+
+        context = optional_context()
+        # cost ledger 扫描 root 下的 .map/ 日志；未 bootstrap 目录保持
+        # cwd-relative 降级（与 _resolve_state_dir 同语义）。
+        root = context.workspace_root if context is not None else Path(".")
 
     def _action(client) -> None:
         project_id = runner._resolve_project(client, None, None)

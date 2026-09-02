@@ -49,6 +49,9 @@ def local_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
     monkeypatch.setattr(pc, "find_map_dir", lambda start=None: map_dir)
+    # 实验 e7244a91（A1）：context 单点解析经 cli.main 注入面读 find_map_dir，
+    # 与 pc.find_map_dir 一并钉住，避免解析回真实仓库 .map/。
+    monkeypatch.setattr(cli.main, "find_map_dir", lambda start=None: map_dir)
 
     # 零客户端守卫：local plane 命令若误建客户端，会拿到与真实
     # resolve_client 一致的 ValueError（→ exit 1），断言 exit 0 的测试即失败；

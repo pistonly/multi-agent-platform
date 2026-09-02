@@ -13,7 +13,6 @@ from typing import Any
 import typer
 import yaml
 from map_client.client import MAPClient
-from map_client.project_config import find_map_dir, load_project_map_config
 
 from cli.runner import _to_yamlable  # noqa: E402
 
@@ -146,17 +145,20 @@ def _persona_compare_view(
     # Lazy import: ``_cli_options`` / ``_transport`` / ``_to_yamlable``
     # live on the ``cli.main`` module state; importing them lazily keeps
     # this module importable from cli.main without a cycle.
-    from cli.main import _cli_options, _transport  # runtime state (monkeypatch surface)
+    from cli.main import _transport  # runtime state (monkeypatch surface)
+    from cli.project_context import current_context
 
-    map_dir = find_map_dir(_cli_options.get("project_root"))
-    if map_dir is None:
+    try:
+        # 实验 e7244a91（A1/A3）：身份配置经 ProjectContext 单点解析
+        # （显式 --config-root 时随配置根）。
+        config = current_context().config
+    except ValueError as exc:
         typer.echo(
             "Error: --persona-compare needs .map/agents.local.yaml; "
             "run `map bootstrap` first.",
             err=True,
         )
-        raise typer.Exit(2)
-    config = load_project_map_config(map_dir=map_dir)
+        raise typer.Exit(2) from exc
 
     selected = personas or sorted(config.tokens.keys())
 

@@ -42,15 +42,11 @@ def looks_like_uuid_or_shortid(raw: str) -> bool:
 
 
 def _optional_workspace() -> Path | None:
-    from pathlib import Path
+    """实验 e7244a91（A1）：workspace 经 ProjectContext 单点解析；解析不出返回 None。"""
+    from cli.project_context import optional_context
 
-    from map_client.project_config import find_map_dir
-
-    from cli.main import _cli_options  # runtime state (monkeypatch surface)
-
-    start = _cli_options.get("project_root")
-    map_dir = find_map_dir(Path(start) if start else None)
-    return None if map_dir is None else map_dir.parent
+    context = optional_context()
+    return None if context is None else context.workspace_root
 
 
 def experiment_slug_from_plan_path(plan_file_path: str | None) -> str | None:
@@ -67,20 +63,26 @@ def experiment_slug_from_plan_path(plan_file_path: str | None) -> str | None:
 def _local_topic_slug_hit(raw: str) -> str | None:
     from map_fs import parse_topic_dir, topic_id_for_slug
 
-    workspace = _optional_workspace()
-    if workspace is None:
+    from cli.project_context import optional_context
+
+    context = optional_context()
+    if context is None:
         return None
+    workspace = context.workspace_root
+    # 内容根名不再硬编码 "map"——随 ProjectContext.config.content_root
+    # （此前与 _content_root_name 双轨，实验 e7244a91 A1 收口）。
+    content_root = context.content_root
     body = _hex_body(raw)
     if len(body) == 32 and _HEX.fullmatch(body):
         want = uuid.UUID(body)
-        topics_dir = workspace / "map" / "topics"
+        topics_dir = workspace / content_root / "topics"
         if not topics_dir.is_dir():
             return None
         for entry in topics_dir.iterdir():
             if entry.is_dir() and topic_id_for_slug(entry.name) == want:
                 return entry.name
         return None
-    topic_dir = workspace / "map" / "topics" / raw
+    topic_dir = workspace / content_root / "topics" / raw
     t = parse_topic_dir(topic_dir, workspace)
     return t.slug if t is not None else None
 

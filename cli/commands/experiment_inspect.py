@@ -283,7 +283,15 @@ def _show_experiment_cost(
     project_id = runner._resolve_project(client, None, None)
     experiments = _fetch_experiment_windows(client, project_id)
     exp_uuid = _rid(client, raw)
-    root = project_root or Path.cwd()
+    if project_root is not None:
+        root = Path(project_root)
+    else:
+        from cli.project_context import optional_context
+
+        context = optional_context()
+        # cost ledger 扫描 root 下的 .map/ 日志；未 bootstrap 目录保持
+        # cwd-relative 降级（与 waker_status 同语义）。
+        root = context.workspace_root if context is not None else Path(".")
     breakdown = render_experiment_view(
         root,
         experiment_id=str(exp_uuid),

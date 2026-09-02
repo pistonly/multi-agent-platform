@@ -39,11 +39,14 @@ def _fs_workspace_and_root() -> tuple[Path, str]:
 
 
 def _optional_workspace() -> Path | None:
-    """``.map/`` 缺失时返回 None，不退出——list 合并需要能退化成纯 API。"""
-    from map_client.project_config import find_map_dir
+    """``.map/`` 缺失时返回 None，不退出——list 合并需要能退化成纯 API。
 
-    map_dir = find_map_dir(None)
-    return None if map_dir is None else map_dir.parent
+    实验 e7244a91（A1）：经 ProjectContext 单点解析，不再裸 ``find_map_dir(None)``。
+    """
+    from cli.project_context import optional_context
+
+    context = optional_context()
+    return None if context is None else context.workspace_root
 
 
 # 与 server/services/fs_source_service.py 同源：persona 名 → 稳定展示用 uuid。

@@ -376,8 +376,11 @@ def server_bootstrap(
         typer.echo(f"MAP server started at http://localhost:{port}")
 
     from cli.main import _transport  # runtime state (monkeypatch surface)
+    from cli.project_context import default_bootstrap_root
 
-    root = (project_root or Path.cwd()).resolve()
+    # 创建型命令：CWD 是「创建 .map/ 的默认目标根」，不是隐式 workspace 解析
+    # （守卫唯一落点 cli.project_context.default_bootstrap_root，实验 e7244a91 A5）。
+    root = (project_root or default_bootstrap_root()).resolve()
     workspace = path or root
     display_name = name or key
     api_url = f"http://localhost:{port}"

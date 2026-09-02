@@ -9,7 +9,7 @@ from pathlib import Path
 
 import typer
 from map_client.client import MAPClient
-from map_client.project_config import find_map_dir, load_project_map_config
+from map_client.project_config import load_project_map_config
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.runner import _print_json, _require_map_dir  # noqa: E402
@@ -60,10 +60,12 @@ def persona_whoami(
         payload = me.model_dump(mode="json")
         if _cli_options.get("persona"):
             payload["persona"] = _cli_options["persona"]
-        elif find_map_dir(_cli_options.get("project_root")):
-            payload["persona"] = load_project_map_config(
-                project_root=_cli_options.get("project_root")
-            ).default_persona
+        else:
+            from cli.project_context import optional_context
+
+            context = optional_context()
+            if context is not None:
+                payload["persona"] = context.config.default_persona
         return payload
 
     runner._run(action)

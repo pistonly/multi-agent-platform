@@ -17,7 +17,6 @@ import uuid
 
 import typer
 from map_client.client import MAPClient
-from map_client.project_config import find_map_dir  # noqa: E402
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 
@@ -30,14 +29,20 @@ sync_app = typer.Typer(
 
 
 def _require_cache_session():
-    """Open the local cache DB, exiting with a helpful hint if .map/ is missing."""
-    from cli.local_cache import get_cache_path, init_cache
-    from cli.main import _cli_options  # runtime state (monkeypatch surface)
+    """Open the local cache DB, exiting with a helpful hint if .map/ is missing.
 
-    map_dir = find_map_dir(_cli_options.get("project_root"))
-    if map_dir is None:
-        typer.echo("Error: .map/ directory not found. Run `map bootstrap` first.", err=True)
-        raise typer.Exit(1)
+    实验 e7244a91（A1/A3）：cache.db 落在 **workspace** 的 ``.map/``（写根
+    随 workspace_root，不随 --config-root）；map_dir 经 ProjectContext
+    单点解析。
+    """
+    from cli.local_cache import get_cache_path, init_cache
+    from cli.project_context import ProjectRootNotFoundError, current_context
+
+    try:
+        map_dir = current_context().map_dir
+    except ProjectRootNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
     db_path = get_cache_path(map_dir)
     return map_dir, db_path, init_cache(db_path)
 

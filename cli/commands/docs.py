@@ -37,12 +37,15 @@ _ERROR_CODES_SEARCH_FIELDS: tuple[str, ...] = (
 )
 
 
-def _resolve_repo_root(start: Path | None = None) -> Path:
-    """Walk upward from ``start`` (or cwd) until a directory containing
+def _resolve_repo_root(start: Path) -> Path:
+    """Walk upward from ``start`` until a directory containing
     ``docs/error-codes/index.json`` is found. Falls back to the start
     directory if not found, so the loader can produce a clean error.
+
+    ``start`` 由调用方给足（--project-root > 全局选项 > workspace 根），
+    命令模块不再隐式 ``Path.cwd()``（实验 e7244a91 A5）。
     """
-    current = (start or Path.cwd()).resolve()
+    current = start.resolve()
     for candidate in [current, *current.parents]:
         if (candidate / _ERROR_CODES_INDEX_RELATIVE).is_file():
             return candidate
@@ -53,8 +56,22 @@ def _load_error_codes_index(
     project_root: Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     from cli.main import _cli_options  # runtime state (monkeypatch surface)
+    from cli.project_context import optional_context
 
-    repo_root = _resolve_repo_root(project_root or _cli_options.get("project_root"))
+    start = project_root or _cli_options.get("project_root")
+    if start is None:
+        context = optional_context()
+        if context is None:
+            # 无任何可用的搜索起点：与旧「cwd 找不到 index → 干净报错」
+            # 行为等价，改为显式指引（不再隐式 Path.cwd()）。
+            typer.echo(
+                "Error: cannot locate docs/error-codes/index.json — pass "
+                "--project-root or run inside a MAP workspace.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        start = context.workspace_root
+    repo_root = _resolve_repo_root(start)
     index_path = repo_root / _ERROR_CODES_INDEX_RELATIVE
     if not index_path.is_file():
         typer.echo(
