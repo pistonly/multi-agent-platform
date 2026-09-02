@@ -264,3 +264,4 @@ class FsWorkItem:
     title: str
     round: int
     detail: str
+    suggested_command: str = ""  # 清理该项的可执行命令（占位符 <md> 等由调用者填充）

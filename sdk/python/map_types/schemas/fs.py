@@ -124,6 +124,7 @@ class FsWorkItemRead(BaseModel):
     title: str
     round: int
     detail: str
+    suggested_command: str | None = None
 
 
 # ---------------------------------------------------------------------------

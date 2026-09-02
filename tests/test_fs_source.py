@@ -48,14 +48,80 @@ def test_write_and_parse_roundtrip(tmp_path: Path) -> None:
     assert topic.participants == ["host", "participant"]
 
 
+def test_same_round_ordering_by_posted_at_not_filename(tmp_path: Path) -> None:
+    """同轮内最新发言按 posted_at 判定，不受 persona 文件名字典序影响。
+
+    host 文件名字典序恒在 participant 前（round2-host < round2-participant）：
+    host 同轮普通发言接棒（更晚 posted_at）必须成为 last，否则 unread_change
+    无法通过 host 普通发言清除；Summary 仍恒排同轮末尾（即使 posted_at 更早）。
+    """
+    write_topic_index(tmp_path, "ord", title="Ord", creator="host")
+    write_round_comment(tmp_path, "ord", round_number=2, persona="participant", body="# p 先说")
+    host_path = write_round_comment(
+        tmp_path, "ord", round_number=2, persona="host", body="# host 接棒"
+    )
+    # host 的 posted_at 固定为明显更晚的时间（连续写入可能落在同一微秒）
+    host_path.write_text(
+        re.sub(
+            r"posted_at: .*",
+            "posted_at: '2099-01-01T00:00:00+00:00'",
+            host_path.read_text(encoding="utf-8"),
+            count=1,
+        ),
+        encoding="utf-8",
+    )
+    comments = scan_plane(tmp_path).topics[0].comments
+    assert comments[-1].author == "host"
+    assert not comments[-1].is_round_summary
+
+    # Summary 恒排同轮末尾：即使其 posted_at 早于普通发言
+    summary_path = write_round_comment(
+        tmp_path, "ord", round_number=2, persona="participant", body="# p 收尾", is_round_summary=True
+    )
+    summary_path.write_text(
+        re.sub(
+            r"posted_at: .*",
+            "posted_at: '2000-01-01T00:00:00+00:00'",
+            summary_path.read_text(encoding="utf-8"),
+            count=1,
+        ),
+        encoding="utf-8",
+    )
+    comments = scan_plane(tmp_path).topics[0].comments
+    assert comments[-1].is_round_summary
+    assert comments[-1].author == "participant"
+
+
 def test_comment_file_is_immutable_by_default(tmp_path: Path) -> None:
     write_topic_index(tmp_path, "x", title="X", creator="host")
     write_round_comment(tmp_path, "x", round_number=1, persona="host", body="first")
     with pytest.raises(FileExistsError):
         write_round_comment(tmp_path, "x", round_number=1, persona="host", body="second")
-    # --force 才允许覆盖
-    write_round_comment(tmp_path, "x", round_number=1, persona="host", body="v2", overwrite=True)
-    assert scan_plane(tmp_path).topics[0].comments[0].content.strip() == "v2"
+    # --force 对普通发言也不再放行（immutable 无例外；替换走删文件回退约定）
+    with pytest.raises(FileExistsError):
+        write_round_comment(tmp_path, "x", round_number=1, persona="host", body="v2", overwrite=True)
+    assert scan_plane(tmp_path).topics[0].comments[0].content.strip() == "first"
+
+
+def test_force_replaces_existing_summary_only(tmp_path: Path) -> None:
+    write_topic_index(tmp_path, "sx", title="SX", creator="host")
+    write_round_comment(
+        tmp_path, "sx", round_number=1, persona="host", body="v1", is_round_summary=True
+    )
+    # --force 显式替换已发布的 Summary：放行
+    replaced = write_round_comment(
+        tmp_path,
+        "sx",
+        round_number=1,
+        persona="host",
+        body="v2",
+        is_round_summary=True,
+        overwrite=True,
+    )
+    assert replaced.name == "round1-summary-host.md"
+    comments = scan_plane(tmp_path).topics[0].comments
+    summary = [c for c in comments if c.is_round_summary][0]
+    assert summary.content.strip() == "v2"
 
 
 def test_round_summary_is_separate_and_preserves_original_comment(tmp_path: Path) -> None:
@@ -126,9 +192,19 @@ def test_derive_work_from_file_presence(tmp_path: Path) -> None:
 
     host_items = derive_work(topic, "host")
     assert any(i.kind == "round_ack_pending" and "participant" in i.detail for i in host_items)
+    assert any(
+        i.suggested_command == f"map topic advance-round --topic {topic.slug}"
+        for i in host_items
+        if i.kind == "round_ack_pending"
+    )
 
     part_items = derive_work(topic, "participant")
     assert any(i.kind == "pending_topic_reply" and i.round == 2 for i in part_items)
+    assert any(
+        i.suggested_command == f"map topic comment --topic {topic.slug} --file <md>"
+        for i in part_items
+        if i.kind == "pending_topic_reply"
+    )
 
 
 def test_creator_does_not_need_round_opening_file_after_advance(tmp_path: Path) -> None:
@@ -241,12 +317,22 @@ def test_legacy_topic_without_declared_participants(tmp_path: Path) -> None:
 
 
 def test_overwrite_refreshes_posted_at(tmp_path: Path) -> None:
-    """--force 覆盖写刷新 posted_at，消除审计歧义。"""
+    """--force 替换 Summary 刷新 posted_at，消除审计歧义（普通发言不可覆盖）。"""
     write_topic_index(tmp_path, "ow", title="OW", creator="host")
-    write_round_comment(tmp_path, "ow", round_number=1, persona="host", body="v1")
+    write_round_comment(
+        tmp_path, "ow", round_number=1, persona="host", body="v1", is_round_summary=True
+    )
     first = scan_plane(tmp_path).topics[0].comments[0].posted_at
 
-    write_round_comment(tmp_path, "ow", round_number=1, persona="host", body="v2", overwrite=True)
+    write_round_comment(
+        tmp_path,
+        "ow",
+        round_number=1,
+        persona="host",
+        body="v2",
+        is_round_summary=True,
+        overwrite=True,
+    )
     second = scan_plane(tmp_path).topics[0].comments[0].posted_at
     assert second is not None and first is not None
     assert second >= first
@@ -919,6 +1005,16 @@ def test_fs_unread_change_handoff(
     # participant 发言（交接）→ host 立即得到 unread_change，无需等 stale
     write_round_comment(tmp_path, "handoff", round_number=1, persona="participant", body="# 回应\nparticipant 意见")
     assert "unread_change" in _kinds(host_headers, "handoff")
+    # FS 投影给出可直接执行的清理命令（带真实 slug）
+    host_work = client.get("/api/v1/agents/me/work", headers=host_headers).json()
+    host_items = [
+        w
+        for item in host_work["topic_progress"]["items"]
+        if item["topic_id"] == str(topic_id_for_slug("handoff"))
+        for w in item["work_items"]
+    ]
+    unread = [w for w in host_items if w["kind"] == "unread_change"][0]
+    assert unread["suggested_command"] == "map topic comment --topic handoff --file <md>"
     # participant 自己是最新发言者 → 自己的 unread_change 消失（仅剩义务项）
     assert "unread_change" not in _kinds(participant_headers, "handoff")
     assert "unread_change" not in _kinds(reviewer_headers, "handoff")

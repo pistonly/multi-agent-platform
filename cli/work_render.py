@@ -25,14 +25,19 @@ _CLEAR_ACTION_TEMPLATES: dict[str, str] = {
 def render_clear_action_template(work_item: dict[str, Any]) -> str:
     """Render a deterministic CLI hint for a topic work item's clear_action.
 
-    Returns the literal string for the ``clear_action`` value with the
-    placeholder fields replaced from the work item payload. The four
-    ``clear_action`` values are mapped to the matching ``map`` CLI
-    command; ``read`` is a free-form reading instruction (no CLI verb).
+    Work items carrying a server-generated ``suggested_command`` (FS plane
+    fills the exact command with real slug/args) use it verbatim; the
+    static ``clear_action`` templates below are the fallback for payloads
+    without one (DB-era items, older servers). The four ``clear_action``
+    values map to the matching ``map`` CLI command; ``read`` is a
+    free-form reading instruction (no CLI verb).
 
     The output is purely mechanical — no LLM, no environment lookups —
     so callers can diff the rendered strings in tests.
     """
+    suggested = work_item.get("suggested_command")
+    if suggested:
+        return str(suggested)
     clear_action = work_item.get("clear_action")
     template = _CLEAR_ACTION_TEMPLATES.get(clear_action or "")
     if template is None:

@@ -354,6 +354,12 @@ def experiment_create(
                 f"for details, or re-run with --force-lint-bypass to skip the local check.",
                 err=True,
             )
+            # 内联详情：省一次 validate 调用（4 个必填字段缺任一即在此看全）
+            for w in result.warnings:
+                if w.code in ("PLAN_MARKER_MISSING_FIELD", "PLAN_MARKER_EMPTY_LIST"):
+                    typer.echo(f"  - {w.code}: field '{w.field}'", err=True)
+                else:
+                    typer.echo(f"  - {w.code}: {w.detail or ''}".rstrip(), err=True)
             raise typer.Exit(2)
 
     # Validate mode value early so the user gets a clear error.

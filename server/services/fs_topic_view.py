@@ -415,6 +415,13 @@ def fs_work_items(project: Project, persona: str) -> list[FsWorkItemRead]:
     for topic in plane.topics:
         items.extend(derive_work(topic, persona))
     return [
-        FsWorkItemRead(kind=i.kind, topic_slug=i.topic_slug, title=i.title, round=i.round, detail=i.detail)
+        FsWorkItemRead(
+            kind=i.kind,
+            topic_slug=i.topic_slug,
+            title=i.title,
+            round=i.round,
+            detail=i.detail,
+            suggested_command=i.suggested_command or None,
+        )
         for i in items
     ]

@@ -64,18 +64,28 @@ def test_plane_cache_invalidates_on_new_file(tmp_path: Path) -> None:
 
 def test_plane_cache_invalidates_on_rewrite(tmp_path: Path) -> None:
     write_topic_index(tmp_path, "rw", title="RW", creator="host")
-    write_round_comment(tmp_path, "rw", round_number=1, persona="host", body="v1")
+    write_round_comment(
+        tmp_path, "rw", round_number=1, persona="host", body="v1", is_round_summary=True
+    )
     project = _project_at(tmp_path)
 
     first = fs_source_service.plane_for_project(project)
-    assert first.topics[0].comments[0].content.strip() == "v1"
+    summary = [c for c in first.topics[0].comments if c.is_round_summary][0]
+    assert summary.content.strip() == "v1"
 
     write_round_comment(
-        tmp_path, "rw", round_number=1, persona="host", body="v2", overwrite=True
+        tmp_path,
+        "rw",
+        round_number=1,
+        persona="host",
+        body="v2",
+        is_round_summary=True,
+        overwrite=True,
     )
     second = fs_source_service.plane_for_project(project)
+    summary2 = [c for c in second.topics[0].comments if c.is_round_summary][0]
 
-    assert second.topics[0].comments[0].content.strip() == "v2"
+    assert summary2.content.strip() == "v2"
 
 
 def test_plane_cache_reset_forces_rescan(tmp_path: Path) -> None:

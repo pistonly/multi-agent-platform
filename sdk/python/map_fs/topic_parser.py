@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -168,7 +169,16 @@ def parse_topic_dir(topic_dir: Path, workspace: Path) -> FsTopic | None:
             updated_at = posted_at
 
     # 同轮 Summary 稳定排在普通发言之后，不受 persona 字典序影响。
-    comments.sort(key=lambda c: (c.round, c.is_round_summary, c.file_path))
+    # 同轮 Summary 稳定排在普通发言之后；普通发言按 posted_at 排序——
+    # 「最新发言者」按时间判定，host 同轮接棒也能清掉 unread_change，
+    # file_path 仅作 tie-break（同刻写入的稳定序）。
+    def _sort_key(c: FsComment) -> tuple:
+        posted = c.posted_at
+        if posted is not None and posted.tzinfo is None:
+            posted = posted.replace(tzinfo=timezone.utc)  # 防御 naive 值混比
+        return (c.round, c.is_round_summary, posted or datetime.min.replace(tzinfo=timezone.utc), c.file_path)
+
+    comments.sort(key=_sort_key)
     for seq, comment in enumerate(comments, start=1):
         comment.comment_seq = seq
 
@@ -323,6 +333,7 @@ def derive_work(topic: FsTopic, persona: str) -> list[FsWorkItem]:
                 title=topic.title,
                 round=current,
                 detail=f"round{current} 尚无 {persona} 的发言文件",
+                suggested_command=f"map topic comment --topic {topic.slug} --file <md>",
             )
         )
     if persona == topic.creator:
@@ -340,6 +351,7 @@ def derive_work(topic: FsTopic, persona: str) -> list[FsWorkItem]:
                     title=topic.title,
                     round=current,
                     detail=detail,
+                    suggested_command=f"map topic advance-round --topic {topic.slug}",
                 )
             )
     return items

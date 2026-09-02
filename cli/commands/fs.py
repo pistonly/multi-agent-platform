@@ -231,7 +231,7 @@ def fs_comment(
     force: bool = typer.Option(
         False,
         "--force",
-        help="覆盖已有评论文件（破坏 immutable 约定）；不豁免 frontmatter 前置校验（W1）",
+        help="仅允许替换已存在的 Round Summary 文件；普通发言始终 immutable；不豁免 frontmatter 前置校验（W1）",
     ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
@@ -246,8 +246,9 @@ def fs_comment(
     current = round_number if round_number is not None else _current_round(workspace, topic)
     if force:
         typer.echo(
-            "Warning: --force overwrites an existing comment file (breaks the "
-            "immutable convention). Commit first if you need the old content auditable.",
+            "Warning: --force only replaces an existing round summary file "
+            "(round<N>-summary-<persona>.md); plain comments stay immutable. "
+            "Commit first if you need the old content auditable.",
             err=True,
         )
     try:
@@ -262,7 +263,7 @@ def fs_comment(
             overwrite=force,
         )
     except FileExistsError as err:
-        typer.echo(f"Error: {err} (use --force to overwrite)", err=True)
+        typer.echo(f"Error: {err}", err=True)
         raise typer.Exit(1) from err
     except ValueError as err:
         # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）
@@ -387,8 +388,10 @@ def fs_work(persona: str | None = typer.Option(None, "--persona")) -> None:
     if not items:
         typer.echo(f"(no folder work for {who})")
         return
-    headers = ["Kind", "Topic", "Round", "Detail"]
-    rows = [[i.kind, i.topic_slug, str(i.round), i.detail] for i in items]
+    headers = ["Kind", "Topic", "Round", "Detail", "Suggested command"]
+    rows = [
+        [i.kind, i.topic_slug, str(i.round), i.detail, i.suggested_command] for i in items
+    ]
     typer.echo(render_table(headers, rows))
 
 

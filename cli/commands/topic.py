@@ -415,7 +415,7 @@ def topic_comment(
     force: bool = typer.Option(
         False,
         "--force",
-        help="覆盖已有评论文件（破坏 immutable 约定）；不豁免 frontmatter 前置校验",
+        help="仅允许替换已存在的 Round Summary 文件；普通发言始终 immutable；不豁免 frontmatter 前置校验",
     ),
     file_path: str | None = typer.Option(
         None,
@@ -541,8 +541,9 @@ def _write_fs_comment(
     workspace = _workspace()
     if force:
         typer.echo(
-            "Warning: --force overwrites an existing comment file (breaks the "
-            "immutable convention). Commit first if you need the old content auditable.",
+            "Warning: --force only replaces an existing round summary file "
+            "(round<N>-summary-<persona>.md); plain comments stay immutable. "
+            "Commit first if you need the old content auditable.",
             err=True,
         )
     try:
@@ -559,7 +560,7 @@ def _write_fs_comment(
             overwrite=force,
         )
     except FileExistsError as err:
-        typer.echo(f"Error: {err} (use `map topic comment --force` to overwrite)", err=True)
+        typer.echo(f"Error: {err}", err=True)
         raise typer.Exit(1) from err
     except ValueError as err:
         # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）

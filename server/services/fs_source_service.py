@@ -220,6 +220,10 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
                     idempotency_key=f"fs:action_item:{view.slug}:{item.id}",
                     clear_action="complete_or_cancel_action_item",
                     excerpt=f"行动项 #{item.id}: {item.title}",
+                    suggested_command=(
+                        f"map topic action-item complete --topic {view.slug} "
+                        f"--id {item.id} --evidence <commit/pytest/路径>"
+                    ),
                     created_at=view.updated_at or now,
                     discussion_round=view.round,
                 )
@@ -254,6 +258,7 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
                     idempotency_key=f"fs:stale_open_topics:{view.slug}:open",
                     clear_action="close_or_advance_topic",
                     excerpt="开放话题久未推进，请复盘：已收敛（含已完成实验）应关闭并落结论，否则推动轮次",
+                    suggested_command=f"map topic close --topic {view.slug} --note <结论>",
                     created_at=view.updated_at or now,
                     discussion_round=view.round,
                     stale_since=view.updated_at or now,
@@ -281,6 +286,7 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
                     idempotency_key=f"fs:unread_change:{view.slug}:{last.id}",
                     clear_action="read",
                     excerpt=last.excerpt or "",
+                    suggested_command=f"map topic comment --topic {view.slug} --file <md>",
                     created_at=last.posted_at or view.updated_at or now,
                     discussion_round=view.round,
                 )

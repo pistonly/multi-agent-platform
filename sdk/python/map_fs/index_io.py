@@ -188,10 +188,13 @@ def write_round_comment(
     Summary 不再覆盖同轮原始发言。
 
     文件已存在且 overwrite=False 时抛 FileExistsError（immutable 约定）。
-    body 自带 frontmatter（author/round/posted_at 任一键）时抛 ValueError
-    （W1 前置校验，--force 不豁免——overwrite 只豁免 immutable 约定）。
-    发言人不在 index.md 的 participants 白名单时自动并入（发言即参与）；
-    index.md 缺失（手建文件夹）时跳过并入，不影响评论写入。
+    ``overwrite=True``（CLI ``--force``）**只对 Summary 文件放行**（显式替换
+    已发布的 Summary）；普通发言文件即使 overwrite=True 也拒绝——immutable
+    对普通发言无例外，修正内容走回退约定（删文件后重写）。body 自带
+    frontmatter（author/round/posted_at 任一键）时抛 ValueError（W1 前置
+    校验，--force 不豁免）。发言人不在 index.md 的 participants 白名单时
+    自动并入（发言即参与）；index.md 缺失（手建文件夹）时跳过并入，
+    不影响评论写入。
     """
     _reject_embedded_frontmatter(body)
     slug = _require_slug(slug)
@@ -205,6 +208,14 @@ def write_round_comment(
     if comment_path.exists() and not overwrite:
         raise FileExistsError(
             f"comment file already exists (immutable convention): {comment_path}"
+        )
+    if comment_path.exists() and overwrite and not is_round_summary:
+        # --force 只豁免 Summary 的 immutable；普通发言覆盖会静默洗掉
+        # 已发布内容（实验 4138a24 前的事故路径），一律拒绝。
+        raise FileExistsError(
+            f"comment file already exists (immutable convention, --force only "
+            f"replaces round summaries): {comment_path}; delete the file first "
+            f"(rollback convention) if replacement is really intended"
         )
     meta = {
         "author": persona,

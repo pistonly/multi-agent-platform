@@ -32,6 +32,7 @@ class TopicWorkItemRead(BaseModel):
     idempotency_key: str
     clear_action: str
     excerpt: str
+    suggested_command: str | None = None
     created_at: datetime
     discussion_round: str | None = None
     stale_since: datetime | None = Field(

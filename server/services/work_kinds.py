@@ -181,8 +181,9 @@ WORK_ITEM_KINDS: tuple[WorkItemKindSpec, ...] = (
     WorkItemKindSpec(
         kind="unread_change",
         clear_action=(
-            "读最新发言并接棒：map topic comments --id <slug> 查看后，"
-            "写本轮发言文件 map topic comment --id <slug> --file <md>（写完自己成为最新发言者即消失）"
+            "读最新发言并接棒：map topic show --id <slug> 查看后，"
+            "写本轮发言文件 map topic comment --id <slug> --file <md>"
+            "（host 收尾加 --round-summary 写独立 Summary 文件；写完自己成为最新发言者即消失）"
         ),
         skill="map-project-collab",
         note=(
