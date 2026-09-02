@@ -92,7 +92,7 @@ backend-path = ["scripts"]
 
 [tool.setuptools.packages.find]
 where = [".", "sdk/python"]
-include = ["server*", "cli*", "map_client*", "map_fs*", "map_mcp*", "map_sdk*", "map_types*"]
+include = ["server*", "cli*", "lib*", "map_client*", "map_fs*", "map_mcp*", "map_sdk*", "map_types*"]
 exclude = ["server._migrate", "server._migrate.*"]
 
 [tool.setuptools.package-data]
