@@ -181,7 +181,11 @@ def write_round_comment(
     content_root: str = DEFAULT_CONTENT_ROOT,
     overwrite: bool = False,
 ) -> Path:
-    """写入一条评论文件 round<N>-<persona>.md（每轮每人一个文件）。
+    """写入普通发言或独立 Round Summary 文件。
+
+    普通发言写 ``round<N>-<persona>.md``；Round Summary 写
+    ``round<N>-summary-<persona>.md``。两者默认都 immutable，因此发布
+    Summary 不再覆盖同轮原始发言。
 
     文件已存在且 overwrite=False 时抛 FileExistsError（immutable 约定）。
     body 自带 frontmatter（author/round/posted_at 任一键）时抛 ValueError
@@ -192,7 +196,12 @@ def write_round_comment(
     _reject_embedded_frontmatter(body)
     slug = _require_slug(slug)
     topic_dir = workspace / content_root / "topics" / slug
-    comment_path = topic_dir / f"round{round_number}-{persona}.md"
+    filename = (
+        f"round{round_number}-summary-{persona}.md"
+        if is_round_summary
+        else f"round{round_number}-{persona}.md"
+    )
+    comment_path = topic_dir / filename
     if comment_path.exists() and not overwrite:
         raise FileExistsError(
             f"comment file already exists (immutable convention): {comment_path}"

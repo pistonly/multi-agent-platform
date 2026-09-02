@@ -141,7 +141,12 @@ def _execute_db_to_fs_migration(
         )
         for rn, persona, _body, _kind, summary in plan["files"]:
             suffix = " (round summary)" if summary else ""
-            typer.echo(f"[dry-run] write {target_dir / f'round{rn}-{persona}.md'}{suffix}")
+            filename = (
+                f"round{rn}-summary-{persona}.md"
+                if summary
+                else f"round{rn}-{persona}.md"
+            )
+            typer.echo(f"[dry-run] write {target_dir / filename}{suffix}")
         typer.echo(f"[dry-run] archive DB topic {topic_id} (archived=true)")
         return None
     index_path = write_topic_index(workspace, slug, content_root=root, **plan["index"])

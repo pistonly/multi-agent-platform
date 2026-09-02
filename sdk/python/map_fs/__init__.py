@@ -5,7 +5,8 @@
     map/
       topics/<slug>/
         index.md                  # front-matter: title/status/round/creator/...
-        round<N>-<persona>.md     # 每轮每人一个文件 = 一条评论
+        round<N>-<persona>.md     # 每轮每人一个普通发言
+        round<N>-summary-<persona>.md  # 独立 Round Summary
       experiments/<slug>/
         index.md                  # front-matter: title/phase/creator/...
         plan.md / log.md / review.md
@@ -15,8 +16,8 @@
 - **实时解析**：每次调用重新扫描目录，无缓存、无状态，DB 不存内容。
 - **确定性身份**：topic id / comment id 由 uuid5 从 slug / 相对路径派生，
   跨解析稳定，UI 与 API 可直接当作主键使用。
-- **ack 即文件存在**：参与者在本轮有自己的 ``round<N>-<persona>.md``
-  即视为已发言（ack），平台无需单独记录。
+- **ack 即文件存在**：参与者在本轮有自己的普通发言文件
+  即视为已发言（ack）；creator 的 Summary 独立存储，不覆盖原发言。
 - **excerpt 自动生成**：取正文首个一级标题（或首个非空行），截断 200 字符。
 
 front-matter 为 YAML（``---`` 围栏），缺失时按文件名/正文兜底推导。
@@ -64,6 +65,7 @@ from map_fs.model import (
     FsWorkItem,
     comment_id_for_path,
     experiment_id_for_slug,
+    parse_round_filename,
     topic_id_for_slug,
 )
 from map_fs.topic_parser import (
@@ -126,6 +128,7 @@ __all__ = [
     "parse_action_items_file",
     "parse_experiment_dir",
     "parse_front_matter",
+    "parse_round_filename",
     "parse_topic_dir",
     "read_action_items",
     "scan_plane",

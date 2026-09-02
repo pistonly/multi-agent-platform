@@ -105,7 +105,12 @@ def local_validated_write_flow(
         update_topic_index,
     )
 
-    from cli.commands.fs import _content_root_name, _require_local_topic, _workspace
+    from cli.commands.fs import (
+        _content_root_name,
+        _require_local_topic,
+        _workspace,
+        fs_topic_to_detail_read,
+    )
 
     workspace = _workspace()
     parsed = _require_local_topic(workspace, topic)
@@ -122,6 +127,10 @@ def local_validated_write_flow(
         raise typer.Exit(1) from exc
     update_topic_index(workspace, topic, content_root=_content_root_name(workspace), **fields)
     _append_local_audit(workspace, topic, action_name, actor_persona, fields)
+    refreshed = _require_local_topic(workspace, topic)
+    topic_payload = fs_topic_to_detail_read(refreshed).model_dump(
+        mode="json", exclude={"comments", "action_items", "action_items_error"}
+    )
     typer.echo(f"local-plane {action_name} committed: {topic} {fields}")
     return {
         "action": action_name,
@@ -129,6 +138,7 @@ def local_validated_write_flow(
         "fields": fields,
         "committed": True,
         "source": "local-plane",
+        "topic": topic_payload,
     }
 
 
@@ -209,6 +219,13 @@ def validated_write_flow(
         # validate 成功但 CAS commit 失败时，不能留下未审计的本地状态。
         index_path.write_bytes(original_index)
         raise
+    # validate verdict 携带的是写回前快照。commit 成功后必须从本地
+    # FS 事实源重新解析，避免 fields.round=round2 但 topic 仍显示
+    # round1 的自相矛盾成功响应。
+    refreshed = _require_local_topic(workspace, topic)
+    topic_payload = fs_topic_to_detail_read(refreshed).model_dump(
+        mode="json", exclude={"comments", "action_items", "action_items_error"}
+    )
     return {
         "action": commit.action,
         "slug": commit.slug,
@@ -216,7 +233,7 @@ def validated_write_flow(
         "committed": commit.accepted,
         "projection_revision": commit.projection_revision,
         "flow": f"{action_name}: validate → local write-back → commit",
-        "topic": verdict.topic.model_dump(mode="json"),
+        "topic": topic_payload,
     }
 
 

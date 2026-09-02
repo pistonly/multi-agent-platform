@@ -19,7 +19,7 @@ from .project import normalize_content_root
 
 
 class FsCommentRead(BaseModel):
-    """一条评论 = map/topics/<slug>/round<N>-<persona>.md。"""
+    """一条评论 = 普通 round 文件或独立 Round Summary 文件。"""
 
     id: uuid.UUID
     topic_slug: str

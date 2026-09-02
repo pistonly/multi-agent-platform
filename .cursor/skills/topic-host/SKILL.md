@@ -57,7 +57,9 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 1. 实验**必须**由 host 创建（`creator_agent_id` 门禁）；`action-items.yaml` 的 owner 须是 `map persona list` 中的真实 agent（persona 短名），owner 完成/取消后 close 门禁才放行（closed = 零尾款）
 2. `topic advance-round` 前须等参与者本轮发言补齐；`--waive-ack` 必须配非空理由
 3. ack 类表态在 FS 模型里即「写本轮发言文件」——host 不代写、不催「收到」短评（读了即处理，否则制造新噪音）
-4. 收敛用 `--ready`，与未满员推进互斥；rollback 后须核对 index 一致性（见下约定）
+4. Round Summary 独立写入 `round<N>-summary-host.md`，不用 `--force` 覆盖 `round<N>-host.md`
+5. 推进到新轮后只给 required participant 生成 `pending_topic_reply`；creator 不需要先写新轮开场文件
+6. 收敛用 `--ready`，与未满员推进互斥；rollback 后须核对 index 一致性（见下约定）
 
 ## 工作流
 

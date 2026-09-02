@@ -581,6 +581,64 @@ def test_cli_validated_write_restores_index_when_commit_conflicts(
     assert (ws / "map/topics/remote-demo/index.md").read_bytes() == original
 
 
+def test_cli_validated_write_returns_post_commit_topic_snapshot(
+    monkeypatch, tmp_path
+):
+    from map_types.schemas.fs import (
+        FsPlaneStatusRead,
+        FsWriteCommitResponse,
+        FsWriteVerdictRead,
+    )
+
+    from cli.commands.fs import validated_write_flow
+
+    ws = tmp_path / "fresh-response"
+    ws.mkdir()
+    _seed_topic(ws)
+
+    class FakeClient:
+        def fs_plane_status(self, _pid):
+            return FsPlaneStatusRead(
+                workspace_path=str(ws),
+                content_root="map",
+                workspace_exists=True,
+                content_root_exists=True,
+                mode="local-fs",
+            )
+
+        def fs_write_commit(self, _pid, payload):
+            return FsWriteCommitResponse(
+                accepted=True,
+                action=payload.action,
+                slug=payload.slug,
+                projection_revision=2,
+            )
+
+    monkeypatch.setattr("cli.commands.fs._workspace", lambda: ws)
+
+    def validate_call(_client, _pid, evidence, _base_revision):
+        assert evidence.discussion_round == "round1"
+        return FsWriteVerdictRead(
+            action="advance-round",
+            slug="remote-demo",
+            fields={"round": "round2"},
+            token="token",
+            expires_at=evidence.updated_at or evidence.created_at or datetime.now(timezone.utc),
+            topic=evidence,
+        )
+
+    result = validated_write_flow(
+        FakeClient(),  # type: ignore[arg-type]
+        pid=uuid.uuid4(),
+        action_name="advance-round",
+        topic="remote-demo",
+        validate_call=validate_call,
+    )
+
+    assert result["fields"]["round"] == "round2"
+    assert result["topic"]["discussion_round"] == "round2"
+
+
 def test_work_projection_fallback(client, admin_headers, tmp_path):
     """waker 源（/agents/me/work）在远程模式下从投影推导 FS 待办。"""
     client_ws = tmp_path / "client-ws6"

@@ -23,20 +23,13 @@ map --persona host work                             # 统一快照：whoami + to
 # 短发言：内联 body
 map --persona host topic comment --topic <slug> --body "回复内容"
 
-# 长发言 / Round Summary（推荐：单文件 round<N>-<persona>.md 同文件承载
-# 正文 + Summary 同发，避免产生两份 round 文件）
-# 路径约定：map/topics/<slug>/round<N>-<persona>.md（默认 immutable；同文件
-# 追加需 --force，遵守 immutable 约定）
-map --persona host topic comment --topic <slug> --file map/topics/<slug>/round1-host.md
+# 长发言：CLI 写入 round<N>-<persona>.md（默认 immutable）
+map --persona host topic comment --topic <slug> --file ./host-opinion.md
 
-# 发布 Round Summary（同文件重发，必须同时给 --force + --round-summary）：
-#   --force           允许同文件追加（不写新文件）。round1-host.md 已存在时
-#                    缺它会因 immutable 约束 422 失败；第一次写也建议带，
-#                    避免新建与追加路径分叉。
-#   --round-summary   标记 Summary 性质，触发 ack 流。缺它走普通评论路径，
-#                    并污染轮次 ack 状态机（host advance-round 时认为本轮
-#                    未发 Summary）。
-# 这两个 flag 是 Round Summary 同文件重发的最小必需集。
+# 发布 Round Summary：CLI 写入独立的
+# round<N>-summary-<persona>.md，不覆盖同轮原始发言，也不需要 --force。
+# --round-summary 标记 Summary 性质并触发 ack 流。
+# --force 只用于显式替换已存在的 Summary，不是日常发布流程。
 #
 # 可选项（CLI 真实语义，非必需，按需加）：
 #   --no-sync         **跳过本地写入后的远端 projection sync**。仅在以下
@@ -46,12 +39,12 @@ map --persona host topic comment --topic <slug> --file map/topics/<slug>/round1-
 #                    默认不加——普通在线协作本地写完即 sync 是预期行为。
 # 例（默认 / 在线协作）：
 map --persona host topic comment --topic <slug> \
-  --force --round-summary \
-  --file map/topics/<slug>/round1-host.md
+  --round-summary \
+  --file ./round1-summary.md
 # 例（隔离 / 离线 / 远端不可用时再加 --no-sync）：
 map --persona host topic comment --topic <slug> \
-  --force --round-summary --no-sync \
-  --file map/topics/<slug>/round1-host.md
+  --round-summary --no-sync \
+  --file ./round1-summary.md
 ```
 
 @ 必须用 `map persona list` 的 **agent_name 全名**（如 `@multi-agent-platform-participant`）；FS 评论 @ 提及只起视觉提示作用（唤醒依赖 `topic advance-round` 事件与待办投影，见 2c）。
@@ -73,7 +66,7 @@ map --persona host topic advance-round --topic <slug> --ready
 ```
 
 - Summary 正文末尾 **@ 所有需表态的 agent 全名**（视觉锚点；实际唤醒走事件与投影）
-- `topic advance-round` 后平台对 required participant 产生待办投影（`pending_topic_reply`），无需再手动 @
+- `topic advance-round` 后平台只对 required participant 产生待办投影（`pending_topic_reply`）；creator 不需要先写下一轮开场文件，无需再手动 @
 - 收到 `409`：还有人未交本轮发言，等待或 `--waive-ack --waive-reason`；有人明确反对时在该轮文件 @ 拒绝者继续讨论，**不要**强制推进
 
 **回退一轮（FS 等价约定，v0.13 M58 定案）**：删除本轮次参与者的 round 文件（`map/topics/<slug>/round<N>-<persona>.md`），随后 `map topic show --id <slug>` 核对 `index.md` 的 `round` 计数与 participants 一致性，必要时手工修正 index frontmatter 后再继续。

@@ -11,8 +11,25 @@ DEFAULT_CONTENT_ROOT = "map"
 
 _NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs")
 
-# round<N>-<persona>.md；persona 允许字母数字-_.
+# 普通发言与 Round Summary 分文件存储：
+#   round<N>-<persona>.md
+#   round<N>-summary-<persona>.md
+# Summary 正则必须先匹配，因为它也能被宽松的普通发言正则命中。
 _ROUND_FILE_RE = re.compile(r"^round(\d+)-([A-Za-z0-9_.\-]+)\.md$")
+_ROUND_SUMMARY_FILE_RE = re.compile(
+    r"^round(\d+)-summary-([A-Za-z0-9_.\-]+)\.md$"
+)
+
+
+def parse_round_filename(name: str) -> tuple[int, str, bool] | None:
+    """解析 round 文件名，返回 ``(round, persona, is_summary)``。"""
+    summary_match = _ROUND_SUMMARY_FILE_RE.match(name)
+    if summary_match is not None:
+        return int(summary_match.group(1)), summary_match.group(2), True
+    comment_match = _ROUND_FILE_RE.match(name)
+    if comment_match is not None:
+        return int(comment_match.group(1)), comment_match.group(2), False
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +57,7 @@ def comment_id_for_path(rel_path: str) -> uuid.UUID:
 
 @dataclass
 class FsComment:
-    """一条评论 = 一个 round<N>-<persona>.md 文件。"""
+    """一条评论 = 普通 round 文件或独立 Round Summary 文件。"""
 
     id: uuid.UUID
     topic_slug: str
@@ -54,7 +71,7 @@ class FsComment:
     posted_at: datetime | None
     comment_seq: int
     # ack 合规标记（D2 三条，按 RAW front-matter + 文件名判定，不受 fallback 影响）
-    file_persona: str = ""  # 文件名的 <persona> 段（round<N>-<persona>.md）
+    file_persona: str = ""  # 文件名中的 <persona> 段（含 Summary 文件）
     ack_valid: bool = True  # frontmatter author/round/posted_at 与文件名一致
     ack_error: str | None = None  # 不合规的具体原因（合规时为 None）
 
@@ -124,7 +141,8 @@ class FsTopic:
         - creator：默认参与，始终排首位
         - declared：index.md front-matter ``participants:``（topic-create 显式声明）
         - speakers：所有发言过的 persona（事实参与，发言即加入，按首次发言序）
-        待办推导（derive_work）只对白名单内 persona 生成 pending_topic_reply，
+        待办推导（derive_work）只对白名单内的非 creator persona
+        生成 pending_topic_reply；creator 通过 round_ack_pending 主持本轮。
         白名单外（如 reviewer）不再收到无关话题的待办噪音。
         """
         seen: list[str] = [self.creator]

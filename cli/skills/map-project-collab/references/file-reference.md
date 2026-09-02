@@ -16,14 +16,15 @@
 
 ## FS 事实源（推荐，新范式）
 
-话题 = `map/topics/<slug>/` 文件夹，发言 = 直接写 `round<N>-<persona>.md`（每轮每人一个文件，默认 immutable）。**写操作发现入口是 `map topic`**（create / comment / advance-round / close / archive）；list/show/migrate 仍走同一命令组：
+话题 = `map/topics/<slug>/` 文件夹；普通发言 = `round<N>-<persona>.md`，Round Summary = `round<N>-summary-<persona>.md`，两者均默认 immutable。**写操作发现入口是 `map topic`**（create / comment / advance-round / close / archive）；list/show/migrate 仍走同一命令组：
 
 | 动作 | 命令 | 说明 |
 |------|------|------|
 | 创建话题 | `map topic create --slug <name> --title "..."` | 写 index.md；远程模式下默认自动 sync |
 | 发言 | `map topic comment --topic <slug> --file ./opinion.md` | 写 round 文件；远程模式下默认自动 sync（`--no-sync` 可关） |
+| Round Summary | `map topic comment --topic <slug> --round-summary --file ./summary.md` | 写独立 Summary 文件，不覆盖本轮原发言 |
 | 查看 | `map topic list` / `map topic show --id <slug>` | list 合并本地 map/ + API 存量；show 优先读本地文件夹 |
-| 我的待办 | `map work`（离线可用 `map topic work --persona <name>`） | 文件存在性推导（无我的文件 = pending） |
+| 我的待办 | `map work`（离线可用 `map topic work --persona <name>`） | required participant 无本轮文件 = pending；creator 只承担 round ack 主持义务 |
 | 推进轮次 | `map topic advance-round --topic <slug>` | 验证型写：API 校验 host + ack 后由 CLI 写回 index.md（commit 审计） |
 | 关闭话题 | `map topic close --topic <slug> --reason ...` | 同上 |
 | 归档 | `map topic archive --topic <slug>` | closed 话题 `git mv` 到 `map/archive/topics/` |
@@ -38,7 +39,7 @@
 
 | 对象 | 写文件 | 发布（CLI） | 平台存储 |
 |------|--------|-------------|----------|
-| 话题评论 | `map/topics/<slug>/round<N>-<persona>.md` | `topic comment --file-path <相对路径> --excerpt "摘要"` | `file_path` + `excerpt`（≤200 字符） |
+| 话题评论 | `map/topics/<slug>/round<N>-<persona>.md` / `round<N>-summary-<persona>.md` | `topic comment --file-path <相对路径> --excerpt "摘要"` | `file_path` + `excerpt`（≤200 字符） |
 | 实验计划 | `map/experiments/<slug>/plan.md` | `experiment create --plan-file-path <相对路径>` | `plan_file_path` |
 | 实验日志 | `map/experiments/<slug>/log.md` | `experiment complete --log-file-path <相对路径>` | `log_file_path` |
 

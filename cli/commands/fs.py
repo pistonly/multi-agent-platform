@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,8 +20,6 @@ from map_client.exceptions import MAPHTTPError
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.table_render import render_table, truncate
-
-_ROUND_FILE_RE = re.compile(r"^round(\d+)-([A-Za-z0-9_.\-]+)\.md$")
 
 
 def _workspace() -> Path:
@@ -238,7 +235,7 @@ def fs_comment(
     ),
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
-    """离线写一条评论：map/topics/<slug>/round<N>-<persona>.md（不调 API）。"""
+    """离线写普通发言或独立 Round Summary（不调 API）。"""
     from map_fs import write_round_comment
 
     workspace = _workspace()

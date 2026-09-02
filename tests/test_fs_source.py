@@ -58,6 +58,41 @@ def test_comment_file_is_immutable_by_default(tmp_path: Path) -> None:
     assert scan_plane(tmp_path).topics[0].comments[0].content.strip() == "v2"
 
 
+def test_round_summary_is_separate_and_preserves_original_comment(tmp_path: Path) -> None:
+    write_topic_index(tmp_path, "summary", title="Summary", creator="host")
+    speech = write_round_comment(
+        tmp_path, "summary", round_number=1, persona="host", body="original speech"
+    )
+    summary = write_round_comment(
+        tmp_path,
+        "summary",
+        round_number=1,
+        persona="host",
+        body="round summary",
+        is_round_summary=True,
+    )
+
+    assert speech.name == "round1-host.md"
+    assert summary.name == "round1-summary-host.md"
+    assert "original speech" in speech.read_text(encoding="utf-8")
+    topic = scan_plane(tmp_path).topics[0]
+    assert [(c.author, c.is_round_summary) for c in topic.comments] == [
+        ("host", False),
+        ("host", True),
+    ]
+    assert topic.comments[1].file_persona == "host"
+    assert topic.comments[1].ack_valid is True
+    with pytest.raises(FileExistsError):
+        write_round_comment(
+            tmp_path,
+            "summary",
+            round_number=1,
+            persona="host",
+            body="replacement",
+            is_round_summary=True,
+        )
+
+
 def test_write_rejects_empty_slug(tmp_path: Path) -> None:
     """空 slug 防护：None/空白 slug 抛可读 ValueError，而非路径拼接 TypeError。
 
@@ -94,6 +129,27 @@ def test_derive_work_from_file_presence(tmp_path: Path) -> None:
 
     part_items = derive_work(topic, "participant")
     assert any(i.kind == "pending_topic_reply" and i.round == 2 for i in part_items)
+
+
+def test_creator_does_not_need_round_opening_file_after_advance(tmp_path: Path) -> None:
+    write_topic_index(
+        tmp_path,
+        "host-exempt",
+        title="Host exempt",
+        creator="host",
+        participants=["participant"],
+    )
+    write_round_comment(
+        tmp_path, "host-exempt", round_number=1, persona="participant", body="# r1"
+    )
+    update_topic_index(tmp_path, "host-exempt", round="round2")
+
+    topic = scan_plane(tmp_path).topics[0]
+    host_items = derive_work(topic, "host")
+    assert not any(item.kind == "pending_topic_reply" for item in host_items)
+    assert any(item.kind == "round_ack_pending" for item in host_items)
+    participant_items = derive_work(topic, "participant")
+    assert any(item.kind == "pending_topic_reply" for item in participant_items)
 
 
 # ---------------------------------------------------------------------------
@@ -490,9 +546,15 @@ def test_fs_work_snapshot_wakes_and_clears_by_file_presence(
     assert agent_resp.status_code == 201
     worker_headers = {"Authorization": f"Bearer {agent_resp.json()['api_token']}"}
 
-    write_topic_index(tmp_path, "fs-wake", title="Wake", creator="fs-worker")
+    write_topic_index(
+        tmp_path,
+        "fs-wake",
+        title="Wake",
+        creator="host",
+        participants=["fs-worker"],
+    )
+    write_round_comment(tmp_path, "fs-wake", round_number=1, persona="host", body="# r1")
     write_round_comment(tmp_path, "fs-wake", round_number=1, persona="fs-worker", body="# r1")
-    write_round_comment(tmp_path, "fs-wake", round_number=1, persona="alice", body="# r1")
     update_topic_index(tmp_path, "fs-wake", round="round2")
 
     def _fs_items(headers: dict) -> list[dict]:

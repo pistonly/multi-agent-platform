@@ -223,7 +223,8 @@ class TestExecuteMigration:
 
         topic_dir = workspace / "map" / "topics" / "migrated"
         assert (topic_dir / "index.md").is_file()
-        assert (topic_dir / "round1-host.md").is_file()
+        assert (topic_dir / "round1-summary-host.md").is_file()
+        assert not (topic_dir / "round1-host.md").exists()
         assert (topic_dir / "round1-participant.md").is_file()
         # 只有一个 round 文件组（summary 后无新评论 → 无 round2 文件）
         parsed = scan_plane(workspace).topic_by_slug("migrated")

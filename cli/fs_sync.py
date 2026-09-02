@@ -16,8 +16,6 @@ from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 
-_ROUND_FILE_RE = re.compile(r"^round(\d+)-([A-Za-z0-9_.\-]+)\.md$")
-
 
 def fs_push(
     project: uuid.UUID | None = typer.Option(None, "--project"),
@@ -132,14 +130,17 @@ def _experiment_read(e: Any) -> Any:
 
 def _topic_index_meta(topic_dir: Path) -> tuple[str, int, str]:
     """从已迁移的话题文件推导 index.md 元数据：title / round / creator。"""
+    from map_fs import parse_round_filename
+
     max_round = 1
     creator = ""
     for entry in sorted(topic_dir.iterdir()):
-        match = _ROUND_FILE_RE.match(entry.name)
-        if match:
-            max_round = max(max_round, int(match.group(1)))
+        parts = parse_round_filename(entry.name)
+        if parts is not None:
+            round_number, persona, _is_summary = parts
+            max_round = max(max_round, round_number)
             if not creator:
-                creator = match.group(2)
+                creator = persona
     return topic_dir.name.replace("-", " ").title(), max_round, creator or "host"
 
 

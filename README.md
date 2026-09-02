@@ -162,7 +162,7 @@ map experiment archive --id <exp-id>           # 归档实验
 #   map --persona participant experiment lock release --id <exp-id>
 map topic create --title "..." --slug <name>
 map topic comment --topic <slug> --file comment.md
-map topic comment --topic <slug> --body "..." --round-summary   # 标记 Round Summary（触发 ack 流）
+map topic comment --topic <slug> --body "..." --round-summary   # 写独立 round<N>-summary-<persona>.md
 map topic advance-round --topic <slug>                          # roundN → roundN+1
 map topic advance-round --topic <slug> --ready                  # 标记 ready（可开实验）
 map topic advance-round --topic <slug> --waive-ack --waive-reason "参与者离线，结论已收敛"

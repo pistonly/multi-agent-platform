@@ -194,12 +194,20 @@ class TestCommentFsRouting:
 
     def test_comment_round_summary_flag(self, workspace: Path) -> None:
         _make_fs_topic(workspace, "s")
+        original = runner.invoke(
+            topic_app,
+            ["comment", "--id", "s", "--body", "原始发言"],
+        )
+        assert original.exit_code == 0, original.output
         result = runner.invoke(
             topic_app,
             ["comment", "--id", "s", "--body", "总结", "--round-summary"],
         )
         assert result.exit_code == 0, result.output
-        text = (workspace / "map" / "topics" / "s" / "round1-host.md").read_text(encoding="utf-8")
+        speech = workspace / "map" / "topics" / "s" / "round1-host.md"
+        summary = workspace / "map" / "topics" / "s" / "round1-summary-host.md"
+        assert "原始发言" in speech.read_text(encoding="utf-8")
+        text = summary.read_text(encoding="utf-8")
         assert "round_summary: true" in text
 
     def test_comment_writes_next_round_after_advance(self, workspace: Path) -> None:

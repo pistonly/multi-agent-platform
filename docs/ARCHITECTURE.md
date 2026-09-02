@@ -34,7 +34,7 @@
 |----|------|--------|----------|
 | Agent 层 | `map` CLI + persona（`.map/`） | 按 Skill 流程读写话题/实验；`topic --id` 统一路由（DB uuid / FS uuid5 / slug） | 不绕过状态机直写 DB |
 | Agent 层 | Skill（`.cursor/skills/` 等） | 定义被唤醒后怎么做（host/participant/reviewer 行为） | 不替代平台状态机 |
-| 内容层 | `map/topics/<slug>/` 等 | 话题/实验内容事实源；发言 = `round<N>-<persona>.md`（每轮每人一个，immutable） | — |
+| 内容层 | `map/topics/<slug>/` 等 | 话题/实验内容事实源；发言 = `round<N>-<persona>.md`，Summary = `round<N>-summary-<persona>.md`（均 immutable） | — |
 | 服务层 | API + DB | 实验生命周期门禁、验证型写（校验后写回 index.md）、todos/通知聚合、审计 | 不存储话题/评论正文 |
 | 服务层 | simple-waker | 轮询 `GET /agents/me/work` → remind 唤醒 Agent Runtime | 不做业务判断、不写 MAP |
 
@@ -51,7 +51,7 @@
 ### 3.2 FS 派生实体（内容层，实时解析）
 
 - **FsTopic** = `map/topics/<slug>/` 文件夹（`index.md` + round 文件）；id = `uuid5(NS, "topic:<slug>")` 确定性派生，跨解析稳定
-- **FsComment** = `round<N>-<persona>.md`；id = `uuid5(NS, "comment:<rel_path>")`
+- **FsComment** = `round<N>-<persona>.md` 或 `round<N>-summary-<persona>.md`；id = `uuid5(NS, "comment:<rel_path>")`
 - **FsExperiment** = `map/experiments/<name>/`（`index.md` + `plan.md` + `log.md` + `review.yaml`）
 - 解析器：`sdk/python/map_fs/`（`topic_parser.scan_plane` 全量扫描、`derive_work` 文件存在性推导待办）
 
@@ -66,8 +66,9 @@
 | 约定 | 说明 |
 |------|------|
 | 内容根 | `.map/config.yaml` 的 `content_root`（默认 `map`） |
-| 话题结构 | `map/topics/<slug>/index.md`（frontmatter: title/status/round/participants）+ `round<N>-<persona>.md` |
-| 发言即写文件 | 每轮每人一个文件，默认 immutable（`--force` 才可覆盖） |
+| 话题结构 | `map/topics/<slug>/index.md` + `round<N>-<persona>.md` + `round<N>-summary-<persona>.md` |
+| 发言即写文件 | 普通发言与 Summary 分文件存储，默认 immutable（`--force` 只覆盖同类目标文件） |
+| 轮次待办 | 新轮的 `pending_topic_reply` 只投影给 required participant；creator 通过 `round_ack_pending` 主持，无需先写开场文件 |
 | 确定性身份 | topic/comment id 由 uuid5 派生，可直接当主键用 |
 | 验证型写（两段式） | advance-round / close 走 API：远程 CLI 先 CAS push，server 只按可信投影与登记 owner 校验；verdict token 绑定 actor + base revision + nonce，CLI 本地写回后一次性 commit（审计 + 通知 + 投影刷新）。同机路径仍复核真实文件。 |
 | 纯本地写 | comment 等不调 API；threading 用文件内分节引用（平台不保存线程树） |

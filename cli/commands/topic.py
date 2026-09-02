@@ -410,7 +410,7 @@ def topic_comment(
     round_summary: bool = typer.Option(
         False,
         "--round-summary",
-        help="Mark this comment as a Round Summary (triggers participant ack flow).",
+        help="Write an independent round<N>-summary-<persona>.md Round Summary.",
     ),
     force: bool = typer.Option(
         False,
@@ -519,7 +519,7 @@ def _write_fs_comment(
     round_number: int | None = None,
     force: bool = False,
 ) -> None:
-    """话题发言 = 写 round<N>-<persona>.md（纯本地）。"""
+    """话题发言 = 写普通 round 文件或独立 Summary 文件（纯本地）。"""
     if content is None:
         typer.echo(
             "Error: folder topics need --body / --file (content is stored in the round "

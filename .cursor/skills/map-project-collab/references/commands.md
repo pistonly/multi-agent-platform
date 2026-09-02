@@ -80,7 +80,7 @@ map --persona participant topic comment --topic <slug> --body "短评（Markdown
 map --persona participant topic comment --topic <slug> --file ./my-opinion.md
 ```
 
-slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`。存量 DB 话题只读，不对其跑写命令。`map topic comment --id <slug>` 与 `--topic` 等价。
+slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`，CLI 会写入独立的 `round<N>-summary-host.md`，无需 `--force` 覆盖原发言。存量 DB 话题只读，不对其跑写命令。`map topic comment --id <slug>` 与 `--topic` 等价。
 
 ## 实验创建（仅 host）
 

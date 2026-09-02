@@ -16,7 +16,6 @@ from map_fs.frontmatter import (
     parse_front_matter,
 )
 from map_fs.model import (
-    _ROUND_FILE_RE,
     DEFAULT_CONTENT_ROOT,
     FsAnomaly,
     FsComment,
@@ -26,6 +25,7 @@ from map_fs.model import (
     FsWorkItem,
     comment_id_for_path,
     experiment_id_for_slug,
+    parse_round_filename,
     topic_id_for_slug,
 )
 
@@ -124,17 +124,18 @@ def parse_topic_dir(topic_dir: Path, workspace: Path) -> FsTopic | None:
     for entry in sorted(topic_dir.iterdir()):
         if not entry.is_file():
             continue
-        match = _ROUND_FILE_RE.match(entry.name)
-        if match is None:
+        round_parts = parse_round_filename(entry.name)
+        if round_parts is None:
             continue  # index.md 及其他文件不作为评论
-        file_round = int(match.group(1))
-        file_persona = match.group(2)
+        file_round, file_persona, is_summary_path = round_parts
         rel_path = entry.relative_to(workspace).as_posix()
         text = entry.read_text(encoding="utf-8")
         c_meta, c_body = parse_front_matter(text)
         author = str(c_meta.get("author") or file_persona)
         kind = str(c_meta.get("kind") or "user")
-        is_summary = bool(c_meta.get("is_round_summary", False))
+        # 新格式由独立 Summary 文件名自证；旧格式仍读
+        # round<N>-<persona>.md frontmatter 中的 is_round_summary。
+        is_summary = is_summary_path or bool(c_meta.get("is_round_summary", False))
         posted_at = _parse_dt(c_meta.get("posted_at")) or _mtime_utc(entry)
         ack_error = _ack_error_of(c_meta, file_persona, file_round)
         if ack_error is not None:
@@ -166,7 +167,8 @@ def parse_topic_dir(topic_dir: Path, workspace: Path) -> FsTopic | None:
         if updated_at is None or posted_at > updated_at:
             updated_at = posted_at
 
-    comments.sort(key=lambda c: (c.round, c.file_path))
+    # 同轮 Summary 稳定排在普通发言之后，不受 persona 字典序影响。
+    comments.sort(key=lambda c: (c.round, c.is_round_summary, c.file_path))
     for seq, comment in enumerate(comments, start=1):
         comment.comment_seq = seq
 
@@ -292,8 +294,9 @@ def derive_work(topic: FsTopic, persona: str) -> list[FsWorkItem]:
 
     规则（v2，参与人白名单 + 文件存在性）：
 
-    - ``pending_topic_reply``：话题 open 且未 ready，**persona 在参与人白名单内**
-      （declared ∪ speakers ∪ creator），本轮还没有我的文件。白名单外
+    - ``pending_topic_reply``：话题 open 且未 ready，**persona 在参与人白名单内
+      且不是 creator**，本轮还没有自己的发言文件。creator 不需要
+      为新轮次先写开场文件，其主持义务由 round_ack_pending 承载。白名单外
       persona（如 reviewer）不产生待办——需要其参与时在 front-matter
       ``participants:`` 声明，或其主动发言（发言即自动并入白名单）。
     - ``round_ack_pending``（仅 host 视角）：本轮还有 ack 名单内参与者没交
@@ -307,7 +310,12 @@ def derive_work(topic: FsTopic, persona: str) -> list[FsWorkItem]:
     current = topic.round_number
     authors = topic.authors_in_round(current)
     is_participant = persona in topic.participants
-    if is_participant and persona not in authors and topic.round != "ready":
+    if (
+        is_participant
+        and persona != topic.creator
+        and persona not in authors
+        and topic.round != "ready"
+    ):
         items.append(
             FsWorkItem(
                 kind="pending_topic_reply",
