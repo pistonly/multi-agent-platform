@@ -32,11 +32,6 @@
 | `unread_change` | 读最新发言并接棒：map topic show --id <slug> 查看后，写本轮发言文件 map topic comment --id <slug> --file <md>（host 收尾加 --round-summary 写独立 Summary 文件；写完自己成为最新发言者即消失） | map-project-collab | contextual 交接信号：对方是最新发言者时出现，我自己发言后消失；仅白名单（creator ∪ declared ∪ speakers）可见，reviewer 等旁观者不可见；simple-waker 签名唤醒的交接信号源，不再依赖 stale_open_topics 心跳 | all | False |
 <!-- END:kind-dispatch -->
 
-> **新增 kind 落地 checklist（强制，实验 d559f431 A5）**：新增 kind 必须同时改
-> ① `server/services/work_kinds.py` registry ② wake.md 标记块（用
-> `map work --kinds --kinds-format md` 重新生成）③ `tests/test_work_kinds.py`
-> 的一致性用例自然覆盖——漏改任一处，CI（pytest 整行 diff）即红。
->
 > 未读通知：`map notification read --id <uuid>`（按通知类型处理）。
 
 ### FS 话题速查（map/ 文件夹事实源）
@@ -61,9 +56,7 @@
 
 **视为事故触发条件**：发现 audit 链漂移（不论 verify-audit 检测还是 agent 自己注意到，含 server 侧门禁失效导致的非手写场景）→ 停止当前话题状态变更 → 报告 → 等 host/supervisor 决定。
 
-> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
-
-**相关 feedback memory**：`feedback_fs_round_file_bypass.md`（避免 participant 重复踩坑走手写 round 文件路径；手写路径即使在文件层可见，server 端 ack 校验 + audit 留痕都缺失，会被 verify-audit D001/D003 检出）。
+**历史踩坑**：participant 不要绕过 `map topic comment` 手写 round 文件——手写路径即使在文件层可见，server 端 ack 校验 + audit 留痕都缺失，会被 verify-audit D001/D003 检出。
 
 ## 红线
 

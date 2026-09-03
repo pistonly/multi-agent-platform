@@ -41,12 +41,12 @@ git status --short
 
 1. 只用 `map --persona host ...` 写 MAP；禁止 MCP 写操作与手写 HTTP
 2. **`phase=running` 且 `executor_agent_id == my-id` 表示由你执行**——`executor_agent_id != my-id` 表示已委派给 participant，对 host 是 informational_only，不要写 log、不要代 complete、不要写「等桥接」（participant 在另一条 persona 路径上推进）
-3. 一次 wake 完成**当前 phase 的下一步**；自执行时 `running` 每次至少推进**一个 plan 子项**（如 I1），写 log 后结束
+3. 一次 wake 完成**当前 phase 的下一步**；自执行时 `running` 每次至少推进**一个 plan 子项**（计划 frontmatter 里的某个编号验收项），写 log 后结束
 4. 实验须由本 host persona 创建，否则 approve/start/complete 会 403
 5. `complete` 只表示**提交结果待审批**（standard `running -> result_review`；direct `running -> done` 由 [experiment-executor](../experiment-executor/SKILL.md) 推进）；host 禁止自审结果
 6. `running` 产生仓库改动时，默认必须提交**窄 git commit**；无法安全区分当前实验改动与其他 dirty worktree 时，停下并在 `experiment log` 记录 blocker，不要继续下一个实验
 7. 收尾必须：提交当前实验改动（若有）→ release lock（若已 acquire）→ 刷新 `experiment status` 和 `work`
-8. **日志纪律（v0.12 M55F，E5 教训）**：create / revise / submit 等任何一次失败后重试成功，都必须补一条 `experiment log` 记录失败原文（422/409 的 error_code 与 hint）与修复动作——踩坑只存在日志里，不依赖会话记忆（log 白名单已放宽到 draft/review/approved 全阶段，阶段拒绝路径已随 cli-hygiene-batch A3 删除）
+8. **日志纪律**：create / revise / submit 等任何一次失败后重试成功，都必须补一条 `experiment log` 记录失败原文（422/409 的 error_code 与 hint）与修复动作——踩坑只存在日志里，不依赖会话记忆（log 白名单已放宽到 draft/review/approved 全阶段，阶段拒绝路径已在后续版本删除）
 
 ## 执行锁（并发防护）
 
@@ -105,9 +105,7 @@ map --persona host host invoke --persona reviewer \
 
 **host 响应**：停止 advance-round / close / 创建实验等状态变更，先调用 `map fs verify-audit` 确认漂移范围并写诊断评论。
 
-> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["host"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
-
-## 视图类实验验收 checklist 二段式（实验 d12c328c I7）
+## 视图类实验验收 checklist 二段式
 
 > **触发条件**：实验涉及 CLI 命令扩展 / 视图层派生 / 状态机档位调整，且验收点需要 CLI 包入口实际跑通（即 `python -m cli.<module>` 或 `map <cmd>` 子进程，不只是 pytest 直接 import 模块）。
 
@@ -121,17 +119,15 @@ map --persona host host invoke --persona reviewer \
 
 ### 段二：真实环境 smoke（监督者手动确认，CLI 包入口 ≠ pytest 直接 import 模块）
 
-- **真实 3-waker 环境**下 host 进长会话 → `map waker status` 显示 busy（live）+ `map work` busy 状态同源对齐（实验 d12c328c 修复的目标）
+- **真实 3-waker 环境**下 host 进长会话 → `map waker status` 显示 busy（live）+ `map work` busy 状态同源对齐（本 checklist 的动机场景）
 - 涉及 waker 重启 / 进程级状态变更时由监督者手动重启 server + waker 生效（daemon restart，无 docker build）
 - result_review 阶段 action_items 显式收口：监督者重启 server + waker 列入 todo，避免「验收通过却未生效」
 
-### 历史教训（T6 a8b64c20 派生公式仅 idle 档同帧 / busy 档漏核）
+### 历史教训（派生公式仅 idle 档同帧 / busy 档漏核）
 
-- 实验 T6（a8b64c20）只测了 idle 档同帧一致性，busy 档漏核——验收盲区，导致 d12c328c 修复任务
+- 曾有实验只测了 idle 档同帧一致性、漏核 busy 档——真实发生过的验收盲区，事后才派生出修复任务
 - 二段式 checklist 的目的：避免「pytest 全绿但 CLI 包入口实际行为漏检」反复发生
 - 视图类实验必须在段二显式列出「监督者手动跑哪些 CLI 命令」并写入 plan.md acceptance.evidence_keys
-
-> 措辞与 `lib/waker_state.py:WAKER_STATE_SCHEMA` 字段注释、`tests/test_waker_status_view.py` 6 case 配套；事故痕迹见 `map/topics/waker-status-busy-threshold-fix/round1-summary-host.md`。
 
 ## 参考
 

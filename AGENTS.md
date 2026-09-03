@@ -61,6 +61,17 @@ map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhos
 
 命令清单与参数细节见 [commands.md](.cursor/skills/map-project-collab/references/commands.md)；FS 事实源约定（`map/topics/<slug>/`、`map/experiments/<slug>/`）见 [file-reference.md](.cursor/skills/map-project-collab/references/file-reference.md)。
 
+## 平台开发约定（本仓库 / Skill 分发面）
+
+- **新增 work kind 落地 checklist（强制，实验 d559f431 A5）**：新增 kind 必须同时改
+  ① `server/services/work_kinds.py` registry ② wake.md 标记块（用
+  `map work --kinds --kinds-format md` 重新生成）③ `tests/test_work_kinds.py`
+  的一致性用例自然覆盖——漏改任一处，CI（pytest 整行 diff）即红。
+- **Skill 分发面纪律**：`.cursor/skills/**` 随 wheel 分发（`map skill install` 落到用户项目），
+  只保留平台契约与操作指引；本仓库专属引用（`tests/test_*.py` 等仓库路径、实验编号、
+  feedback memory 文件名）不得进入分发面，由 `tests/test_red_line_clause.py` 的
+  dogfood 反向守卫兜底。红线条款单源与副本守卫见 `lib/red_line_clause.py` docstring。
+
 ## 服务地址
 
 - API: http://localhost:18400（默认端口，`MAP_PORT` 可覆盖）

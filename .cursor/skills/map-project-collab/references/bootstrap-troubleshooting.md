@@ -30,14 +30,14 @@ map bootstrap \
 | `.map/agents.yaml` | **否**（bootstrap 生成） |
 | `.map/agents.local.yaml` | **否**（含 token） |
 
-模板见 [docs/map-templates/](../../../docs/map-templates/)。clone 后重新 `map bootstrap`。
+模板见 MAP 平台仓库的 `docs/map-templates/`。clone 平台仓库后重新 `map bootstrap`。
 
 若 agent 名已存在（409），bootstrap 会跳过且**无法找回旧 token**——保留原 `agents.local.yaml`。需覆盖 token 时用 `--force`（会重写 `agents.local.yaml`）。
 
-也可运行脚本（等价）：
+也可运行脚本（等价；脚本随 Skill 分发，位于本文档同级的 `scripts/` 目录）：
 
 ```bash
-bash .cursor/skills/map-project-collab/scripts/map-bootstrap.sh \
+bash scripts/map-bootstrap.sh \
   --key "<project-key>" --name "<name>"
 ```
 

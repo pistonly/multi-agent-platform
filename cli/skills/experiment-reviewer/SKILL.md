@@ -68,8 +68,6 @@ description: >-
 
 **reviewer 响应**：停止评审提交（不调 `experiment review add`），先在评审草稿里标注『发现 audit 链漂移，待 host 修复』。
 
-> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["reviewer"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
-
 ## 参考
 
 | 场景 | 文档 |

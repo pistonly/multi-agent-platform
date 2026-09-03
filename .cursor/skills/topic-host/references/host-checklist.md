@@ -78,7 +78,7 @@ map --persona host topic advance-round --topic <slug> --ready
 map --persona host experiment create \
   --title "..." \
   --plan-file ./plan.md \
-  --topic-id <topic-ref>          # uuid 或 FS slug（T2-P1 双路由）
+  --topic-id <topic-ref>          # uuid 或 FS slug（双路由）
 
 # 瘦身模式：只存计划文件路径
 map --persona host experiment create \
@@ -121,7 +121,7 @@ map --persona host topic close --topic <slug> \
 - **close 门禁**：`map topic close` 时 server 校验 action-items.yaml 无
   `status: open` 项才放行；有则 409 并列出各项 title/owner 引导清零。
   closed = 零尾款是平台 invariant，**先清零再 close**。
-- 旧 close_note 里写 action_items 文本的约定**已废弃**（A6）——存量已 close
+- 旧 close_note 里写 action_items 文本的约定**已废弃**——存量已 close
   话题不回填不重解析，改了文档即拦截新写法。
 
 关闭并开实验后动作参见 [experiment-host](../../experiment-host/SKILL.md)。

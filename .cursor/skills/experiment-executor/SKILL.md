@@ -129,8 +129,6 @@ map --persona participant experiment comment \
 
 **participant 响应**：停止写新发言文件 (`map topic comment`)，改发诊断评论或退回待 host 决定。
 
-> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["participant"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`。
-
 ## 常见错误（BAD → GOOD）
 
 | BAD | GOOD |

@@ -85,7 +85,7 @@ slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-sum
 ## 实验创建（仅 host）
 
 ```bash
-# --topic-id 接受 DB uuid 或 FS 话题 slug（T2-P1 双路由，slug → 确定性 uuid5）
+# --topic-id 接受 DB uuid 或 FS 话题 slug（slug → 确定性 uuid5）
 map experiment create --title "..." --plan-file ./plan.md --topic-id <topic-ref>
 # 创建并直接提交评审
 map experiment create --title "..." --plan-file ./plan.md --submit-for-review

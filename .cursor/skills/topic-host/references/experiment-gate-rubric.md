@@ -124,7 +124,7 @@ map --persona host topic advance-round --topic <slug> \
 
 DB 时代的 `topic resolve` payload 由 `topic close --note` 的 note 字段承载（YAML/结构化文本均可）。
 
-> **v3 变更（A6）**：`action_items` 不再放 close_note——轻量执行项收敛时
+> **v3 变更**：`action_items` 不再放 close_note——轻量执行项收敛时
 > 结构化落 `map/topics/<slug>/action-items.yaml`（见 host-checklist §3b），
 > close 门禁校验清零（closed = 零尾款）。下面模板的 `action_items:`
 > 段已废弃，仅作历史参照；note 只保留 decision / rationale / rejected_options。

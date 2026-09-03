@@ -117,8 +117,6 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 
 **participant 响应**：停止写新发言文件 (`map topic comment`)，改发诊断评论或退回待 host 决定。
 
-> 措辞与 `lib/red_line_clause.py:RED_LINE_CLAUSE` / `INCIDENT_TRIGGER` / `PERSONA_INCIDENT_RESPONSE["participant"]` 一致；副本漂移检测见 `tests/test_red_line_clause.py`（实验 e6d23886 I9）。
-
 ## 参考
 
 | 场景 | 文档 |
