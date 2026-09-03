@@ -8,6 +8,7 @@ from server.api.common import emit
 from server.api.deps import get_current_agent
 from server.api.experiment_execution import execution_router
 from server.api.experiment_reviews import reviews_router
+from server.api.experiment_transition import execute_transition, transition_router
 from server.auth import experiment_access
 from server.db.session import get_db
 from server.domain.models import Agent, ExperimentPhase, Project
@@ -18,7 +19,6 @@ from server.domain.schemas import (
     ExperimentSummaryRead,
     ExperimentUpdate,
 )
-from server.services import notification_service, phase_service
 from server.services import permissions as perm
 from server.services import project_service as svc
 from server.services.experiment_capabilities_service import experiment_summary_for_actor
@@ -30,10 +30,12 @@ def _summary_for_agent(db: Session, experiment, agent: Agent, **extra) -> Experi
 
 # T17（2026-08）：路由按域拆分为 execution / reviews 两个子模块，此处仅保留
 # CRUD 与相位流转，并聚合挂载——对外 URL 契约与 ``experiments_router``
-# 导入路径不变。
+# 导入路径不变。实验 24f3e565 追加 transition 协议子路由（validate/commit/
+# receipts，B1~B5）。
 experiments_router = APIRouter(tags=["experiments"], dependencies=[Depends(bind_background_tasks)])
 experiments_router.include_router(execution_router)
 experiments_router.include_router(reviews_router)
+experiments_router.include_router(transition_router)
 
 
 @experiments_router.post(
@@ -187,19 +189,9 @@ def submit_for_review(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.submit_for_review(db, experiment_id, agent)
+    # 实验 24f3e565 (B7)：单体端点改为 validate/commit 原语的薄包装。
+    execute_transition(db, agent, experiment_id, action="submit-review")
     experiment = svc.get_experiment(db, experiment_id)
-    emit(
-        db,
-        agent,
-        action="experiment.phase_changed",
-        target_type="experiment",
-        target_id=experiment_id,
-        project_id=experiment.project_id,
-        summary=f"提交评审（{experiment.title}）",
-        event="experiment.phase_changed",
-        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
-    )
     return _summary_for_agent(db, experiment, agent)
 
 
@@ -210,19 +202,8 @@ def approve_experiment(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.approve_experiment(db, experiment_id, agent)
+    execute_transition(db, agent, experiment_id, action="approve")
     experiment = svc.get_experiment(db, experiment_id)
-    emit(
-        db,
-        agent,
-        action="experiment.phase_changed",
-        target_type="experiment",
-        target_id=experiment_id,
-        project_id=experiment.project_id,
-        summary=f"批准实验（{experiment.title}）",
-        event="experiment.phase_changed",
-        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
-    )
     return _summary_for_agent(db, experiment, agent)
 
 
@@ -233,20 +214,8 @@ def withdraw_from_review(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.withdraw_from_review(db, experiment_id, agent)
+    execute_transition(db, agent, experiment_id, action="withdraw")
     experiment = svc.get_experiment(db, experiment_id)
-    # Phase 2 D2: kind-directed SSE so the waker can map to ``experiment_lifecycle``.
-    notification_service.emit_kind(
-        db,
-        project_id=experiment.project_id,
-        actor_id=agent.id,
-        personas=["host", "reviewer"],
-        event="experiment.lifecycle.withdrawn",
-        summary=f"实验已撤回评审（{experiment.title}）",
-        target_type="experiment",
-        target_id=experiment.id,
-        payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
-    )
     return _summary_for_agent(db, experiment, agent)
 
 
@@ -257,18 +226,6 @@ def cancel_experiment(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.cancel_experiment(db, experiment_id, agent)
+    execute_transition(db, agent, experiment_id, action="cancel")
     experiment = svc.get_experiment(db, experiment_id)
-    # Phase 2 D2: kind-directed SSE so the waker can map to ``experiment_lifecycle``.
-    notification_service.emit_kind(
-        db,
-        project_id=experiment.project_id,
-        actor_id=agent.id,
-        personas=["host", "reviewer"],
-        event="experiment.lifecycle.cancelled",
-        summary=f"实验已取消（{experiment.title}）",
-        target_type="experiment",
-        target_id=experiment.id,
-        payload={"experiment_id": str(experiment.id), "title": experiment.title, "phase": experiment.phase.value},
-    )
     return _summary_for_agent(db, experiment, agent)

@@ -293,3 +293,39 @@ class ExperimentLog(Base):
 
     experiment: Mapped["Experiment"] = relationship(back_populates="logs")
     author: Mapped["Agent"] = relationship(back_populates="logs")
+
+
+class ExperimentTransitionReceipt(Base):
+    """实验 lifecycle transition 的持久回执（实验B 24f3e565 B2/B5）。
+
+    - nonce（token 内一次性随机数）为主键：同一 token 重放 commit 命中本行
+      即返回原 receipt（``response_snapshot``），不重复写 audit、不重复发
+      通知（B2 幂等）。
+    - ``base_revision`` 为提交时刻该实验已 committed 的 receipt 计数，充当
+      单调乐观锁（B1 七元组之一 / B5 CAS）——**不改 experiments 表**：
+      ``init_db`` 的 create_all 不给既有表补列（server/db/session.py），
+      receipt 计数即版本。
+    - ``fingerprint`` 是 validate 时绑定的 workspace 指纹
+      （``st_dev + st_ino``）；commit 时 server 对记录的 workspace_path
+      现场 re-stat 复核（B8 双侧门禁）。Web 兼容包装路径为 server 自算
+      指纹（server-authoritative）。
+    """
+
+    __tablename__ = "experiment_transition_receipts"
+
+    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("experiments.id"), nullable=False, index=True
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    from_phase: Mapped[str] = mapped_column(String(20), nullable=False)
+    to_phase: Mapped[str] = mapped_column(String(20), nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    base_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    committed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

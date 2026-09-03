@@ -12,7 +12,8 @@ export type AcceptanceType = "migration" | "smoke" | "unit_test" | "integration"
 export type ActionItemCategory = "implementation" | "decision" | "unspecified";
 export type AgentRole = "agent" | "admin";
 export type AgentRole1 = "agent" | "admin";
-export type ExperimentPhase = "draft" | "review" | "approved" | "running" | "result_review" | "done" | "cancelled";
+export type ExperimentPhase =
+  "draft" | "review" | "approved" | "running" | "pending_review" | "result_review" | "done" | "cancelled";
 /**
  * Experiment lifecycle mode (v0.10).
  *
@@ -262,6 +263,27 @@ export interface AgentCreateResponse {
   created_at: string;
   api_token: string;
 }
+/**
+ * Body for ``POST /api/v1/agents/me/heartbeat``.
+ *
+ * Waker-side PATCH：写入 ``agents.last_busy_since``。``busy_since=None``
+ * 视为 idle 清零。endpoint 单列 UPDATE（与既有 ``/me/work`` 的
+ * ``last_waker_poll_at`` 刷新路径解耦——busy_since 是 I2 waker state
+ * machine 的扩展信号，刷新时机由 waker 决定，不是 polling 副作用）。
+ */
+export interface AgentHeartbeatCreate {
+  busy_since?: string | null;
+}
+/**
+ * Return shape for ``POST /api/v1/agents/me/heartbeat``.
+ *
+ * Echo 写入后的状态便于 waker 端校验 round-trip。``busy_since=None``
+ * 表示 idle 清零。
+ */
+export interface AgentHeartbeatResult {
+  agent_id: string;
+  busy_since: string | null;
+}
 export interface AgentRead {
   id: string;
   name: string;
@@ -316,6 +338,7 @@ export interface TopicWorkItemRead {
   idempotency_key: string;
   clear_action: string;
   excerpt: string;
+  suggested_command?: string | null;
   created_at: string;
   discussion_round?: string | null;
   stale_since?: string | null;
@@ -326,6 +349,10 @@ export interface TopicWorkItemRead {
 }
 export interface TodoRead {
   my_open_experiments?: ExperimentSummaryRead[];
+  /**
+   * Running experiments delegated to the current agent as the executor (``executor_agent_id == me.id`` and ``creator_agent_id != me.id``). Self-execution carve-out: when the host delegates to themselves the row lives only in ``my_open_experiments`` — never duplicated here. Visible to the participant persona; for the host creator the same experiment is in ``my_open_experiments`` instead.
+   */
+  executor_assignments?: ExperimentSummaryRead[];
   pending_reviews?: ExperimentSummaryRead[];
   pending_result_reviews?: ExperimentSummaryRead[];
   experiment_review_informational?: ExperimentReviewInformationalRead[];
@@ -859,6 +886,10 @@ export interface ExperimentComplete {
     [k: string]: unknown;
   } | null;
   log_file_path?: string | null;
+  /**
+   * Known-failure refs that waive the failed>0 pytest_summary gate.
+   */
+  known_failures?: string[];
 }
 export interface ExperimentCreate {
   title: string;
@@ -943,6 +974,78 @@ export interface ReviewInvariantCheck {
 export interface ExperimentStart {
   executor_agent_id?: string | null;
 }
+/**
+ * commit 请求：token + action 专属载荷（与单体端点同型）。
+ */
+export interface ExperimentTransitionCommitRequest {
+  token: string;
+  start?: ExperimentStart | null;
+  complete?: ExperimentComplete | null;
+  decision?: ExperimentResultDecision | null;
+}
+/**
+ * commit 响应：receipt + 提交后快照（重放时逐字段等于首次响应）。
+ */
+export interface ExperimentTransitionCommitResponse {
+  accepted: boolean;
+  replayed?: boolean;
+  receipt: ExperimentTransitionReceipt;
+  experiment_id: string;
+  phase: string;
+  title: string;
+  mode?: string | null;
+  executor_agent_id?: string | null;
+  template_validation?: TemplateValidationSchema | null;
+}
+/**
+ * 一次成功 transition 的持久回执（nonce 一次性，重放返回原行）。
+ */
+export interface ExperimentTransitionReceipt {
+  nonce: string;
+  experiment_id: string;
+  project_id: string;
+  action: string;
+  from_phase: string;
+  to_phase: string;
+  actor_id: string;
+  base_revision: number;
+  fingerprint?: string | null;
+  token_digest: string;
+  committed_at: string;
+  response_snapshot?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * validate 请求：为一次 lifecycle transition 申请短时 token。
+ *
+ * ``workspace_fingerprint`` 是 CLI 本地 workspace 根指纹
+ * （``st_dev + st_ino``，见 ``map_client.project_context``）；server 对其
+ * 记录的 ``workspace_path`` 现场 stat 严格比对，不一致 fail closed（B8，
+ * 指引走受审计的显式 rebind/bootstrap 流程）。None 仅限 server 侧同请求
+ * 两跳包装（Web 兼容路径，绑定 server 自算指纹）；CLI 两跳路径必须携带。
+ */
+export interface ExperimentTransitionValidateRequest {
+  action: string;
+  to_phase?: string | null;
+  base_revision?: number | null;
+  workspace_fingerprint?: string | null;
+  expires_in_seconds?: number;
+}
+/**
+ * validate 通过后签发的 verdict（token + 七元组回显）。
+ */
+export interface ExperimentTransitionVerdict {
+  token: string;
+  nonce: string;
+  action: string;
+  experiment_id: string;
+  project_id: string;
+  from_phase: string;
+  to_phase: string;
+  base_revision: number;
+  expires_at: string;
+}
 export interface ExperimentUpdate {
   title?: string | null;
   description?: string | null;
@@ -973,13 +1076,16 @@ export interface FsTopicDetailRead {
   creator: string;
   comment_count?: number;
   participants?: string[];
+  declared_participants?: string[];
   created_at?: string | null;
   updated_at?: string | null;
   dir_path: string;
   comments?: FsCommentRead[];
+  action_items?: FsActionItemRead[];
+  action_items_error?: string | null;
 }
 /**
- * 一条评论 = map/topics/<slug>/round<N>-<persona>.md。
+ * 一条评论 = 普通 round 文件或独立 Round Summary 文件。
  */
 export interface FsCommentRead {
   id: string;
@@ -993,6 +1099,21 @@ export interface FsCommentRead {
   file_path: string;
   posted_at?: string | null;
   comment_seq: number;
+  file_persona?: string;
+  ack_valid?: boolean;
+  ack_error?: string | null;
+}
+/**
+ * 一条执行项 = action-items.yaml 中的一项（收敛时落盘，close 门禁清零）。
+ */
+export interface FsActionItemRead {
+  id: number;
+  title: string;
+  owner: string;
+  status?: string;
+  evidence?: string;
+  reason?: string;
+  created_at?: string | null;
 }
 /**
  * 验证型写：关闭话题（写回 index.md 的 status/close_reason）。
@@ -1152,6 +1273,7 @@ export interface FsTopicSummaryRead {
   creator: string;
   comment_count?: number;
   participants?: string[];
+  declared_participants?: string[];
   created_at?: string | null;
   updated_at?: string | null;
   dir_path: string;
@@ -1165,6 +1287,7 @@ export interface FsWorkItemRead {
   title: string;
   round: number;
   detail: string;
+  suggested_command?: string | null;
 }
 /**
  * 本地写回完成后的 commit 请求（凭 validate 签发的 token）。
@@ -1215,6 +1338,7 @@ export interface GlobalStatusRead {
   };
   projects: ProjectStatusRead[];
   recent_experiments: ExperimentSummaryRead[];
+  waker_heartbeats?: WakerHeartbeatRead[];
 }
 export interface ProjectStatusRead {
   project: ProjectRead;
@@ -1227,6 +1351,30 @@ export interface ProjectStatusRead {
   status_version?: number;
   status_md?: string | null;
   status_updated_at?: string | null;
+}
+/**
+ * Per-agent waker liveness row, computed server-side for ``/status``.
+ *
+ * ``stale`` is only True for an agent that HAS heartbeated (last_waker_poll_at
+ * not null) AND not heartbeated within the threshold. null ``last_waker_poll_at``
+ * means ``never`` (no waker poll ever) and is deliberately NOT stale — the
+ * "only one waker" deployment keeps other personas from permanently WARN-ing.
+ * The CLI renders this row but never re-derives the flag (single source of truth
+ * is the server).
+ *
+ * 实验 b3ec2e4d I3：新增 ``last_busy_since`` 字段——waker 进入 runtime
+ * 调用（remind → claude 子进程）时写入的 busy 心跳；非空表示 waker
+ * 当前正在 busy session。busy 时 ``stale`` 走 busy 容忍阈值（而非
+ * last_waker_poll_at 阈值）——busy 期间的 polling cycle 暂停属正常，
+ * 不应被误判为 stale。CLI 渲染时 busy 行不显示 stale WARN。
+ */
+export interface WakerHeartbeatRead {
+  agent_id: string;
+  agent_name: string;
+  persona: string | null;
+  last_waker_poll_at: string | null;
+  last_busy_since?: string | null;
+  stale?: boolean;
 }
 /**
  * Waker-side record of a notification it intends to act on.
@@ -1319,11 +1467,31 @@ export interface SimilarityWarningSchema {
   ref_log_id: string;
   model: string;
 }
+/**
+ * Body for ``POST /agents/me/notifications/dispatch``.
+ *
+ * Host-orchestrated ``host invoke --timeout`` uses this as the cancellation
+ * channel: when an invoke times out, the host dispatches a wakeable
+ * notification to the target persona so it knows its session was orphaned by
+ * the timeout, rather than silently killing the process.
+ */
+export interface NotificationDispatchCreate {
+  recipient_agent_id: string;
+  event: string;
+  summary: string;
+  target_type?: string;
+  target_id?: string | null;
+  payload?: {
+    [k: string]: unknown;
+  } | null;
+  wakeable?: boolean;
+}
 export interface ORMModel {}
 export interface PlanRevise {
   content_md: string;
   change_note?: string | null;
   addressed_item_ids?: string[];
+  breaking_audit?: boolean;
 }
 export interface ProjectCreate {
   project_key: string;

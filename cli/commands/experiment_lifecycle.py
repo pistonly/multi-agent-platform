@@ -157,6 +157,7 @@ def register(app: typer.Typer) -> None:
         _run_lifecycle(
             experiment_id,
             target_phase="review",
+            action="submit-review",
             call=lambda c, rid, _before: c.submit_for_review(rid),
         )
 
@@ -168,6 +169,7 @@ def register(app: typer.Typer) -> None:
         _run_lifecycle(
             experiment_id,
             target_phase="approved",
+            action="approve",
             call=lambda c, rid, _before: c.approve_experiment(rid),
         )
 
@@ -217,6 +219,12 @@ def register(app: typer.Typer) -> None:
             experiment_id,
             target_phase="running",
             executor_persona=executor_persona,
+            action="start",
+            start_fn=lambda c: (
+                _resolve_executor_agent_id(c, runner._resolve_project(c, None, None), executor)
+                if executor is not None
+                else None
+            ),
             call=lambda c, rid, _before: (
                 c.start_experiment(
                     rid,
@@ -242,9 +250,59 @@ def register(app: typer.Typer) -> None:
         _run_lifecycle(
             experiment_id,
             target_phase="cancelled",
+            action="cancel",
             call=lambda c, rid, _before: c.cancel_experiment(rid),
         )
 
+
+    @app.command("recover")
+    def experiment_recover(
+        experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
+        gc: bool = typer.Option(
+            False,
+            "--gc",
+            help=(
+                "Explicitly clean up intents that are safe to delete: experiment "
+                "terminal, or token expired with server confirming not committed. "
+                "Without --gc recover is read-only reporting."
+            ),
+        ),
+    ) -> None:
+        """Reconcile local lifecycle intents (``.map/intents/``) with server receipts.
+
+        实验 24f3e565（B3/B4/B6）：lifecycle commit 前崩溃/断网后，依本地
+        intent + server receipt 三分支对账——
+
+        - ``[committed]``：server 已按该 token 落地（回执在案），本地以
+          server 为准；
+        - ``[stale]``：实验已终结或 token 过期且 server 确认未提交——
+          intent 不可再提交；
+        - ``[conflict]``：server 被其它 transition 推进——输出双方证据
+          （本地 intent 七元组 vs server phase + 胜出 receipt）；
+        - ``[pending]``：token 仍有效且 server 未提交——可重跑原命令
+          （重新 validate 换新 token）。
+
+        默认只读；``--gc`` 只删 committed/stale 两类 intent（B6 定案）。
+        """
+        from cli.commands.experiment import _rid
+        from cli.experiment_transition import recover_intents, render_recover_report
+
+        def _action(client: MAPClient):
+            from cli.project_context import current_context
+
+            rid = _rid(client, experiment_id)
+            report = recover_intents(
+                client,
+                current_context().workspace_root,
+                rid,
+                gc=gc,
+            )
+            return report
+
+        def _render(report: dict) -> str:
+            return render_recover_report(report)
+
+        runner._run(_action, experiment_id=experiment_id, table_renderer=_render)
 
     @app.command("pre-complete")
     def experiment_pre_complete(
@@ -381,6 +439,8 @@ def register(app: typer.Typer) -> None:
         )
         _run_lifecycle(
             experiment_id,
+            action="complete",
+            complete=payload,
             call=lambda c, rid, _before: c.complete_experiment(rid, payload),
             review_payload={"event": "complete", "summary": summary},
             review_filename="complete.yaml",
@@ -429,6 +489,8 @@ def register(app: typer.Typer) -> None:
         _run_lifecycle(
             experiment_id,
             target_phase="done",
+            action="accept-result",
+            decision=payload,
             call=lambda c, rid, _before: c.accept_experiment_result(rid, payload),
             review_payload={"decision": "accept", "summary": summary},
             review_filename="accept-result.yaml",
@@ -477,6 +539,8 @@ def register(app: typer.Typer) -> None:
         _run_lifecycle(
             experiment_id,
             target_phase="running",
+            action="reject-result",
+            decision=payload,
             call=lambda c, rid, _before: c.reject_experiment_result(rid, payload),
             review_payload={"decision": "reject", "summary": summary},
             review_filename="reject-result.yaml",

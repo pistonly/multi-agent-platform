@@ -79,7 +79,9 @@ def _ensure_can_complete(experiment, actor: Agent) -> None:
     )
 
 
-def submit_for_review(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
+def submit_for_review(
+    db: Session, experiment_id: uuid.UUID, actor: Agent, *, commit: bool = True
+) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
     if experiment.current_plan_version < 1:
@@ -87,35 +89,47 @@ def submit_for_review(db: Session, experiment_id: uuid.UUID, actor: Agent) -> No
     validate_phase_transition(experiment.phase, ExperimentPhase.review, mode=experiment.mode)
     experiment.phase = ExperimentPhase.review
     _sync_phase_owner(experiment)
-    db.commit()
+    # 实验 24f3e565（B1/B7）：commit 原语以 commit=False 复用校验+变更体，
+    # 与 receipt 插入同事务原子提交；默认行为不变。
+    if commit:
+        db.commit()
 
 
-def approve_experiment(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
+def approve_experiment(
+    db: Session, experiment_id: uuid.UUID, actor: Agent, *, commit: bool = True
+) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
     assert_approve_eligibility(db, experiment)
     validate_phase_transition(experiment.phase, ExperimentPhase.approved, mode=experiment.mode)
     experiment.phase = ExperimentPhase.approved
     _sync_phase_owner(experiment)
-    db.commit()
+    if commit:
+        db.commit()
 
 
-def withdraw_from_review(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
+def withdraw_from_review(
+    db: Session, experiment_id: uuid.UUID, actor: Agent, *, commit: bool = True
+) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
     validate_phase_transition(experiment.phase, ExperimentPhase.draft, mode=experiment.mode)
     experiment.phase = ExperimentPhase.draft
     _sync_phase_owner(experiment)
-    db.commit()
+    if commit:
+        db.commit()
 
 
-def cancel_experiment(db: Session, experiment_id: uuid.UUID, actor: Agent) -> None:
+def cancel_experiment(
+    db: Session, experiment_id: uuid.UUID, actor: Agent, *, commit: bool = True
+) -> None:
     experiment = get_experiment(db, experiment_id)
     _ensure_creator_or_admin(experiment, actor)
     validate_phase_transition(experiment.phase, ExperimentPhase.cancelled, mode=experiment.mode)
     experiment.phase = ExperimentPhase.cancelled
     _sync_phase_owner(experiment)
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def start_experiment(
@@ -123,6 +137,8 @@ def start_experiment(
     experiment_id: uuid.UUID,
     actor: Agent,
     executor_agent_id: uuid.UUID | None = None,
+    *,
+    commit: bool = True,
 ) -> None:
     """Transition to ``running`` and optionally delegate execution.
 
@@ -169,7 +185,8 @@ def start_experiment(
     experiment.executor_agent_id = resolved_executor_id
     experiment.phase = ExperimentPhase.running
     _sync_phase_owner(experiment)
-    db.commit()
+    if commit:
+        db.commit()
 
 
 # ---------------------------------------------------------------------------

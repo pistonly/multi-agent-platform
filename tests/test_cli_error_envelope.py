@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -72,9 +73,11 @@ def patched_cli(monkeypatch):
         "map_client.config.load_config",
         lambda *args, **kwargs: {"api_url": "http://test", "token": "stub-token", "project_key": None},
     )
-    # FS 写回 preflight（A2）在调 start_experiment 前先取 before 快照；
+    # FS 写回 preflight（A2）在调 lifecycle API 前先取 before 快照；
     # 空 transport 未初始化 _client，get_experiment 必须一并打桩才能
-    # 走到被测的 start_experiment 错误路径。
+    # 走到被测的错误路径。实验 24f3e565 后 start 走两跳协议：validate
+    # 也一并打桩（approved → running 合法），错误路径由各测试钉在
+    # transition_commit 上。
     monkeypatch.setattr(
         MAPClient,
         "get_experiment",
@@ -85,6 +88,21 @@ def patched_cli(monkeypatch):
             plan_file_path=None,
         ),
     )
+
+    def _fake_validate(self, experiment_id, action, **kwargs):
+        return SimpleNamespace(
+            token="stub-token",
+            nonce="stub-nonce",
+            action=action,
+            experiment_id=experiment_id,
+            project_id=uuid.uuid4(),
+            from_phase="approved",
+            to_phase="running",
+            base_revision=0,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=600),
+        )
+
+    monkeypatch.setattr(MAPClient, "transition_validate", _fake_validate)
 
 
 def _state_machine_error() -> MAPHTTPError:
@@ -111,13 +129,13 @@ def test_cli_format_json_emits_envelope_on_state_machine_error(
 ) -> None:
     """--format json + STATE_MACHINE.* error → JSON envelope on stderr."""
 
-    def fake_start(self, experiment_id, executor_agent_id=None):
+    def fake_commit(self, experiment_id, token, **kwargs):
         raise _state_machine_error()
 
     def fake_escalation(self, experiment_id=None):
         return _escalation_target(experiment_id)
 
-    monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+    monkeypatch.setattr(MAPClient, "transition_commit", fake_commit)
     monkeypatch.setattr(MAPClient, "get_escalation_target", fake_escalation)
 
     result = runner.invoke(
@@ -171,13 +189,13 @@ def test_cli_format_yaml_includes_escalation_line(
 ) -> None:
     """--format yaml + STATE_MACHINE.* error → Escalation line on stderr."""
 
-    def fake_start(self, experiment_id, executor_agent_id=None):
+    def fake_commit(self, experiment_id, token, **kwargs):
         raise _state_machine_error()
 
     def fake_escalation(self, experiment_id=None):
         return _escalation_target(experiment_id)
 
-    monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+    monkeypatch.setattr(MAPClient, "transition_commit", fake_commit)
     monkeypatch.setattr(MAPClient, "get_escalation_target", fake_escalation)
 
     result = runner.invoke(
@@ -199,13 +217,13 @@ def test_cli_envelope_does_not_break_when_escalation_endpoint_fails(
 ) -> None:
     """--format yaml: if escalation endpoint errors, error still renders."""
 
-    def fake_start(self, experiment_id, executor_agent_id=None):
+    def fake_commit(self, experiment_id, token, **kwargs):
         raise _state_machine_error()
 
     def boom(self, experiment_id=None):
         raise RuntimeError("simulated escalation endpoint outage")
 
-    monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+    monkeypatch.setattr(MAPClient, "transition_commit", fake_commit)
     monkeypatch.setattr(MAPClient, "get_escalation_target", boom)
 
     result = runner.invoke(
@@ -230,13 +248,13 @@ def test_cli_envelope_json_unaffected_by_escalation_endpoint_failure(
     path does), so the envelope is unaffected — verify explicitly.
     """
 
-    def fake_start(self, experiment_id, executor_agent_id=None):
+    def fake_commit(self, experiment_id, token, **kwargs):
         raise _state_machine_error()
 
     def boom(self, experiment_id=None):
         raise RuntimeError("simulated escalation outage")
 
-    monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+    monkeypatch.setattr(MAPClient, "transition_commit", fake_commit)
     monkeypatch.setattr(MAPClient, "get_escalation_target", boom)
 
     result = runner.invoke(
@@ -272,10 +290,10 @@ def test_cli_value_error_envelope_json(
     must still emit a JSON envelope with null fields rather than free-text.
     """
 
-    def fake_start(self, experiment_id, executor_agent_id=None):
+    def fake_commit(self, experiment_id, token, **kwargs):
         raise ValueError("experiment id is malformed")
 
-    monkeypatch.setattr(MAPClient, "start_experiment", fake_start)
+    monkeypatch.setattr(MAPClient, "transition_commit", fake_commit)
 
     result = runner.invoke(
         app,

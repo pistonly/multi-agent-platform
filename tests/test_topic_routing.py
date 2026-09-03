@@ -15,7 +15,9 @@ All tests run in-process via CliRunner (no network, no subprocess).
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +25,7 @@ import pytest
 import yaml
 from map_client.exceptions import MAPNotFoundError
 from map_fs import topic_id_for_slug, write_round_comment, write_topic_index
+from map_types.schemas import ExperimentTransitionVerdict
 from typer.testing import CliRunner
 
 # T33: routing helpers moved to cli.topic_routing (tests pin them at the
@@ -272,6 +275,39 @@ _TRI_STATE_COMMANDS = {
 _DB_ONLY_COMMANDS = {"migrate"}
 
 
+class _StubExperiment(dict):
+    """``_run_lifecycle`` after 刷新返回的最小实验 shape。
+
+    实验 24f3e565：two-hop 后 result 会走 ``overlay_fs_authority``——
+    需要 attribute 访问（phase / plan_file_path / …）与 ``model_copy``；
+    最终 result 进 yaml 渲染，因此 ``model_copy`` 把 overlay 注入的
+    enum / dataclass 基元化成 pyyaml 可表示的值。
+    """
+
+    def __init__(self, **fields) -> None:
+        super().__init__(fields)
+
+    def __getattr__(self, name: str):
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def model_copy(self, update=None, deep=False):
+        merged = {**self, **(update or {})}
+
+        def _plain(value):
+            if isinstance(value, uuid.UUID):
+                return str(value)
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
+                return dataclasses.asdict(value)
+            if hasattr(value, "value") and not isinstance(value, str):
+                return value.value
+            return value
+
+        return _StubExperiment(**{k: _plain(v) for k, v in merged.items()})
+
+
 class _RecordingStub(_StubClient):
     """六命令 DB 分支的最小 client 面：记录 SDK 调用参数。
 
@@ -306,19 +342,58 @@ class _RecordingStub(_StubClient):
         self.calls.append(("cancel_experiment", experiment_id))
         return {"id": str(experiment_id), "phase": "cancelled"}
 
+    def transition_validate(self, experiment_id, action, **kwargs):
+        """实验 24f3e565：cancel 走两跳协议后 stub 的新调用面。"""
+        self.calls.append(("transition_validate", experiment_id))
+        return ExperimentTransitionVerdict(
+            token="stub-token",
+            nonce="stub-nonce",
+            action=action,
+            experiment_id=experiment_id,
+            project_id=uuid.uuid4(),
+            from_phase="running",
+            to_phase="cancelled",
+            base_revision=0,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=600),
+        )
+
+    def transition_commit(self, experiment_id, token, **kwargs):
+        self.calls.append(("transition_commit", experiment_id))
+        receipt = SimpleNamespace(
+            nonce="stub-nonce",
+            action="cancel",
+            from_phase="running",
+            to_phase="cancelled",
+            committed_at=datetime.now(timezone.utc),
+            token_digest="digest",
+        )
+        return SimpleNamespace(
+            accepted=True,
+            replayed=False,
+            receipt=receipt,
+            experiment_id=experiment_id,
+            phase="cancelled",
+            title="stub experiment",
+            mode=None,
+            executor_agent_id=None,
+        )
+
     def get_experiment(self, experiment_id):
         """远端 M56D 重构后 _run_lifecycle 的 preflight / after 刷新调用面。
 
-        cancel 命令在调 cancel_experiment 前先 get_experiment(rid) 取
-        from_phase（preflight_index），调完因返回 dict 无 phase 属性再取
-        一次 after。返回带 phase/plan_file_path/executor_agent_id 的最小
-        实验 shape，两条路径都能走通。
+        cancel 命令在调 lifecycle API 前先 get_experiment(rid) 取
+        from_phase（preflight_index），调完再取一次 after。返回
+        :class:`_StubExperiment`（可 yaml 渲染 + 可 ``model_copy``）：
+        实验 24f3e565 后 two-hop 路径的 result 带 phase，会再走
+        ``overlay_fs_authority``（writeback 已把 stub 实验写进 FS，
+        overlay 会命中并回拷 FS 视角的 phase）。
         """
         self.calls.append(("get_experiment", experiment_id))
-        return SimpleNamespace(
+        return _StubExperiment(
             id=experiment_id,
             title="stub experiment",
             phase="running",
+            current_plan_version=1,
             plan_file_path=None,
             executor_agent_id=None,
             creator_agent_id=uuid.uuid4(),
@@ -544,10 +619,12 @@ class TestExperimentCancelCli:
         result = runner.invoke(experiment_app, ["cancel", "--id", str(exp_id)])
         assert result.exit_code == 0, result.output
         # M56D 重构后 lifecycle 命令先 get_experiment 取 from_phase、
-        # 调 API 后再 get_experiment 刷新 after（cancel 返回 dict 无 phase）。
+        # 调 API 后再 get_experiment 刷新 after。实验 24f3e565 起 cancel
+        # 走两跳协议（validate → commit）替代单体 cancel_experiment。
         assert client.calls == [
             ("get_experiment", exp_id),
-            ("cancel_experiment", exp_id),
+            ("transition_validate", exp_id),
+            ("transition_commit", exp_id),
             ("get_experiment", exp_id),
         ]
         assert "cancelled" in result.output
@@ -560,7 +637,7 @@ class TestExperimentCancelCli:
         from cli.commands.experiment import experiment_app
 
         class _Rejecting(_RecordingStub):
-            def cancel_experiment(self, experiment_id):
+            def transition_commit(self, experiment_id, token, **kwargs):
                 raise MAPHTTPError(
                     422,
                     "Experiment is not in a cancellable phase",

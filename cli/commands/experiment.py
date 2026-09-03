@@ -22,7 +22,10 @@ from map_client.client import MAPClient
 from map_client.exceptions import MAPNotFoundError
 from map_types.enums import ExperimentMode
 from map_types.schemas import (
+    ExperimentComplete,
     ExperimentCreate,
+    ExperimentResultDecision,
+    ExperimentStart,
     PlanInput,
 )
 
@@ -188,13 +191,24 @@ def _run_lifecycle(
     executor_persona: str | None = None,
     review_payload: dict[str, Any] | None = None,
     review_filename: str | None = None,
+    action: str | None = None,
+    start: ExperimentStart | None = None,
+    complete: ExperimentComplete | None = None,
+    decision: ExperimentResultDecision | None = None,
+    start_fn=None,
 ) -> None:
-    """API 门禁通过后回写 index.md（A2）。index 存在时先 preflight 拦手改 phase。"""
+    """API 门禁通过后回写 index.md（A2）。index 存在时先 preflight 拦手改 phase。
+
+    实验 24f3e565（B3/B7/B8）：``action`` 给出时走两跳协议——validate →
+    本地 intent（``.map/intents/``）→ commit → 删 intent；commit 失败时
+    intent 留存并提示 ``map experiment recover``。``call``（单跳 SDK 方法）
+    仅作为 ``action=None`` 时的遗留路径保留。
+    """
     from map_fs import ExperimentIndexError
 
     from cli.experiment_fs import overlay_fs_authority, preflight_index, writeback_after_transition
 
-    def action(c: MAPClient):
+    def _action(c: MAPClient):
         from cli.experiment_fs import lifecycle_missing_projection_message
 
         rid = _rid(c, experiment_id)
@@ -213,9 +227,41 @@ def _run_lifecycle(
         except ExperimentIndexError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1) from exc
-        result = call(c, rid, before)
-        after = result if hasattr(result, "phase") else c.get_experiment(rid)
-        actual = enum_value(getattr(after, "phase", planned))
+        if action is not None:
+            from cli.experiment_transition import two_hop_transition
+
+            start_payload = start
+            if start_fn is not None:
+                resolved_executor = start_fn(c)
+                if resolved_executor is not None:
+                    start_payload = ExperimentStart(executor_agent_id=resolved_executor)
+                else:
+                    start_payload = None
+            response = two_hop_transition(
+                c,
+                rid,
+                before,
+                action=action,
+                start=start_payload,
+                complete=complete,
+                decision=decision,
+            )
+            # commit 响应只带回快照摘要；写回与 persona 解析统一用 fresh
+            # detail（与遗留单跳路径的语义一致）。complete 的 template
+            # soft-validation 是响应侧装饰（b72d0542 I1.b）：commit 响应
+            # 带回时注入 fresh detail，让 runner._run 的既有渲染
+            # （stderr [WARN] + stdout template_validation 块）原样生效。
+            result = c.get_experiment(rid)
+            if getattr(response, "template_validation", None) is not None:
+                result = result.model_copy(
+                    update={"template_validation": response.template_validation}
+                )
+            after = result
+            actual = enum_value(response.phase)
+        else:
+            result = call(c, rid, before)
+            after = result if hasattr(result, "phase") else c.get_experiment(rid)
+            actual = enum_value(getattr(after, "phase", planned))
         snapshot = after if hasattr(after, "plan_file_path") else before
         # plan-mode-direct-execution-productization: always derive the
         # executor persona label from the resolved agent, even when the
@@ -265,7 +311,7 @@ def _run_lifecycle(
             return overlay_fs_authority(result)
         return result
 
-    runner._run(action, experiment_id=experiment_id)
+    runner._run(_action, experiment_id=experiment_id)
 
 
 @experiment_app.command("create")

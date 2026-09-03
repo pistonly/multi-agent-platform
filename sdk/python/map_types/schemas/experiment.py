@@ -434,3 +434,88 @@ class ExperimentBundleRead(BaseModel):
     reviews: list[ReviewRead] = Field(default_factory=list)
     comments: list[CommentTreeNode] = Field(default_factory=list)
     logs: list[ExperimentLogRead] = Field(default_factory=list)
+
+
+# --- Lifecycle transition protocol (实验B 24f3e565: validate/commit CAS) ----
+#
+# 两跳提交协议：validate 签发绑定七元组
+# （project / experiment / actor / from-phase / to-phase / base-revision /
+# workspace-fingerprint）+ 有限 TTL 的 HMAC token；CLI 落本地 intent 后
+# CAS commit；首个成功提交者胜出（B5），已成功 token 重放返回原 receipt
+# （B2）。direct 与 standard 走同一原语，无绕过 validate 的旁路端点（B7）。
+
+
+class ExperimentTransitionValidateRequest(BaseModel):
+    """validate 请求：为一次 lifecycle transition 申请短时 token。
+
+    ``workspace_fingerprint`` 是 CLI 本地 workspace 根指纹
+    （``st_dev + st_ino``，见 ``map_client.project_context``）；server 对其
+    记录的 ``workspace_path`` 现场 stat 严格比对，不一致 fail closed（B8，
+    指引走受审计的显式 rebind/bootstrap 流程）。None 仅限 server 侧同请求
+    两跳包装（Web 兼容路径，绑定 server 自算指纹）；CLI 两跳路径必须携带。
+    """
+
+    action: str = Field(min_length=1)
+    # 缺省时 server 按 action + mode 推导（complete: direct→done /
+    # standard→result_review）；显式给出则必须匹配允许集。
+    to_phase: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+    workspace_fingerprint: str | None = None
+    expires_in_seconds: int = Field(default=600, ge=5, le=3600)
+
+
+class ExperimentTransitionVerdict(BaseModel):
+    """validate 通过后签发的 verdict（token + 七元组回显）。"""
+
+    token: str
+    nonce: str
+    action: str
+    experiment_id: uuid.UUID
+    project_id: uuid.UUID
+    from_phase: str
+    to_phase: str
+    base_revision: int
+    expires_at: datetime
+
+
+class ExperimentTransitionCommitRequest(BaseModel):
+    """commit 请求：token + action 专属载荷（与单体端点同型）。"""
+
+    token: str = Field(min_length=1)
+    start: ExperimentStart | None = None
+    complete: ExperimentComplete | None = None
+    decision: ExperimentResultDecision | None = None
+
+
+class ExperimentTransitionReceipt(ORMModel):
+    """一次成功 transition 的持久回执（nonce 一次性，重放返回原行）。"""
+
+    nonce: str
+    experiment_id: uuid.UUID
+    project_id: uuid.UUID
+    action: str
+    from_phase: str
+    to_phase: str
+    actor_id: uuid.UUID
+    base_revision: int
+    fingerprint: str | None = None
+    token_digest: str
+    committed_at: datetime
+    response_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExperimentTransitionCommitResponse(BaseModel):
+    """commit 响应：receipt + 提交后快照（重放时逐字段等于首次响应）。"""
+
+    accepted: bool
+    replayed: bool = False
+    receipt: ExperimentTransitionReceipt
+    experiment_id: uuid.UUID
+    phase: str
+    title: str
+    mode: str | None = None
+    executor_agent_id: uuid.UUID | None = None
+    # complete 专属：4-段 template soft validation（响应侧装饰，与单体
+    # complete 端点的 ExperimentSummaryRead.template_validation 同构；
+    # 重放时也回带，B2 要求重放响应逐字段等于首次响应）。
+    template_validation: TemplateValidationSchema | None = None

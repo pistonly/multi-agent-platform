@@ -19,7 +19,13 @@ from map_types import (
     ExperimentLogRead,
     ExperimentPhase,
     ExperimentResultDecision,
+    ExperimentStart,
     ExperimentSummaryRead,
+    ExperimentTransitionCommitRequest,
+    ExperimentTransitionCommitResponse,
+    ExperimentTransitionReceipt,
+    ExperimentTransitionValidateRequest,
+    ExperimentTransitionVerdict,
     LogCreateResponse,
     PlanRevise,
     PlanVersionRead,
@@ -175,6 +181,84 @@ class ExperimentMixin:
             json=payload.model_dump(mode="json"),
         )
         return ExperimentSummaryRead.model_validate(data)
+
+    # --- lifecycle transition protocol（实验B 24f3e565，B1~B5 两跳原语）---
+
+    def transition_validate(
+        self,
+        experiment_id: uuid.UUID,
+        action: str,
+        *,
+        to_phase: str | None = None,
+        base_revision: int | None = None,
+        workspace_fingerprint: str | None = None,
+        expires_in_seconds: int = 600,
+    ) -> ExperimentTransitionVerdict:
+        """validate：预检并签发七元组绑定 token（不落地任何状态）。
+
+        ``workspace_fingerprint`` 由 CLI 携带本地 workspace 根指纹（B8
+        fail closed）；None 仅限 server 同请求包装路径。
+        """
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/transition/validate",
+            json=ExperimentTransitionValidateRequest(
+                action=action,
+                to_phase=to_phase,
+                base_revision=base_revision,
+                workspace_fingerprint=workspace_fingerprint,
+                expires_in_seconds=expires_in_seconds,
+            ).model_dump(mode="json"),
+        )
+        return ExperimentTransitionVerdict.model_validate(data)
+
+    def transition_commit(
+        self,
+        experiment_id: uuid.UUID,
+        token: str,
+        *,
+        start: ExperimentStart | None = None,
+        complete: ExperimentComplete | None = None,
+        decision: ExperimentResultDecision | None = None,
+    ) -> ExperimentTransitionCommitResponse:
+        """commit：CAS 提交 token 对应的 transition（重放返回原 receipt）。"""
+        data = self._json(
+            "POST",
+            f"/experiments/{experiment_id}/transition/commit",
+            json=ExperimentTransitionCommitRequest(
+                token=token,
+                start=start,
+                complete=complete,
+                decision=decision,
+            ).model_dump(mode="json"),
+        )
+        return ExperimentTransitionCommitResponse.model_validate(data)
+
+    def transition_receipts(
+        self,
+        experiment_id: uuid.UUID,
+        *,
+        limit: int = 20,
+    ) -> list[ExperimentTransitionReceipt]:
+        """该实验已 committed 的 transition receipt（recover 证据源）。"""
+        data = self._json(
+            "GET",
+            f"/experiments/{experiment_id}/transition/receipts",
+            params={"limit": limit},
+        )
+        return [ExperimentTransitionReceipt.model_validate(item) for item in data]
+
+    def transition_receipt(
+        self,
+        experiment_id: uuid.UUID,
+        nonce: str,
+    ) -> ExperimentTransitionReceipt:
+        """按 nonce 查 receipt；未提交/未知 nonce 抛 404（``MAPNotFoundError``）。"""
+        data = self._json(
+            "GET",
+            f"/experiments/{experiment_id}/transition/receipts/{nonce}",
+        )
+        return ExperimentTransitionReceipt.model_validate(data)
 
     # --- execution lock (CP-3) ---
 

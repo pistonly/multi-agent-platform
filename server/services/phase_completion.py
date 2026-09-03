@@ -325,6 +325,7 @@ def _complete_direct_mode(
     payload: ExperimentComplete,
     log_content: str,
     enriched_metadata: dict[str, Any] | None,
+    commit: bool = True,
 ) -> None:
     """v0.10 direct mode: running → done（跳过 result_review）。
 
@@ -397,7 +398,8 @@ def _complete_direct_mode(
         db, experiment, actor_id=actor.id, executor_name=executor_name
     )
 
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def _complete_standard_mode(
@@ -409,6 +411,7 @@ def _complete_standard_mode(
     payload: ExperimentComplete,
     log_content: str,
     enriched_metadata: dict[str, Any] | None,
+    commit: bool = True,
 ) -> None:
     """standard mode: running → result_review，等 reviewer 验收。
 
@@ -437,7 +440,8 @@ def _complete_standard_mode(
     )
     experiment.phase = ExperimentPhase.result_review
     _sync_phase_owner(experiment)
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def complete_experiment(
@@ -445,6 +449,8 @@ def complete_experiment(
     experiment_id: uuid.UUID,
     actor: Agent,
     payload: ExperimentComplete,
+    *,
+    commit: bool = True,
 ) -> None:
     from server.services.phase_service import _ensure_can_complete
 
@@ -475,6 +481,7 @@ def complete_experiment(
             payload=payload,
             log_content=log_content,
             enriched_metadata=enriched_metadata,
+            commit=commit,
         )
         return
 
@@ -486,6 +493,7 @@ def complete_experiment(
         payload=payload,
         log_content=log_content,
         enriched_metadata=enriched_metadata,
+        commit=commit,
     )
 
 
@@ -571,6 +579,8 @@ def accept_result(
     experiment_id: uuid.UUID,
     actor: Agent,
     payload: ExperimentResultDecision,
+    *,
+    commit: bool = True,
 ) -> None:
     from server.services.phase_service import _sync_phase_owner
 
@@ -660,7 +670,8 @@ def accept_result(
         db, experiment, actor_id=actor.id, executor_name=executor_name
     )
 
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def reject_result(
@@ -668,6 +679,8 @@ def reject_result(
     experiment_id: uuid.UUID,
     actor: Agent,
     payload: ExperimentResultDecision,
+    *,
+    commit: bool = True,
 ) -> None:
     from server.services.phase_service import _sync_phase_owner
 
@@ -743,4 +756,5 @@ def reject_result(
     )
     experiment.phase = ExperimentPhase.running
     _sync_phase_owner(experiment)
-    db.commit()
+    if commit:
+        db.commit()

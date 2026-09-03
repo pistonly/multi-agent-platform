@@ -20,11 +20,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.api.background_tasks import bind_background_tasks
-from server.api.common import emit
 from server.api.deps import get_current_agent
+from server.api.experiment_transition import execute_transition
 from server.auth import experiment_access
 from server.db.session import get_db
-from server.domain.models import Agent, ExperimentPhase
+from server.domain.models import Agent
 from server.domain.schemas import (
     AuditLogRead,
     CrossPersonaCallRecord,
@@ -48,7 +48,6 @@ from server.services import (
     lock_service,
     log_service,
     notification_service,
-    phase_service,
 )
 from server.services import permissions as perm
 from server.services import project_service as svc
@@ -73,28 +72,16 @@ def start_experiment(
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
     executor_agent_id = payload.executor_agent_id if payload is not None else None
-    phase_service.start_experiment(db, experiment_id, agent, executor_agent_id)
-    experiment = svc.get_experiment(db, experiment_id)
-    emit(
-        db,
-        agent,
-        action="experiment.phase_changed",
-        target_type="experiment",
-        target_id=experiment_id,
-        project_id=experiment.project_id,
-        summary=f"开始执行（{experiment.title}）",
-        event="experiment.phase_changed",
-        event_payload={
-            "id": str(experiment_id),
-            "phase": experiment.phase.value,
-            "title": experiment.title,
-            # Migration 042: surface executor delegation in the SSE event
-            # so waker / web UI can show "host delegated to {executor}".
-            "executor_agent_id": (
-                str(experiment.executor_agent_id) if experiment.executor_agent_id else None
-            ),
-        },
+    start_payload = (
+        ExperimentStart(executor_agent_id=executor_agent_id)
+        if executor_agent_id is not None
+        else None
     )
+    # 实验 24f3e565 (B7)：单体端点只是 validate/commit 原语的薄包装——
+    # 状态变更、receipt、audit/notification 扇出全部走同一条原语路径，
+    # 不存在绕过 validate 的旁路。
+    execute_transition(db, agent, experiment_id, action="start", start=start_payload)
+    experiment = svc.get_experiment(db, experiment_id)
     return _summary_for_agent(db, experiment, agent)
 
 
@@ -106,11 +93,13 @@ def complete_experiment(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.complete_experiment(db, experiment_id, agent, payload)
+    # 实验 24f3e565 (B7)：complete 走 validate/commit 原语（direct 与
+    # standard、host 与被委派 executor 同一条路径）。
+    execute_transition(db, agent, experiment_id, action="complete", complete=payload)
     experiment = svc.get_experiment(db, experiment_id)
     # b72d0542 I1.b: 4-段 template soft validation. Mirrors evidence
     # validation: never blocks complete; surfaced via response for
-    # reviewer + host to triage.
+    # reviewer + host to triage. （响应侧装饰，不参与状态变更。）
     template_result = validate_result_submission_template(payload.content_md)
     template_validation = TemplateValidationSchema(
         warnings=[
@@ -120,33 +109,6 @@ def complete_experiment(
         sections_present=list(template_result.sections_present),
         log_link_count=template_result.log_link_count,
         valid=template_result.valid,
-    )
-    # plan-mode-direct-execution-productization 复核 SSE/audit 文案按完成后的
-    # phase 区分：direct 完成即 done → "已完成"；standard 完成进 result_review
-    # → "待审批"。reviewer / waker / Web UI 看到一致语义。
-    is_done = experiment.phase == ExperimentPhase.done
-    event_summary = (
-        f"实验已完成（{experiment.title}）"
-        if is_done
-        else f"提交实验结果待审批（{experiment.title}）"
-    )
-    emit(
-        db,
-        agent,
-        action="experiment.phase_changed",
-        target_type="experiment",
-        target_id=experiment_id,
-        project_id=experiment.project_id,
-        summary=event_summary,
-        event="experiment.phase_changed",
-        event_payload={
-            "id": str(experiment_id),
-            "phase": experiment.phase.value,
-            "title": experiment.title,
-            # plan-mode-direct-execution-productization 复核：在 SSE payload 显式
-            # 标注终态语义，waker/UI 不需要再回头查 mode 字段。
-            "completion_state": "done" if is_done else "pending_review",
-        },
     )
     return _summary_for_agent(
         db, experiment, agent, template_validation=template_validation
@@ -161,19 +123,8 @@ def accept_experiment_result(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.accept_result(db, experiment_id, agent, payload)
+    execute_transition(db, agent, experiment_id, action="accept-result", decision=payload)
     experiment = svc.get_experiment(db, experiment_id)
-    emit(
-        db,
-        agent,
-        action="experiment.phase_changed",
-        target_type="experiment",
-        target_id=experiment_id,
-        project_id=experiment.project_id,
-        summary=f"审批通过实验结果（{experiment.title}）",
-        event="experiment.phase_changed",
-        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
-    )
     return _summary_for_agent(db, experiment, agent)
 
 
@@ -185,19 +136,8 @@ def reject_experiment_result(
     agent: Agent = Depends(get_current_agent),
 ) -> ExperimentSummaryRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    phase_service.reject_result(db, experiment_id, agent, payload)
+    execute_transition(db, agent, experiment_id, action="reject-result", decision=payload)
     experiment = svc.get_experiment(db, experiment_id)
-    emit(
-        db,
-        agent,
-        action="experiment.phase_changed",
-        target_type="experiment",
-        target_id=experiment_id,
-        project_id=experiment.project_id,
-        summary=f"驳回实验结果（{experiment.title}）",
-        event="experiment.phase_changed",
-        event_payload={"id": str(experiment_id), "phase": experiment.phase.value, "title": experiment.title},
-    )
     return _summary_for_agent(db, experiment, agent)
 
 
