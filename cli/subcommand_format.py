@@ -139,13 +139,16 @@ def _is_group(cmd: Any) -> bool:
 
 
 def _patch_leaf(cmd: Any, apply: ApplyHook) -> Any:
-    """Patch a leaf command: restore required-option checks + inject ``--format``."""
+    """Patch a leaf command: required-option checks + ``--json`` hint + inject ``--format``."""
     if getattr(cmd, _PATCH_FLAG, False):
         return cmd
     setattr(cmd, _PATCH_FLAG, True)
     # typer×click 必填校验修复对所有 leaf 生效（与是否注入 --format 无关）。
     _restore_required_check(cmd)
     _patch_did_you_mean(cmd)
+    # 后置 --json 指引对所有 leaf 生效（A1）；与 did-you-mean 按 token 互斥
+    # （--json 归这里的指引，其他拼写错误归 did-you-mean），不会双重 Hint。
+    _patch_json_position_hint(cmd)
     # Defensive: if a future command declares its own --format, leave it be
     # (click would reject duplicate option names at parse time otherwise).
     params = getattr(cmd, "params", None) or []
@@ -225,6 +228,10 @@ def _did_you_mean_hint(
     match = re.search(r"no such option\s*[:']?\s*'?(\S+)", message, re.IGNORECASE)
     if match:
         bad = match.group(1)
+        if bad.strip("'.") == "--json":
+            # 后置 --json 的指引由 _patch_json_position_hint 统一负责（所有 leaf，
+            # 不只 id 域），这里让路避免双重 Hint。
+            return None
         close = get_close_matches(bad, known_opts, n=1, cutoff=0.5)
         if close:
             return f"你是不是想用 {close[0]}"
@@ -267,6 +274,47 @@ def _patch_did_you_mean(cmd: Any) -> None:
                 flags_by_name,
                 list(getattr(ctx, "args", None) or ()),
             )
+            if hint and hasattr(exc, "message"):
+                amended = f"{exc.message}  Hint: {hint}"
+                exc.message = amended
+                exc.args = (amended,) + tuple(exc.args[1:])
+            raise
+
+    cmd.parse_args = parse_args  # type: ignore[method-assign]
+
+
+_JSON_POSITION_HINT = (
+    "--json 是全局选项，请置于子命令前，如 `map --json <cmd>`；"
+    "或改用该命令的 --format json"
+)
+
+
+def _json_position_hint(message: str) -> str | None:
+    """no-such-option 的 token 恰为 ``--json`` 时给出全局选项位置指引（A1）。
+
+    token 用 flag 字符类提取，兼容 ``No such option: --json``（冒号形）与
+    ``No such option '--json'.``（引号形）两种 click 消息；其他拼写错误
+    （``--topc`` 等）不命中，仍归 did-you-mean。
+    """
+    match = re.search(r"no such option\s*[:']?\s*'?(--?[A-Za-z0-9_-]+)", message, re.IGNORECASE)
+    if match and match.group(1) == "--json":
+        return _JSON_POSITION_HINT
+    return None
+
+
+def _patch_json_position_hint(cmd: Any) -> None:
+    """A1: 所有 leaf 的后置 ``--json`` 位置指引。
+
+    与 did-you-mean 一样只追加一行 ``Hint: ...``，不改 exit code 与消息主体；
+    对 ``--json`` 以外的解析错误完全透明。
+    """
+    orig_parse_args = cmd.parse_args
+
+    def parse_args(ctx: Any, args: Any) -> Any:
+        try:
+            return orig_parse_args(ctx, args)
+        except Exception as exc:
+            hint = _json_position_hint(str(exc))
             if hint and hasattr(exc, "message"):
                 amended = f"{exc.message}  Hint: {hint}"
                 exc.message = amended

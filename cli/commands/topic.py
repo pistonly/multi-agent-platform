@@ -142,11 +142,14 @@ def _render_topic_table(topics: Any) -> str:
     headers = ["ID", "Title", "Status", "Round", "Comments", "Exps", "Creator", "Created"]
     rows = []
     for t in topics:
+        status = enum_value(t.status)
         rows.append([
             short_uuid(t.id),
             truncate(t.title, 50),
-            enum_value(t.status),
-            enum_value(t.discussion_round),
+            status,
+            # closed/archived 话题轮次状态机已终结，ROUND 列显示 `-`，
+            # 避免 `closed` + `ready` 的歧义组合。
+            "-" if status in ("closed", "archived") else enum_value(t.discussion_round),
             str(t.comment_count),
             str(t.experiment_count),
             truncate(t.creator_name, 20),
