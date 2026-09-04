@@ -1214,3 +1214,75 @@ def test_run_once_calls_touch_and_clear_around_wake(tmp_path: Path) -> None:
     assert len(client.heartbeat_calls) == 2
     assert isinstance(client.heartbeat_calls[0], datetime)
     assert client.heartbeat_calls[1] is None
+
+
+# ---- db97aeac I3（A3）：交互桥接软信号降级 ---------------------------------
+
+
+def _write_bridge_state(project_root: Path, persona: str, **fields: Any) -> Path:
+    path = project_root / ".map" / f"interactive-bridge-state-{persona}.json"
+    save_bridge_state(path, dict(fields))
+    return path
+
+
+def _bridge_waker(tmp_path: Path, **config_overrides: Any) -> Any:
+    client = FakeMapClient(persona="host", todos={"mentions": [{"id": "m1"}]})
+    backend = MagicMock()
+    backend.wake_async = AsyncMock()
+    config = SimpleWakerConfig(
+        persona="host",
+        project_root=tmp_path,
+        dry_run=True,
+        state_file=tmp_path / "state.json",
+        **config_overrides,
+    )
+    return SimpleWaker(client=client, config=config, backend=backend)
+
+
+def test_run_once_skips_remind_when_bridge_active(tmp_path: Path) -> None:
+    """桥接 last_seen_at 在窗口内 → waker 降级跳过唤醒（不 dry-run、不唤醒）。"""
+    _write_bridge_state(tmp_path, "host", last_seen_at=datetime.now(timezone.utc).isoformat())
+    waker = _bridge_waker(tmp_path)
+    stats = waker.run_once()
+    assert stats.remind_skips_bridge_active == 1
+    assert stats.reminds_sent == 0
+    assert stats.dry_run_actions == 0
+    waker.backend.wake_async.assert_not_called()
+
+
+def test_run_once_reminds_when_bridge_stale(tmp_path: Path) -> None:
+    """last_seen_at 过期 → 不降级，remind 照常（宁重复不遗漏）。"""
+    stale = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    _write_bridge_state(tmp_path, "host", last_seen_at=stale)
+    waker = _bridge_waker(tmp_path)
+    stats = waker.run_once()
+    assert stats.remind_skips_bridge_active == 0
+    assert stats.dry_run_actions == 1
+
+
+def test_run_once_reminds_when_bridge_state_corrupt(tmp_path: Path) -> None:
+    """桥接 state 损坏 → 视为不活跃，remind 照常且不抛错。"""
+    path = _write_bridge_state(tmp_path, "host", last_seen_at=datetime.now(timezone.utc).isoformat())
+    path.write_text("{broken", encoding="utf-8")
+    waker = _bridge_waker(tmp_path)
+    stats = waker.run_once()
+    assert stats.remind_skips_bridge_active == 0
+    assert stats.dry_run_actions == 1
+
+
+def test_run_once_bridge_check_disabled_when_window_nonpositive(tmp_path: Path) -> None:
+    """bridge_active_seconds<=0 关闭软信号检查。"""
+    _write_bridge_state(tmp_path, "host", last_seen_at=datetime.now(timezone.utc).isoformat())
+    waker = _bridge_waker(tmp_path, bridge_active_seconds=0)
+    stats = waker.run_once()
+    assert stats.remind_skips_bridge_active == 0
+    assert stats.dry_run_actions == 1
+
+
+def test_run_once_bridge_state_of_other_persona_ignored(tmp_path: Path) -> None:
+    """桥接 state 按 persona 分离：participant 的活跃心跳不影响 host waker。"""
+    _write_bridge_state(tmp_path, "participant", last_seen_at=datetime.now(timezone.utc).isoformat())
+    waker = _bridge_waker(tmp_path)
+    stats = waker.run_once()
+    assert stats.remind_skips_bridge_active == 0
+    assert stats.dry_run_actions == 1

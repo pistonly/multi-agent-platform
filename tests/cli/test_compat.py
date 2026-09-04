@@ -88,6 +88,8 @@ EXPECTED_TOP_LEVEL_SUBAPPS = [
     "docs",
     # T7 I3：audit 漂移检测 CLI（map fs verify-audit，cli/commands/verify_audit.py）
     "fs",
+    # db97aeac I2：交互会话桥接（map bridge hook）
+    "bridge",
 ]
 
 
@@ -145,6 +147,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
     "audit": ["list"],
     # T7 I3：audit 漂移检测 CLI
     "fs": ["verify-audit"],
+    # db97aeac I2：交互会话桥接
+    "bridge": ["hook"],
 }
 
 
@@ -230,6 +234,7 @@ EXPECTED_SUBAPP_FILES = [
     "agent.py",
     "audit.py",
     "auth.py",
+    "bridge.py",  # db97aeac I2: interactive-session bridge（map bridge hook）
     "docs.py",
     "doctor.py",
     "experiment.py",

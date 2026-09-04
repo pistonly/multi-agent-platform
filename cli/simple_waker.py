@@ -25,6 +25,8 @@ from cli.agent_client import apply_project_claude_env
 from cli.bridge_state import load_bridge_state
 from cli.cursor_wake_backend import apply_project_cursor_env
 from cli.errors import WorkerError
+from cli.interactive_bridge import bridge_state_path
+from cli.interactive_bridge import load_state as _load_bridge_state
 from cli.map_command_client import MapCommandClient
 from cli.map_sdk_client import MapSdkClient
 from cli.wake_backend import (
@@ -269,6 +271,7 @@ class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
                         "remind_skips_busy",
                         "remind_skips_cooldown",
                         "remind_skips_unchanged",
+                        "remind_skips_bridge_active",
                         "remind_errors",
                         "dry_run_actions",
                         "inbound_events_recorded",
@@ -386,6 +389,14 @@ class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
             self._save_state_if_needed()
             return stats, next_sleep_seconds(context, self.config)
 
+        # 实验 db97aeac I3（A3）：交互桥接软信号——桥接 state 的
+        # last_seen_at 在活跃窗口内说明交互会话在场，waker 降级跳过本次
+        # 唤醒。宁重复不遗漏：state 缺失/过期/损坏时不降级，行为与现状一致。
+        if self._interactive_bridge_active(now):
+            stats.remind_skips_bridge_active = 1
+            self._save_state_if_needed()
+            return stats, next_sleep_seconds(context, self.config)
+
         prompt = build_remind_prompt(self.config.persona, context)
         if self.config.dry_run:
             typer.echo(
@@ -477,6 +488,28 @@ class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
         if persona not in personas or not isinstance(personas[persona], dict):
             personas[persona] = {}
         return personas[persona]
+
+    def _interactive_bridge_active(self, now: datetime) -> bool:
+        """交互桥接活跃判定（单向软信号，db97aeac I3）。
+
+        读 ``.map/interactive-bridge-state-<persona>.json`` 的
+        ``last_seen_at``：在 ``bridge_active_seconds`` 窗口内 → True（waker
+        降级跳过唤醒）。state 缺失 / 过期 / 损坏 / 窗口关闭（<=0）一律
+        False——桥接侧任何异常都不改变 waker 现状行为。
+        """
+        window = self.config.bridge_active_seconds
+        if window <= 0:
+            return False
+        try:
+            state = _load_bridge_state(
+                bridge_state_path(self.config.project_root, self.config.persona)
+            )
+        except Exception:  # noqa: BLE001 — 软信号不得影响 waker 主流程
+            return False
+        last_seen_at = _parse_datetime(state.get("last_seen_at"))
+        if last_seen_at is None:
+            return False
+        return (now - last_seen_at).total_seconds() < window
 
     async def _reset_runtime_session_if_contract_changed(self) -> None:
         persona_state = self._persona_state(self.config.persona)
@@ -573,6 +606,12 @@ def run(
         "--max-silence-seconds",
         min=60.0,
         help="工作集签名不变时的强制唤醒兜底间隔（秒）；签名去重后超过该时长未唤醒则兜底提醒一次。",
+    ),
+    bridge_active_seconds: float = typer.Option(
+        600.0,
+        "--bridge-active-seconds",
+        min=-1.0,
+        help="交互桥接软信号窗口（秒）：桥接 state last_seen_at 在窗口内则降级跳过唤醒；<=0 关闭。",
     ),
     once: bool = typer.Option(False, "--once", help="Run one cycle and exit."),
     max_cycles: int | None = typer.Option(None, "--max-cycles", min=1, help="Stop after N cycles."),
@@ -715,6 +754,7 @@ def run(
         runtime_home=resolved_runtime_home,
         min_remind_seconds=min_remind_seconds,
         max_silence_seconds=max_silence_seconds,
+        bridge_active_seconds=bridge_active_seconds,
         drain_topics=drain_topics,
         max_prompt_topics=max_prompt_topics,
         stale_threshold_minutes=stale_threshold_minutes,

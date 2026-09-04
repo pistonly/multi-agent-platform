@@ -55,11 +55,14 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "version_app": ("version",),
     "waker_app": ("waker",),
     "verify_audit_app": ("fs",),
+    "bridge_app": ("bridge",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
 # 写命令不在此处——它们由 _WRITE_COMMANDS_2 / _WRITE_COMMANDS_3 覆盖。
 _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
+    # db97aeac I2：bridge hook 只读 map work + 写本地 .map 桥接 state，不写 MAP
+    ("bridge", "hook"),
     ("action", "list"),
     ("experiment", "list"),
     ("experiment", "show"),

@@ -127,6 +127,11 @@ class SimpleWakerConfig:
     # ``MAP_EXPECTED_REMIND_RUNTIME_MINUTES`` > 30min default）。env
     # override 在 __init__ 解析后存入实例属性。
     expected_remind_runtime_minutes: int | None = None
+    # 实验 db97aeac I3（A3）：交互桥接软信号。桥接 state
+    # （.map/interactive-bridge-state-<persona>.json）的 last_seen_at 在该
+    # 窗口（秒）内 = 交互会话在场，waker 降级跳过本次唤醒；state 缺失 /
+    # 过期 / 损坏时不降级（宁重复不遗漏）。<=0 关闭该检查。
+    bridge_active_seconds: float = 600.0
 
 
 @dataclass
@@ -139,6 +144,8 @@ class SimpleWakerStats:
     remind_skips_cooldown: int = 0
     # 签名去重命中次数（工作集与上次唤醒一致 → 跳过 remind）。
     remind_skips_unchanged: int = 0
+    # db97aeac I3：交互桥接活跃（last_seen_at 在窗口内）→ 降级跳过次数。
+    remind_skips_bridge_active: int = 0
     remind_errors: int = 0
     dry_run_actions: int = 0
     # v0.10：每次 remind 后写一条聚合 inbound_event（fingerprint=
@@ -174,6 +181,7 @@ class SimpleWakerStats:
         self.remind_skips_busy += other.remind_skips_busy
         self.remind_skips_cooldown += other.remind_skips_cooldown
         self.remind_skips_unchanged += other.remind_skips_unchanged
+        self.remind_skips_bridge_active += other.remind_skips_bridge_active
         self.remind_errors += other.remind_errors
         self.dry_run_actions += other.dry_run_actions
         self.inbound_events_recorded += other.inbound_events_recorded

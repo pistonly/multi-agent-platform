@@ -39,6 +39,7 @@ from cli.commands.action import action_app
 from cli.commands.agent import agent_app
 from cli.commands.audit import audit_app
 from cli.commands.auth import auth_app
+from cli.commands.bridge import bridge_app  # db97aeac I2: interactive-session bridge
 from cli.commands.docs import docs_app
 from cli.commands.doctor import doctor_app
 from cli.commands.experiment import experiment_app
@@ -125,6 +126,7 @@ app.add_typer(sync_app, name="sync")
 app.add_typer(skill_app, name="skill")
 app.add_typer(version_app, name="version")
 app.add_typer(host_app, name="host")
+app.add_typer(bridge_app, name="bridge")
 app.add_typer(auth_app, name="auth")
 app.add_typer(server_app, name="server")
 app.add_typer(waker_app, name="waker")
