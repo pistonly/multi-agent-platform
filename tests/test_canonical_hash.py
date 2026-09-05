@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import unicodedata
+import uuid
+from datetime import datetime
 
 import pytest
 from map_types.schemas.canonical import (
@@ -39,6 +41,11 @@ def _experiment(
     description: str = "demo desc",
     phase: str = "running",
     creator: str = "host",
+    executor: str = "participant",
+    topic: str = "demo-topic",
+    current_plan_version: int = 1,
+    updated_at: datetime | None = None,
+    projection_id: uuid.UUID | None = None,
 ) -> FsExperimentRead:
     return FsExperimentRead(
         id="00000000-0000-0000-0000-000000000001",
@@ -51,6 +58,11 @@ def _experiment(
         plan_path="map/experiments/demo/plan.md",
         log_path="map/experiments/demo/log.md",
         review_path=None,
+        current_plan_version=current_plan_version,
+        executor=executor,
+        topic=topic,
+        updated_at=updated_at,
+        projection_id=projection_id,
     )
 
 

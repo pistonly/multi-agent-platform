@@ -76,7 +76,13 @@ class FsTopicDetailRead(FsTopicSummaryRead):
 
 
 class FsExperimentRead(BaseModel):
-    """一个实验内容包 = map/experiments/<slug>/ 文件夹。"""
+    """一个实验内容包 = map/experiments/<slug>/ 文件夹。
+
+    实验 M2 I2：补全 5 字段与 ``FsExperiment`` 对齐（见 ``map_fs.model.FsExperiment``）
+    —— ``current_plan_version`` / ``executor`` / ``topic`` / ``updated_at`` /
+    ``projection_id``。早期 read schema 缺这五项导致 sync --check / 投影对账无法
+    引用真实值；新增字段均为可选，向后兼容旧 caller / 旧 cache。
+    """
 
     id: uuid.UUID
     slug: str
@@ -89,6 +95,11 @@ class FsExperimentRead(BaseModel):
     plan_path: str | None = None
     log_path: str | None = None
     review_path: str | None = None
+    current_plan_version: int = 1
+    executor: str = ""
+    topic: str = ""
+    updated_at: datetime | None = None
+    projection_id: uuid.UUID | None = None
 
 
 class FsAdvanceRoundRequest(BaseModel):

@@ -124,7 +124,37 @@ def _experiment_read(e: Any) -> Any:
         plan_path=e.plan_path,
         log_path=e.log_path,
         review_path=e.review_path,
+        current_plan_version=getattr(e, "current_plan_version", 1),
+        executor=getattr(e, "executor", ""),
+        topic=getattr(e, "topic", ""),
+        updated_at=getattr(e, "updated_at", None),
+        projection_id=getattr(e, "projection_id", None),
     )
+
+
+def _load_projection_experiments(ctx: Any) -> list[Any]:
+    """DB 侧实验列表（与 FS 对账用）—— best-effort。
+
+    实验 M2 A2：sync --check 需要 DB 视角的实验集合；首选 server
+    projection（``/projects/{pid}/fs/experiments``）—— 这是 projection
+    cache 的权威读。失败返回空列表（调用方按 fs_only 路径报告，
+    fs_only_terminal 不 blocking；fs_only 活跃态会被判 divergent 提醒）。
+    """
+    from cli import runner
+
+    def action(c):
+        from map_client.config import load_config
+
+        cfg = load_config()
+        pid_str = cfg.get("project_id")
+        if pid_str:
+            return c.list_fs_experiments(uuid.UUID(pid_str))
+        return []
+
+    try:
+        return runner._run(action) or []
+    except Exception:
+        return []
 
 
 

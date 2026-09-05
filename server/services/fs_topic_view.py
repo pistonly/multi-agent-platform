@@ -384,6 +384,11 @@ def fs_experiment_read(plane: FsPlane) -> list[FsExperimentRead]:
             plan_path=e.plan_path,
             log_path=e.log_path,
             review_path=e.review_path,
+            current_plan_version=e.current_plan_version,
+            executor=e.executor,
+            topic=e.topic,
+            updated_at=e.updated_at,
+            projection_id=e.projection_id,
         )
         for e in plane.experiments
     ]

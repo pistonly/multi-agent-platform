@@ -215,11 +215,63 @@ def sync_diff(
 def sync_check(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    exit_code_only: bool = typer.Option(
+        False,
+        "--exit-code-only",
+        help="Suppress output; exit 0 iff blocking_count == 0",
+    ),
 ) -> None:
-    """Folder-plane handshake: local hash + server reachability."""
-    from cli.commands.fs import fs_status
+    """A2 sync --check: FS plane vs server projection 五类对账。
 
-    fs_status(project=project, project_key=project_key)
+    默认输出人类可读摘要（含每 kind 计数 + blocking 列表）；``--json``
+    输出 ``SyncCheckReport`` 完整字段。退出码 0 = 干净，2 = 有 blocking。
+    """
+    from map_fs import scan_plane
+    from map_types.schemas.sync_check import run_sync_check
+
+    from cli.fs_sync import _experiment_read
+    from cli.project_context import ProjectRootNotFoundError, current_context
+
+    try:
+        ctx = current_context()
+    except ProjectRootNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    plane = scan_plane(ctx.workspace_root, ctx.content_root)
+    fs_experiments = [_experiment_read(e) for e in plane.experiments]
+
+    # DB 侧：先尝试 projection cache（v0.13+）；cache 缺失返回空列表
+    # —— 把 cache 缺失视为「DB 视角没有」，结果会按 fs_only_terminal /
+    # divergent 计入，由 blocking 标志告警。
+    db_experiments: list[object] = []
+    try:
+        from cli.fs_sync import _load_projection_experiments
+
+        db_experiments = _load_projection_experiments(ctx)
+    except Exception:
+        db_experiments = []
+
+    report = run_sync_check(fs_experiments, db_experiments)
+
+    if exit_code_only:
+        raise typer.Exit(0 if report.is_clean else 2)
+
+    if as_json:
+        typer.echo(report.model_dump_json(indent=2, exclude_none=True))
+    else:
+        typer.echo(
+            f"Sync check (实验 M2 A2): total={report.total} "
+            f"aligned={report.aligned} fs_only_terminal={report.fs_only_terminal} "
+            f"db_only={report.db_only} divergent={report.divergent} "
+            f"invalid={report.invalid} blocking={report.blocking_count}"
+        )
+        for item in report.items:
+            if item.kind.value != "aligned":
+                marker = "BLOCKING" if item.blocking else "ok"
+                typer.echo(f"  [{marker}] {item.experiment_slug}: {item.message}")
+    raise typer.Exit(0 if report.is_clean else 2)
 
 
 @sync_app.command("push")

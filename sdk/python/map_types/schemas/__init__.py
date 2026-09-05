@@ -166,6 +166,17 @@ from .review import (
     ReviewItemUpdate,
     ReviewRead,
 )
+from .sync_check import (
+    ALIGN_FIELDS,
+    SYNC_CHECK_KIND_VALUES,
+    TERMINAL_PHASES,
+    SyncCheckItem,
+    SyncCheckKind,
+    SyncCheckReport,
+    SyncFieldDiff,
+    classify_experiment_sync,
+    run_sync_check,
+)
 from .todo import (
     DismissAllMentionsResultRead,
     DismissMentionResultRead,
@@ -327,6 +338,15 @@ __all__ = [
     "InboundEventCreate",
     "InboundEventRead",
     "InboundEventRecordResult",
+    "ALIGN_FIELDS",
+    "TERMINAL_PHASES",
+    "SYNC_CHECK_KIND_VALUES",
+    "SyncCheckKind",
+    "SyncFieldDiff",
+    "SyncCheckItem",
+    "SyncCheckReport",
+    "classify_experiment_sync",
+    "run_sync_check",
     "WebhookCreate",
     "WebhookUpdate",
     "WebhookRead",
