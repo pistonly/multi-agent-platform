@@ -524,6 +524,10 @@ _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {
     ("experiment", "lock", "scan-stalled"),
     # project Current Status MD 修订
     ("project", "status", "revise"),
+    # M2 I5+I6（A5+A6）：DB → FS projection 存量迁移 manifest —— scan / execute / verify 改写 manifest_items 表 + LKG 文件。
+    ("sync", "migrate", "scan"),
+    ("sync", "migrate", "execute"),
+    ("sync", "migrate", "verify"),
 }
 
 

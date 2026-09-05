@@ -59,6 +59,8 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     # M2 I4（A4）: project config flag 子命名空间。
     "config_app": ("project", "config"),
     "flag_app": ("project", "config", "flag"),
+    # M2 I5+I6（A5+A6）：DB → FS projection 存量迁移 manifest 子命名空间。
+    "migration_app": ("sync", "migrate"),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -147,6 +149,10 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("sync", "status"),
     ("sync", "topic"),
     ("sync", "topics"),
+    # M2 I6（A6）：migrate 命名空间下的只读命令——dry-run / status
+    # 不改 MAP DB 状态；scan / execute / verify 登记在 _WRITE_COMMANDS_3。
+    ("sync", "migrate", "dry-run"),
+    ("sync", "migrate", "status"),
     # T7 I3：fs verify-audit 漂移检测——只读 map/ 文件夹，不写 MAP 状态。
     ("fs", "verify-audit"),
 }

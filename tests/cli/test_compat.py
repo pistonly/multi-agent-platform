@@ -245,6 +245,7 @@ EXPECTED_SUBAPP_FILES = [
     "feedback.py",
     "fs.py",
     "host.py",
+    "migration_manifest.py",  # M2 I5+I6（A5+A6）: DB→FS projection 存量迁移 manifest sub-app
     "notification.py",
     "persona.py",
     "project.py",

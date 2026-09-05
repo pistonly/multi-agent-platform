@@ -9,6 +9,7 @@ Commands:
     map sync diff       — Compare local map/ with the server projection
     map sync check      — Folder-plane handshake (local hash + server revision)
     map sync push       — Deprecated alias of ``map sync publish --full``
+    map sync migrate    — DB → FS projection 存量迁移 manifest（实验 M2 I5+I6）
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import typer
 from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.commands.migration_manifest import migration_app
 
 sync_app = typer.Typer(
     help=(
@@ -26,6 +28,8 @@ sync_app = typer.Typer(
         "(publish/diff/check)."
     )
 )
+# 实验 M2 I6：DB → FS projection 存量迁移 manifest 子命令
+sync_app.add_typer(migration_app, name="migrate")
 
 
 def _require_cache_session():

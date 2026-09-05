@@ -322,6 +322,29 @@ def list_actionable(
     )
 
 
+def list_project_actionable(
+    db: Session, *, project_id: uuid.UUID, limit: int = 50
+) -> list[MigrationManifestItem]:
+    """全 project 范围 pending + stale-reset 项。
+
+    CLI dry-run / execute 阶段用：跨 run 取所有未完成 item（含旧 run 漏掉
+    的、或 retry budget 未耗尽的），让 host 一次能看到「project 还有多少
+    没跑完」，而不是「最新一次 scan 又扫到几个」（重跑 scan 通常 idempotent
+    跳过，新 run 没新 item）。
+    """
+    return list(
+        db.scalars(
+            select(MigrationManifestItem)
+            .where(
+                MigrationManifestItem.project_id == project_id,
+                MigrationManifestItem.status == "pending",
+            )
+            .order_by(MigrationManifestItem.id)
+            .limit(limit)
+        )
+    )
+
+
 def claim(db: Session, *, item_id: str) -> MigrationManifestItem | None:
     """原子把 ``pending`` 翻成 ``in_flight``，attempts += 1。
 
@@ -392,11 +415,322 @@ def mark_failed(db: Session, *, item_id: str, error: str) -> MigrationManifestIt
     return item
 
 
+# ---------------------------------------------------------------------------
+# stale 语义六类（实验 M2 I6：A6）
+# ---------------------------------------------------------------------------
+#
+# execute 阶段每个 item apply 失败时，按失败原因归类到下面 6 类 stale code。
+# 把分类抽到集中表里，理由：
+#
+# 1. host 运维 / reviewer 看 ``last_error`` 字段时需要稳定 code 才能 grep
+#    / 写 alert 规则（"STALE_PAYLOAD_TOO_LARGE 触发就拒绝并通知"）。
+# 2. 不同 code 对应不同修复路径（CAS 重试 vs 减 payload vs 改 publisher）；
+#    分类驱动下一步动作。
+# 3. 留扩展位：未来 server 端新增错误类型时，加一个新 code 即可，不需要
+#    改 ``mark_failed`` / CLI 输出 / 文档。
+#
+# 实现：``classify_stale_code(exc)`` 走启发式（HTTP status + detail 关键词），
+# 不依赖 server 端在 detail 里携带 ``code`` 字段（目前 server 错误格式不统一）。
+# 启发式失败兜底为 ``STALE_OTHER``。
+
+STALE_PROJECTION_REVISION_CONFLICT = "stale.projection_revision_conflict"
+STALE_CONTENT_HASH_MISMATCH = "stale.content_hash_mismatch"
+STALE_PUBLISHER_NOT_ALLOWED = "stale.publisher_not_allowed"
+STALE_PAYLOAD_TOO_LARGE = "stale.payload_too_large"
+STALE_WRITE_TOKEN_REPLAY = "stale.write_token_replay"
+STALE_SCHEMA_MISMATCH = "stale.schema_mismatch"
+STALE_OTHER = "stale.other"
+
+STALE_ALL_CODES: tuple[str, ...] = (
+    STALE_PROJECTION_REVISION_CONFLICT,
+    STALE_CONTENT_HASH_MISMATCH,
+    STALE_PUBLISHER_NOT_ALLOWED,
+    STALE_PAYLOAD_TOO_LARGE,
+    STALE_WRITE_TOKEN_REPLAY,
+    STALE_SCHEMA_MISMATCH,
+    STALE_OTHER,
+)
+
+
+def _exc_text(exc: BaseException | dict | str) -> str:
+    """从异常 / dict / str 提取可分类的文本。"""
+    if isinstance(exc, BaseException):
+        return f"{type(exc).__name__}: {exc}".lower()
+    if isinstance(exc, dict):
+        # MAP API 错误通常 ``{"detail": "..."}`` 或 ``{"code": "...", "detail": "..."}``
+        parts = []
+        for k in ("code", "detail", "message", "error"):
+            v = exc.get(k)
+            if v:
+                parts.append(str(v))
+        return " ".join(parts).lower()
+    return str(exc).lower()
+
+
+def classify_stale_code(exc: BaseException | dict | str) -> str:
+    """把 server 端异常 / API error body 归到 6 类 stale code 之一。
+
+    分类规则（按优先级匹配；先命中先用）：
+
+    1. ``projection revision conflict`` / ``base_revision`` → CAS
+       revision 漂移（C3 触发频率最高，CAS retry 兜底）
+    2. ``content hash mismatch`` / ``expected_hash`` → tombstone 拒绝
+       （写端期望的 hash 与 server 端 projection 现存 hash 不一致）
+    3. ``publisher not allowed`` / ``publisher_agent_id`` → 权限拒绝
+       （走的是非 host/admin publisher）
+    4. ``too large`` / ``payload size`` / ``exceeds`` / ``413`` → 容量超限
+       （payload > ``_PROJECTION_MAX_BYTES`` 或单 object > ``_PROJECTION_MAX_OBJECT_BYTES``）
+    5. ``token replay`` / ``write_token`` / ``nonce`` → 写 token 重放
+       （fs_write_receipts 唯一索引命中）
+    6. ``validation`` / ``schema`` / ``422`` / ``unprocessable`` → schema 失败
+       （Pydantic validation）
+    7. 其他 → ``STALE_OTHER``（兜底；后续分类细化时再加 code）
+    """
+    text = _exc_text(exc)
+
+    # 1. CAS revision
+    if any(
+        kw in text
+        for kw in (
+            "projection revision conflict",
+            "base_revision",
+            "expected revision",
+            "cas conflict",
+        )
+    ):
+        return STALE_PROJECTION_REVISION_CONFLICT
+
+    # 2. content hash mismatch (tombstone)
+    if any(
+        kw in text
+        for kw in (
+            "content hash mismatch",
+            "expected_hash",
+            "hash mismatch",
+            "tombstone",
+        )
+    ):
+        return STALE_CONTENT_HASH_MISMATCH
+
+    # 3. publisher not allowed
+    if any(
+        kw in text
+        for kw in (
+            "publisher not allowed",
+            "publisher_agent_id",
+            "not in publisher allowlist",
+            "forbidden publisher",
+        )
+    ):
+        return STALE_PUBLISHER_NOT_ALLOWED
+
+    # 4. payload too large
+    if any(
+        kw in text
+        for kw in (
+            "payload too large",
+            "payload size",
+            "exceeds maximum",
+            " 413 ",
+            "max_bytes",
+            "max_topics",
+        )
+    ):
+        return STALE_PAYLOAD_TOO_LARGE
+
+    # 5. write token replay
+    if any(
+        kw in text
+        for kw in (
+            "write token replay",
+            "token replay",
+            "nonce already used",
+            "write_token",
+            "fs_write_receipts",
+        )
+    ):
+        return STALE_WRITE_TOKEN_REPLAY
+
+    # 6. schema mismatch
+    if any(
+        kw in text
+        for kw in (
+            "validation",
+            "schema mismatch",
+            " 422 ",
+            "unprocessable",
+            "validation error",
+            "field required",
+        )
+    ):
+        return STALE_SCHEMA_MISMATCH
+
+    return STALE_OTHER
+
+
+def mark_failed_with_stale(
+    db: Session, *, item_id: str, error: str, exc: BaseException | dict | str
+) -> MigrationManifestItem | None:
+    """``mark_failed`` 的 stale-aware 变体：把分类 code 拼到 ``last_error`` 前缀。
+
+    last_error 格式：``[<stale_code>] <原 error 文本>``。host / reviewer 工具
+    按 ``]`` 前缀 grep 即可拿到 stable code，不需要重新跑分类。
+    """
+    code = classify_stale_code(exc)
+    tagged = f"[{code}] {error}" if error else f"[{code}]"
+    return mark_failed(db, item_id=item_id, error=tagged)
+
+
+# ---------------------------------------------------------------------------
+# last-known-good fallback（实验 M2 I6：A6）
+# ---------------------------------------------------------------------------
+#
+# 背景：execute 阶段任何时刻都可能因为 publisher 不在 / projection 被
+# 别的 agent 推进 / 服务重启而拿不到 server 端当前 inventory。这时候
+# 单看 manifest 与 server 不一致无法区分「server 错了」与「manifest 漏了」。
+#
+# LKG 设计：
+#
+# - 每次 ``finish_run`` 成功落盘后，把 applied item 的 (kind, slug,
+#   content_hash) 列表写到 ``<content_root>/.fs-migration/last-known-good.json``
+# - 下次 scan 之前 CLI 先 read LKG：存在 → 把 LKG 项与新 scan 项 diff；
+#   不存在 → 不阻断，只警告「首次迁移，无 LKG anchor」
+# - LKG 是 **client-side** anchor（不写 server），不参与 server CAS；
+#   它只用于「DB 那边有，server 那边没了，应该相信谁」的判断提示
+#
+# 不依赖：完全不参与 server CAS，纯本地 anchor；服务端无感。
+#
+# 落点：``cli/commands/migration_manifest.py`` 在 ``verify`` 阶段读 LKG
+# 并把它列入对账报告；不在 service 层落 LKG，因为 service 是 server-side
+# 服务，无 filesystem 访问权。
+
+LKG_RELATIVE_PATH = ".fs-migration/last-known-good.json"
+
+
+def build_lkg_payload(
+    *, project_id: uuid.UUID, run_id: str, items: list[MigrationManifestItem]
+) -> dict[str, Any]:
+    """构造 LKG 文件 payload —— 调用方写盘。"""
+    return {
+        "schema": "fs-migration.last-known-good/v1",
+        "project_id": str(project_id),
+        "run_id": run_id,
+        "written_at": datetime.now(timezone.utc).isoformat(),
+        "items": [
+            {
+                "kind": item.kind,
+                "slug": item.slug,
+                "content_hash": item.content_hash,
+                "idempotency_key": item.idempotency_key,
+                "applied_at": item.applied_at.isoformat() if item.applied_at else None,
+            }
+            for item in items
+            if item.status == "applied"
+        ],
+    }
+
+
+def diff_against_lkg(
+    *, db_items: list[MigrationManifestItem], lkg: dict[str, Any] | None
+) -> dict[str, Any]:
+    """新 scan 项与 LKG 项 diff —— 用于 ``verify`` 阶段报告。
+
+    返回结构::
+
+        {
+            "lkg_present": bool,
+            "lkg_run_id": str | None,
+            "in_lkg_only": [...],   # server 上一次 apply 过，本地 DB 已经删除/改 hash
+            "in_db_only": [...],    # 本地 DB 有新内容，server 没跟上
+            "in_both": [...],       # 双侧都有且 hash 一致（健康）
+            "hash_drift": [...],    # 双侧都有但 hash 不一致（server 与 DB 内容漂移）
+        }
+    """
+    db_by_key: dict[str, dict[str, Any]] = {}
+    for item in db_items:
+        # 用 (kind, slug, content_hash) 元组作 key —— hash 一致才算健康
+        db_by_key[f"{item.kind}|{item.slug}|{item.content_hash}"] = {
+            "kind": item.kind,
+            "slug": item.slug,
+            "content_hash": item.content_hash,
+        }
+
+    lkg_items = (lkg or {}).get("items") or []
+    lkg_by_key: dict[str, dict[str, Any]] = {}
+    lkg_by_slug: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for entry in lkg_items:
+        key = f"{entry['kind']}|{entry['slug']}|{entry['content_hash']}"
+        lkg_by_key[key] = entry
+        slug_key = (entry["kind"], entry["slug"])
+        lkg_by_slug.setdefault(slug_key, []).append(entry)
+
+    in_both: list[dict[str, Any]] = []
+    in_db_only: list[dict[str, Any]] = []
+    hash_drift: list[dict[str, Any]] = []
+
+    for key, entry in db_by_key.items():
+        if key in lkg_by_key:
+            in_both.append(entry)
+        else:
+            # 看 LKG 里同 (kind, slug) 是否还有别的 hash → hash drift
+            same_slug = lkg_by_slug.get((entry["kind"], entry["slug"]), [])
+            if same_slug:
+                hash_drift.append(
+                    {
+                        **entry,
+                        "lkg_content_hashes": [s["content_hash"] for s in same_slug],
+                    }
+                )
+            else:
+                in_db_only.append(entry)
+
+    in_lkg_only: list[dict[str, Any]] = []
+    for key, entry in lkg_by_key.items():
+        if key not in db_by_key:
+            in_lkg_only.append(entry)
+
+    return {
+        "lkg_present": lkg is not None,
+        "lkg_run_id": (lkg or {}).get("run_id"),
+        "lkg_written_at": (lkg or {}).get("written_at"),
+        "in_lkg_only": in_lkg_only,
+        "in_db_only": in_db_only,
+        "in_both": in_both,
+        "hash_drift": hash_drift,
+        "summary": {
+            "in_lkg_only": len(in_lkg_only),
+            "in_db_only": len(in_db_only),
+            "in_both": len(in_both),
+            "hash_drift": len(hash_drift),
+        },
+    }
+
+
 def summarize_run(db: Session, *, run_id: str) -> dict[str, int]:
     """聚合 run 内 item 的 status 分布 —— 用于 ``MigrationRun.summary`` JSON。"""
     items = list(
         db.scalars(select(MigrationManifestItem).where(MigrationManifestItem.run_id == run_id))
     )
+    return _count_by_status(items)
+
+
+def summarize_project(db: Session, *, project_id: uuid.UUID) -> dict[str, int]:
+    """跨 run 全 project 聚合 —— 用于 CLI ``execute --json`` 报告。
+
+    跨 run execute（idempotent scan + cross-run claim）会让本 run 0 item，
+    但 status 实际变化是 project 范围的；用本函数得到真值。
+    """
+    items = list(
+        db.scalars(
+            select(MigrationManifestItem).where(
+                MigrationManifestItem.project_id == project_id
+            )
+        )
+    )
+    return _count_by_status(items)
+
+
+def _count_by_status(items: list[MigrationManifestItem]) -> dict[str, int]:
     out: dict[str, int] = {
         "pending": 0,
         "in_flight": 0,
