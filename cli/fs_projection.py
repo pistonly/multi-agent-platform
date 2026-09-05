@@ -279,14 +279,36 @@ def sync_projection(
         result["bootstrap"] = inventory is None
         result["repair"] = bool(full and inventory is not None)
         return result
-    delta = FsProjectionDeltaRequest(
-        base_revision=inventory.projection_revision,
-        client_workspace=str(workspace),
-        content_root=local_root,
-        changes=changes,
-        result_content_hash=local_hash,
-    )
-    applied = c.fs_apply_projection_delta(pid, delta)
+    # A3 幂等重试：双客户端同 base 竞争时，后到者自动 refetch + 重建 delta。
+    # 同 input 不需改（FS 没变），retry 用最新 base_revision 即可。
+    from map_types.schemas.sync_retry import apply_delta_with_retry
+
+    def _rebuild(new_base: int | None) -> FsProjectionDeltaRequest:
+        # 重建 changes 与 result_content_hash（本地 FS 未变，但 base 推进后
+        # remote hash 表已变 → diff 结果可能不同；保守起见重跑 compute_changes）
+        nonlocal changes, summary
+        if new_base is None:
+            # 极端：inventory 在 retry 之间被删了；走 full push
+            raise RuntimeError("inventory vanished mid-retry; run --full")
+        # 拉新 inventory（apply_delta_with_retry 已拉过，但我们仍要重算 diff）
+        new_inventory = c.fs_projection_inventory(pid)
+        if new_inventory is None:
+            raise RuntimeError("inventory vanished mid-retry; run --full")
+        changes, summary = compute_changes(
+            local_topics=topics,
+            local_experiments=experiments,
+            inventory=new_inventory,
+            full=False,
+        )
+        return FsProjectionDeltaRequest(
+            base_revision=new_inventory.projection_revision,
+            client_workspace=str(workspace),
+            content_root=local_root,
+            changes=changes,
+            result_content_hash=local_hash,
+        )
+
+    applied = apply_delta_with_retry(c, pid, _rebuild)
     result.update(applied.model_dump(mode="json"))
     return result
 

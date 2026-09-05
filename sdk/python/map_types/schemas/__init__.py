@@ -177,6 +177,11 @@ from .sync_check import (
     classify_experiment_sync,
     run_sync_check,
 )
+from .sync_retry import (
+    MAX_DELTA_RETRIES,
+    RetryableCASConflict,
+    apply_delta_with_retry,
+)
 from .todo import (
     DismissAllMentionsResultRead,
     DismissMentionResultRead,
@@ -347,6 +352,9 @@ __all__ = [
     "SyncCheckReport",
     "classify_experiment_sync",
     "run_sync_check",
+    "MAX_DELTA_RETRIES",
+    "RetryableCASConflict",
+    "apply_delta_with_retry",
     "WebhookCreate",
     "WebhookUpdate",
     "WebhookRead",
