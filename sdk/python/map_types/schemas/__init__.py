@@ -106,6 +106,12 @@ from .experiment import (
     TemplateWarningSchema,
     WaivedReason,
 )
+from .feature_flag import (
+    FLAG_FS_STOP_DUPLICATE_INSERT,
+    FlagKey,
+    ProjectFeatureFlagRead,
+    ProjectFeatureFlagSet,
+)
 from .fs import (
     FsAdvanceRoundRequest,
     FsCloseRequest,
@@ -179,7 +185,6 @@ from .sync_check import (
 )
 from .sync_retry import (
     MAX_DELTA_RETRIES,
-    RetryableCASConflict,
     apply_delta_with_retry,
 )
 from .todo import (
@@ -353,13 +358,16 @@ __all__ = [
     "classify_experiment_sync",
     "run_sync_check",
     "MAX_DELTA_RETRIES",
-    "RetryableCASConflict",
     "apply_delta_with_retry",
     "WebhookCreate",
     "WebhookUpdate",
     "WebhookRead",
     "WebhookCreateResponse",
     "WebhookDeliveryRead",
+    "FLAG_FS_STOP_DUPLICATE_INSERT",
+    "FlagKey",
+    "ProjectFeatureFlagRead",
+    "ProjectFeatureFlagSet",
     "AuditLogRead",
     "CrossPersonaCallRecord",
     "ACTION_ITEM_WAKE_SENT",

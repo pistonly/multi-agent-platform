@@ -241,6 +241,7 @@ EXPECTED_SUBAPP_FILES = [
     "experiment_review.py",  # T33: review/plan sub-apps extracted from experiment.py
     "experiment_lifecycle.py",  # T45: lifecycle commands extracted from experiment.py
     "experiment_inspect.py",  # T45: log/logs/status/show extracted from experiment.py
+    "feature_flag.py",  # M2 I4（A4）: project config flag sub-app
     "feedback.py",
     "fs.py",
     "host.py",

@@ -28,6 +28,7 @@ from map_types import (
 from map_client.client_mixins import (
     AgentProjectMixin,
     ExperimentMixin,
+    FeatureFlagMixin,
     FsTopicMixin,
     TodoNotificationMixin,
 )
@@ -53,6 +54,7 @@ def _is_local_url(url: str) -> bool:
 class MAPClient(
     AgentProjectMixin,
     ExperimentMixin,
+    FeatureFlagMixin,
     FsTopicMixin,
     TodoNotificationMixin,
 ):

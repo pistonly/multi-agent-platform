@@ -56,6 +56,9 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "waker_app": ("waker",),
     "verify_audit_app": ("fs",),
     "bridge_app": ("bridge",),
+    # M2 I4（A4）: project config flag 子命名空间。
+    "config_app": ("project", "config"),
+    "flag_app": ("project", "config", "flag"),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -135,6 +138,9 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("waker", "status"),
     # T5-B I4：per-实验 token 成本跨实验汇总视图（只读 jsonl + DB list；不改任何状态）
     ("waker", "costs"),
+    # M2 I4（A4）: feature flag list/get 只读。
+    ("project", "config", "flag", "list"),
+    ("project", "config", "flag", "get"),
 
 
     ("sync", "pull"),

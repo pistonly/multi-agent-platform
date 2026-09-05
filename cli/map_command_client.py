@@ -527,9 +527,19 @@ _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {
 }
 
 
+# 4 段路径（[group, subgroup, subgroup, command]）的写命令。M2 I4（A4）
+# 起：project config flag 下只有 set 改 DB，list/get 仅读，必须按 4 元
+# 路径登记才能避免 ``args[:3]`` 误伤 list/get。
+_WRITE_COMMANDS_4: set[tuple[str, str, str, str]] = {
+    ("project", "config", "flag", "set"),
+}
+
+
 def _is_write_command(args: list[str]) -> bool:
     if not args:
         return False
+    if len(args) >= 4 and tuple(args[:4]) in _WRITE_COMMANDS_4:
+        return True
     if len(args) >= 3 and tuple(args[:3]) in _WRITE_COMMANDS_3:
         return True
     return tuple(args[:2]) in _WRITE_COMMANDS_2

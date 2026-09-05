@@ -39,11 +39,16 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable
-from typing import Any
-
-from map_client.exceptions import MAPConflictError, MAPHTTPError
+from typing import TYPE_CHECKING, Any
 
 from map_types.schemas.fs import FsProjectionDeltaRequest, FsProjectionDeltaResult
+
+# ``map_client.exceptions`` 故意走 TYPE_CHECKING——它在 ``map_types``
+# 部分初始化阶段不可用，会触发 ``map_client → map_types`` 反向循环
+# （I4-C 在 ``map_client.client_mixins.__init__`` 引入新 mixin 后被
+# 显化）。运行时仅在 ``apply_delta_with_retry`` 内 lazy import 基类。
+if TYPE_CHECKING:
+    from map_client.exceptions import MAPHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -52,39 +57,69 @@ logger = logging.getLogger(__name__)
 MAX_DELTA_RETRIES: int = 3
 
 
-class RetryableCASConflict(MAPConflictError):
-    """CAS 重试耗尽。
+def _build_retryable_cas_conflict():
+    """运行时 lazy 构建 ``RetryableCASConflict`` 基类。
 
-    携带 ``attempts`` / ``last_base_revision`` 便于 CLI 兜底展示。
-    ``status_code=409`` / ``error_code="fs_projection_conflict"`` 兼容
-    ``except MAPHTTPError`` / ``except MAPConflictError``。
+    ``map_client.exceptions`` 在 ``map_types`` 部分初始化阶段不可用，
+    必须延后到 ``apply_delta_with_retry`` 第一次被调用时再 resolve
+    基类（彼时 ``map_client`` 已经完整 import 完毕）。
     """
+    from map_client.exceptions import MAPConflictError
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        attempts: int,
-        last_base_revision: int | None,
-        last_detail: str | None = None,
-    ) -> None:
-        super().__init__(
-            status_code=409,
-            detail=message,
-            error_code="fs_projection_conflict",
-        )
-        self.attempts = attempts
-        self.last_base_revision = last_base_revision
-        self.last_detail = last_detail
+    class _RetryableCASConflict(MAPConflictError):
+        """CAS 重试耗尽。
+
+        携带 ``attempts`` / ``last_base_revision`` 便于 CLI 兜底展示。
+        ``status_code=409`` / ``error_code="fs_projection_conflict"``
+        兼容 ``except MAPHTTPError`` / ``except MAPConflictError``。
+        """
+
+        def __init__(
+            self,
+            message: str,
+            *,
+            attempts: int,
+            last_base_revision: int | None,
+            last_detail: str | None = None,
+        ) -> None:
+            super().__init__(
+                status_code=409,
+                detail=message,
+                error_code="fs_projection_conflict",
+            )
+            self.attempts = attempts
+            self.last_base_revision = last_base_revision
+            self.last_detail = last_detail
+
+    return _RetryableCASConflict
 
 
-def _is_retryable_409(exc: MAPHTTPError) -> bool:
+# 类型注解占位：第一次 ``apply_delta_with_retry`` 调用时换为真类。
+# 外部 ``from map_types.schemas.sync_retry import RetryableCASConflict``
+# 通过模块级 ``__getattr__`` lazy 解析，避免 ``map_client.exceptions`` 在
+# ``map_types`` 部分初始化阶段被反向触发。
+_RetryableCASConflict_cls: type | None = None
+
+
+def __getattr__(name: str):  # PEP 562
+    global _RetryableCASConflict_cls
+    if name == "RetryableCASConflict":
+        if _RetryableCASConflict_cls is None:
+            _RetryableCASConflict_cls = _build_retryable_cas_conflict()
+        return _RetryableCASConflict_cls
+    raise AttributeError(name)
+
+
+def _is_retryable_409(exc: Any) -> bool:
     """判断 409 是否属于「CAS 冲突」（其他 409 —— e.g. publisher 冲突 —— 不重试）。
 
     判定规则（A3 不变量）：只有 ``detail`` 含 "projection revision
     conflict" 才视为可重试 CAS。publisher 冲突（"bound to another"）
     / 内容冲突（"result_content_hash does not match"）属于客户端错误，
     重试无用，必须人工介入。
+
+    ``MAPHTTPError`` 不在这里做静态类型注解——见模块顶注（循环导入
+    workaround）。
     """
     if exc.status_code != 409:
         return False
@@ -126,6 +161,15 @@ def apply_delta_with_retry(
         非 409 / 非 CAS 错误（如 publisher 冲突 / 鉴权失败 / 服务器
         错误）直接抛出，不重试。
     """
+    # 第一次调用时 lazy 解析 ``map_client.exceptions``（避开
+    # ``map_types`` 部分初始化阶段的反向循环）。
+    from map_client.exceptions import MAPHTTPError
+
+    global _RetryableCASConflict_cls
+    if _RetryableCASConflict_cls is None:
+        _RetryableCASConflict_cls = _build_retryable_cas_conflict()
+    RetryableCASConflict = _RetryableCASConflict_cls
+
     base_revision: int | None = None
     last_exc: MAPHTTPError | None = None
     for attempt in range(1, MAX_DELTA_RETRIES + 1):
@@ -164,6 +208,5 @@ def apply_delta_with_retry(
 
 __all__ = [
     "MAX_DELTA_RETRIES",
-    "RetryableCASConflict",
     "apply_delta_with_retry",
 ]

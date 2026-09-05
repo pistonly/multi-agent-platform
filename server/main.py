@@ -22,6 +22,7 @@ from server.api.router import (
     bootstrap_router,
     docs_router,
     experiments_router,
+    feature_flags_router,
     feedback_router,
     fs_router,
     notifications_router,
@@ -65,6 +66,10 @@ def register_domain_exception_handlers(app: FastAPI) -> None:
         # cancel / submit-review / approve / start 等直接调用）此前无映射 → 500；
         # 与 StateTransitionError 同样按 422 状态机拒绝处理（无 error_code 装饰）。
         StateMachineError: status.HTTP_422_UNPROCESSABLE_ENTITY,
+        # I4：feature_flag_service 在 ON flip 缺 reason 时抛 ValueError
+        # 作为审计 anchor gate；映射 400 而不是 500，让 CLI/SDK 能识别
+        # 「业务校验未通过」而不是「server 异常」。
+        ValueError: status.HTTP_400_BAD_REQUEST,
     }
 
     def make_handler(code: int):
@@ -231,6 +236,7 @@ def create_app(
     app.include_router(action_items_router, prefix=prefix)
     app.include_router(docs_router, prefix=prefix)
     app.include_router(a2a_router, prefix=prefix)
+    app.include_router(feature_flags_router, prefix=prefix)
 
     register_domain_exception_handlers(app)
     register_request_validation_handler(app)

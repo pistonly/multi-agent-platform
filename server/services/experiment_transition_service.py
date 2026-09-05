@@ -228,6 +228,16 @@ def validate_transition(
     project = _project_of(db, experiment)
     bound_fp = _fingerprint_gate(project, workspace_fingerprint)
 
+    # 实验 M2 I4（A4）：fs_stop_duplicate_insert flag 触发 active transition
+    # fail closed。检查在状态机与角色 gate 之后——状态机本身就拒绝
+    # 非法转移，先把非法流量过滤掉再查 flag 避免无谓 IO。
+    _fail_closed_if_flag_on(
+        db,
+        project_id=experiment.project_id,
+        experiment_id=experiment_id,
+        target_phase=target_enum,
+    )
+
     revision = committed_revision(db, experiment_id)
     if base_revision is not None and base_revision != revision:
         raise ConflictError(_cas_lost_message(experiment, base_revision, revision, db))
@@ -285,6 +295,76 @@ def _project_of(db: Session, experiment):
     if project is None:
         raise ConflictError("experiment has no project record")
     return project
+
+
+# ---------------------------------------------------------------------------
+# 实验 M2 I4（A4）fail-closed gate
+# ---------------------------------------------------------------------------
+
+# 触发 fail closed 的目标 phase 集合（active = 非终态；对照
+# sync_check.TERMINAL_PHASES = {done, cancelled}）。
+_FAIL_CLOSED_ACTIVE_PHASES: frozenset[str] = frozenset(
+    {"draft", "review", "approved", "running", "result_review"}
+)
+
+
+def _fail_closed_if_flag_on(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    experiment_id: uuid.UUID,
+    target_phase,
+) -> None:
+    """fs_stop_duplicate_insert=on 且 active transition 缺 projection
+    主行时 fail closed（实验 M2 A4）。
+
+    设计约束：
+
+    - **OFF（默认）** 直接 return——M1 行为不变。
+    - **target 不在 active 集合** 直接 return——terminal transition
+      （→ done / cancelled）不受 flag 限制；A4 lazy materialization
+      只允许 terminal FS-only 展示（sync_check.TERMINAL_PHASES 同源
+      定义）。
+    - **target ∈ active + flag=ON + project 无 fs_projections 行** →
+      raise ConflictError，错误文案带 flag 状态 + 触发条件 + 推荐
+      kill switch 路径（让 caller 一眼看到「我下一步该 flip off」）。
+
+    「projection 主行」的具体定义：本实现选 ``fs_projections``（项目级
+    FS 投影快照表）作为 projection 主行的代理——它存在的条件是
+    ``map sync publish --full`` 至少跑过一次。local-fs 模式 / 远端
+    未推送的项目天然无行 → 任何 active transition 在 flag=ON 时
+    fail closed。这与「lazy materialization 不放行」的语义一致：远端
+    读路径在 flag=ON + 缺投影时应 fail closed，而不是悄悄走 DB 旧列。
+    """
+    from server.services.feature_flag_service import is_fs_stop_duplicate_insert_on
+
+    target_value = getattr(target_phase, "value", target_phase)
+    if target_value not in _FAIL_CLOSED_ACTIVE_PHASES:
+        return
+    if not is_fs_stop_duplicate_insert_on(db, project_id):
+        return
+    # FsProjection 的 PK 是 ``id``，``project_id`` 是 unique index——
+    # 不能直接 db.get(FsProjection, project_id)，否则等价于查 ``id =
+    # project_id`` 永远 None（除了极小概率碰撞）。改成 select + first()
+    # 走 unique index。
+    from sqlalchemy import select
+
+    from server.domain.models import FsProjection
+
+    projection_row = db.scalar(
+        select(FsProjection).where(FsProjection.project_id == project_id)
+    )
+    if projection_row is not None:
+        return
+    raise ConflictError(
+        f"fs_stop_duplicate_insert is ON and FS projection main row is "
+        f"missing for project {project_id} (experiment {experiment_id} → "
+        f"{target_value}); active transition fail closed (实验 M2 A4). "
+        f"修复路径: 1) `map sync publish --full` 先建立 projection 主行; "
+        f"或 2) kill switch 触发回退: `map project config flag set "
+        f"--key fs_stop_duplicate_insert --value off --reason '<reason>'` "
+        f"（仅 host creator / admin 可执行）。"
+    )
 
 
 def _apply_transition(

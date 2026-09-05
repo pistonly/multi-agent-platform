@@ -40,6 +40,7 @@ from server.domain.models.experiment import (
     Review,
     ReviewItem,
 )
+from server.domain.models.feature_flag import ProjectFeatureFlag
 from server.domain.models.fs import FsProjection, FsWriteReceipt
 from server.domain.models.notification import (
     InboundEvent,
@@ -82,6 +83,7 @@ __all__ = [
     "PlanVersion",
     "PlatformFeedback",
     "Project",
+    "ProjectFeatureFlag",
     "ProjectStatusVersion",
     "ResolutionReason",
     "Review",
