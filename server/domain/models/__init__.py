@@ -42,6 +42,10 @@ from server.domain.models.experiment import (
 )
 from server.domain.models.feature_flag import ProjectFeatureFlag
 from server.domain.models.fs import FsProjection, FsWriteReceipt
+from server.domain.models.migration_manifest import (
+    MigrationManifestItem,
+    MigrationRun,
+)
 from server.domain.models.notification import (
     InboundEvent,
     Mention,
@@ -84,6 +88,8 @@ __all__ = [
     "PlatformFeedback",
     "Project",
     "ProjectFeatureFlag",
+    "MigrationRun",
+    "MigrationManifestItem",
     "ProjectStatusVersion",
     "ResolutionReason",
     "Review",
