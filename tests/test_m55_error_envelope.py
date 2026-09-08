@@ -267,8 +267,11 @@ def stub_env(monkeypatch):
         monkeypatch.setenv("MAP_TOKEN", "fake")
         monkeypatch.setenv("MAP_API_URL", "http://test")
         monkeypatch.delenv("MAP_CLI_FORMAT", raising=False)
-        # experiment_fs 直接绑定 project_config.find_map_dir，必须在消费方
-        # 补丁，否则 create 写回会污染真实 workspace。
+        # 实验 e7244a91 A5 后 FS 解析统一走 ProjectContext（运行时读
+        # cli.main.find_map_dir）。只补丁 cli.experiment_fs.find_map_dir
+        # 这个死绑定拦不住 create 的 FS 写回，会把 stub 泄漏进真实
+        # workspace（历史泄漏：map/experiments/slim/）——两处都补。
+        monkeypatch.setattr(cli_main, "find_map_dir", lambda *args, **kwargs: None)
         monkeypatch.setattr(
             "cli.experiment_fs.find_map_dir", lambda *args, **kwargs: None
         )

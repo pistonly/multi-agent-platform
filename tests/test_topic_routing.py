@@ -230,7 +230,7 @@ class TestCommentFsRouting:
             ["comment", "--id", "fp", "--file-path", "map/x.md", "--excerpt", "e"],
         )
         assert result.exit_code == 2
-        assert "need --body / --file" in result.output
+        assert "need --body, --file, or piped stdin" in result.output
 
     def test_comment_parent_rejected_on_fs(self, workspace: Path) -> None:
         _make_fs_topic(workspace, "p")
