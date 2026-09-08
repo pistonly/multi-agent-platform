@@ -30,7 +30,7 @@ from map_types.schemas import (
 )
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
-from cli.io_helpers import _read_text_file
+from cli.io_helpers import _read_piped_text, _read_text_file
 from cli.shortid import resolve_ref
 from cli.table_render import enum_value, format_datetime, render_table, short_uuid, truncate
 
@@ -701,21 +701,37 @@ def experiment_comment(
     experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
     anchor_type: str = typer.Option(..., "--anchor-type"),
     anchor_id: uuid.UUID = typer.Option(..., "--anchor-id"),
-    body: str | None = typer.Option(None, "--body"),
-    body_file: Path | None = typer.Option(None, "--file", help="Read body from a file (avoids shell-quoting issues)."),
+    body: str | None = typer.Option(
+        None,
+        "--body",
+        help="短文本正文；省略时可从 stdin 管道输入，或使用 --file。",
+    ),
+    body_file: Path | None = typer.Option(
+        None,
+        "--file",
+        help="Read body from a file (avoids shell-quoting issues).",
+    ),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
 ) -> None:
     from map_types.enums import CommentAnchorType
     from map_types.schemas import CommentCreate
 
 
-    if body is None and body_file is None:
-        typer.echo("Error: either --body or --file is required", err=True)
-        raise typer.Exit(2)
     if body is not None and body_file is not None:
         typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
-    content = body if body is not None else _read_text_file(body_file, kind="comment")
+    if body is not None:
+        content = body
+    elif body_file is not None:
+        content = _read_text_file(body_file, kind="comment")
+    else:
+        content = _read_piped_text(kind="comment")
+        if content is None:
+            typer.echo(
+                "Error: provide --body, --file, or pipe comment text on stdin",
+                err=True,
+            )
+            raise typer.Exit(2)
     payload = CommentCreate(
         anchor_type=CommentAnchorType(anchor_type),
         anchor_id=anchor_id,

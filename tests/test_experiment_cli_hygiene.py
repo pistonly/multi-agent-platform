@@ -2,8 +2,8 @@
 
 纯 CLI 层(CliRunner + stub transport,无 server):
 
-* A2  ``experiment log --summary`` 缺内容文件(--file/--log-file-path 都没传)时,
-      输出一行式 ``Error: --summary requires --file or --log-file-path``、exit 2,
+* A2  ``experiment log --summary`` 在 stdin 为空且缺内容文件
+      (--file/--log-file-path 都没传)时，输出一行式错误、exit 2,
       且**无 pydantic ValidationError 堆栈**、在发起任何请求前被拒绝。
 * A6  ``experiment pre-complete`` 成功输出末尾回显可粘贴的 complete 命令行
       (--id/--metadata 按本次入参填好,--summary/--log-file-path 作显式占位)。
@@ -11,6 +11,8 @@
       前置给出 accepted keys + 示例 JSON 片段(--schema 提示),不再只在失败后可见。
 """
 from __future__ import annotations
+
+import json
 
 import httpx
 import pytest
@@ -88,7 +90,10 @@ def test_log_summary_without_content_one_line_error(stub_env, runner) -> None:
         ["experiment", "log", "--id", _EXP_ID, "--summary", "s"],
     )
     assert result.exit_code == 2
-    assert "Error: --summary requires --file or --log-file-path" in result.output
+    assert (
+        "Error: --summary requires --file, --log-file-path, or piped log text on stdin"
+        in result.output
+    )
     assert "ValidationError" not in result.output
     assert transport.requests == []  # 在发起任何请求前被拒绝
 
@@ -106,9 +111,52 @@ def test_log_with_file_still_allows_empty_transport_check(stub_env, runner, tmp_
     )
     # 前置校验放行 → 走到 payload 构造 → stub 404(测试环境无 server)。核心断言
     # 是**不再触发 exit 2 的行式错误**,而是下沉到正常请求路径。
-    assert "Error: --summary requires --file or --log-file-path" not in result.output
+    assert "--summary requires --file" not in result.output
     assert transport.requests != []
     assert result.exit_code == 1
+
+
+def test_log_accepts_piped_stdin(stub_env, runner) -> None:
+    transport = NoRequestTransport()
+    stub_env(transport)
+
+    result = runner.invoke(
+        app,
+        ["experiment", "log", "--id", _EXP_ID, "--summary", "piped log"],
+        input="# piped log\n\n含 `反引号` 和 $变量。\n",
+    )
+    assert result.exit_code == 1, result.output
+    assert transport.requests
+    payload = json.loads(transport.requests[-1].content)
+    assert payload["summary"] == "piped log"
+    assert payload["content_md"] == "# piped log\n\n含 `反引号` 和 $变量。\n"
+
+
+def test_complete_accepts_piped_stdin(monkeypatch, runner) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run_lifecycle(experiment_id: str, **kwargs: object) -> None:
+        captured["experiment_id"] = experiment_id
+        captured.update(kwargs)
+
+    monkeypatch.setattr("cli.commands.experiment._run_lifecycle", _fake_run_lifecycle)
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "complete",
+            "--id",
+            _EXP_ID,
+            "--summary",
+            "piped result",
+            "--allow-missing-evidence",
+        ],
+        input="# piped result\n\n验收通过。\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = captured["complete"]
+    assert payload.content_md == "# piped result\n\n验收通过。\n"
+    assert captured["experiment_id"] == _EXP_ID
 
 
 # --- A6: pre-complete 成功输出末尾回显 complete 命令行 ---------------------

@@ -26,7 +26,7 @@ from map_types.schemas import (
 )
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
-from cli.io_helpers import _read_text_file, _read_yaml_file
+from cli.io_helpers import _read_piped_text, _read_text_file, _read_yaml_file
 from cli.runner import _resolve_executor_agent_id
 
 
@@ -374,7 +374,7 @@ def register(app: typer.Typer) -> None:
         log_file: Path | None = typer.Option(
             None,
             "--file",
-            help="Log MD file to read and send as content (existing behavior). "
+            help="Log MD file to read and send as content. Omit it to read piped stdin. "
             "Use when the full log body should land in MAP (similarity check runs on full text).",
         ),
         log_file_path: str | None = typer.Option(
@@ -419,9 +419,15 @@ def register(app: typer.Typer) -> None:
         if experiment_id is None or summary is None:
             typer.echo("Error: --id and --summary are required (unless --schema)", err=True)
             raise typer.Exit(2)
+        piped_content = None
         if log_file is None and log_file_path is None:
-            typer.echo("Error: either --file or --log-file-path is required", err=True)
-            raise typer.Exit(2)
+            piped_content = _read_piped_text(kind="log")
+            if piped_content is None:
+                typer.echo(
+                    "Error: provide --file, --log-file-path, or pipe log text on stdin",
+                    err=True,
+                )
+                raise typer.Exit(2)
         if log_file is not None and log_file_path is not None:
             typer.echo("Error: use only one of --file or --log-file-path", err=True)
             raise typer.Exit(2)
@@ -429,7 +435,9 @@ def register(app: typer.Typer) -> None:
             metadata_file,
             allow_missing_evidence=allow_missing_evidence,
         )
-        content_md = _read_text_file(log_file, kind="log") if log_file else None
+        content_md = (
+            _read_text_file(log_file, kind="log") if log_file else piped_content
+        )
         payload = ExperimentComplete(
             summary=summary,
             content_md=content_md,

@@ -78,6 +78,8 @@ map --persona host topic migrate --id <topic-uuid> --slug <name>             # F
 map --persona participant topic comment --topic <slug> --body "短评（Markdown）"
 # 长内容用文件（即写 map/topics/<slug>/round<N>-participant.md，推荐）
 map --persona participant topic comment --topic <slug> --file ./my-opinion.md
+# 也可省略 --body/--file，直接从非交互式 stdin 读取多行 Markdown
+cat ./my-opinion.md | map --persona participant topic comment --topic <slug>
 ```
 
 slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`，CLI 会写入独立的 `round<N>-summary-host.md`，无需 `--force` 覆盖原发言。存量 DB 话题只读，不对其跑写命令。`map topic comment --id <slug>` 与 `--topic` 等价。
@@ -102,6 +104,8 @@ map experiment start --id <exp-uuid>
 map experiment pre-complete --id <exp-uuid> --metadata ./evidence.yaml
 map experiment complete --id <exp-uuid> --summary "..." --file ./log.md --metadata ./evidence.yaml
 map experiment complete --id <exp-uuid> --summary "..." --log-file-path map/experiments/<slug>/log.md  # 文件引用模式
+# --file/--log-file-path 均省略时，可从非交互式 stdin 读取 log
+generate-log | map experiment complete --id <exp-uuid> --summary "..." --metadata ./evidence.yaml
 map experiment logs --id <exp-uuid>
 map experiment log --id <exp-uuid> --summary "..." --file ./log.md
 map experiment status --id <exp-uuid>
@@ -109,6 +113,11 @@ map experiment plan revise --id <exp-uuid> --plan-file ./plan.md
 map experiment accept-result --id <exp-uuid> --summary "..." --file ./review.md   # reviewer 执行
 map experiment reject-result --id <exp-uuid> --summary "..." --file ./review.md   # reviewer 执行
 ```
+
+`topic comment`、`experiment comment`、`experiment log` 和
+`experiment complete` 支持隐式 stdin：没有显式正文参数且 stdin 为管道时，CLI
+自动读取文本；显式 `--body` / `--file`（实验日志另含 `--log-file-path`）优先。
+交互式终端不会阻塞等待 stdin；空输入或超过 1,048,576 个字符时退出并提示改用 `--file`。
 
 **归档实验**：
 

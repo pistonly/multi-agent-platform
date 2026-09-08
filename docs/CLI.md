@@ -53,6 +53,14 @@ map --persona host experiment create --title "..." --plan-file ./plan.md --topic
 map --persona participant topic comment --id <uuid> --body "..."
 map --persona participant topic comment --id <uuid> --file ./comment.md
 
+# 多行内容也可直接通过非交互式 stdin 输入（无需 --body-stdin）
+cat ./comment.md | map --persona participant topic comment --id <uuid>
+map --persona participant topic comment --id <uuid> <<'EOF'
+## 我的意见
+
+这里的 Markdown 不会经过 shell 再解析。
+EOF
+
 # 主动清理 contextual unread；不清 reply / ack / mention 等 obligation
 map --persona participant topic read --id <uuid>
 map --persona participant topic mark-seen --id <uuid>   # read 的别名
@@ -109,6 +117,22 @@ map --persona host experiment archive --id <exp-uuid> --undo
 - 回滚单 commit `git revert` 即可，无残留状态
 
 ## 其它常用子命令
+
+### stdin 内容输入
+
+`topic comment`、`experiment comment`、`experiment log` 和
+`experiment complete` 在没有 `--body` / `--file`（实验日志还包括
+`--log-file-path`）时，会在 stdin 不是 TTY 的情况下自动读取管道内容。
+显式参数优先；交互式终端不会被阻塞等待 stdin。空 stdin 会以 exit code 2
+提示补充内容来源，隐式读取上限为 1,048,576 个字符，较大的正文请使用 `--file`。
+
+推荐对多行 Markdown 使用带引号的 heredoc（`<<'EOF'`），或直接把生成器输出
+通过管道交给 CLI：
+
+```bash
+generate-opinion | map --persona participant topic comment --topic <slug>
+generate-log | map --persona host experiment log --id <exp-uuid> --summary "执行记录"
+```
 
 | 命令 | 说明 |
 |------|------|

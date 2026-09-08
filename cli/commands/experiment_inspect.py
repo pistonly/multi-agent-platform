@@ -16,7 +16,7 @@ from map_client.exceptions import MAPNotFoundError
 from map_types.schemas import ExperimentLogCreate
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
-from cli.io_helpers import _read_text_file, _read_yaml_file
+from cli.io_helpers import _read_piped_text, _read_text_file, _read_yaml_file
 from cli.persona_compare import _persona_compare_view
 from cli.runner import _print_json
 
@@ -32,7 +32,7 @@ def register(app: typer.Typer) -> None:
         log_file: Path | None = typer.Option(
             None,
             "--file",
-            help="Log MD file to read and send as content_md (existing behavior). "
+            help="Log MD file to read and send as content_md. Omit it to read piped stdin. "
             "Use when the full log body should land in MAP (similarity check runs on full text).",
         ),
         log_file_path: str | None = typer.Option(
@@ -87,11 +87,18 @@ def register(app: typer.Typer) -> None:
             typer.echo("Error: use only one of --file or --log-file-path", err=True)
             raise typer.Exit(2)
         # T1-P3 (cli-hygiene-batch / A2): --summary 是必填,但没有内容来源时让
-        # pydantic 构造直接抛 ValidationError 会泄漏约 30 行堆栈。前置一行式
-        # 错误,exit 2——与上方 --file/--log-file-path 互斥校验对齐。
+        # pydantic 构造直接抛 ValidationError 会泄漏约 30 行堆栈。非 TTY stdin
+        # 是隐式内容来源；只有 stdin 为空时才前置一行式错误,exit 2。
+        piped_content = None
         if log_file is None and log_file_path is None:
-            typer.echo("Error: --summary requires --file or --log-file-path", err=True)
-            raise typer.Exit(2)
+            piped_content = _read_piped_text(kind="log")
+            if piped_content is None:
+                typer.echo(
+                    "Error: --summary requires --file, --log-file-path, "
+                    "or piped log text on stdin",
+                    err=True,
+                )
+                raise typer.Exit(2)
         metadata = _read_yaml_file(metadata_file)
         if log_file is not None:
             payload = ExperimentLogCreate(
@@ -100,13 +107,20 @@ def register(app: typer.Typer) -> None:
                 metadata=metadata,
                 force_skip_similarity=force_skip_similarity,
             )
-        else:
+        elif log_file_path is not None:
             # Slim form: no similarity warning can fire (check skipped), so
             # --force-skip-similarity is not sent — no-op by protocol (M57D).
             payload = ExperimentLogCreate(
                 summary=summary,
                 file_path=log_file_path,
                 metadata=metadata,
+            )
+        else:
+            payload = ExperimentLogCreate(
+                summary=summary,
+                content_md=piped_content,
+                metadata=metadata,
+                force_skip_similarity=force_skip_similarity,
             )
         runner._run(lambda c: c.create_log(_rid(c, experiment_id), payload), experiment_id=experiment_id)
 

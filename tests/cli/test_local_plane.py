@@ -82,6 +82,44 @@ def _comment(runner: CliRunner, slug: str, persona: str, body: str = "观点") -
     assert result.exit_code == 0, result.output
 
 
+def test_topic_comment_reads_piped_stdin(runner: CliRunner, local_workspace: Path) -> None:
+    _create(runner, "stdin-topic", "stdin topic")
+    body = "多行评论\n\n含 `反引号` 和 $变量。\n"
+    result = runner.invoke(
+        app,
+        ["--persona", "host", "topic", "comment", "--topic", "stdin-topic"],
+        input=body,
+    )
+    assert result.exit_code == 0, result.output
+    comment_path = local_workspace / "map" / "topics" / "stdin-topic" / "round1-host.md"
+    assert body.strip() in comment_path.read_text(encoding="utf-8")
+
+
+def test_topic_comment_explicit_body_takes_precedence_over_stdin(
+    runner: CliRunner, local_workspace: Path
+) -> None:
+    _create(runner, "explicit-topic", "explicit topic")
+    result = runner.invoke(
+        app,
+        [
+            "--persona",
+            "host",
+            "topic",
+            "comment",
+            "--topic",
+            "explicit-topic",
+            "--body",
+            "显式正文",
+        ],
+        input="管道正文不应被读取或写入\n",
+    )
+    assert result.exit_code == 0, result.output
+    comment_path = local_workspace / "map" / "topics" / "explicit-topic" / "round1-host.md"
+    comment = comment_path.read_text(encoding="utf-8")
+    assert "显式正文" in comment
+    assert "管道正文不应被读取或写入" not in comment
+
+
 def _index(ws: Path, slug: str) -> dict:
     text = (ws / "map" / "topics" / slug / "index.md").read_text(encoding="utf-8")
     return yaml.safe_load(text.split("---")[1])

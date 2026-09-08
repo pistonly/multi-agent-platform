@@ -27,7 +27,7 @@ from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.commands.action_item import action_item_app  # noqa: E402
-from cli.io_helpers import _read_text_file  # noqa: E402
+from cli.io_helpers import _read_piped_text, _read_text_file  # noqa: E402
 from cli.runner import (  # noqa: E402
     _load_topic_resolve_payload,
     _resolve_creator_agent_id,
@@ -406,8 +406,16 @@ def topic_comment(
         ..., "--topic", "--id", help="Topic UUID (DB), folder uuid5 id, or slug."
     ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
-    body: str | None = typer.Option(None, "--body"),
-    body_file: Path | None = typer.Option(None, "--file"),
+    body: str | None = typer.Option(
+        None,
+        "--body",
+        help="短文本正文；多行 Markdown 可省略此项并从 stdin 管道输入，或使用 --file。",
+    ),
+    body_file: Path | None = typer.Option(
+        None,
+        "--file",
+        help="从 MD 文件读取正文；也可省略内容参数并从 stdin 管道输入。",
+    ),
     parent: uuid.UUID | None = typer.Option(None, "--parent"),
     persona: str | None = typer.Option(None, "--persona"),
     round_number: int | None = typer.Option(None, "--round", help="默认取话题当前轮次"),
@@ -435,16 +443,24 @@ def topic_comment(
     no_sync: bool = typer.Option(False, "--no-sync", help="Skip remote projection sync after the local write"),
 ) -> None:
 
-    has_inline = body is not None or body_file is not None
-    if not has_inline and file_path is None:
-        typer.echo(
-            "Error: provide --body, --file, or --file-path", err=True
-        )
-        raise typer.Exit(2)
     if body is not None and body_file is not None:
         typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
-    content = body if body is not None else (_read_text_file(body_file, kind="comment") if body_file else None)
+    if body is not None:
+        content = body
+    elif body_file is not None:
+        content = _read_text_file(body_file, kind="comment")
+    elif file_path is None:
+        content = _read_piped_text(kind="comment")
+        if content is None:
+            typer.echo(
+                "Error: provide --body, --file, or pipe Markdown on stdin "
+                "(or use --file-path)",
+                err=True,
+            )
+            raise typer.Exit(2)
+    else:
+        content = None
 
     # M51：comment 的 FS 路由本地优先（发言 = 纯本地写 round 文件，无需 API）。
     # slug → map/topics/<slug>/ 存在即 FS；uuid → 本地 uuid5 反查命中即 FS
@@ -526,8 +542,9 @@ def _write_fs_comment(
     """话题发言 = 写普通 round 文件或独立 Summary 文件（纯本地）。"""
     if content is None:
         typer.echo(
-            "Error: folder topics need --body / --file (content is stored in the round "
-            "file); --file-path is a DB-topic reference-only option.",
+            "Error: folder topics need --body, --file, or piped stdin (content is "
+            "stored in the round file); --file-path is a DB-topic reference-only "
+            "option.",
             err=True,
         )
         raise typer.Exit(2)

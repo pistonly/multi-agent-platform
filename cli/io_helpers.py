@@ -11,11 +11,16 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import typer
 import yaml
+
+# Keep implicit stdin input bounded. Large plans/logs should use --file so
+# callers do not accidentally buffer an unbounded pipe into the CLI process.
+MAX_PIPED_TEXT_CHARS = 1_048_576
 
 
 def _read_text_file(path: Path, *, kind: str) -> str:
@@ -33,6 +38,37 @@ def _read_text_file(path: Path, *, kind: str) -> str:
     except IsADirectoryError:
         typer.echo(f"Error: {kind} path is a directory, not a file: {path}", err=True)
         raise typer.Exit(2) from None
+
+
+def _read_piped_text(*, kind: str) -> str | None:
+    """Read text from stdin only when stdin is not an interactive terminal.
+
+    Commands such as ``topic comment`` can therefore accept
+    ``cat note.md | map topic comment --topic demo`` without a dedicated
+    stdin flag. A TTY is never read, so an interactive invocation without an
+    explicit content source fails immediately instead of blocking.
+
+    Explicit ``--body``/``--file`` precedence is handled by each caller.
+    Shell quoting still applies to the command that produces stdin; this
+    helper only prevents the shell from reparsing content after it reaches the
+    CLI.
+    """
+    try:
+        if sys.stdin.isatty():
+            return None
+        content = sys.stdin.read(MAX_PIPED_TEXT_CHARS + 1)
+    except (OSError, UnicodeError) as exc:
+        typer.echo(f"Error: failed to read {kind} from stdin: {exc}", err=True)
+        raise typer.Exit(2) from None
+
+    if len(content) > MAX_PIPED_TEXT_CHARS:
+        typer.echo(
+            f"Error: piped {kind} exceeds {MAX_PIPED_TEXT_CHARS} characters; "
+            "use --file instead.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    return content or None
 
 
 def _read_yaml_file(path: Path | None, *, kind: str = "metadata") -> Any:

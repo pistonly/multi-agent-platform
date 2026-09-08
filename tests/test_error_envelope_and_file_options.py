@@ -6,14 +6,15 @@ Pins plan v2 (b) and (c) acceptance from the CLI side:
   retryable?, recovery_command?}`` validated through the
   ``CLIErrorEnvelope`` Pydantic BaseModel on every JSON error path.
 * (c) every command that accepts ``--body`` also accepts ``--file`` with
-  the same mutually-exclusive / at-least-one validation as
-  ``map topic comment``.
+  the same mutually-exclusive validation as ``map topic comment``; text
+  commands may also use non-interactive stdin.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 from map_client.exceptions import MAPNotFoundError
@@ -229,6 +230,34 @@ def test_experiment_comment_accepts_file(patched_cli_no_server, runner, tmp_path
     assert "No such file" not in combined
 
 
+def test_experiment_comment_accepts_piped_stdin(monkeypatch, runner):
+    import cli.commands.experiment as experiment_cli
+
+    fake_client = MagicMock()
+    monkeypatch.setattr(
+        experiment_cli.runner,
+        "_run",
+        lambda action, **_kwargs: action(fake_client),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "experiment",
+            "comment",
+            "--id",
+            str(uuid.uuid4()),
+            "--anchor-type",
+            "comment",
+            "--anchor-id",
+            str(uuid.uuid4()),
+        ],
+        input="来自 stdin 的评论\n含 `反引号` 和 $变量。\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = fake_client.create_comment.call_args.args[1]
+    assert payload.body == "来自 stdin 的评论\n含 `反引号` 和 $变量。\n"
+
+
 def test_experiment_comment_body_and_file_mutually_exclusive(patched_cli_no_server, runner, tmp_path):
     """Supplying both --body and --file exits 2 with a friendly error."""
     body_file = tmp_path / "comment.md"
@@ -255,7 +284,7 @@ def test_experiment_comment_body_and_file_mutually_exclusive(patched_cli_no_serv
 
 
 def test_experiment_comment_requires_body_or_file(patched_cli_no_server, runner):
-    """Omitting both --body and --file exits 2."""
+    """Without a TTY, empty stdin still produces a useful content-source error."""
     result = runner.invoke(
         app,
         [
@@ -270,7 +299,7 @@ def test_experiment_comment_requires_body_or_file(patched_cli_no_server, runner)
         ],
     )
     assert result.exit_code == 2
-    assert "either --body or --file is required" in (result.stderr or "")
+    assert "provide --body, --file, or pipe comment text on stdin" in (result.stderr or "")
 
 
 def test_feedback_submit_accepts_file(patched_cli_no_server, runner, tmp_path):

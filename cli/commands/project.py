@@ -12,11 +12,17 @@ from map_client.client import MAPClient
 from map_types.schemas import ProjectStatusRevise
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.commands.feature_flag import flag_app  # noqa: E402
 from cli.io_helpers import _read_text_file  # noqa: E402
 
 project_app = typer.Typer(help="Project commands")
 status_app = typer.Typer(help="Project Current Status commands")
 project_app.add_typer(status_app, name="status")
+# 实验 M2 I4（A4）：feature flag 子命名空间（map project config flag ...）。
+# 挂在 project_app.config 下，subcommand list / get / set。
+config_app = typer.Typer(help="Project configuration sub-commands")
+project_app.add_typer(config_app, name="config")
+config_app.add_typer(flag_app, name="flag")
 
 
 @project_app.command("create")

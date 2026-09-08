@@ -18,6 +18,7 @@ from map_client.client import MAPClient
 from map_client.exceptions import MAPHTTPError
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.io_helpers import _read_piped_text
 from cli.table_render import render_table, truncate
 
 
@@ -230,8 +231,16 @@ def fs_topic_create(
 
 def fs_comment(
     topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名，T2-P2）"),
-    body: str | None = typer.Option(None, "--body", help="评论正文（与 --file 二选一）"),
-    file: Path | None = typer.Option(None, "--file", help="从 MD 文件读正文"),
+    body: str | None = typer.Option(
+        None,
+        "--body",
+        help="短文本正文；省略时可从 stdin 管道输入，或使用 --file。",
+    ),
+    file: Path | None = typer.Option(
+        None,
+        "--file",
+        help="从 MD 文件读正文；省略内容参数时也可从 stdin 管道输入。",
+    ),
     persona: str | None = typer.Option(None, "--persona"),
     round_number: int | None = typer.Option(None, "--round", help="默认取话题当前轮次"),
     round_summary: bool = typer.Option(False, "--round-summary"),
@@ -246,10 +255,21 @@ def fs_comment(
     from map_fs import write_round_comment
 
     workspace = _workspace()
-    if (body is None) == (file is None):
-        typer.echo("Error: exactly one of --body / --file is required", err=True)
+    if body is not None and file is not None:
+        typer.echo("Error: use only one of --body or --file", err=True)
         raise typer.Exit(2)
-    text = body if body is not None else file.read_text(encoding="utf-8")
+    if body is not None:
+        text = body
+    elif file is not None:
+        text = file.read_text(encoding="utf-8")
+    else:
+        text = _read_piped_text(kind="comment")
+        if text is None:
+            typer.echo(
+                "Error: provide --body, --file, or pipe Markdown on stdin",
+                err=True,
+            )
+            raise typer.Exit(2)
     current = round_number if round_number is not None else _current_round(workspace, topic)
     if force:
         typer.echo(

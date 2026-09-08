@@ -77,11 +77,12 @@ description: >-
 | **A waker 全自动** | simple-waker 守护进程轮询 `map work`，唤醒每 persona 独立 runtime 会话 | waker remind prompt | wake.md → persona Skill | 按 wake.md 清理待办 |
 | **B 三开对话框** | 用户开 3 个交互会话，每窗口固定一个 persona | 用户在各窗口发话 | 本 Skill → persona Skill | 各自处理 `map work` 义务分区 |
 | **C host invoke** | 交互 host 用 `host invoke` 拉起其他 persona 的独立 SDK 会话（需环境装齐对应 runtime SDK） | invoke prompt | 本 Skill → persona Skill | 同 A |
-| **D 子代理** | 交互会话用自己的子代理能力扮演其他 persona（子代理以 `map --persona <name>` 本人发声，whoami 确认身份） | 父会话子代理 prompt | 本 Skill → persona Skill | **回报即结束**：子代理不做持续跟进轮询，义务清理以父会话交代的任务为准 |
+| **D 子代理** | 交互会话用 Harness 中自带的子代理能力（启动后台 Agent）扮演其他 persona（子代理以 `map --persona <name>` 本人发声，whoami 确认身份） | 父会话子代理 prompt | 本 Skill → persona Skill | **回报即结束**：子代理不做持续跟进轮询，义务清理以父会话交代的任务为准 |
 
 规则：
 
 - 拓扑不确定时先问用户，不要按默认假设行动（典型反例：D 子代理按 B 的假设轮询 `map work` = 空转）。
+- 需要拉起其他 persona 参加（推进话题、参与实验等）而方式未定时，**可主动询问用户是否使用 Harness 中自带的子代理，启动后台 Agent 来参加**（方式 D）；尤其当方式 C 所需的独立 runtime SDK 不可用时。用户同意后再派发子代理，派发内容只给身份与指针（persona 短名 + 话题/实验标识 + 要读的 Skill），子代理回报即结束。
 - 方式可在会话中途切换，切换后按新方式的入口规则行动。
 - 会话桥接组件（`map bridge hook`，把平台待办提醒投递进既有交互会话）启用后，方式 A 可与交互会话叠加（A′）。
 
