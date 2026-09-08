@@ -1,0 +1,24 @@
+event: complete
+summary: '实验 M2 全 I+A 完成（commit 3614dac2）：A1-A7 收口，I6 是收尾项。
+
+
+  - A1 字段权威矩阵 + 规范化 hash：I1 commit 7d9c236
+
+  - A2 sync --check 五类 kind：I2 commit c20f929
+
+  - A3 publish CAS + tombstone + 幂等：I3 commit 0b8ffa9
+
+  - A4 fs_stop_duplicate_insert flag + kill switch + fail closed：I4 commit f8bfa00
+
+  - A5 migration manifest 四阶段 + 中断恢复：I5 commit 71b15b1
+
+  - A6 stale 六类 + last-known-good fallback + CLI map sync migrate *：I6 commit 3614dac2
+
+  - A7 测试门槛：30 service 测试（test_stale_and_lkg 15 + test_migration_manifest 15）+ 179
+  广扫 + ruff 干净 + 5 live evidence（scan 幂等 x3 / dry-run 跨 run actionable / execute dry-apply
+  processed=6 / verify 写 LKG 6 items / sync --check 双快照 IDENTICAL）
+
+
+  evidence 见 metadata：pytest_summary 179 passed / alembic head=054 / api_health=ok
+  / smoke 全过 / 8 个 evidence_keys 全。mode=standard → complete 路由到 result_review，等 reviewer
+  复审。不混入无关 dirty 文件。'

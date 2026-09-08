@@ -1,0 +1,14 @@
+reasonable_items:
+- v1 阻塞项 1 已解决：D4 统一为 mode=standard，明确 complete 后走 result_review 由 reviewer 审批结果，并解释了
+  Round 1『direct 实验即可覆盖』原意（指单一轻量实验覆盖范围而非实验 mode），计划文案与实验元数据已一致
+- v1 阻塞项 2 已解决：A4 口径改为『新增用例全绿 + 存量失败以 --known-failures 留痕豁免（不新增失败、不减用例）』，D5 记录了 main
+  存量失败基线（评审时点 23 failed，均与本实验无关），与 complete 服务端 pytest 门禁口径对齐
+- 验收无退化：A1（exit 2 + stderr 前置指引文案）、A2（四种调用形态 exit 0 且纯 JSON envelope）、A3（closed/archived
+  ROUND 列 `-`、open 话题不受影响、表头不改名）保持 v1 口径；evidence_keys 三项（pytest_summary / 实测输出 /
+  ruff check）与 A1-A4 一一对应，均可机检
+- 范围与边界保持干净：仅动 cli/subcommand_format.py 与 cli/commands/topic.py + tests，不碰 server
+  与 Skill 分发面；问题 1（已修复 f6bb367）与中期方案（逐命令透传/收敛单一 --format）仍明确 Out of Scope，依赖节注明追溯方式
+- 结论：计划 v2 可批准。两条 unreasonable 均已妥善回应，无新增阻塞项，host 可推进 approve/start；按 standard 模式，执行完成后进入
+  result_review 由我审批结果
+unreasonable_items: []
+substitute_reason: null

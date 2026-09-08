@@ -1,0 +1,6 @@
+decision: accept
+summary: M2 收口验收通过：A1-A7 全收口（6 窄 commit 链 I1-I6），首评 2 条 minor 全部落地（A3「缺字段≠删除」3 例显式覆盖
+  + kill switch 触发条件/触发人 docstring 双源文档化）；evidence_keys 7 条全对账（双快照 sync --check IDENTICAL
+  / kill switch / fail-closed 409 / 迁移中断恢复 / pytest 179 passed / ruff 全清）；3 条风险显式记录（I3
+  真实 CAS race 受 server 模式限制由 mock 等价覆盖 / I5 service hash 与 FS canonical 简化版待双端共享 /
+  I6 execute 默认 dry-apply 已实测 processed=6→applied=6）。0 阻塞项，phase=done。

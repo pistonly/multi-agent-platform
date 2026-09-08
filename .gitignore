@@ -100,3 +100,6 @@ Thumbs.db
 
 # Frontend test coverage output (vitest v8)
 coverage/
+
+# FS 迁移运行时状态（migration manifest / last-known-good，由 map sync migrate 维护）
+map/.fs-migration/

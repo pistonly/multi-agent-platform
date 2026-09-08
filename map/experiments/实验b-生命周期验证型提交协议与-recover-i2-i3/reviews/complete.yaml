@@ -1,0 +1,4 @@
+event: complete
+summary: 实验B完成：生命周期验证型两跳提交协议与 recover 落地——validate token 七元组绑定、CAS commit、receipt
+  重放幂等、CLI intent/recover 三分支+显式GC、B7 单体端点薄包装无旁路、B8 指纹 fail closed 写门禁；新增协议测试10+CLI测试8全绿，全量回归2445
+  passed 且 0 本实验引入失败（22 存量失败经干净 worktree 对照归因 main 欠账）

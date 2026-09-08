@@ -1,0 +1,21 @@
+reasonable_items:
+- 目标与范围清晰：A1-A8 覆盖 M1 留白三块（内容对账 / 停止 DB 重复 INSERT / 远程同步与存量迁移），与 D1-D6 定稿决议逐项对应，不混入
+  M3 / 权限模型 / MAP_DATABASE_URL 等非目标
+- 字段权威矩阵 + 规范化 hash（A1）定义具体：UTF-8 NFC + LF 单尾换行 + YAML mapping key 递归排序 + list 保序；五路
+  hash + content_root 设计可机检、可回归；projection_id '仅校验不自动改写' 防止误改 divergent
+- sync --check 契约（A2）固定 schema 与五类 kind 枚举（aligned / fs_only_terminal / db_only /
+  divergent / invalid），'aligned 且 stale=false 且无 blocking 才可作为切换证据' 给机器可判定门槛，避免'一次零
+  diff 放行'
+- 单 publisher + revision CAS + 显式 tombstone + 幂等 key（A3）覆盖并发写、字段缺省隐式删除、重试、409 重试四类风险；'禁止部分提交
+  / 禁止 last-writer-wins' 锁死关键不变量
+- DB INSERT 边界（A4）严格限定在'FS 已提交后重复内容写入'，锁/通知/评审项/审计/receipt/token 保留 DB；active 实验缺
+  projection 强制 fail closed，lazy 只允许 terminal FS-only 展示——切线清楚
+- 迁移与恢复（A5）按 prepared/validated/published/committed 四阶段 + 临时目录原子 rename + receipt
+  续跑，重命名 = 显式变更集内 upsert + tombstone；CAS 冲突不覆盖本地文件
+- stale 语义（A6）枚举六类原因 + last-known-good fallback + 恢复后从本地快照重发布，不把缺失 payload 当删除——远程形态关键护栏
+- 测试门槛（A7）四件套 gating（测试全绿 / 一次完整迁移演练 / 连续两次独立 check 无 blocking / active 锁闭环实测）作为实现/停止
+  INSERT 前的强制门槛，纪律到位
+- 风险段把 94+ 存量迁移量 / 双写漂移噪音 / kill switch 短暂双轨 / 远程 vs 同机形态差异四点显式列出，不留模糊地带
+- 执行/生命周期（A8）委派 participant 执行（对齐 M1 先例），host 保留 cancel/withdraw 门禁，符合实验平台角色边界
+unreasonable_items: []
+substitute_reason: null

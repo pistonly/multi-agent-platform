@@ -1,0 +1,18 @@
+reasonable_items:
+- 与源话题共识一致：A1-A6 逐条对应 round1-summary-host.md 的 D1-D6——A1/A2 独立桥接组件+本地 state 实例分离（D1/D2）、A3
+  软信号 last_seen_at 降级宁重复不遗漏（D3）、A1/边界本期只做 Claude Code、cursor 出范围、预留 injector 抽象+state.runtime（D4）、A4
+  有限升级 ≤3+沉默转 digest+重复提醒不 block 回合（D5）、A5 协商小节+D 模式『回报即结束』（D6）；无遗漏、无走样。本次 mode=standard
+  创建时已显式指定，计划文案与元数据一致（前实验同类问题已消除）
+- 验收可机检：A1（脚本存在性+零第三方依赖+只读 map work 行为断言）、A2（state 字段 schema 与实例分离）、A3/A4（降级与升级计数/沉默分支单测）、A5（SKILL.md
+  diff+守卫测试）均可机检；evidence_keys 三项（pytest_summary/段二 smoke 实测输出+SKILL.md diff/ruff）与
+  A1-A6 对应
+- A5 符合分发面纪律：计划明文要求协商小节只写平台契约与操作指引、不引入仓库专属引用、红线条款单源不破、tests/test_red_line_clause.py
+  相关守卫保持绿——约束方向正确（守卫测试名出现在计划正文而非分发面，不构成反向守卫违例）
+- A6 二段式完整：段一 synthetic pytest 覆盖 A1-A4 分支（fingerprint 去重/min-remind-seconds/升级计数/沉默/last_seen_at
+  降级）+存量 --known-failures 豁免+ruff 0；段二真实环境 smoke 两条（hook 注入提醒渲染、waker 活跃降级）由监督者手动确认，非全自动场景的诚实留证口径
+- 边界干净：桥接只读 map work 不写 MAP、不做业务判断；block 回合仅限首次提醒且实现时不得扩大；.map/ 整目录 gitignore、state
+  不进版本控制；waker 降级为单向软信号、桥接 state 缺失/过期时 waker 行为与现状一致（无回归面）；实施细节（injector 形态/state
+  终态/fingerprint 算法/安装方式）按 Round Summary 约定带入实验，无需在计划期锁死
+- 结论：计划 v1 可批准，无阻塞项，host 可推进 approve/start；按 standard 模式，执行完成后进入 result_review 由我审批结果
+unreasonable_items: []
+substitute_reason: null

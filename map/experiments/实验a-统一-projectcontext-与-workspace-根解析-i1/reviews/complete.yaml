@@ -1,0 +1,6 @@
+event: complete
+summary: 实验A(I1) 完成 @ commit 852fc5c：A1 ProjectContext 单点解析（16 处 find_map_dir 调用点收口至
+  cli/project_context.py）；A2 双根隔离 subprocess 证明；A3 --config-root 三级优先级 + fail closed；A4
+  st_dev+st_ino 指纹 + sync check 读路径 warn；A5 AST 守卫零隐式解析；A6 pytest 2072 passed/3 skipped/0
+  failed（基线 2038 只增）、ruff 0、diff 白名单 cli/ sdk/ tests/；A7 未越界。回归中修复 3 个注入面/顺序/缓存问题并复测。反馈：tests/test_red_line_clause.py
+  缺失、map/experiments 两投影目录 untracked。

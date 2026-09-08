@@ -1,0 +1,4 @@
+decision: accept
+summary: 结果通过：A1 后置 --json 位置指引实测 exit2+Hint；A2 map --json work 纯 JSON envelope json.loads
+  通过；A3 closed/archived 话题 ROUND 列实测显示 - 且 open 话题与表头不受影响；A4 新增 8 用例全绿、ruff 0、窄提交
+  cd2762d 仅 3 文件；全量唯一失败为 AGENTS.md 行预算存量（本实验未触碰），known-failures 豁免属实

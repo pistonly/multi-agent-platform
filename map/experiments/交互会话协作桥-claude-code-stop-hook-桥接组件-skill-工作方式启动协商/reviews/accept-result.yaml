@@ -1,0 +1,5 @@
+decision: accept
+summary: 结果通过：A1 map bridge hook+Stop hook 脚本落地（只读 MAP，已登记 _READ_ONLY_COMMANDS）；A2
+  state 实例分离实测（last_seen_at/runtime）；A3 waker 软信号降级 5 用例绿；A4 evaluate_remind 四分支+max-remind-count=3；A5
+  协商小节落 SKILL.md、分发副本 diff 为空、红线守卫 12 绿；A6 段一 69 passed+ruff 0、段二联动按 A6 留监督者确认且 smoke.notes
+  如实留证；窄提交 5f57412（13 文件 +828）未触碰 AGENTS.md，存量豁免属实
