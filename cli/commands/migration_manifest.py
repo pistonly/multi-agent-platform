@@ -180,7 +180,8 @@ def migrate_verify(
             typer.echo(
                 f"Verify verified={report['verified_count']} "
                 f"mismatch={report['mismatch_count']} "
-                f"missing={report['missing_count']}"
+                f"missing={report['missing_count']} "
+                f"legacy={report.get('legacy_count', 0)}"
             )
             typer.echo(f"  summary={report['summary']}")
             for entry in report["mismatched"]:
@@ -194,6 +195,20 @@ def migrate_verify(
                 typer.echo(
                     f"  [MISSING] {entry['kind']} {entry['slug']}: {entry['reason']}"
                 )
+            for entry in report.get("legacy", []):
+                # 终态相位的非 blocking 残留：无对应物（reason）或仅审计
+                # 字段漂移（fields），与 sync check terminal 宽容一致
+                if "reason" in entry:
+                    typer.echo(
+                        f"  [LEGACY] {entry['kind']} {entry['slug']}: "
+                        f"{entry['reason']} phase={entry.get('phase')}"
+                    )
+                else:
+                    fields = ", ".join(d["field"] for d in entry["fields"])
+                    typer.echo(
+                        f"  [LEGACY] {entry['kind']} {entry['slug']}: "
+                        f"audit-field drift ({fields}) phase={entry.get('phase')}"
+                    )
         if blocking == 0:
             # LKG 锚点只在对账健康时更新（client-side 记录，非权威）。
             lkg_path = _lkg_path(

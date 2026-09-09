@@ -741,7 +741,11 @@ def test_push_delta_retries_on_revision_conflict(monkeypatch, db_session):
 
 
 def test_verify_project_aligns_against_fs_view(db_session, monkeypatch):
-    """verify 按 projection_id 关联 DB ↔ server FS 视角，逐字段比对。"""
+    """verify 按 projection_id 关联 DB ↔ server FS 视角，逐字段比对。
+
+    对账对象是全量 DB 实验，不依赖 manifest 状态（local 模式下 manifest
+    永远到不了 applied，按 applied 过滤会让对账恒空集——live 实证后修正）。
+    """
     from types import SimpleNamespace
 
     from server.services import fs_source_service as fss
@@ -754,10 +758,8 @@ def test_verify_project_aligns_against_fs_view(db_session, monkeypatch):
     exp_drift = _make_experiment(
         db_session, project_id=project.id, slug="drift", creator_agent_id=agent.id
     )
+    # 故意不 scan / 不置 applied：verify 必须与 manifest 状态无关
     svc.scan_project(db_session, project_id=project.id)
-    # 两个实验的 item 全部置 applied（verify 只看 applied）
-    for it in db_session.scalars(select(MigrationManifestItem)).all():
-        svc.mark_applied(db_session, item_id=it.id)
 
     def fake_view(db, project_arg):
         return [
@@ -790,5 +792,157 @@ def test_verify_project_aligns_against_fs_view(db_session, monkeypatch):
     assert report["verified_count"] == 1
     assert report["mismatch_count"] == 1
     assert report["missing_count"] == 0
+    assert report["legacy_count"] == 0
     assert report["mismatched"][0]["fields"][0]["field"] == "title"
     assert report["mismatched"][0]["fields"][0]["fs_view"] == "DRIFTED TITLE"
+
+
+def test_verify_project_terminal_without_counterpart_is_legacy(db_session, monkeypatch):
+    """终态相位（done/cancelled）无 FS 对应物 = legacy 非 blocking；
+    活跃相位缺对应物才是 missing（blocking）。与 sync check 的 terminal
+    宽容同语义（live 实证：M2 遗留 draft 行缺目录 → blocking 待处置）。"""
+
+    from map_types.enums import ExperimentPhase
+
+    from server.services import fs_source_service as fss
+
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    exp_done = _make_experiment(
+        db_session, project_id=project.id, slug="legacy-done", creator_agent_id=agent.id
+    )
+    exp_done.phase = ExperimentPhase.done
+    exp_active = _make_experiment(
+        db_session, project_id=project.id, slug="active-nodir", creator_agent_id=agent.id
+    )
+    db_session.flush()
+
+    monkeypatch.setattr(fss, "fs_experiments_view", lambda db, p: [])
+
+    report = svc.verify_project(db_session, project=project)
+
+    assert report["legacy_count"] == 1
+    assert report["missing_count"] == 1
+    assert report["legacy"][0]["phase"] == "done"
+    assert report["legacy"][0]["slug"] == str(exp_done.id)
+    assert report["missing"][0]["slug"] == str(exp_active.id)
+
+
+def test_verify_terminal_audit_only_drift_downgrades_to_legacy(
+    db_session, monkeypatch
+):
+    """终态实体仅 creator/executor 漂移 → legacy 非 blocking（漂移仍列出）；
+    内容字段（title 等）漂移无论相位恒 mismatch blocking。"""
+    from types import SimpleNamespace
+
+    from map_types.enums import ExperimentPhase
+
+    from server.services import fs_source_service as fss
+
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    exp_done_audit = _make_experiment(
+        db_session, project_id=project.id, slug="done-audit", creator_agent_id=agent.id
+    )
+    exp_done_audit.phase = ExperimentPhase.done
+    exp_done_content = _make_experiment(
+        db_session, project_id=project.id, slug="done-title", creator_agent_id=agent.id
+    )
+    exp_done_content.phase = ExperimentPhase.done
+    db_session.flush()
+
+    def fake_view(db, p):
+        return [
+            SimpleNamespace(
+                projection_id=exp_done_audit.id,
+                slug="fs-done-audit",
+                title=exp_done_audit.title,
+                phase="done",
+                description=exp_done_audit.description,
+                current_plan_version=1,
+                creator="manifest-agent",  # 与 DB 全名一致（无 canonical 尾缀不归一化）
+                executor="reviewer",  # 仅审计字段漂移
+            ),
+            SimpleNamespace(
+                projection_id=exp_done_content.id,
+                slug="fs-done-title",
+                title="STALE FS TITLE",  # 内容字段漂移 → blocking
+                phase="done",
+                description=exp_done_content.description,
+                current_plan_version=1,
+                creator="host",
+                executor="",
+            ),
+        ]
+
+    monkeypatch.setattr(fss, "fs_experiments_view", fake_view)
+
+    report = svc.verify_project(db_session, project=project)
+
+    assert report["legacy_count"] == 1
+    assert report["mismatch_count"] == 1
+    assert report["legacy"][0]["slug"] == "fs-done-audit"
+    assert report["legacy"][0]["fields"][0]["field"] == "executor"
+    assert report["mismatched"][0]["slug"] == "fs-done-title"
+
+
+def test_agent_name_normalized_to_persona_short(db_session):
+    """_agent_name 归一化：DB 全名 → persona 短名（FS index.md 口径）。
+
+    live 实证：DB creator='multi-agent-platform-host' vs FS 'host'
+    全量实验恒 mismatch——比对与写值必须走同一归一化。
+    """
+    from map_types.enums import AgentRole
+
+    from server.domain.models import Agent
+
+    project = _make_project(db_session)
+    agent = Agent(
+        id=uuid.uuid4(),
+        name="some-project-host",
+        api_token_hash="h",
+        api_token_prefix="t",
+        api_token_sha256=uuid.uuid4().hex,
+        role=AgentRole.agent,
+        project_id=project.id,
+    )
+    db_session.add(agent)
+    db_session.flush()
+
+    assert svc._agent_name(db_session, agent.id) == "host"
+    assert svc._agent_name(db_session, uuid.uuid4()) == ""  # 不存在的 agent
+    assert svc._agent_name(db_session, None) == ""
+
+
+def test_claim_picks_up_skipped_rehearsal_item(db_session):
+    """``--apply`` 必须能捡回 dry 排练的 skipped 项（live 收口实测回归线）。
+
+    历史：claim 只认 pending，skipped 成为死态——actionable 列出了它、
+    claim 全拒，execute --apply 报 processed=0 unclaimed=7。
+    """
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    _make_topic(db_session, project_id=project.id, slug="rehearse", creator_agent_id=agent.id)
+    svc.scan_project(db_session, project_id=project.id)
+    item = db_session.scalar(select(MigrationManifestItem))
+
+    # dry 排练 → skipped（attempts=1）
+    svc.execute_pending(db_session, project=project, agent=agent, apply=False, limit=50)
+    db_session.refresh(item)
+    assert item.status == "skipped"
+    assert item.attempts == 1
+
+    # skipped 可被 claim（attempts 1 → 2），不再是被 actionable 列出却拿不到的死态
+    claimed = svc.claim(db_session, item_id=item.id)
+    assert claimed is not None
+    assert claimed.status == "in_flight"
+    assert claimed.attempts == 2
+
+    # pending 项照常可 claim（原语义不回归）
+    _make_topic(db_session, project_id=project.id, slug="rehearse-2", creator_agent_id=agent.id)
+    svc.scan_project(db_session, project_id=project.id)
+    pending_item = db_session.scalar(
+        select(MigrationManifestItem).where(MigrationManifestItem.status == "pending")
+    )
+    assert pending_item is not None
+    assert svc.claim(db_session, item_id=pending_item.id) is not None

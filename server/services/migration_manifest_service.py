@@ -363,7 +363,12 @@ def list_project_actionable(
 
 
 def claim(db: Session, *, item_id: str) -> MigrationManifestItem | None:
-    """原子把 ``pending`` 翻成 ``in_flight``，attempts += 1。
+    """原子把 ``pending``（或 ``skipped``）翻成 ``in_flight``，attempts += 1。
+
+    ``skipped`` 是 dry execute 的排练标记（实验 M3 A2）——它没有被真
+    写过 server，``--apply`` 一轮必须能捡回，否则 skipped 成为不可逾越
+    的死态（live 收口实测踩中：actionable 列出了 7 个 skipped，
+    claim 全拒 → processed=0）。
 
     返回 None 表示已被别的 worker 抢走（caller 应跳过）。
 
@@ -373,13 +378,13 @@ def claim(db: Session, *, item_id: str) -> MigrationManifestItem | None:
     from sqlalchemy import update
 
     item = db.get(MigrationManifestItem, item_id)
-    if item is None or item.status not in {"pending"}:
+    if item is None or item.status not in {"pending", "skipped"}:
         return None
     result = db.execute(
         update(MigrationManifestItem)
         .where(
             MigrationManifestItem.id == item_id,
-            MigrationManifestItem.status == "pending",
+            MigrationManifestItem.status.in_(("pending", "skipped")),
         )
         .values(
             status="in_flight",
@@ -871,12 +876,24 @@ def _experiment_view_counterpart(view: list[Any], entity_id: uuid.UUID):
 
 
 def _agent_name(db: Session, agent_id: uuid.UUID | None) -> str:
+    """DB agent 全名 → FS 口径（persona 短名）。
+
+    ``index.md`` 的 creator/executor 存 persona 短名（host/participant/
+    reviewer，见 ``fs_source_service.persona_short_name`` 约定）；DB 存
+    全名（multi-agent-platform-host）。比对与写值必须走同一归一化，
+    否则全量实验恒报 creator/executor mismatch（live 收口实证）。
+    自定义 agent（无 canonical 尾缀）保持全名参与比对。
+    """
     if agent_id is None:
         return ""
+    from map_types.persona import persona_from_agent_name
+
     from server.domain.models import Agent
 
     agent = db.get(Agent, agent_id)
-    return agent.name if agent is not None else ""
+    if agent is None:
+        return ""
+    return persona_from_agent_name(agent.name) or agent.name
 
 
 def _merged_experiment_value(db: Session, entity, counterpart) -> Any:
@@ -920,9 +937,10 @@ def _push_delta(db: Session, *, project, agent, changes: list[Any], retries: int
         row = get_fs_projection(db, project)
         if row is None:
             raise RuntimeError(
-                "FS projection 不存在（local-fs 项目未跑过 `map sync publish "
-                "--full`）；迁移 apply 需要投影主行，先建立投影或用 "
-                "kill switch 路径评估"
+                "FS projection 不存在；迁移 apply 的 delta CAS 需要投影主行。"
+                "remote/容器模式：先 `map sync publish --full` 建投影再重试；"
+                "local 模式：server 实时读 FS，无需 apply——直接 `map sync "
+                "migrate verify` 对账 DB↔FS 字段对齐（live 收口实证）"
             )
         payload = _build_delta_request(db, project=project, row=row, changes=changes)
         try:
@@ -1059,12 +1077,18 @@ def execute_pending(
 
 
 def verify_project(db: Session, *, project) -> dict[str, Any]:
-    """对账：manifest applied 项 vs server FS 视角（A2 固定字段契约）。
+    """对账：全量 DB 实验（迁移目标集）vs server FS 视角（A2 固定字段契约）。
 
     历史 verify 只做 client 侧 manifest↔LKG 自比对（谁也没碰 server）。
     现以 ``fs_source_service.fs_experiments_view``（local-fs 实时解析 /
     远端投影 cache，同源 ``sync check``）为对照侧，按 DB↔FS 身份关联
     （``projection_id``）逐字段比对——DB 权威字段 vs server 视角实时值。
+
+    对账对象是 **project 全量未删除实验**，而不是 manifest ``applied``
+    项：local 模式下 server 实时读 FS、无投影主行，``execute --apply``
+    的 delta CAS 写不适用（那是 remote 模式的写面），manifest 永远到
+    不了 applied——按 applied 过滤会让 local 模式的对账恒空集。
+    manifest 状态只进 summary 作簿记参考。
     """
     from server.services.fs_source_service import fs_experiments_view
 
@@ -1074,48 +1098,68 @@ def verify_project(db: Session, *, project) -> dict[str, Any]:
         if v.projection_id is not None:
             view_by_pid[str(v.projection_id)] = v
 
-    applied_items = list(
+    entities = list(
         db.scalars(
-            select(MigrationManifestItem).where(
-                MigrationManifestItem.project_id == project.id,
-                MigrationManifestItem.status == "applied",
+            select(Experiment).where(
+                Experiment.project_id == project.id,
+                Experiment.deleted_at.is_(None),
             )
         )
     )
     verified: list[dict[str, Any]] = []
     mismatched: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
-    for item in applied_items:
-        if item.kind != "experiment":  # topics 表存量路径：留待有真实行时扩展
-            missing.append({"kind": item.kind, "slug": item.slug, "reason": "kind not verified yet"})
-            continue
-        try:
-            entity = db.get(Experiment, uuid.UUID(item.slug))
-        except ValueError:
-            entity = None
-        if entity is None:
-            missing.append({"kind": item.kind, "slug": item.slug, "reason": "db row missing"})
-            continue
+    legacy: list[dict[str, Any]] = []
+    for entity in entities:
         counterpart = view_by_pid.get(str(entity.id))
         if counterpart is None:
-            missing.append(
-                {"kind": item.kind, "slug": item.slug, "reason": "no FS counterpart"}
+            entry = {
+                "kind": "experiment",
+                "slug": str(entity.id),
+                "reason": "no FS counterpart (projection_id 未指向本实验)",
+            }
+            # 终态相位（done/cancelled）无 FS 对应物 = legacy 残留，
+            # 与 sync check 对 terminal fs_only 的宽容同语义（非 blocking）；
+            # 活跃相位缺对应物才是真 missing（blocking）。
+            entity_phase = (
+                entity.phase.value
+                if hasattr(entity.phase, "value")
+                else str(entity.phase)
             )
+            if entity_phase in _TERMINAL_PHASES:
+                entry["phase"] = entity_phase
+                legacy.append(entry)
+            else:
+                missing.append(entry)
             continue
         diffs = _align_field_diffs(db, entity, counterpart)
-        entry = {"kind": item.kind, "slug": counterpart.slug, "fields": diffs}
-        if diffs:
-            mismatched.append(entry)
-        else:
+        entry = {"kind": "experiment", "slug": counterpart.slug, "fields": diffs}
+        if not diffs:
             verified.append(entry)
+            continue
+        entity_phase = (
+            entity.phase.value if hasattr(entity.phase, "value") else str(entity.phase)
+        )
+        audit_only = all(d["field"] in _AUDIT_ONLY_FIELDS for d in diffs)
+        # 终态相位 + 仅审计字段（creator/executor）漂移 → legacy（非 blocking）：
+        # 内容读消费的是 title/phase/description/plan_version，终态实体的
+        # 审计字段不再参与任何门禁；与 sync check 对 terminal 的宽容同语义。
+        # 漂移本身仍逐字段列出，不吞。内容字段漂移无论相位恒 blocking。
+        if entity_phase in _TERMINAL_PHASES and audit_only:
+            entry["phase"] = entity_phase
+            legacy.append(entry)
+        else:
+            mismatched.append(entry)
 
     return {
         "verified_count": len(verified),
         "mismatch_count": len(mismatched),
         "missing_count": len(missing),
+        "legacy_count": len(legacy),
         "verified": verified,
         "mismatched": mismatched,
         "missing": missing,
+        "legacy": legacy,
         "summary": summarize_project(db, project_id=project.id),
     }
 
@@ -1128,6 +1172,13 @@ _ALIGN_FIELDS: tuple[str, ...] = (
     "creator",
     "executor",
 )
+
+# 终态相位：无 FS 对应物按 legacy（非 blocking）处理，与 sync check 对
+# terminal fs_only 的宽容一致
+_TERMINAL_PHASES: frozenset[str] = frozenset({"done", "cancelled"})
+
+# 审计元数据字段：终态实体上漂移降级 legacy（内容读不消费）
+_AUDIT_ONLY_FIELDS: frozenset[str] = frozenset({"creator", "executor"})
 
 
 def _align_field_diffs(db: Session, entity, counterpart) -> list[dict[str, Any]]:
