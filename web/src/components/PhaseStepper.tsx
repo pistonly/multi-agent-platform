@@ -1,12 +1,22 @@
 import type { ExperimentPhase } from "../api/types";
 
-const PHASES: ExperimentPhase[] = ["draft", "review", "approved", "running", "result_review", "done"];
+const PHASES: ExperimentPhase[] = [
+  "draft",
+  "review",
+  "approved",
+  "running",
+  "pending_review",
+  "result_review",
+  "done",
+];
 
 const LABELS: Record<ExperimentPhase, string> = {
   draft: "草稿",
   review: "评审",
   approved: "已批准",
   running: "执行中",
+  // running 中架构级 revise 显式打回的专用相位（bd9b21f6），可迁回 running
+  pending_review: "计划复审",
   result_review: "结果待审批",
   done: "完成",
   cancelled: "已取消",
@@ -17,6 +27,7 @@ const COLORS: Record<ExperimentPhase, string> = {
   review: "bg-amber-600/80 text-amber-50",
   approved: "bg-emerald-700/80 text-emerald-50",
   running: "bg-blue-600/80 text-blue-50",
+  pending_review: "bg-orange-600/80 text-orange-50",
   result_review: "bg-violet-700/80 text-violet-50",
   done: "bg-slate-500 text-slate-100",
   cancelled: "bg-red-900/60 text-red-100",

@@ -14,6 +14,7 @@ const EXPERIMENT_PHASE_OPTIONS: { label: string; value: ExperimentPhase | undefi
   { label: "review", value: "review" },
   { label: "approved", value: "approved" },
   { label: "running", value: "running" },
+  { label: "pending_review", value: "pending_review" },
   { label: "result_review", value: "result_review" },
   { label: "done", value: "done" },
   { label: "cancelled", value: "cancelled" },
