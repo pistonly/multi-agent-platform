@@ -19,6 +19,7 @@ import yaml
 from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.project_context import ProjectRootNotFoundError
 
 if TYPE_CHECKING:
     from map_client.exceptions import MAPHTTPError
@@ -217,7 +218,12 @@ def _fs_slug_by_uuid(ref: str) -> str | None:
         ref_uuid = uuid.UUID(ref)
     except ValueError:
         return None
-    workspace, root = _fs_workspace_and_root()
+    try:
+        workspace, root = _fs_workspace_and_root()
+    except ProjectRootNotFoundError:
+        # 本地 workspace 不可用（无 .map）＝ FS 话题必然不存在，反查未命中；
+        # 让调用方落到 DB/退役引导路径，而不是让 root 错误抢在定性之前。
+        return None
     for t in scan_plane(workspace, root).topics:
         if t.id == ref_uuid:
             return t.slug
@@ -441,6 +447,20 @@ def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
         err=True,
     )
     raise typer.Exit(2)
+
+
+def db_uuid_write_preflight(command: str, topic_id: str, storage: str | None) -> None:
+    """DB uuid 形态的退役写调用无需 API 客户端即可定性，引导前置（exit 2）。
+
+    uuid4（DB）不可能命中本地 uuid5 反查（命名空间不同），故 uuid 形态且未
+    显式选 ``--storage fs`` 时即为 DB 写——在 client 构建（需 .map root）之前
+    给出引导性错误，避免 ProjectRootNotFoundError（exit 1）抢在定性之前。
+    slug 形态仍走服务端路由（本地未命中可能匹配 DB slug），不在本预检范围。
+    """
+    if storage == "fs":
+        return
+    if storage == "db" or (storage is None and _looks_like_uuid(topic_id)):
+        _db_write_retired(command, topic_id)
 
 
 # ---------------------------------------------------------------------------

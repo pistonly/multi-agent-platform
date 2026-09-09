@@ -39,6 +39,7 @@ from cli.table_render import enum_value, format_datetime, render_table, short_uu
 from cli.topic_routing import (  # noqa: E402
     _db_write_retired,
     _filter_local_summaries,
+    db_uuid_write_preflight,
     _fs_projection_noop,
     _fs_slug_by_uuid,
     _fs_transition_rejected,
@@ -271,6 +272,7 @@ def topic_resolve(
             _fs_transition_rejected("resolve", target)
         _db_write_retired("resolve", str(target))
 
+    db_uuid_write_preflight("resolve", topic_id, storage)
     runner._run(action)
 
 
@@ -381,6 +383,7 @@ def topic_advance_round(
             )
         _db_write_retired("advance-round", str(target))
 
+    db_uuid_write_preflight("advance-round", topic_id, storage)
     runner._run(action)
 
 
@@ -397,6 +400,7 @@ def topic_rollback_round(
             _fs_transition_rejected("rollback-round", target)
         _db_write_retired("rollback-round", str(target))
 
+    db_uuid_write_preflight("rollback-round", topic_id, storage)
     runner._run(action)
 
 
@@ -466,13 +470,18 @@ def topic_comment(
     # slug → map/topics/<slug>/ 存在即 FS；uuid → 本地 uuid5 反查命中即 FS
     # （uuid5 命名空间与 DB uuid4 碰撞可忽略）；否则走 DB API。
     def _fs_comment_target() -> str | None:
-        if _looks_like_uuid(topic_id):
-            return _fs_slug_by_uuid(topic_id)
-        from map_fs import parse_topic_dir
+        try:
+            if _looks_like_uuid(topic_id):
+                return _fs_slug_by_uuid(topic_id)
+            from map_fs import parse_topic_dir
 
-        workspace, root = _fs_workspace_and_root()
-        t = parse_topic_dir(workspace / root / "topics" / topic_id, workspace)
-        return t.slug if t is not None else None
+            workspace, root = _fs_workspace_and_root()
+            t = parse_topic_dir(workspace / root / "topics" / topic_id, workspace)
+            return t.slug if t is not None else None
+        except ProjectRootNotFoundError:
+            # 本地 workspace 不可用＝FS 未命中；落 DB/退役引导路径，
+            # root 错误不应抢在定性之前（exit 2 优先于 exit 1）。
+            return None
 
     if storage == "fs":
         target = _fs_comment_target()
@@ -523,6 +532,7 @@ def topic_comment(
             raise typer.Exit(0)
         _db_write_retired("comment", str(target))
 
+    db_uuid_write_preflight("comment", topic_id, storage)
     runner._run(action)
 
 
@@ -667,6 +677,7 @@ def topic_close(
             )
         _db_write_retired("close", str(target))
 
+    db_uuid_write_preflight("close", topic_id, storage)
     runner._run(action)
 
 
@@ -683,6 +694,7 @@ def topic_reopen(
             _fs_transition_rejected("reopen", target)
         _db_write_retired("reopen", str(target))
 
+    db_uuid_write_preflight("reopen", topic_id, storage)
     runner._run(action)
 
 
