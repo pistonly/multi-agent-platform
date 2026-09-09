@@ -132,29 +132,30 @@ def _experiment_read(e: Any) -> Any:
     )
 
 
-def _load_projection_experiments(ctx: Any) -> list[Any]:
-    """DB 侧实验列表（与 FS 对账用）—— best-effort。
+def _load_projection_experiments(
+    ctx: Any,
+    project: uuid.UUID | None = None,
+    project_key: str | None = None,
+) -> list[Any]:
+    """server 视角实验列表（与 FS 对账用）—— 对账的权威对照侧。
 
-    实验 M2 A2：sync --check 需要 DB 视角的实验集合；首选 server
-    projection（``/projects/{pid}/fs/experiments``）—— 这是 projection
-    cache 的权威读。失败返回空列表（调用方按 fs_only 路径报告，
-    fs_only_terminal 不 blocking；fs_only 活跃态会被判 divergent 提醒）。
+    实验 M2 A2：sync --check 需要 server 视角的实验集合，读
+    ``/projects/{pid}/fs/experiments``（local-fs 模式实时解析 workspace，
+    远端读 projection cache；端点对无投影项目返回 ``[]``，不 404）。
+    ``--project`` / ``--project-key`` 经 ``runner._resolve_project`` 解析，
+    未传时回退 context ``project_key``。
+
+    加载失败**向上抛**（实验 M3 A1 收口）：对账门禁不得把「加载失败」
+    静默吞成「server 为空」—— 那是 fail-open 假干净（历史上
+    ``runner._run`` 无返回值 + config 无 project_id 双缺陷导致本函数
+    恒返回 ``[]``，52 个实验全被误判 fs_only）。空列表只可能来自
+    端点真实返回，交给五类判定（活跃实验 → divergent blocking）。
     """
     from cli import runner
 
-    def action(c):
-        from map_client.config import load_config
-
-        cfg = load_config()
-        pid_str = cfg.get("project_id")
-        if pid_str:
-            return c.list_fs_experiments(uuid.UUID(pid_str))
-        return []
-
-    try:
-        return runner._run(action) or []
-    except Exception:
-        return []
+    with runner._current_client_ctx() as client:
+        resolved = runner._resolve_project(client, project, project_key)
+        return list(client.list_fs_experiments(resolved))
 
 
 

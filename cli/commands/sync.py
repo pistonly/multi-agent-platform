@@ -229,7 +229,8 @@ def sync_check(
     """A2 sync --check: FS plane vs server projection 五类对账。
 
     默认输出人类可读摘要（含每 kind 计数 + blocking 列表）；``--json``
-    输出 ``SyncCheckReport`` 完整字段。退出码 0 = 干净，2 = 有 blocking。
+    输出 ``SyncCheckReport`` 完整字段。退出码 0 = 干净，2 = 有 blocking，
+    1 = server 侧加载失败（对账失败不作干净结论，实验 M3 A1）。
     """
     from map_fs import scan_plane
     from map_types.schemas.sync_check import run_sync_check
@@ -246,16 +247,25 @@ def sync_check(
     plane = scan_plane(ctx.workspace_root, ctx.content_root)
     fs_experiments = [_experiment_read(e) for e in plane.experiments]
 
-    # DB 侧：先尝试 projection cache（v0.13+）；cache 缺失返回空列表
-    # —— 把 cache 缺失视为「DB 视角没有」，结果会按 fs_only_terminal /
-    # divergent 计入，由 blocking 标志告警。
-    db_experiments: list[object] = []
+    # server 侧：projection cache（v0.13+）或 local-fs 实时视图。加载失败
+    # 显式报错 exit 1——对账失败不是对账干净（实验 M3 A1：不再静默吞成
+    # 空列表产生 fail-open 假证据）。
     try:
         from cli.fs_sync import _load_projection_experiments
 
-        db_experiments = _load_projection_experiments(ctx)
-    except Exception:
-        db_experiments = []
+        db_experiments = _load_projection_experiments(
+            ctx, project=project, project_key=project_key
+        )
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(
+            f"Error: sync check server 侧（projection）加载失败：{exc}\n"
+            "对账失败 ≠ 对账干净；确认 server 可达与项目投影状态后重试"
+            "（`map sync diff` 可复现加载路径）。",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
 
     report = run_sync_check(fs_experiments, db_experiments)
 
