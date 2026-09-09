@@ -151,14 +151,25 @@ def test_complete_requires_evidence_metadata(client, auth_headers, approved_expe
     assert "requires deployment/test evidence metadata" in response.json()["detail"]
 
 
-def test_cannot_log_before_running(client, auth_headers, approved_experiment):
+def test_log_allowed_before_running_rejected_after_cancel(client, auth_headers, approved_experiment):
+    # cli-hygiene-batch / A1 起 log 白名单放宽：除 cancelled 外全部阶段允许
+    # （日志只增不改、自带 phase 快照，立项/评审期审计链与 running 期同等可信）。
     exp_id = approved_experiment["experiment_id"]
     response = client.post(
         f"/api/v1/experiments/{exp_id}/logs",
         headers=auth_headers,
-        json={"summary": "too early", "content_md": "x"},
+        json={"summary": "approved 阶段补审计", "content_md": "x"},
     )
-    assert response.status_code == 422
+    assert response.status_code == 201
+
+    cancel = client.post(f"/api/v1/experiments/{exp_id}/cancel", headers=auth_headers)
+    assert cancel.status_code == 200
+    rejected = client.post(
+        f"/api/v1/experiments/{exp_id}/logs",
+        headers=auth_headers,
+        json={"summary": "cancelled 后拒绝", "content_md": "x"},
+    )
+    assert rejected.status_code == 422
 
 
 def test_global_status(client, auth_headers, approved_experiment):

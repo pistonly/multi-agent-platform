@@ -117,7 +117,7 @@ def test_post_cross_persona_call_endpoint_writes_audit_row(
     create = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={
+        json={
             "name": "multi-agent-platform-host",
             "role": "agent",
             "project_key": project["project_key"],

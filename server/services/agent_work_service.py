@@ -252,7 +252,7 @@ def get_agent_work_summary(
     #
     # f873c287 I1(f) partition boundary: ``informational_only`` experiments
     # (phase_owner != host, actions=[], blocked_on is set) do NOT enter
-    # the obligation partition (``explicit_only``); they route to
+    # the required-attention partition (``explicit_only``); they route to
     # ``informational_only`` so the waker treats them as read-only noise.
     #
     # f873c287 I1(e): both bucket excerpts share the ``experiment:{phase}:

@@ -65,11 +65,20 @@ def test_full_review_flow(client, auth_headers, reviewer, experiment_in_review):
             headers=reviewer["headers"],
             json={"status": "resolved"},
         )
-        assert resolved.status_code == 200
-        # I1(c): legacy ``resolved`` status is collapsed to the new
-        # ``closed`` terminal; the reason field records *how* it was closed.
-        assert resolved.json()["status"] == "closed"
-        assert resolved.json()["last_resolution_reason"] == "resolved"
+        # I1(b/d)：plan revise 已把旧 plan_version 的 review auto-archive；
+        # archived review 不可逐项 PATCH（REVIEW_ALREADY_ARCHIVED，422）。
+        assert resolved.status_code == 422
+        assert resolved.json().get("error_code") == "REVIEW_ALREADY_ARCHIVED"
+
+    # plan-revision-review-gate（bd9b21f6）：revise 后 approve 需要 reviewer
+    # 对当前 plan version 重新评审（carve-out 只认旧评审全 resolved，而
+    # archived review 已冻结——v2 评审是唯一正路）。
+    review_v2 = client.post(
+        f"/api/v1/experiments/{exp_id}/reviews",
+        headers=reviewer["headers"],
+        json={"reasonable_items": ["温度与回滚已补"]},
+    )
+    assert review_v2.status_code == 201
 
     approved = client.post(f"/api/v1/experiments/{exp_id}/approve", headers=auth_headers)
     assert approved.status_code == 200

@@ -101,7 +101,8 @@ def test_cli_experiment_flow(runner, patched_cli, project, tmp_path: Path):
     result = runner.invoke(app, ["experiment", "status", "--id", experiment["id"]])
     assert result.exit_code == 0, result.output
 
-    result = runner.invoke(app, ["experiment", "list", "--phase", "review", "--q", "CLI实验", "--page-size", "1"])
+    # T42 起 list 默认人类可读表格；结构化断言显式要 yaml。
+    result = runner.invoke(app, ["experiment", "list", "--phase", "review", "--q", "CLI实验", "--page-size", "1", "--format", "yaml"])
     assert result.exit_code == 0, result.output
     experiments = yaml.safe_load(result.output)
     assert len(experiments) == 1
@@ -433,7 +434,10 @@ def test_cli_pre_complete_outputs_jsonable_phase(
     assert result.exit_code == 0, result.output
     payload = yaml.safe_load(result.output)
     assert payload["phase"] == "running"
-    assert payload["ok"] is True
+    # v0.12 M54C：数据级 ``ok`` 已删（与外层信封契约冲突）；evidence_keys
+    # 回显是本地证据校验通过的可断言面。
+    assert "ok" not in payload
+    assert payload["evidence_keys"]
 
 
 def test_cli_topic_write_commands_rejected_with_fs_guidance(

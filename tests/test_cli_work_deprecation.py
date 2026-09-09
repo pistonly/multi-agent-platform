@@ -105,6 +105,12 @@ def test_cli_work_helper_emits_warning_when_payload_contains_alias(
         def get_agent_work(self, **_kwargs):
             return legacy_payload
 
+        def get_global_status(self):
+            # `map work` 的 waker 心跳横幅消费点；空 heartbeats = 不渲染。
+            from types import SimpleNamespace
+
+            return SimpleNamespace(waker_heartbeats=[])
+
     monkeypatch.setattr(cli_main, "_transport", None)
 
     def _fake_ctx():

@@ -112,7 +112,7 @@ async def test_mcp_multi_agent_collaboration(client, map_client, reviewer):
         "create_experiment",
         {
             "title": "Multi-agent MCP experiment",
-            "plan_content_md": "# Plan\nCollaboration via per-call tokens.",
+            "plan_content_md": make_valid_plan(body="Collaboration via per-call tokens."),
             "submit_for_review": True,
         },
     )
@@ -139,7 +139,7 @@ async def test_mcp_project_and_experiment_flow(map_client, project):
         "create_experiment",
         {
             "title": "MCP experiment",
-            "plan_content_md": "# Plan\nRun MCP integration test.",
+            "plan_content_md": make_valid_plan(body="Run MCP integration test."),
             "submit_for_review": True,
         },
     )
@@ -166,7 +166,7 @@ async def test_mcp_create_experiment_without_project_id(map_client):
         "create_experiment",
         {
             "title": "Bound project experiment",
-            "plan_content_md": "# Plan\nNo project_id needed.",
+            "plan_content_md": make_valid_plan(body="No project_id needed."),
         },
     )
     assert payload["title"] == "Bound project experiment"
@@ -233,7 +233,7 @@ async def test_mcp_notifications(client, map_client, reviewer):
         "create_experiment",
         {
             "title": "MCP notify",
-            "plan_content_md": "# Plan",
+            "plan_content_md": make_valid_plan(),
         },
     )
     await mcp.call_tool("submit_for_review", {"experiment_id": exp_payload["id"]})

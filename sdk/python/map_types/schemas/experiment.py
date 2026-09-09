@@ -92,7 +92,7 @@ class ExperimentSummaryRead(ORMModel):
     # Auto-classification (I1(a)): True iff
     #   actions == [] AND blocked_on != None AND phase_owner != host.
     # Surfaces in my_open_experiments so waker / web UI can demote the
-    # entry out of the host's actionable obligation bucket. The
+    # entry out of the host's actionable-work bucket. The
     # partition is "informational only" — host can still see and act
     # on it; the UI just shows a "waiting on {phase_owner}" copy.
     informational_only: bool = False

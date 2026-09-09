@@ -81,7 +81,7 @@ def test_todos_aggregation(client, db_session, auth_headers, reviewer, project):
         f"/api/v1/experiments/{exp['id']}/plans",
         headers=auth_headers,
         json={
-            "content_md": "p v2",
+            "content_md": make_valid_plan(body="p v2"),
             "change_note": "已处理不合理项",
             "addressed_item_ids": [unreasonable["id"]],
         },
@@ -224,6 +224,10 @@ def test_archived_experiments_are_excluded_from_my_open_experiments(
 
     before = client.get("/api/v1/agents/me/todos", headers=auth_headers).json()
     assert any(e["id"] == exp["id"] for e in before["my_open_experiments"])
+
+    # archive 门禁收紧：draft 不可直接归档（409），先 cancel 到终态。
+    cancelled = client.post(f"/api/v1/experiments/{exp['id']}/cancel", headers=auth_headers)
+    assert cancelled.status_code == 200, cancelled.text
 
     archived = client.patch(
         f"/api/v1/experiments/{exp['id']}",
@@ -446,7 +450,7 @@ def test_pending_plan_revisions_three_states(client, auth_headers, reviewer, pro
         f"/api/v1/experiments/{exp_id}/plans",
         headers=auth_headers,
         json={
-            "content_md": "p v2",
+            "content_md": make_valid_plan(body="p v2"),
             "addressed_item_ids": [unres["id"]],
         },
     )
@@ -725,7 +729,7 @@ def test_todos_persona_filter_review_partitions(
     host_resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={
+        json={
             "name": PERSONA_AGENT_NAMES["host"],
             "role": "agent",
             "project_key": project["project_key"],
@@ -737,7 +741,7 @@ def test_todos_persona_filter_review_partitions(
     participant_resp = client.post(
         "/api/v1/agents",
         headers=admin_headers,
-        params={
+        json={
             "name": PERSONA_AGENT_NAMES["participant"],
             "role": "agent",
             "project_key": project["project_key"],
