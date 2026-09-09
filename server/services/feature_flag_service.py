@@ -56,10 +56,18 @@ if TYPE_CHECKING:
 
 # Flag key 常量（代码引用单源，避免拼写漂移）
 FLAG_FS_STOP_DUPLICATE_INSERT = "fs_stop_duplicate_insert"
+FLAG_TOPIC_DB_READ_RETIRED = "topic_db_read_retired"
 
 # 合法 value 集合。``on`` / ``off`` 是当前仅有的两个；未来加 ``phase1``
 # / ``phase2`` 等灰度值时只改这里。
 _FS_STOP_DUPLICATE_INSERT_VALUES: frozenset[str] = frozenset({"on", "off"})
+_TOPIC_DB_READ_RETIRED_VALUES: frozenset[str] = frozenset({"on", "off"})
+
+# ON flip 强制非空 reason 的 flag 集合（单向门决策必须留审计锚点；
+# OFF flip 一律允许空 reason —— fast rollback 不该被空文本阻塞）。
+_ON_FLIP_REQUIRES_REASON: frozenset[str] = frozenset(
+    {FLAG_FS_STOP_DUPLICATE_INSERT, FLAG_TOPIC_DB_READ_RETIRED}
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,19 @@ REGISTERED_FLAGS: dict[str, FlagSpec] = {
             "fail closed（不让 lazy materialization 放行）；OFF（M1 默认）："
             "行为不变，可恢复双写。kill switch 触发条件与触发人见"
             " feature_flag_service 模块 docstring。"
+        ),
+    ),
+    FLAG_TOPIC_DB_READ_RETIRED: FlagSpec(
+        key=FLAG_TOPIC_DB_READ_RETIRED,
+        allowed_values=_TOPIC_DB_READ_RETIRED_VALUES,
+        description=(
+            "实验 0f271f7e A5：内容侧 DB 话题读路径退役总开关。ON："
+            "/topics 列表只返回 map/ FS 段；GET topic/comments 在 FS "
+            "miss 且 DB 行存在时 410 引导 `map topic migrate`；PATCH "
+            "archived 410 引导 `map fs archive`（故翻 ON 前必须先跑完"
+            " map topic migrate 收尾）。OFF（默认）：读路径与 v0.13 M58"
+            " 行为逐字节一致（DB fallback 保留）。触发人：host persona "
+            "或 admin；ON flip 强制非空 reason。"
         ),
     ),
 }
@@ -216,17 +237,17 @@ def set_flag(
         raise InvalidFlagValueError(flag_key, flag_value, spec.allowed_values)
     _ensure_can_set_flag(actor, project_id)
 
-    # ON flip 强制 reason 非空（kill switch / fail-closed 关键决策不留
-    # 无审计空白）；OFF flip 允许空 reason（fast rollback 不该被空文
-    # 本阻塞——off 本身就是审计锚）。
+    # ON flip 强制 reason 非空（单向门 / kill switch 关键决策不留无审计
+    # 空白）；OFF flip 允许空 reason（fast rollback 不该被空文本阻塞
+    # ——off 本身就是审计锚）。
     if (
-        flag_key == FLAG_FS_STOP_DUPLICATE_INSERT
+        flag_key in _ON_FLIP_REQUIRES_REASON
         and flag_value == "on"
         and not (reason and reason.strip())
     ):
         raise ValueError(
             f"setting {flag_key}=on requires a non-empty reason "
-            "(audit anchor for the lifecycle-write gate flip)"
+            "(audit anchor for the one-way-door flip)"
         )
 
     row = db.get(ProjectFeatureFlag, (project_id, flag_key))
@@ -263,4 +284,15 @@ def is_fs_stop_duplicate_insert_on(db: Session, project_id: uuid.UUID) -> bool:
     都视为 False（保守默认：fail-closed 默认不激活）。
     """
     flag = get_flag(db, project_id, FLAG_FS_STOP_DUPLICATE_INSERT)
+    return flag is not None and flag.flag_value == "on"
+
+
+def is_topic_db_read_retired_on(db: Session, project_id: uuid.UUID) -> bool:
+    """快捷读：``topic_db_read_retired`` 是否为 ``on``。
+
+    None / off / 任何其他值都视为 False（保守默认：DB 读路径保持
+    v0.13 M58 行为，DB fallback 不退役）。gate 点在 ``server/api/topics.py``
+    的 list / get / comments / PATCH-archived 四个读归档面。
+    """
+    flag = get_flag(db, project_id, FLAG_TOPIC_DB_READ_RETIRED)
     return flag is not None and flag.flag_value == "on"

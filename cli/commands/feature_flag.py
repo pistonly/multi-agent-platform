@@ -56,8 +56,8 @@ def feature_flag_get(
         ...,
         "--key",
         help=(
-            "Flag key. Currently only 'fs_stop_duplicate_insert' is "
-            "registered (实验 M2 A4)."
+            "Flag key. Registered: 'fs_stop_duplicate_insert' (实验 M2 A4), "
+            "'topic_db_read_retired' (实验 0f271f7e A5)."
         ),
     ),
     project: uuid.UUID | None = typer.Option(None, "--project"),
@@ -81,7 +81,9 @@ def feature_flag_set(
     flag_key: str = typer.Option(
         ...,
         "--key",
-        help="Flag key (currently 'fs_stop_duplicate_insert').",
+        help=(
+            "Flag key ('fs_stop_duplicate_insert' or 'topic_db_read_retired')."
+        ),
     ),
     value: str = typer.Option(
         ...,
@@ -93,8 +95,9 @@ def feature_flag_set(
         "--reason",
         help=(
             "Audit-anchor rationale. Required (non-empty) when flipping "
-            "'on' for fs_stop_duplicate_insert (kill switch / fail-closed "
-            "decision). Optional for 'off' (fast rollback)."
+            "'on' (one-way-door / kill-switch decision: "
+            "fs_stop_duplicate_insert, topic_db_read_retired). Optional "
+            "for 'off' (fast rollback)."
         ),
     ),
     project: uuid.UUID | None = typer.Option(None, "--project"),

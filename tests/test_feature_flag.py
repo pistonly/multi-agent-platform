@@ -371,3 +371,93 @@ def test_is_fs_stop_duplicate_insert_on_when_set(db_session):
     db_session.flush()
 
     assert svc.is_fs_stop_duplicate_insert_on(db_session, project.id) is True
+
+
+# ---------------------------------------------------------------------------
+# topic_db_read_retired（实验 0f271f7e A5：内容侧 DB 读路径退役总开关）
+# ---------------------------------------------------------------------------
+
+
+def test_registry_keys_match_sdk_constants():
+    """REGISTERED_FLAGS key 集与 SDK 常量单源一致（新增 flag 漏改一处即红）。"""
+    import map_types.schemas as schemas
+
+    assert set(svc.REGISTERED_FLAGS) == {
+        schemas.FLAG_FS_STOP_DUPLICATE_INSERT,
+        schemas.FLAG_TOPIC_DB_READ_RETIRED,
+    }
+    assert svc.FLAG_TOPIC_DB_READ_RETIRED == schemas.FLAG_TOPIC_DB_READ_RETIRED
+
+
+def test_topic_db_read_retired_on_flip_requires_reason(db_session):
+    """单向门 flip：ON 必须带非空 reason；OFF 允许空 reason（fast rollback）。"""
+    project = _make_project(db_session)
+    host = _make_agent(db_session, project_id=project.id, name=f"{project.project_key}-host")
+
+    with pytest.raises(ValueError, match="non-empty reason"):
+        svc.set_flag(
+            db_session,
+            project_id=project.id,
+            flag_key=svc.FLAG_TOPIC_DB_READ_RETIRED,
+            flag_value="on",
+            actor=host,
+            reason=None,
+            commit=False,
+        )
+
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_TOPIC_DB_READ_RETIRED,
+        flag_value="on",
+        actor=host,
+        reason="存量迁移 verify 全绿（实验 0f271f7e A5）",
+        commit=False,
+    )
+    db_session.flush()
+
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_TOPIC_DB_READ_RETIRED,
+        flag_value="off",
+        actor=host,
+        reason=None,  # off flip 允许空 reason
+        commit=False,
+    )
+    db_session.flush()
+    row = db_session.get(ProjectFeatureFlag, (project.id, svc.FLAG_TOPIC_DB_READ_RETIRED))
+    assert row is not None
+    assert row.flag_value == "off"
+
+
+def test_is_topic_db_read_retired_on_conservative_default(db_session):
+    """未 set / off → False（DB fallback 保持 M58 行为，保守默认）。"""
+    project = _make_project(db_session)
+    host = _make_agent(db_session, project_id=project.id, name=f"{project.project_key}-host")
+
+    assert svc.is_topic_db_read_retired_on(db_session, project.id) is False
+
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_TOPIC_DB_READ_RETIRED,
+        flag_value="off",
+        actor=host,
+        reason="init off",
+        commit=False,
+    )
+    db_session.flush()
+    assert svc.is_topic_db_read_retired_on(db_session, project.id) is False
+
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_TOPIC_DB_READ_RETIRED,
+        flag_value="on",
+        actor=host,
+        reason="migration verified",
+        commit=False,
+    )
+    db_session.flush()
+    assert svc.is_topic_db_read_retired_on(db_session, project.id) is True

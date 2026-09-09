@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from server.api.background_tasks import bind_background_tasks
 from server.api.deps import get_current_agent
 from server.db.session import get_db
-from server.domain.models import Agent, Project, TopicStatus
+from server.domain.models import Agent, Project, Topic, TopicStatus
 from server.domain.schemas import (
     TopicAdvanceRound,
     TopicCloseRequest,
@@ -20,6 +20,7 @@ from server.domain.schemas import (
     TopicSummaryRead,
     TopicUpdate,
 )
+from server.services import feature_flag_service as flags
 from server.services import fs_source_service as fs_svc
 from server.services import permissions as perm
 from server.services import topic_service
@@ -55,6 +56,56 @@ def _write_retired_410(command: str) -> HTTPException:
             ),
             "hint": _RETIRED_WRITE_HINTS[command],
         },
+    )
+
+
+# 实验 0f271f7e A5：`topic_db_read_retired=on` 时 DB 内容读路径整体退役
+# （fail-closed，引导完成存量迁移）。flag OFF 时以下 helper 不会被触达，
+# 读路径与 v0.13 M58 行为逐字节一致。
+def _db_read_retired_410(surface: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error": "topic_db_read_retired",
+            "message": (
+                f"DB read path for topic `{surface}` retired "
+                "(topic_db_read_retired=on; map/ FS is the only content source)"
+            ),
+            "hint": (
+                "this is a legacy DB-only topic — run `map topic migrate` "
+                "to move it into map/topics/, then retry"
+            ),
+        },
+    )
+
+
+def _archived_write_retired_410() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error": "topic_write_retired",
+            "message": (
+                "DB archived write retired (topic_db_read_retired=on; "
+                "archiving is a filesystem move)"
+            ),
+            "hint": (
+                "archive FS topics via `map fs archive`; legacy DB topics "
+                "must finish `map topic migrate` before flipping the flag"
+            ),
+        },
+    )
+
+
+def _topic_db_read_retired(db: Session, topic_id: uuid.UUID) -> bool:
+    """该 topic 的 DB 行存在且其项目已开 ``topic_db_read_retired``。
+
+    以 DB 行的 project_id 为准（跨项目 FS 命中不参与判定）；行不存在
+    （FS-native 话题）→ False，由调用方走各自路径。
+    """
+    topic_row = db.get(Topic, topic_id)
+    return (
+        topic_row is not None
+        and flags.is_topic_db_read_retired_on(db, topic_row.project_id)
     )
 
 
@@ -105,6 +156,12 @@ def list_topics(
                 for t in fs_topics
                 if needle in t.title.lower() or needle in (t.slug or "").lower()
             ]
+    if flags.is_topic_db_read_retired_on(db, resolved_project_id):
+        # 实验 0f271f7e A5：DB 读路径退役 → 纯 FS 段（含空集），SQL 分页
+        # 与 DB total 一并不再触达。
+        start = (page - 1) * page_size
+        response.headers["X-Total-Count"] = str(len(fs_topics))
+        return fs_topics[start : start + page_size]
     if not fs_topics:
         # 无 FS 话题：保持 SQL 分页 + DB total 的原路径。
         topics, total = topic_service.list_topics(
@@ -174,6 +231,9 @@ def get_topic(
         perm.ensure_project_access(agent, project.id)
         return fs_svc.fs_topic_as_detail(db, project, fs_topic)
     perm.ensure_topic_access(db, agent, topic_id)
+    if _topic_db_read_retired(db, topic_id):
+        # 实验 0f271f7e A5：FS miss + DB 行存在 = 未迁移存量，fail-closed。
+        raise _db_read_retired_410("detail")
     return topic_service.get_topic_detail(db, topic_id)
 
 
@@ -189,6 +249,10 @@ def update_topic(
     changed_fields = payload.model_dump(exclude_unset=True)
     if set(changed_fields) - {"archived"}:
         raise _write_retired_410("patch")
+    if _topic_db_read_retired(db, topic_id):
+        # 实验 0f271f7e A5：归档即目录搬移（map fs archive），DB archived
+        # 位随读路径一并退役 —— 顺序契约：先跑完 map topic migrate 再翻 flag。
+        raise _archived_write_retired_410()
     # Archive/undo is a project-level operation: any project member may archive
     # or restore a topic (docs/CLI.md archive spec — mirrors the experiment side
     # which uses ``ensure_experiment_access``).
@@ -299,5 +363,13 @@ def list_topic_comments(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
+    if _topic_db_read_retired(db, topic_id):
+        # 实验 0f271f7e A5：评论唯一来源是 map/ FS；FS miss = 未迁移存量。
+        hit = fs_svc.find_fs_topic_by_id(db, topic_id)
+        if hit is None:
+            raise _db_read_retired_410("comments")
+        project, view = hit
+        perm.ensure_project_access(agent, project.id)
+        return fs_svc.fs_topic_comments_as_reads(db, view, tree=tree, limit=limit)
     perm.ensure_topic_access(db, agent, topic_id)
     return topic_service.list_topic_comments(db, topic_id, tree=tree, limit=limit)

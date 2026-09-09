@@ -22,11 +22,13 @@ from .base import ORMModel
 
 # 单源常量：SDK 与 server service 共享。
 FLAG_FS_STOP_DUPLICATE_INSERT = "fs_stop_duplicate_insert"
+FLAG_TOPIC_DB_READ_RETIRED = "topic_db_read_retired"
 
 # 受支持 flag_key 字面量。新增 flag 时这里加一行 + 服务端
 # ``feature_flag_service.REGISTERED_FLAGS`` 加一项。
 FlagKey = Literal[
     "fs_stop_duplicate_insert",
+    "topic_db_read_retired",
 ]
 
 
@@ -50,6 +52,7 @@ class ProjectFeatureFlagSet(ORMModel):
 
 __all__ = [
     "FLAG_FS_STOP_DUPLICATE_INSERT",
+    "FLAG_TOPIC_DB_READ_RETIRED",
     "FlagKey",
     "ProjectFeatureFlagRead",
     "ProjectFeatureFlagSet",

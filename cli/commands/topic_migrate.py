@@ -165,6 +165,10 @@ def _execute_db_to_fs_migration(
         typer.echo(f"Wrote {path}")
     updated = c.update_topic(topic_id, TopicUpdate(archived=True))
     typer.echo(f"Archived DB topic {topic_id} (hidden from list; show still works)")
+    # 顺序契约（实验 0f271f7e A5）：本步 PATCH archived 是 DB 内容写路径
+    # 的最后合法调用。项目翻 `topic_db_read_retired=on` 前必须先对本项目
+    # 全部存量 DB topic 跑完 migrate —— flag ON 后本端点 410（引导
+    # `map fs archive`），未迁移 topic 的读路径同样 410。
     return updated
 
 

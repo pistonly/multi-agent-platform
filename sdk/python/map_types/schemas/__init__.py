@@ -108,6 +108,7 @@ from .experiment import (
 )
 from .feature_flag import (
     FLAG_FS_STOP_DUPLICATE_INSERT,
+    FLAG_TOPIC_DB_READ_RETIRED,
     FlagKey,
     ProjectFeatureFlagRead,
     ProjectFeatureFlagSet,
@@ -365,6 +366,7 @@ __all__ = [
     "WebhookCreateResponse",
     "WebhookDeliveryRead",
     "FLAG_FS_STOP_DUPLICATE_INSERT",
+    "FLAG_TOPIC_DB_READ_RETIRED",
     "FlagKey",
     "ProjectFeatureFlagRead",
     "ProjectFeatureFlagSet",

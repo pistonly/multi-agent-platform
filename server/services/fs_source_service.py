@@ -47,6 +47,7 @@ from sqlalchemy.orm import Session
 from server.config import get_settings
 from server.domain.models import Agent, AgentRole, Experiment, Project
 from server.domain.schemas import (
+    TopicCommentRead,
     TopicCommentTreeNode,
     TopicProgressItemRead,
     TopicRead,
@@ -440,6 +441,64 @@ def fs_topic_as_detail(db: Session, project: Project, view: _TopicView) -> Topic
     return TopicRead(**summary.model_dump(), comments=comments)
 
 
+def fs_topic_comments_as_reads(
+    db: Session,
+    view: _TopicView,
+    *,
+    tree: bool = False,
+    limit: int = 100,
+) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
+    """FS 评论读视图（实验 0f271f7e A5：``topic_db_read_retired=on`` 时
+    /topics/{id}/comments 的唯一来源）。
+
+    与 ``fs_topic_as_detail`` 的评论构造同源（author 名字直透、无线程、
+    content 缺省回退 "See file: ..."）；FS 无 DB 分页游标，按 comment_seq
+    升序取前 limit 条（与 DB 路径 ``topic_comment_order_clauses`` 的取
+    头语义对齐）。
+    """
+    agents = _agents_by_name(db)
+    now = datetime.now(timezone.utc)
+    ordered = sorted(view.comments, key=lambda c: c.comment_seq)[
+        : max(1, min(limit, 500))
+    ]
+    if tree:
+        return [
+            TopicCommentTreeNode(
+                id=c.id,
+                topic_id=view.id,
+                author_agent_id=_agent_id_for(c.author, agents),
+                author_name=c.author,
+                parent_comment_id=None,
+                body=c.content or f"See file: {c.file_path}",
+                kind=TopicCommentKind(c.kind),
+                is_round_summary=c.is_round_summary,
+                comment_seq=c.comment_seq,
+                created_at=c.posted_at or now,
+                unresolved_mentions=[],
+                file_path=c.file_path,
+                excerpt=c.excerpt,
+                children=[],
+            )
+            for c in ordered
+        ]
+    return [
+        TopicCommentRead(
+            id=c.id,
+            topic_id=view.id,
+            author_agent_id=_agent_id_for(c.author, agents),
+            author_name=c.author,
+            parent_comment_id=None,
+            body=c.content or f"See file: {c.file_path}",
+            kind=TopicCommentKind(c.kind),
+            comment_seq=c.comment_seq,
+            created_at=c.posted_at or now,
+            file_path=c.file_path,
+            excerpt=c.excerpt,
+        )
+        for c in ordered
+    ]
+
+
 def find_fs_topic_by_id(
     db: Session, topic_id: uuid.UUID
 ) -> tuple[Project, _TopicView] | None:
@@ -692,6 +751,7 @@ __all__ = [
     "fs_experiments_view",
     "fs_plane_status",
     "fs_topic_as_detail",
+    "fs_topic_comments_as_reads",
     "fs_topic_detail",
     "fs_topic_progress_for_agent",
     "fs_topic_summary",
