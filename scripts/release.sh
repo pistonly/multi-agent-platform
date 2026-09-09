@@ -269,7 +269,9 @@ cmd_prepare() {
   bash "$SCRIPT_DIR/sync-web-dist.sh"
   bash "$SCRIPT_DIR/check-packaging.sh"
   rm -rf "$ROOT/server-pkg/dist"
-  (cd "$ROOT/server-pkg" && python3 -m build)
+  # 解释器可覆盖：本机常见多 Python 共存（homebrew python3 无 build 模块、
+  # 项目环境在别处），`MAP_RELEASE_PYTHON=python ./scripts/release.sh prepare`。
+  (cd "$ROOT/server-pkg" && "${MAP_RELEASE_PYTHON:-python3}" -m build)
   echo "release: prepare ok. Next: scripts/release.sh tag"
 }
 
