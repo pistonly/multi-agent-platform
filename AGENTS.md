@@ -1,7 +1,6 @@
 # MAP 协作指南（本代码仓库）
 
-本仓库通过 [Multi-Agent Platform (MAP)](./README.md) 管理话题、实验与多 Agent 协作。
-本文件只保留身份、边界与入口约定；**行为细节以 Skill 为准**（链接见下）。
+本仓库通过 [Multi-Agent Platform (MAP)](./README.md) 管理话题、实验与多 Agent 协作；本文件只保留身份、边界与入口约定，**行为细节以 Skill 为准**（链接见下）。
 
 ## 项目目的（必读）
 
