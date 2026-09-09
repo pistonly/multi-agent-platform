@@ -288,9 +288,19 @@ def sync_projection(
         # remote hash 表已变 → diff 结果可能不同；保守起见重跑 compute_changes）
         nonlocal changes, summary
         if new_base is None:
-            # 极端：inventory 在 retry 之间被删了；走 full push
-            raise RuntimeError("inventory vanished mid-retry; run --full")
-        # 拉新 inventory（apply_delta_with_retry 已拉过，但我们仍要重算 diff）
+            # 首发（apply_delta_with_retry 首次以 base=None 调入）：沿用外层
+            # 已算好的 diff 与 base——inventory 非 None 是 delta 路径的前提。
+            # （实验 0f271f7e H2 伴生修复：旧实现把首发误判为
+            # "inventory vanished" 直接 raise，delta 增量路径首发必炸，
+            # retry 逻辑实际不可达。）
+            return FsProjectionDeltaRequest(
+                base_revision=inventory.projection_revision,
+                client_workspace=str(workspace),
+                content_root=local_root,
+                changes=changes,
+                result_content_hash=local_hash,
+            )
+        # retry：拉新 inventory 重算 diff
         new_inventory = c.fs_projection_inventory(pid)
         if new_inventory is None:
             raise RuntimeError("inventory vanished mid-retry; run --full")
@@ -300,6 +310,23 @@ def sync_projection(
             inventory=new_inventory,
             full=False,
         )
+        # H2（实验 0f271f7e）：retry 重建可能产生首轮确认时不存在的
+        # tombstone（竞争窗口内远端 hash 表推进）。tombstone 门禁
+        # （--yes / allow_deletes）必须在 retry 路径同样成立——fail
+        # closed，先 `map sync diff` 复核再显式确认重跑。
+        retry_deletes = [row for row in summary if row["action"] == "delete"]
+        if retry_deletes and not yes:
+            preview = ", ".join(f"{row['kind']}:{row['slug']}" for row in retry_deletes)
+            raise RuntimeError(
+                f"CAS retry would delete remote objects ({preview}); "
+                "run `map sync diff` and re-run with --yes to confirm "
+                "(tombstone gate applies to retries too)"
+            )
+        if retry_deletes and not allow_deletes:
+            raise RuntimeError(
+                "CAS retry produced tombstones but deletes are not allowed "
+                "(allow_deletes=False); run `map sync diff` and re-sync"
+            )
         return FsProjectionDeltaRequest(
             base_revision=new_inventory.projection_revision,
             client_workspace=str(workspace),
