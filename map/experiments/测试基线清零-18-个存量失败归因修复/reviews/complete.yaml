@@ -1,0 +1,3 @@
+event: complete
+summary: 18 个存量失败清零：13 个 v0.12.0 存量 + 5 个 main 新增全部归因修复（仅 1 处产品代码：CLI 退役引导前置；其余夹具/断言跟上契约，无功能回归）。全量回归
+  2654 passed / 0 failed，release prepare 复跑全绿
