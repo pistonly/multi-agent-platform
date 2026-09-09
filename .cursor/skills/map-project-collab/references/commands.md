@@ -14,7 +14,7 @@
 
 **写操作发现入口是 `map topic`**（与看板可复制命令一致）：`create` / `comment` / `advance-round` / `close` / `archive`。`--topic` 与 `--id` 双轨别名均可用。
 
-其余 topic 子命令：`list / show / progress / history / dismiss / read / mark-seen / migrate / action-item` 出现在 `map topic --help`；`resolve / rollback-round / reopen` 已退役（v0.13 M58 起，help 中隐藏，调用仍给引导）。远程/容器部署用 `map sync check` / `map sync diff` / `map sync publish`（`push` 为 `--full` 兼容别名）。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`。
+其余 topic 子命令：`list / show / progress / history / dismiss / read / mark-seen / migrate / action-item` 出现在 `map topic --help`；`resolve / rollback-round / reopen` 已退役（v0.13 M58 起，help 中隐藏，调用仍给引导）。远程/容器部署用 `map sync check` / `map sync diff` / `map sync publish`（`push` 为 `--full` 兼容别名）。存量 DB 话题迁移见 `map topic migrate --id <uuid> --slug <name>`；批量迁移（DB → FS projection）用 `map sync migrate scan / dry-run / execute / verify`（`status` 看 project 级汇总；execute 逐 item 提交、幂等、可中断续跑）。
 
 > **v0.13 M58 起 DB 话题写路径退役**：`topic resolve / rollback-round / reopen` 与 `comment / advance-round / close` 的 DB 分支（DB uuid 或 `--storage db`）一律返回引导性错误（exit 2）。归档走 `map topic archive`（移动文件夹）。`dismiss / migrate` 不受影响。
 
@@ -71,6 +71,9 @@ map topic close --topic <slug> --reason no_experiment_needed --note "结论（de
 map --persona host topic migrate --id <topic-uuid> --slug <name> --dry-run   # 先看计划写入
 map --persona host topic migrate --id <topic-uuid> --slug <name>             # FS 落盘成功后归档 DB 记录
 ```
+
+**读路径退役 flag（`topic_db_read_retired`）**：host/admin 可用
+`map project config flag set --key topic_db_read_retired --value on --reason "<审计理由>"` 退役内容侧 DB 读。开启后：话题列表只出 FS 话题；未迁移存量话题的 show 评论读取与 archive 返回 **410**（错误码 `topic_db_read_retired`），并引导 `map topic migrate` / `map fs archive`。**顺序契约：先把存量迁移清零，再翻 flag**（翻 on 必须带非空 reason；回滚 `--value off`，off 可不带 reason）。迁移进度用 `map sync migrate status` 核对。
 
 ## 参与讨论（participant / host）
 

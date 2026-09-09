@@ -37,6 +37,8 @@
 
 ## 文件引用模式（存量 DB 话题/实验）
 
+> 存量迁移命令（`map topic migrate` 单条 / `map sync migrate scan/dry-run/execute/verify/status` 批量）与读路径退役 flag（`topic_db_read_retired`，开启后未迁移对象读/归档 410）见 [commands.md](commands.md)「存量 DB 话题处置」。
+
 | 对象 | 写文件 | 发布（CLI） | 平台存储 |
 |------|--------|-------------|----------|
 | 话题评论 | `map/topics/<slug>/round<N>-<persona>.md` / `round<N>-summary-<persona>.md` | `topic comment --file-path <相对路径> --excerpt "摘要"` | `file_path` + `excerpt`（≤200 字符） |
