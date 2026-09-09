@@ -1,0 +1,4 @@
+event: complete
+summary: 四件事收口完成：H1 对账门禁 + migrate 工具链 API 化 + 存量迁移 verify 全绿留证 + flag topic_db_read_retired
+  切读路径（已翻 on 实测）；顺收 H2 CAS retry 与 A6 尺寸守卫。全量回归 23 failed（基线 22 吻合，AGENTS 1 例已修），新增
+  0，ruff 0
