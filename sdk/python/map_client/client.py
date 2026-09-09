@@ -29,6 +29,7 @@ from map_client.client_mixins import (
     AgentProjectMixin,
     ExperimentMixin,
     FeatureFlagMixin,
+    FsMigrationMixin,
     FsTopicMixin,
     TodoNotificationMixin,
 )
@@ -55,6 +56,7 @@ class MAPClient(
     AgentProjectMixin,
     ExperimentMixin,
     FeatureFlagMixin,
+    FsMigrationMixin,
     FsTopicMixin,
     TodoNotificationMixin,
 ):

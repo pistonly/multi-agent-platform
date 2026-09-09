@@ -308,7 +308,7 @@ def test_reset_stale_in_flight_flips_old_to_pending(db_session):
     )
     db_session.commit()
 
-    reset_count = svc.reset_stale_in_flight(db_session, run_id=report.run_id)
+    reset_count = svc.reset_stale_in_flight(db_session, project_id=project.id)
     assert reset_count == 1
 
     db_session.refresh(item)
@@ -327,7 +327,7 @@ def test_reset_stale_in_flight_skips_fresh_in_flight(db_session):
     )
     svc.claim(db_session, item_id=item.id)
 
-    reset_count = svc.reset_stale_in_flight(db_session, run_id=report.run_id)
+    reset_count = svc.reset_stale_in_flight(db_session, project_id=project.id)
     assert reset_count == 0
 
     db_session.refresh(item)
@@ -351,7 +351,7 @@ def test_reset_stale_in_flight_skips_non_in_flight(db_session):
     )
     db_session.commit()
 
-    reset_count = svc.reset_stale_in_flight(db_session, run_id=report.run_id)
+    reset_count = svc.reset_stale_in_flight(db_session, project_id=project.id)
     assert reset_count == 0
 
     db_session.refresh(item)
@@ -398,7 +398,7 @@ def test_kill_during_execute_resume_picks_up_stale_item(db_session):
     svc.mark_applied(db_session, item_id=items[1].id)
 
     # 进程 2 (resume): reset stale + list actionable + 重新 claim
-    reset = svc.reset_stale_in_flight(db_session, run_id=report.run_id)
+    reset = svc.reset_stale_in_flight(db_session, project_id=project.id)
     assert reset == 1  # 第一项被捡回
 
     actionable = svc.list_actionable(db_session, run_id=report.run_id)
@@ -496,3 +496,299 @@ def test_finish_run_records_summary_and_timestamp(db_session):
     run = db_session.get(MigrationRun, report.run_id)
     assert run.finished_at is not None
     assert "applied" in (run.summary or "")
+
+
+# ---------------------------------------------------------------------------
+# M3 A3：canonical JSON content_hash
+# ---------------------------------------------------------------------------
+
+
+def test_content_hash_canonical_and_order_insensitive():
+    """同 payload 不同键序 → 同 hash；口径 = canonical JSON SHA-256。
+
+    历史（M2 I5）hash 用 ``repr((kind, payload))``：依赖 dict 插入序，
+    与 FS 端 canonical 口径永不互认。M3 A3 改 canonical JSON 后，
+    键序不再影响结果，且可独立复算验证。
+    """
+    import hashlib
+    import json
+
+    payload_a = {"title": "t", "phase": "draft", "slug": "s"}
+    payload_b = {"slug": "s", "phase": "draft", "title": "t"}
+    hash_a = svc._compute_content_hash("experiment", payload_a)
+    hash_b = svc._compute_content_hash("experiment", payload_b)
+    assert hash_a == hash_b
+
+    # 独立复算：canonical JSON（sort_keys + 紧凑分隔符 + UTF-8）+ kind 隔离
+    expected = hashlib.sha256(
+        json.dumps(
+            {"kind": "experiment", "payload": payload_a},
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert hash_a == expected
+
+    # kind 参与摘要：topic vs experiment 同 payload 不碰撞
+    assert svc._compute_content_hash("topic", payload_a) != hash_a
+
+
+# ---------------------------------------------------------------------------
+# M3 A2：project 范围 actionable / plan 只读
+# ---------------------------------------------------------------------------
+
+
+def test_list_project_actionable_includes_skipped_and_cross_run(db_session):
+    """project 级 actionable = 全 run 的 pending + skipped（dry 排练标记可捡回）。"""
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    _make_topic(db_session, project_id=project.id, slug="t1", creator_agent_id=agent.id)
+    report1 = svc.scan_project(db_session, project_id=project.id)
+    item1 = db_session.scalar(
+        select(MigrationManifestItem).where(MigrationManifestItem.run_id == report1.run_id)
+    )
+    svc.mark_applied(db_session, item_id=item1.id)
+
+    # 第二轮 scan（idempotent 跳过 applied 的 t1）+ 新 topic 产生新 pending
+    _make_topic(db_session, project_id=project.id, slug="t2", creator_agent_id=agent.id)
+    _make_topic(db_session, project_id=project.id, slug="t3", creator_agent_id=agent.id)
+    svc.scan_project(db_session, project_id=project.id)
+
+    pending2 = db_session.scalars(
+        select(MigrationManifestItem).where(
+            MigrationManifestItem.project_id == project.id,
+            MigrationManifestItem.status == "pending",
+        )
+    ).all()
+    assert len(pending2) == 2  # t2 + t3（t1 同 hash 幂等跳过，不产生新行）
+    # 把其中一个翻成 skipped（dry execute 的排练标记）
+    svc._mark_skipped(db_session, item_id=pending2[0].id)
+
+    actionable = svc.list_project_actionable(db_session, project_id=project.id, limit=50)
+    statuses = sorted(i.status for i in actionable)
+    assert statuses == ["pending", "skipped"]  # applied 的不在列
+
+
+def test_plan_project_is_read_only(db_session):
+    """plan 不改任何 item 状态（dry-run 是登记过的只读命令，不能有副作用）。"""
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    _make_topic(db_session, project_id=project.id, slug="t1", creator_agent_id=agent.id)
+    svc.scan_project(db_session, project_id=project.id)
+    before = {
+        i.id: i.status
+        for i in db_session.scalars(select(MigrationManifestItem)).all()
+    }
+
+    plan = svc.plan_project(db_session, project_id=project.id, limit=50)
+
+    after = {
+        i.id: i.status
+        for i in db_session.scalars(select(MigrationManifestItem)).all()
+    }
+    assert plan["actionable_count"] == 1
+    assert before == after
+
+
+# ---------------------------------------------------------------------------
+# M3 A2：server 端 execute 循环
+# ---------------------------------------------------------------------------
+
+
+def test_execute_pending_dry_marks_skipped_not_applied(db_session):
+    """dry（apply=False）→ skipped（可被 --apply 捡回），不再伪造 applied。"""
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    _make_topic(db_session, project_id=project.id, slug="dry-1", creator_agent_id=agent.id)
+    # execute 只处理既有 manifest 行，不隐式 scan
+    svc.scan_project(db_session, project_id=project.id)
+
+    report = svc.execute_pending(
+        db_session, project=project, agent=agent, apply=False, limit=50
+    )
+
+    assert report["apply"] is False
+    assert report["processed"] == 1
+    assert report["failed"] == 0
+    summary = svc.summarize_project(db_session, project_id=project.id)
+    assert summary["skipped"] == 1
+    assert summary["applied"] == 0
+    # skipped 仍在 actionable 里 —— --apply 一轮即可捡回
+    actionable = svc.list_project_actionable(db_session, project_id=project.id)
+    assert [i.status for i in actionable] == ["skipped"]
+
+
+def test_execute_pending_apply_failure_tags_stale_code(db_session):
+    """apply 失败 → mark_failed_with_stale：last_error 带 stable stale code。
+
+    topic kind 目前无 apply 路径（_apply_item 只支持 experiment），会以
+    ``unsupported manifest kind`` 失败 —— 正好用作失败注入点，验证
+    stale code 分类与 retry budget 落库。
+    """
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    _make_topic(db_session, project_id=project.id, slug="boom", creator_agent_id=agent.id)
+    svc.scan_project(db_session, project_id=project.id)
+
+    report = svc.execute_pending(
+        db_session, project=project, agent=agent, apply=True, limit=50
+    )
+
+    assert report["processed"] == 0
+    assert report["failed"] == 1
+    item = db_session.scalar(select(MigrationManifestItem))
+    # attempts=1 未到 MAX_ATTEMPTS → 回 pending 等重试，但错误留痕已落库
+    assert item.attempts == 1
+    assert item.status == "pending"
+    assert item.last_error is not None
+    assert item.last_error.startswith(f"[{svc.STALE_OTHER}]")
+
+
+def test_push_delta_retries_on_revision_conflict(monkeypatch, db_session):
+    """CAS base_revision 冲突 → 刷新投影行重建请求重试；非冲突冲突立即上抛。"""
+    from types import SimpleNamespace
+
+    from map_types.schemas.fs import (
+        FsExperimentRead,
+        FsProjectionChange,
+        FsProjectionDeltaRequest,
+    )
+
+    from server.services import fs_projection_store as store
+    from server.services.errors import ConflictError
+
+    row = SimpleNamespace(revision=7)
+    calls = {"apply": 0}
+
+    def fake_get(db, project):
+        return row
+
+    def fake_apply(db, project, agent, payload):
+        calls["apply"] += 1
+        if calls["apply"] == 1:
+            # 模拟别的 writer 先推进了 revision
+            row.revision = 8
+            raise ConflictError(
+                "projection revision conflict: expected 8, got 7",
+                error="fs_projection_conflict",
+            )
+        assert payload.base_revision == 8  # 重试请求带刷新后的 base_revision
+        return SimpleNamespace(revision=8)
+
+    def fake_build(db, *, project, row, changes):
+        return FsProjectionDeltaRequest(
+            base_revision=row.revision,
+            client_workspace="test",
+            content_root="map",
+            changes=changes,
+            result_content_hash="0" * 64,
+        )
+
+    monkeypatch.setattr(store, "get_fs_projection", fake_get)
+    monkeypatch.setattr(store, "apply_fs_projection_delta", fake_apply)
+    # _build_delta_request 会读投影 payload（真实 FsProjection 行才有）；
+    # 本测试只关心 CAS 重试语义，投影内容置空即可
+    monkeypatch.setattr(store, "projection_payload_topics", lambda row: [])
+    monkeypatch.setattr(
+        store, "projection_payload_experiments", lambda row: [exp_value]
+    )
+
+    exp_value = FsExperimentRead.model_validate(
+        {
+            "id": uuid.uuid4(),
+            "slug": "s",
+            "title": "t",
+            "description": "",
+            "phase": "draft",
+            "creator": "a",
+            "dir_path": "map/experiments/s",
+        }
+    )
+    change = FsProjectionChange(kind="experiment_upsert", slug="s", value=exp_value)
+    result = svc._push_delta(
+        db_session,
+        project=SimpleNamespace(workspace_path="/tmp", content_root="map"),
+        agent=SimpleNamespace(id=uuid.uuid4()),
+        changes=[change],
+    )
+    assert result.revision == 8
+    assert calls["apply"] == 2
+
+    # 非 revision 类冲突（发布者绑定）不重试
+    calls["apply"] = 0
+
+    def fake_apply_binding(db, project, agent, payload):
+        calls["apply"] += 1
+        raise ConflictError(
+            "FS projection is bound to another single publisher",
+            error="fs_projection_conflict",
+        )
+
+    monkeypatch.setattr(store, "apply_fs_projection_delta", fake_apply_binding)
+    try:
+        svc._push_delta(
+            db_session,
+            project=SimpleNamespace(workspace_path="/tmp", content_root="map"),
+            agent=SimpleNamespace(id=uuid.uuid4()),
+            changes=[change],
+        )
+        raise AssertionError("expected ConflictError")
+    except ConflictError as exc:
+        assert "bound to another" in str(exc)
+    assert calls["apply"] == 1
+
+
+def test_verify_project_aligns_against_fs_view(db_session, monkeypatch):
+    """verify 按 projection_id 关联 DB ↔ server FS 视角，逐字段比对。"""
+    from types import SimpleNamespace
+
+    from server.services import fs_source_service as fss
+
+    project = _make_project(db_session)
+    agent = _make_agent(db_session, project_id=project.id)
+    exp_ok = _make_experiment(
+        db_session, project_id=project.id, slug="ok", creator_agent_id=agent.id
+    )
+    exp_drift = _make_experiment(
+        db_session, project_id=project.id, slug="drift", creator_agent_id=agent.id
+    )
+    svc.scan_project(db_session, project_id=project.id)
+    # 两个实验的 item 全部置 applied（verify 只看 applied）
+    for it in db_session.scalars(select(MigrationManifestItem)).all():
+        svc.mark_applied(db_session, item_id=it.id)
+
+    def fake_view(db, project_arg):
+        return [
+            SimpleNamespace(
+                projection_id=exp_ok.id,
+                slug="fs-ok",
+                title=exp_ok.title,
+                phase="draft",
+                description=exp_ok.description,
+                current_plan_version=1,
+                creator="manifest-agent",
+                executor="",
+            ),
+            SimpleNamespace(
+                projection_id=exp_drift.id,
+                slug="fs-drift",
+                title="DRIFTED TITLE",  # 与 DB 权威值不一致
+                phase="draft",
+                description=exp_drift.description,
+                current_plan_version=1,
+                creator="manifest-agent",
+                executor="",
+            ),
+        ]
+
+    monkeypatch.setattr(fss, "fs_experiments_view", fake_view)
+
+    report = svc.verify_project(db_session, project=project)
+
+    assert report["verified_count"] == 1
+    assert report["mismatch_count"] == 1
+    assert report["missing_count"] == 0
+    assert report["mismatched"][0]["fields"][0]["field"] == "title"
+    assert report["mismatched"][0]["fields"][0]["fs_view"] == "DRIFTED TITLE"

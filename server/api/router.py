@@ -10,6 +10,7 @@ from server.api.experiments import experiments_router
 from server.api.feature_flags import router as feature_flags_router
 from server.api.feedback import feedback_router
 from server.api.fs import fs_router
+from server.api.fs_migration import router as fs_migration_router
 from server.api.notifications import notifications_router
 from server.api.projects import router
 from server.api.status import status_router
@@ -29,6 +30,7 @@ __all__ = [
     "feature_flags_router",
     "feedback_router",
     "fs_router",
+    "fs_migration_router",
     "status_router",
     "topics_router",
     "webhooks_router",

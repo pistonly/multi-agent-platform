@@ -96,19 +96,29 @@ def _compute_idempotency_key(
 
 
 def _compute_content_hash(kind: str, payload: dict[str, Any]) -> str:
-    """manifest 侧 content_hash —— 与 FS 端 ``canonical_*_dict`` 口径一致。
+    """manifest 侧 content_hash —— canonical JSON 口径（实验 M3 A3 收口）。
 
-    简化版：直接 ``json.dumps(sort_keys=True)`` + SHA-256。完整版应复用
-    ``map_types.schemas.fs._canonical_*_dict`` —— 但 SDK / server 跨边
-    界依赖太重，本里程碑先走简化版；后续若出现 hash 漂移（manifest
-    算的与 server 算的对不上），把 helper 抽到 ``server/services/canonical.py``
-    双端共享。
+    历史（M2 I5）版本是 ``repr((kind, payload))``：依赖 dict 插入序、与
+    FS 端 canonical JSON 口径必然不一致，导致 manifest hash 无法与任何
+    server / FS 侧 hash 互认。现改为 canonical JSON（sort_keys +
+    紧凑分隔符 + UTF-8），与 ``sdk/python/map_types/schemas/fs.py`` 的
+    ``_sha256_canonical`` 同构；manifest / server / CLI 三方对同一
+    payload 恒定同 hash。口径变更使旧 hash 全量失效 —— 重跑 ``scan``
+    会以新 hash 重建 item（旧行留 ``applied`` 终态不影响，新行接手）。
 
     kind: ``topic`` / ``experiment`` —— 显式区分，避免 topic vs
     experiment 同 slug 的 hash collision。
     """
-    raw = repr((kind, payload)).encode("utf-8")
+    raw = _canonical_json({"kind": kind, "payload": payload}).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _canonical_json(obj: Any) -> str:
+    import json
+
+    return json.dumps(
+        obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
+    )
 
 
 def _topic_payload(topic: Topic) -> dict[str, Any]:
@@ -276,11 +286,15 @@ def scan_project(
     )
 
 
-def reset_stale_in_flight(db: Session, *, run_id: str) -> int:
-    """中断恢复：把 stale ``in_flight`` 重置为 ``pending``。
+def reset_stale_in_flight(db: Session, *, project_id: uuid.UUID) -> int:
+    """中断恢复：把 stale ``in_flight`` 重置为 ``pending``（实验 M3 A2 收口）。
 
-    返回重置行数。caller 应在 execute 阶段开头调用一次，确保上次
-    跑死在 ``in_flight`` 的 item 被捡回。
+    历史（M2 I5）版本按 ``run_id`` 过滤，而 CLI 传的是「本次刚建的 run」
+    —— 新 run 的 item 全是 pending，恒 no-op；上次中断卡死在旧 run 的
+    ``in_flight`` 行永远不会被捡回。现按 ``project_id`` 全局过滤，语义
+    与「project 还有多少卡死项」一致。
+
+    返回重置行数。caller 应在 execute 阶段开头调用一次。
     """
     threshold = datetime.now(timezone.utc) - timedelta(seconds=STALE_AFTER_SECONDS)
     # SQLite + PG 兼容：用 Python 端 filter —— 这里 list 量级（94+
@@ -288,7 +302,7 @@ def reset_stale_in_flight(db: Session, *, run_id: str) -> int:
     stale_items = list(
         db.scalars(
             select(MigrationManifestItem).where(
-                MigrationManifestItem.run_id == run_id,
+                MigrationManifestItem.project_id == project_id,
                 MigrationManifestItem.status == "in_flight",
                 MigrationManifestItem.last_attempt_at < threshold,
             )
@@ -325,19 +339,22 @@ def list_actionable(
 def list_project_actionable(
     db: Session, *, project_id: uuid.UUID, limit: int = 50
 ) -> list[MigrationManifestItem]:
-    """全 project 范围 pending + stale-reset 项。
+    """全 project 范围待处理项（``pending`` + ``skipped``）。
 
     CLI dry-run / execute 阶段用：跨 run 取所有未完成 item（含旧 run 漏掉
     的、或 retry budget 未耗尽的），让 host 一次能看到「project 还有多少
     没跑完」，而不是「最新一次 scan 又扫到几个」（重跑 scan 通常 idempotent
     跳过，新 run 没新 item）。
+
+    ``skipped`` 是 dry execute 的排练标记（实验 M3 A2：dry 路径不再伪造
+    ``applied`` 终态）——它仍未真正写 server，``--apply`` 一轮即可捡回。
     """
     return list(
         db.scalars(
             select(MigrationManifestItem)
             .where(
                 MigrationManifestItem.project_id == project_id,
-                MigrationManifestItem.status == "pending",
+                MigrationManifestItem.status.in_(("pending", "skipped")),
             )
             .order_by(MigrationManifestItem.id)
             .limit(limit)
@@ -600,9 +617,12 @@ def mark_failed_with_stale(
 #
 # 不依赖：完全不参与 server CAS，纯本地 anchor；服务端无感。
 #
-# 落点：``cli/commands/migration_manifest.py`` 在 ``verify`` 阶段读 LKG
-# 并把它列入对账报告；不在 service 层落 LKG，因为 service 是 server-side
-# 服务，无 filesystem 访问权。
+# M3 A2 起的实际落点：verify 收进 server API（按 ``projection_id`` 逐字段
+# 比对，见 ``verify_project``），CLI 侧 LKG 锚点改为 project 作用域的
+# ``<content_root>/.fs-migration/<project_key>-lkg.json``（v2 schema，
+# 原子写，见 ``cli/commands/migration_manifest.py``）。本节 helpers 保留
+# 供 ``tests/test_stale_and_lkg.py`` 钉住的 bucket 语义（in_both /
+# in_db_only / in_lkg_only / hash_drift）复用；生产路径已不再调用。
 
 LKG_RELATIVE_PATH = ".fs-migration/last-known-good.json"
 
@@ -767,6 +787,372 @@ def get_latest_run(db: Session, *, project_id: uuid.UUID) -> MigrationRun | None
     return db.scalar(
         select(MigrationRun)
         .where(MigrationRun.project_id == project_id)
-        .order_by(MigrationRun.started_at.desc())
+        .order_by(MigrationRun.started_at.desc(), MigrationRun.id.desc())
         .limit(1)
     )
+
+
+# ---------------------------------------------------------------------------
+# server 端 execute / plan / verify（实验 M3 A2 收口）
+# ---------------------------------------------------------------------------
+#
+# 历史（M2 I5/I6）的 execute 循环活在 CLI 进程里：直连 server DB（绕过
+# API 层，无权限/审计）、整循环单事务（进程死 → 全回滚，「断点」不存在）、
+# dry 路径伪造 applied 终态、--apply=true 是无条件 raise。现整体搬进
+# service，由 API 层调用（CLI 走 HTTP）：
+#
+# - 逐 item **commit**：进程中断时已完成 item 保持 applied，未完成保持
+#   pending —— 断点真实存在，重跑 execute 从断点继续。
+# - ``apply=True`` 走 ``fs_projection_store.apply_fs_projection_delta``
+#   真 CAS（base_revision 冲突自动刷新重试）；apply 要求 DB 实体在
+#   server FS 视角已有对应物（experiments 按 ``projection_id`` 关联、
+#   topics 按 slug），无对应物 fail closed 留指引 —— 不造幽灵身份。
+# - dry（``apply=False``）记 ``skipped``（可被 --apply 捡回），不再伪造
+#   ``applied``。
+
+
+def plan_project(
+    db: Session, *, project_id: uuid.UUID, limit: int = 50
+) -> dict[str, Any]:
+    """只读 plan（dry-run 用）：零 DB 写副作用。
+
+    stale ``in_flight`` 只**计数**不重置——重置是 execute 的职责；dry-run
+    保持纯读（CLI ``dry-run`` 未登记写命令，host worker --dry-run 模式
+    会真实执行它，不能有副作用）。
+    """
+    pending = list_project_actionable(db, project_id=project_id, limit=limit)
+    threshold = datetime.now(timezone.utc) - timedelta(seconds=STALE_AFTER_SECONDS)
+    stale_count = len(
+        list(
+            db.scalars(
+                select(MigrationManifestItem).where(
+                    MigrationManifestItem.project_id == project_id,
+                    MigrationManifestItem.status == "in_flight",
+                    MigrationManifestItem.last_attempt_at < threshold,
+                )
+            )
+        )
+    )
+    return {
+        "actionable_count": len(pending),
+        "stale_in_flight": stale_count,
+        "summary": summarize_project(db, project_id=project_id),
+        "actionable": [
+            {
+                "id": it.id,
+                "kind": it.kind,
+                "slug": it.slug,
+                "content_hash": it.content_hash,
+                "attempts": it.attempts,
+                "status": it.status,
+            }
+            for it in pending
+        ],
+    }
+
+
+def _mark_skipped(db: Session, *, item_id: str) -> None:
+    from sqlalchemy import update
+
+    db.execute(
+        update(MigrationManifestItem)
+        .where(MigrationManifestItem.id == item_id)
+        .values(status="skipped", last_error="dry execute (no server write)")
+    )
+    db.flush()
+
+
+def _experiment_view_counterpart(view: list[Any], entity_id: uuid.UUID):
+    """DB 实验 ↔ server FS 视角关联：index.md frontmatter ``projection_id``。"""
+    for item in view:
+        if item.projection_id is not None and uuid.UUID(str(item.projection_id)) == entity_id:
+            return item
+    return None
+
+
+def _agent_name(db: Session, agent_id: uuid.UUID | None) -> str:
+    if agent_id is None:
+        return ""
+    from server.domain.models import Agent
+
+    agent = db.get(Agent, agent_id)
+    return agent.name if agent is not None else ""
+
+
+def _merged_experiment_value(db: Session, entity, counterpart) -> Any:
+    """以 FS 对应物为底、DB 权威字段打补丁，构造 delta upsert value。
+
+    DB 是生命周期权威（phase / title / description / plan version）；
+    身份字段（id / slug / dir_path）保持对应物原值，避免造幽灵身份。
+    """
+    from map_types.enums import ExperimentPhase
+    from map_types.schemas.fs import FsExperimentRead
+
+    assert isinstance(counterpart, FsExperimentRead)
+    phase = (
+        entity.phase.value if hasattr(entity.phase, "value") else str(entity.phase)
+    )
+    ExperimentPhase(phase)  # 校验合法，非法值在打补丁前即失败
+    return counterpart.model_copy(
+        update={
+            "title": entity.title,
+            "description": entity.description or "",
+            "phase": phase,
+            "current_plan_version": entity.current_plan_version or 1,
+            "updated_at": entity.updated_at,
+            "creator": _agent_name(db, entity.creator_agent_id) or counterpart.creator,
+            "executor": _agent_name(db, entity.executor_agent_id),
+            "projection_id": entity.id,
+        }
+    )
+
+
+def _push_delta(db: Session, *, project, agent, changes: list[Any], retries: int = 3):
+    """单批 delta 的真 CAS 推送：base_revision 冲突自动刷新重试。"""
+    from server.services.errors import ConflictError
+    from server.services.fs_projection_store import (
+        apply_fs_projection_delta,
+        get_fs_projection,
+    )
+
+    last_exc: Exception | None = None
+    for _attempt in range(retries):
+        row = get_fs_projection(db, project)
+        if row is None:
+            raise RuntimeError(
+                "FS projection 不存在（local-fs 项目未跑过 `map sync publish "
+                "--full`）；迁移 apply 需要投影主行，先建立投影或用 "
+                "kill switch 路径评估"
+            )
+        payload = _build_delta_request(db, project=project, row=row, changes=changes)
+        try:
+            return apply_fs_projection_delta(db, project, agent, payload)
+        except ConflictError as exc:
+            last_exc = exc
+            text = str(exc).lower()
+            if "revision" not in text and "conflict" not in text:
+                raise
+            db.rollback()
+    raise last_exc  # pragma: no cover — retries>1 时必不触达
+
+
+def _build_delta_request(db: Session, *, project, row, changes: list[Any]):
+    """按当前投影快照预演 changes，构造带正确 ``result_content_hash`` 的请求。"""
+    from map_types.schemas.fs import FsProjectionDeltaRequest
+
+    from server.services.fs_projection_store import (
+        fs_projection_content_hash,
+        projection_payload_experiments,
+        projection_payload_topics,
+    )
+
+    topics = {t.slug: t for t in projection_payload_topics(row)}
+    experiments = {e.slug: e for e in projection_payload_experiments(row)}
+    for change in changes:
+        if change.kind == "topic_upsert":
+            topics[change.slug] = change.value
+        elif change.kind == "experiment_upsert":
+            experiments[change.slug] = change.value
+        else:  # pragma: no cover — 迁移 apply 只产 upsert
+            raise RuntimeError(f"unsupported migration change kind: {change.kind}")
+    result_hash = fs_projection_content_hash(list(topics.values()), list(experiments.values()))
+    return FsProjectionDeltaRequest(
+        base_revision=row.revision,
+        client_workspace=str(project.workspace_path or "server-side-migration"),
+        content_root=project.content_root or "map",
+        changes=changes,
+        result_content_hash=result_hash,
+    )
+
+
+def _apply_item(db: Session, *, project, agent, item: MigrationManifestItem) -> str:
+    """对单个 claimed item 执行真 apply，返回描述性结果。"""
+    from map_types.schemas.fs import FsProjectionChange
+
+    from server.services.fs_source_service import fs_experiments_view
+
+    if item.kind == "experiment":
+        from server.domain.models import Experiment
+
+        entity = db.get(Experiment, uuid.UUID(item.slug))
+        if entity is None:
+            raise RuntimeError(f"experiment {item.slug} 不存在（已删除？）；scan 重建后再试")
+        view = fs_experiments_view(db, project)
+        counterpart = _experiment_view_counterpart(view, entity.id)
+        if counterpart is None:
+            raise RuntimeError(
+                "无 FS 对应物（server FS 视角无 projection_id 指向本实验的条目）；"
+                "为避免幽灵身份，迁移不凭空造投影条目——先经 validated write "
+                "流程物化 map/experiments/ 目录后重试"
+            )
+        value = _merged_experiment_value(db, entity, counterpart)
+        result = _push_delta(
+            db,
+            project=project,
+            agent=agent,
+            changes=[
+                FsProjectionChange(
+                    kind="experiment_upsert", slug=counterpart.slug, value=value
+                )
+            ],
+        )
+        return f"experiment_upsert slug={counterpart.slug} revision={result.revision}"
+    raise RuntimeError(f"unsupported manifest kind: {item.kind}")
+
+
+def execute_pending(
+    db: Session,
+    *,
+    project,
+    agent,
+    apply: bool,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """server 端 execute 循环：reset → 逐 item claim/apply/mark → **逐 item commit**。"""
+    project_id = project.id
+    reset = reset_stale_in_flight(db, project_id=project_id)
+    db.commit()
+
+    items = list_project_actionable(db, project_id=project_id, limit=limit)
+    processed = 0
+    failed = 0
+    unclaimed = 0
+    for it in items:
+        claimed = claim(db, item_id=it.id)
+        if claimed is None:
+            unclaimed += 1
+            continue
+        try:
+            if apply:
+                _apply_item(db, project=project, agent=agent, item=claimed)
+                mark_applied(db, item_id=claimed.id)
+            else:
+                _mark_skipped(db, item_id=claimed.id)
+            processed += 1
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            # rollback 会把 claim 一起回滚（status 回 pending / attempts 不加）；
+            # 重新 claim 一次再记失败，保证 attempts 审计与错误留痕落库。
+            reclaimed = claim(db, item_id=it.id)
+            if reclaimed is None:  # pragma: no cover — 单写者下不发生
+                unclaimed += 1
+                continue
+            mark_failed_with_stale(
+                db, item_id=reclaimed.id, error=str(exc)[:256], exc=exc
+            )
+            failed += 1
+        db.commit()
+
+    summary = summarize_project(db, project_id=project_id)
+    run = create_run(db, project_id=project_id, phase=PHASE_EXECUTE)
+    finish_run(db, run_id=run.id, summary=summary)
+    db.commit()
+    return {
+        "run_id": run.id,
+        "apply": apply,
+        "stale_in_flight_reset": reset,
+        "processed": processed,
+        "failed": failed,
+        "unclaimed": unclaimed,
+        "summary": summary,
+    }
+
+
+def verify_project(db: Session, *, project) -> dict[str, Any]:
+    """对账：manifest applied 项 vs server FS 视角（A2 固定字段契约）。
+
+    历史 verify 只做 client 侧 manifest↔LKG 自比对（谁也没碰 server）。
+    现以 ``fs_source_service.fs_experiments_view``（local-fs 实时解析 /
+    远端投影 cache，同源 ``sync check``）为对照侧，按 DB↔FS 身份关联
+    （``projection_id``）逐字段比对——DB 权威字段 vs server 视角实时值。
+    """
+    from server.services.fs_source_service import fs_experiments_view
+
+    view = fs_experiments_view(db, project)
+    view_by_pid: dict[str, Any] = {}
+    for v in view:
+        if v.projection_id is not None:
+            view_by_pid[str(v.projection_id)] = v
+
+    applied_items = list(
+        db.scalars(
+            select(MigrationManifestItem).where(
+                MigrationManifestItem.project_id == project.id,
+                MigrationManifestItem.status == "applied",
+            )
+        )
+    )
+    verified: list[dict[str, Any]] = []
+    mismatched: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for item in applied_items:
+        if item.kind != "experiment":  # topics 表存量路径：留待有真实行时扩展
+            missing.append({"kind": item.kind, "slug": item.slug, "reason": "kind not verified yet"})
+            continue
+        try:
+            entity = db.get(Experiment, uuid.UUID(item.slug))
+        except ValueError:
+            entity = None
+        if entity is None:
+            missing.append({"kind": item.kind, "slug": item.slug, "reason": "db row missing"})
+            continue
+        counterpart = view_by_pid.get(str(entity.id))
+        if counterpart is None:
+            missing.append(
+                {"kind": item.kind, "slug": item.slug, "reason": "no FS counterpart"}
+            )
+            continue
+        diffs = _align_field_diffs(db, entity, counterpart)
+        entry = {"kind": item.kind, "slug": counterpart.slug, "fields": diffs}
+        if diffs:
+            mismatched.append(entry)
+        else:
+            verified.append(entry)
+
+    return {
+        "verified_count": len(verified),
+        "mismatch_count": len(mismatched),
+        "missing_count": len(missing),
+        "verified": verified,
+        "mismatched": mismatched,
+        "missing": missing,
+        "summary": summarize_project(db, project_id=project.id),
+    }
+
+
+_ALIGN_FIELDS: tuple[str, ...] = (
+    "title",
+    "phase",
+    "description",
+    "current_plan_version",
+    "creator",
+    "executor",
+)
+
+
+def _align_field_diffs(db: Session, entity, counterpart) -> list[dict[str, Any]]:
+    """DB 权威字段 vs server 视角字段；返回不一致清单（A2 契约的 DB↔FS 投影）。"""
+    phase = entity.phase.value if hasattr(entity.phase, "value") else str(entity.phase)
+    db_values = {
+        "title": entity.title,
+        "phase": phase,
+        "description": entity.description or "",
+        "current_plan_version": entity.current_plan_version or 1,
+        "creator": _agent_name(db, entity.creator_agent_id),
+        "executor": _agent_name(db, entity.executor_agent_id),
+    }
+    view_values = {
+        "title": counterpart.title,
+        "phase": counterpart.phase,
+        "description": counterpart.description or "",
+        "current_plan_version": counterpart.current_plan_version or 1,
+        "creator": counterpart.creator or "",
+        "executor": counterpart.executor or "",
+    }
+    diffs = []
+    for field in _ALIGN_FIELDS:
+        if db_values[field] != view_values[field]:
+            diffs.append(
+                {"field": field, "db": db_values[field], "fs_view": view_values[field]}
+            )
+    return diffs

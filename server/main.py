@@ -24,6 +24,7 @@ from server.api.router import (
     experiments_router,
     feature_flags_router,
     feedback_router,
+    fs_migration_router,
     fs_router,
     notifications_router,
     status_router,
@@ -237,6 +238,7 @@ def create_app(
     app.include_router(docs_router, prefix=prefix)
     app.include_router(a2a_router, prefix=prefix)
     app.include_router(feature_flags_router, prefix=prefix)
+    app.include_router(fs_migration_router, prefix=prefix)
 
     register_domain_exception_handlers(app)
     register_request_validation_handler(app)

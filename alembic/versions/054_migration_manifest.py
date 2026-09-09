@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=32), primary_key=True),
         sa.Column(
             "project_id",
-            sa.CHAR(length=32),
+            sa.Uuid(),
             sa.ForeignKey("projects.id"),
             nullable=False,
             index=True,
@@ -52,7 +52,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=32), primary_key=True),
         sa.Column(
             "project_id",
-            sa.CHAR(length=32),
+            sa.Uuid(),
             sa.ForeignKey("projects.id"),
             nullable=False,
             index=True,
