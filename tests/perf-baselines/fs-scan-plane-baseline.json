@@ -3,12 +3,12 @@
   "iterations": 50,
   "counts": {
     "topics": 6,
-    "experiments": 54
+    "experiments": 56
   },
-  "p50_seconds": 0.019144058227539062,
-  "p95_seconds": 0.022182941436767578,
-  "p99_seconds": 0.03017902374267578,
-  "mean_seconds": 0.019661655426025392,
-  "captured_at": "2026-09-09T08:11:11.395006+00:00",
+  "p50_seconds": 0.020305156707763672,
+  "p95_seconds": 0.024662017822265625,
+  "p99_seconds": 0.04098916053771973,
+  "mean_seconds": 0.021309947967529295,
+  "captured_at": "2026-09-09T15:31:07.385875+00:00",
   "note": "full-repo scan_plane (per-request full parse, no cache by design). Optimization trigger (see scan_plane docstring): topics > 500 or p95 > 100ms -> re-measure this baseline before introducing mtime-incremental scanning. Counts snapshot travels with the file so future diffs can tell scale-driven drift from code-driven drift."
 }
