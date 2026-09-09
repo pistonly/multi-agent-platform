@@ -706,46 +706,6 @@ def topic_dismiss(
     runner._run(action)
 
 
-@topic_app.command("read")
-def topic_read(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
-    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
-) -> None:
-    """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling.
-
-    DB topics only; FS targets are a no-op with a notice (FS pending items
-    clear by writing round files).
-    """
-
-    def action(c: MAPClient):
-        kind, target = _resolve_topic_ref(c, topic_id, storage)
-        if kind == "fs":
-            _fs_projection_noop("read", target)
-        return c.mark_topic_read(target)
-
-    runner._run(action)
-
-
-@topic_app.command("mark-seen")
-def topic_mark_seen(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
-    storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
-) -> None:
-    """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations.
-
-    DB topics only; FS targets are a no-op with a notice (FS pending items
-    clear by writing round files).
-    """
-
-    def action(c: MAPClient):
-        kind, target = _resolve_topic_ref(c, topic_id, storage)
-        if kind == "fs":
-            _fs_projection_noop("mark-seen", target)
-        return c.mark_topic_read(target)
-
-    runner._run(action)
-
-
 @topic_app.command("archive")
 def topic_archive(
     topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名）"),

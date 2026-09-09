@@ -1,4 +1,5 @@
-"""``map topic show / history`` 读视图命令 — T45 拆分自 topic.py。
+"""``map topic show / history / read / mark-seen`` 读视图命令 — T45 拆分自
+topic.py（实验 0f271f7e A6 再并入 read / mark-seen 两个读面命令）。
 
 命令体的路由 helpers 直接取自源模块 ``cli.topic_routing``；``_STORAGE_HELP``
 装饰期值经 register() 内 call-time 导入宿主取得。宿主 ``topic_app`` 底部
@@ -12,6 +13,7 @@ from map_client.client import MAPClient
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.runner import _client_ctx
 from cli.topic_routing import (
+    _fs_projection_noop,
     _fs_slug_by_uuid,
     _fs_topic_to_detail,
     _looks_like_uuid,
@@ -25,6 +27,44 @@ def register(app: typer.Typer) -> None:
     # Decoration-time value (help=_STORAGE_HELP): import while the fully
     # loaded host runs register() at its module bottom.
     from cli.commands.topic import _STORAGE_HELP
+
+    @app.command("read")
+    def topic_read(
+        topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+        storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+    ) -> None:
+        """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling.
+
+        DB topics only; FS targets are a no-op with a notice (FS pending items
+        clear by writing round files).
+        """
+
+        def action(c: MAPClient):
+            kind, target = _resolve_topic_ref(c, topic_id, storage)
+            if kind == "fs":
+                _fs_projection_noop("read", target)
+            return c.mark_topic_read(target)
+
+        runner._run(action)
+
+    @app.command("mark-seen")
+    def topic_mark_seen(
+        topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+        storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
+    ) -> None:
+        """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations.
+
+        DB topics only; FS targets are a no-op with a notice (FS pending items
+        clear by writing round files).
+        """
+
+        def action(c: MAPClient):
+            kind, target = _resolve_topic_ref(c, topic_id, storage)
+            if kind == "fs":
+                _fs_projection_noop("mark-seen", target)
+            return c.mark_topic_read(target)
+
+        runner._run(action)
 
     @app.command("show")
     def topic_show(

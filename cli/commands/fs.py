@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import uuid
 from pathlib import Path
@@ -15,11 +14,13 @@ from typing import Any
 
 import typer
 from map_client.client import MAPClient
-from map_client.exceptions import MAPHTTPError
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.io_helpers import _read_piped_text
 from cli.table_render import render_table, truncate
+from cli.topic_routing import (  # noqa: F401  # 实验 0f271f7e A6 拆出的 re-import
+    _render_validate_error,
+)
 
 
 def _workspace() -> Path:
@@ -633,49 +634,6 @@ def fs_advance_round(
         project_key=project_key,
         validate_call=validate_call,
     )
-
-
-def _render_validate_error(exc: MAPHTTPError) -> None:
-    """验证型写 409 → 逐行列出可操作依据（ack pending / 执行项未清零）。"""
-    detail = getattr(exc, "detail", None)
-    if isinstance(detail, str) and detail.strip().startswith("{"):
-        # map_client 把 error body 的 detail 统一 str()（client.py:183），
-        # 结构化 409 的 dict 因此以 Python/repr 字符串形态到达；还原后再分支。
-        try:
-            parsed = json.loads(detail.strip())
-        except ValueError:
-            try:
-                parsed = ast.literal_eval(detail.strip())
-            except (ValueError, SyntaxError):
-                parsed = None
-        if isinstance(parsed, dict):
-            detail = parsed
-    if not isinstance(detail, dict):
-        return  # 非结构化错误交由上层统一渲染
-    if detail.get("error") == "round_ack_pending":
-        # advance-round 409 → 缺/无效表态，带文件名+原因（A5）
-        typer.echo("Error 409: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
-        for persona in detail.get("missing", []):
-            reason = detail.get("missing_reasons", {}).get(persona) or "缺文件（未发言）"
-            typer.echo(f"  - {persona}: {reason}", err=True)
-        return
-    if detail.get("error") == "action_items_open":
-        # close 409 → 执行项未清零 / yaml 损坏（D2 唯一防线，A3）
-        items = detail.get("items") or []
-        if items:
-            typer.echo("Error 409: action items 未清零 — 无法关闭（closed = 零尾款）", err=True)
-            for item in items:
-                typer.echo(
-                    f"  - #{item['id']} {item['title']} (owner: {item['owner']}) — "
-                    "用 `map topic action-item complete/cancel` 清零后再 close",
-                    err=True,
-                )
-        else:
-            typer.echo(f"Error 409: action-items.yaml 无法解析 — {detail.get('detail') or '未知原因'}", err=True)
-            typer.echo(
-                "  修复 action-items.yaml 后再 close（命令见 `map topic action-item --help`）",
-                err=True,
-            )
 
 
 def fs_close(

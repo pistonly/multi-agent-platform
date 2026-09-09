@@ -10,7 +10,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from map_fs import (
     AckPendingError,
@@ -26,6 +26,7 @@ from map_fs import (
     TopicStateError,
     derive_work,
 )
+from map_types.enums import TopicCommentKind
 from map_types.schemas.fs import (
     FsActionItemRead,
     FsCommentRead,
@@ -34,9 +35,11 @@ from map_types.schemas.fs import (
     FsTopicSummaryRead,
     FsWorkItemRead,
 )
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from server.domain.models import Project
+from server.domain.models import Agent, Project
+from server.domain.schemas import TopicCommentRead, TopicCommentTreeNode
 from server.services.fs_plane_loader import plane_for_project, workspace_fs_available
 
 # T06（2026-08）：投影缓存存储簇（push 全量 / delta 增量 / apply-fields
@@ -429,4 +432,82 @@ def fs_work_items(project: Project, persona: str) -> list[FsWorkItemRead]:
             suggested_command=i.suggested_command or None,
         )
         for i in items
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 实验 0f271f7e A6：agent 名解析 + FS 评论读视图自 fs_source_service 拆入
+# （fs_source_service 800 行 cap；依赖方向不变 —— fs_source_service 顶部
+# re-import 保持既有 ``fs_svc._agents_by_name`` / ``fs_svc._agent_id_for``
+# / ``fs_svc.fs_topic_comments_as_reads`` import 面）。
+# ---------------------------------------------------------------------------
+
+
+def _agents_by_name(db: Session) -> dict[str, Agent]:
+    return {agent.name: agent for agent in db.scalars(select(Agent)).all()}
+
+
+def _agent_id_for(name: str, agents: dict[str, Agent]) -> uuid.UUID:
+    agent = agents.get(name)
+    if agent is not None:
+        return agent.id
+    # 名字查不到（例如 agent 未注册）：合成稳定 id，仅用于展示层主键。
+    return uuid.uuid5(_PERSONA_NS, name)
+
+
+def fs_topic_comments_as_reads(
+    db: Session,
+    view: _TopicView,
+    *,
+    tree: bool = False,
+    limit: int = 100,
+) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
+    """FS 评论读视图（实验 0f271f7e A5：``topic_db_read_retired=on`` 时
+    /topics/{id}/comments 的唯一来源）。
+
+    与 ``fs_topic_as_detail`` 的评论构造同源（author 名字直透、无线程、
+    content 缺省回退 "See file: ..."）；FS 无 DB 分页游标，按 comment_seq
+    升序取前 limit 条（与 DB 路径 ``topic_comment_order_clauses`` 的取
+    头语义对齐）。
+    """
+    agents = _agents_by_name(db)
+    now = datetime.now(timezone.utc)
+    ordered = sorted(view.comments, key=lambda c: c.comment_seq)[
+        : max(1, min(limit, 500))
+    ]
+    if tree:
+        return [
+            TopicCommentTreeNode(
+                id=c.id,
+                topic_id=view.id,
+                author_agent_id=_agent_id_for(c.author, agents),
+                author_name=c.author,
+                parent_comment_id=None,
+                body=c.content or f"See file: {c.file_path}",
+                kind=TopicCommentKind(c.kind),
+                is_round_summary=c.is_round_summary,
+                comment_seq=c.comment_seq,
+                created_at=c.posted_at or now,
+                unresolved_mentions=[],
+                file_path=c.file_path,
+                excerpt=c.excerpt,
+                children=[],
+            )
+            for c in ordered
+        ]
+    return [
+        TopicCommentRead(
+            id=c.id,
+            topic_id=view.id,
+            author_agent_id=_agent_id_for(c.author, agents),
+            author_name=c.author,
+            parent_comment_id=None,
+            body=c.content or f"See file: {c.file_path}",
+            kind=TopicCommentKind(c.kind),
+            comment_seq=c.comment_seq,
+            created_at=c.posted_at or now,
+            file_path=c.file_path,
+            excerpt=c.excerpt,
+        )
+        for c in ordered
     ]

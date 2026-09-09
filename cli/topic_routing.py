@@ -8,15 +8,20 @@ them directly from this module, see ``tests/test_topic_routing.py``).
 """
 from __future__ import annotations
 
+import ast
+import json
 import uuid
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import typer
 import yaml
 from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
+
+if TYPE_CHECKING:
+    from map_client.exceptions import MAPHTTPError
 
 # ---------------------------------------------------------------------------
 # M51：--id 路由层（DB 话题 vs FS 事实源话题统一入口）
@@ -436,3 +441,53 @@ def _db_write_retired(command: str, target: str | None = None) -> NoReturn:
         err=True,
     )
     raise typer.Exit(2)
+
+
+# ---------------------------------------------------------------------------
+# 实验 0f271f7e A6：验证型写 409 渲染自 cli/commands/fs.py 拆入（fs.py 800
+# 行 cap）。``cli.commands.fs`` 顶部 re-import 保持既有 import 面（fs_write_flow
+# 与多个测试经 ``cli.commands.fs._render_validate_error`` 属性访问）。
+# ---------------------------------------------------------------------------
+
+
+def _render_validate_error(exc: MAPHTTPError) -> None:
+    """验证型写 409 → 逐行列出可操作依据（ack pending / 执行项未清零）。"""
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, str) and detail.strip().startswith("{"):
+        # map_client 把 error body 的 detail 统一 str()（client.py:183），
+        # 结构化 409 的 dict 因此以 Python/repr 字符串形态到达；还原后再分支。
+        try:
+            parsed = json.loads(detail.strip())
+        except ValueError:
+            try:
+                parsed = ast.literal_eval(detail.strip())
+            except (ValueError, SyntaxError):
+                parsed = None
+        if isinstance(parsed, dict):
+            detail = parsed
+    if not isinstance(detail, dict):
+        return  # 非结构化错误交由上层统一渲染
+    if detail.get("error") == "round_ack_pending":
+        # advance-round 409 → 缺/无效表态，带文件名+原因（A5）
+        typer.echo("Error 409: round ack pending — 本轮仍有缺/无效表态（含原因）", err=True)
+        for persona in detail.get("missing", []):
+            reason = detail.get("missing_reasons", {}).get(persona) or "缺文件（未发言）"
+            typer.echo(f"  - {persona}: {reason}", err=True)
+        return
+    if detail.get("error") == "action_items_open":
+        # close 409 → 执行项未清零 / yaml 损坏（D2 唯一防线，A3）
+        items = detail.get("items") or []
+        if items:
+            typer.echo("Error 409: action items 未清零 — 无法关闭（closed = 零尾款）", err=True)
+            for item in items:
+                typer.echo(
+                    f"  - #{item['id']} {item['title']} (owner: {item['owner']}) — "
+                    "用 `map topic action-item complete/cancel` 清零后再 close",
+                    err=True,
+                )
+        else:
+            typer.echo(f"Error 409: action-items.yaml 无法解析 — {detail.get('detail') or '未知原因'}", err=True)
+            typer.echo(
+                "  修复 action-items.yaml 后再 close（命令见 `map topic action-item --help`）",
+                err=True,
+            )

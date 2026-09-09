@@ -47,7 +47,6 @@ from sqlalchemy.orm import Session
 from server.config import get_settings
 from server.domain.models import Agent, AgentRole, Experiment, Project
 from server.domain.schemas import (
-    TopicCommentRead,
     TopicCommentTreeNode,
     TopicProgressItemRead,
     TopicRead,
@@ -80,7 +79,6 @@ from server.services.work_kinds import resolve_kind
 
 logger = logging.getLogger(__name__)
 
-_PERSONA_NS = uuid.uuid5(uuid.NAMESPACE_URL, "map-fs-persona")
 _ROUND_STR_RE = re.compile(r"^round(\d+)$")
 
 
@@ -318,18 +316,6 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
 # ---------------------------------------------------------------------------
 
 
-def _agents_by_name(db: Session) -> dict[str, Agent]:
-    return {agent.name: agent for agent in db.scalars(select(Agent)).all()}
-
-
-def _agent_id_for(name: str, agents: dict[str, Agent]) -> uuid.UUID:
-    agent = agents.get(name)
-    if agent is not None:
-        return agent.id
-    # 名字查不到（例如 agent 未注册）：合成稳定 id，仅用于展示层主键。
-    return uuid.uuid5(_PERSONA_NS, name)
-
-
 def fs_topics_as_summaries(db: Session, project: Project) -> list[TopicSummaryRead]:
     agents = _agents_by_name(db)
     projection = None if workspace_fs_available(project) else get_fs_projection(db, project)
@@ -439,64 +425,6 @@ def fs_topic_as_detail(db: Session, project: Project, view: _TopicView) -> Topic
         for c in view.comments
     ]
     return TopicRead(**summary.model_dump(), comments=comments)
-
-
-def fs_topic_comments_as_reads(
-    db: Session,
-    view: _TopicView,
-    *,
-    tree: bool = False,
-    limit: int = 100,
-) -> list[TopicCommentRead] | list[TopicCommentTreeNode]:
-    """FS 评论读视图（实验 0f271f7e A5：``topic_db_read_retired=on`` 时
-    /topics/{id}/comments 的唯一来源）。
-
-    与 ``fs_topic_as_detail`` 的评论构造同源（author 名字直透、无线程、
-    content 缺省回退 "See file: ..."）；FS 无 DB 分页游标，按 comment_seq
-    升序取前 limit 条（与 DB 路径 ``topic_comment_order_clauses`` 的取
-    头语义对齐）。
-    """
-    agents = _agents_by_name(db)
-    now = datetime.now(timezone.utc)
-    ordered = sorted(view.comments, key=lambda c: c.comment_seq)[
-        : max(1, min(limit, 500))
-    ]
-    if tree:
-        return [
-            TopicCommentTreeNode(
-                id=c.id,
-                topic_id=view.id,
-                author_agent_id=_agent_id_for(c.author, agents),
-                author_name=c.author,
-                parent_comment_id=None,
-                body=c.content or f"See file: {c.file_path}",
-                kind=TopicCommentKind(c.kind),
-                is_round_summary=c.is_round_summary,
-                comment_seq=c.comment_seq,
-                created_at=c.posted_at or now,
-                unresolved_mentions=[],
-                file_path=c.file_path,
-                excerpt=c.excerpt,
-                children=[],
-            )
-            for c in ordered
-        ]
-    return [
-        TopicCommentRead(
-            id=c.id,
-            topic_id=view.id,
-            author_agent_id=_agent_id_for(c.author, agents),
-            author_name=c.author,
-            parent_comment_id=None,
-            body=c.content or f"See file: {c.file_path}",
-            kind=TopicCommentKind(c.kind),
-            comment_seq=c.comment_seq,
-            created_at=c.posted_at or now,
-            file_path=c.file_path,
-            excerpt=c.excerpt,
-        )
-        for c in ordered
-    ]
 
 
 def find_fs_topic_by_id(
@@ -791,6 +719,8 @@ from server.services.fs_plane_loader import (  # noqa: E402,F401
     workspace_fs_available,
 )
 from server.services.fs_topic_view import (  # noqa: E402,F401
+    _agent_id_for,
+    _agents_by_name,
     _CommentView,
     _declared_of,
     _round_number_of,
@@ -800,6 +730,7 @@ from server.services.fs_topic_view import (  # noqa: E402,F401
     _view_from_projection,
     fs_experiment_read,
     fs_experiments_view,
+    fs_topic_comments_as_reads,
     fs_topic_detail,
     fs_topic_or_raise,
     fs_topic_summary,
