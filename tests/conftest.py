@@ -277,6 +277,11 @@ def admin_headers(admin_token: tuple[str, str]) -> dict[str, str]:
 
 @pytest.fixture
 def project(client: TestClient, admin_headers: dict[str, str]) -> dict:
+    # fixture workspace 是固定路径：跨测试运行的 FS 话题/实验目录残留会进
+    # plane 扫描，污染合并列表断言（test_topics / test_todos 的「存量失败」
+    # 即此根因，实验 0f271f7e 清场实证）。每个测试开始前清空，需要 FS 状态
+    # 的测试自行创建。
+    shutil.rmtree("/tmp/test-project", ignore_errors=True)
     response = client.post(
         "/api/v1/projects",
         headers=admin_headers,
