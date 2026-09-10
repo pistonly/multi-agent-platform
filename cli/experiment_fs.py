@@ -99,11 +99,27 @@ def workspace_root() -> Path | None:
 
 
 def content_root_name(workspace: Path) -> str:
-    """内容根名单点（context.config.content_root）；``workspace`` 参数仅为调用面保留。"""
-    del workspace
-    from cli.project_context import current_context
+    """内容根名单点：``.map`` 可用时取 ProjectContext 解析的 ``content_root``。
 
-    return current_context().content_root
+    实验 e7244a91 A3 的口径不变——有 ``.map`` 时值一律来自 config（``workspace``
+    参数仅为调用面保留，写根随 workspace、根名随 config）。
+
+    实验 e7244a91 修订：**无 ``.map`` 时不再抛 root 解析错误**，回退
+    ``_CONTENT_ROOT``。本函数的调用面含显式 workspace 的只读/测试入口
+    （``find_fs_experiment`` / ``lookup_fs_for_ref`` / ``iter_indexed_experiments``
+    ——签名就要求 caller 传 workspace），此时没有 config 可读；抛
+    ``ProjectRootNotFoundError`` 会让「显式给了 workspace」的调用反而不可用
+    （干净 checkout 下整片 FS 读面测试连败）。有 ``.map`` 时取值来源与优先级
+    完全不变，故不改变已 bootstrap 工程的行为；显式 config root 的 fail-closed
+    也不受影响（``ConfigRootNotFoundError`` 是并列的 ``ValueError`` 子类，照旧抛出）。
+    """
+    del workspace  # 仅为调用面保留：根名随 config，写根随 workspace（A3）
+    from cli.project_context import ProjectRootNotFoundError, current_context
+
+    try:
+        return current_context().content_root
+    except ProjectRootNotFoundError:
+        return _CONTENT_ROOT
 
 
 def slug_from_plan_file_path(path: str | None) -> str | None:

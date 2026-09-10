@@ -39,18 +39,18 @@ from cli.table_render import enum_value, format_datetime, render_table, short_uu
 from cli.topic_routing import (  # noqa: E402
     _db_write_retired,
     _filter_local_summaries,
-    db_uuid_write_preflight,
     _fs_projection_noop,
     _fs_slug_by_uuid,
     _fs_transition_rejected,
-    _fs_workspace_and_root,
     _list_api_topics_all,
     _looks_like_uuid,
     _merge_topic_summaries,
+    _optional_fs_workspace_and_root,
     _resolve_topic_ref,
     _scan_local_fs_summaries,
     _should_scan_local_fs,
     _slice_page,
+    db_uuid_write_preflight,
 )
 
 # Retired DB writes stay callable but hidden from `map topic --help`.
@@ -470,18 +470,18 @@ def topic_comment(
     # slug → map/topics/<slug>/ 存在即 FS；uuid → 本地 uuid5 反查命中即 FS
     # （uuid5 命名空间与 DB uuid4 碰撞可忽略）；否则走 DB API。
     def _fs_comment_target() -> str | None:
-        try:
-            if _looks_like_uuid(topic_id):
-                return _fs_slug_by_uuid(topic_id)
-            from map_fs import parse_topic_dir
-
-            workspace, root = _fs_workspace_and_root()
-            t = parse_topic_dir(workspace / root / "topics" / topic_id, workspace)
-            return t.slug if t is not None else None
-        except ProjectRootNotFoundError:
+        if _looks_like_uuid(topic_id):
+            return _fs_slug_by_uuid(topic_id)
+        resolved = _optional_fs_workspace_and_root()
+        if resolved is None:
             # 本地 workspace 不可用＝FS 未命中；落 DB/退役引导路径，
             # root 错误不应抢在定性之前（exit 2 优先于 exit 1）。
             return None
+        workspace, root = resolved
+        from map_fs import parse_topic_dir
+
+        t = parse_topic_dir(workspace / root / "topics" / topic_id, workspace)
+        return t.slug if t is not None else None
 
     if storage == "fs":
         target = _fs_comment_target()

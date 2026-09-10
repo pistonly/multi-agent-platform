@@ -45,11 +45,23 @@ def _content_root_name(workspace: Path | None = None) -> str:
     ``workspace`` 参数仅为既有调用面保留（``fs_write_flow`` / 测试）；
     值一律来自 ProjectContext 解析的 config——写根永远在 workspace 下
     （A3：config_root 不改变 map/** 写入根）。
+
+    无 ``.map`` 时回退 :data:`DEFAULT_CONTENT_ROOT`：本函数的调用面含
+    「caller 已给出 workspace」的情形（``_workspace`` 被 monkeypatch 或显式
+    传参），此时没有 config 可读；抛 root 错误会让「显式给了 workspace」的
+    调用反而不可用（干净 checkout 下 FS 测试连败即此形态）。显式 config root
+    的 fail-closed **不受影响**——``ConfigRootNotFoundError`` 与
+    ``ProjectRootNotFoundError`` 是并列的 ``ValueError`` 子类，前者照旧抛出。
     """
     del workspace
-    from cli.project_context import current_context
+    from map_client.project_context import DEFAULT_CONTENT_ROOT
 
-    return current_context().content_root
+    from cli.project_context import ProjectRootNotFoundError, current_context
+
+    try:
+        return current_context().content_root
+    except ProjectRootNotFoundError:
+        return DEFAULT_CONTENT_ROOT
 
 
 def _default_persona(workspace: Path | None = None) -> str:

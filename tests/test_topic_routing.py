@@ -254,6 +254,41 @@ class TestCommentFsRouting:
         assert second.exit_code == 1
         assert "--force" in second.output or "already exists" in second.output
 
+    def test_comment_db_uuid_without_map_exits_2_with_retirement_guidance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """无 ``.map`` 工作区跑 DB uuid 写：exit 2 退役引导必须可见（不崩）。
+
+        回归覆盖（085dfed 漏网面）：``_fs_comment_target`` 曾引用未导入的
+        ``ProjectRootNotFoundError``——该名只在 ``except`` 求值时才解析，于是
+        任何异常一到就被 NameError 盖住（实测 traceback，exit 1）；且即便补上
+        导入，handler 也是死代码（``cli.commands.fs._workspace`` 已把 root 缺失
+        转成 ``typer.Exit(1)``，类型对不上）。两处修好后，本地 FS 探测在无
+        ``.map`` 时只是「未命中」，``db_uuid_write_preflight`` 的 exit 2 引导
+        才真正前置。
+        """
+        monkeypatch.chdir(tmp_path)
+        assert not (tmp_path / ".map").exists()
+        result = runner.invoke(
+            topic_app, ["comment", "--id", str(uuid.uuid4()), "--body", "x"]
+        )
+        assert result.exit_code == 2, result.output
+        assert "DB write path retired" in result.output
+        assert not isinstance(result.exception, NameError), result.exception
+
+    def test_comment_slug_without_map_degrades_without_crash(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """无 ``.map`` 工作区跑 slug 写：干净退出，不泄漏内部异常。
+
+        slug 形态无法在无 client 时定性为 DB 写，故降级为 exit 1 + 可执行指引
+        （凭据 / bootstrap），关键是不再抛 NameError。
+        """
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(topic_app, ["comment", "--id", "some-slug", "--body", "x"])
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, NameError), result.exception
+
 
 # ---------------------------------------------------------------------------
 # M56：六命令接入三态路由 — fs 目标降级 / DB 分支 / help 一致性 / cancel 封装

@@ -43,10 +43,25 @@ def runner() -> CliRunner:
 
 # ---- helpers ---------------------------------------------------------------
 
+# ``docs`` 子命令是 local-only（无需 MAP workspace / client），但
+# ``_load_error_codes_index`` 需要一个搜索起点：e7244a91 A5 之后它不再隐式回退
+# ``Path.cwd()``。故测试显式把 ``--project-root`` 指向仓库根，不再依赖
+# 「运行目录恰好是本仓库且已 bootstrap」——干净 checkout（CWD 无 ``.map``）下
+# 不传该参数会 exit 1。
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _invoke_docs(runner: CliRunner, *extra: str, project_root: Path | None = None):
+    """Invoke ``docs error-codes`` against an explicit repo root."""
+    root = _REPO_ROOT if project_root is None else project_root
+    return runner.invoke(
+        app,
+        ["docs", "error-codes", *extra, "--project-root", str(root)],
+    )
+
 
 def _load_repo_index() -> dict:
-    repo_root = Path(__file__).resolve().parents[1]
-    return json.loads((repo_root / "docs/error-codes/index.json").read_text())
+    return json.loads((_REPO_ROOT / "docs/error-codes/index.json").read_text())
 
 
 def _all_codes_from_default_output(output: str) -> list[str]:
@@ -67,7 +82,7 @@ def _all_codes_from_default_output(output: str) -> list[str]:
 
 def test_docs_error_codes_lists_all_codes(runner):
     """Default invocation prints every code from the repo index."""
-    result = runner.invoke(app, ["docs", "error-codes"])
+    result = _invoke_docs(runner)
     assert result.exit_code == 0, result.stdout
     payload = _load_repo_index()
     codes = [entry["code"] for entry in payload["codes"]]
@@ -79,7 +94,7 @@ def test_docs_error_codes_lists_all_codes(runner):
 
 def test_docs_error_codes_header_metadata(runner):
     """The default table includes schema_version / generated_at / owner_experiment."""
-    result = runner.invoke(app, ["docs", "error-codes"])
+    result = _invoke_docs(runner)
     assert result.exit_code == 0, result.stdout
     payload = _load_repo_index()
     assert f"# schema_version: {payload['schema_version']}" in result.stdout
@@ -90,7 +105,7 @@ def test_docs_error_codes_header_metadata(runner):
 
 def test_docs_error_codes_search_single_keyword_hit(runner):
     """A single keyword filters down to matching rows (case-insensitive)."""
-    result = runner.invoke(app, ["docs", "error-codes", "--search", "review"])
+    result = _invoke_docs(runner, "--search", "review")
     assert result.exit_code == 0, result.stdout
     payload = _load_repo_index()
     expected_codes = [
@@ -111,7 +126,7 @@ def test_docs_error_codes_search_single_keyword_hit(runner):
 
 def test_docs_error_codes_search_no_hit(runner):
     """A keyword that matches nothing produces a clean header and no table rows."""
-    result = runner.invoke(app, ["docs", "error-codes", "--search", "zzz_nonexistent_xyz"])
+    result = _invoke_docs(runner, "--search", "zzz_nonexistent_xyz")
     assert result.exit_code == 0, result.stdout
     assert "# matched: 0/" in result.stdout
     # No table data rows.
@@ -121,17 +136,7 @@ def test_docs_error_codes_search_no_hit(runner):
 
 def test_docs_error_codes_search_multi_keyword_and_repeat(runner):
     """Multiple --search flags are AND-combined (intersection)."""
-    result = runner.invoke(
-        app,
-        [
-            "docs",
-            "error-codes",
-            "--search",
-            "review",
-            "--search",
-            "18f1d8f6",
-        ],
-    )
+    result = _invoke_docs(runner, "--search", "review", "--search", "18f1d8f6")
     assert result.exit_code == 0, result.stdout
     payload = _load_repo_index()
     rendered = _all_codes_from_default_output(result.stdout)
@@ -154,10 +159,7 @@ def test_docs_error_codes_search_multi_keyword_and_repeat(runner):
 
 def test_docs_error_codes_search_multi_keyword_and_comma_split(runner):
     """Comma-separated values within one --search flag are AND-combined too."""
-    result = runner.invoke(
-        app,
-        ["docs", "error-codes", "--search", "review,reject"],
-    )
+    result = _invoke_docs(runner, "--search", "review,reject")
     assert result.exit_code == 0, result.stdout
     payload = _load_repo_index()
     rendered = _all_codes_from_default_output(result.stdout)
@@ -182,7 +184,7 @@ def test_docs_error_codes_search_multi_keyword_and_comma_split(runner):
 
 def test_docs_error_codes_json_output_is_machine_readable(runner):
     """--json emits the full index payload as YAML (parseable round-trip)."""
-    result = runner.invoke(app, ["docs", "error-codes", "--json"])
+    result = _invoke_docs(runner, "--json")
     assert result.exit_code == 0, result.stdout
     parsed = yaml.safe_load(result.stdout)
     assert isinstance(parsed, dict)
@@ -195,7 +197,7 @@ def test_docs_error_codes_json_output_is_machine_readable(runner):
 
 def test_docs_error_codes_json_with_search_filters(runner):
     """--json + --search returns only matched entries (filtering at JSON level)."""
-    result = runner.invoke(app, ["docs", "error-codes", "--json", "--search", "review"])
+    result = _invoke_docs(runner, "--json", "--search", "review")
     assert result.exit_code == 0, result.stdout
     parsed = yaml.safe_load(result.stdout)
     rendered_codes = [entry["code"] for entry in parsed["codes"]]
@@ -213,10 +215,7 @@ def test_docs_error_codes_missing_index_exits_2(runner, tmp_path, monkeypatch):
     # Point project_root to a tmp dir without docs/error-codes/index.json.
     fake_root = tmp_path / "no_docs_repo"
     fake_root.mkdir()
-    result = runner.invoke(
-        app,
-        ["docs", "error-codes", "--project-root", str(fake_root)],
-    )
+    result = _invoke_docs(runner, project_root=fake_root)
     assert result.exit_code == 2
     assert "Error: error codes index not found" in (result.stderr or "")
     assert "Traceback" not in (result.stderr or "")
@@ -228,10 +227,7 @@ def test_docs_error_codes_corrupt_index_exits_2(runner, tmp_path):
     docs_dir = fake_root / "docs" / "error-codes"
     docs_dir.mkdir(parents=True)
     (docs_dir / "index.json").write_text("{ this is not valid json", encoding="utf-8")
-    result = runner.invoke(
-        app,
-        ["docs", "error-codes", "--project-root", str(fake_root)],
-    )
+    result = _invoke_docs(runner, project_root=fake_root)
     assert result.exit_code == 2
     assert "Traceback" not in (result.stderr or "")
 
@@ -242,20 +238,14 @@ def test_docs_error_codes_index_without_codes_key_exits_2(runner, tmp_path):
     docs_dir = fake_root / "docs" / "error-codes"
     docs_dir.mkdir(parents=True)
     (docs_dir / "index.json").write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
-    result = runner.invoke(
-        app,
-        ["docs", "error-codes", "--project-root", str(fake_root)],
-    )
+    result = _invoke_docs(runner, project_root=fake_root)
     assert result.exit_code == 2
     assert "'codes' list" in (result.stderr or "")
 
 
 def test_docs_error_codes_normalizes_search_dedupe_and_strip(runner):
     """Whitespace / case / dedupe is normalized before matching."""
-    result = runner.invoke(
-        app,
-        ["docs", "error-codes", "--search", "  REVIEW  ", "--search", "review"],
-    )
+    result = _invoke_docs(runner, "--search", "  REVIEW  ", "--search", "review")
     assert result.exit_code == 0, result.stdout
     # Header should show only the deduped keyword (lowercased-trimmed form).
     assert "REVIEW" in result.stdout
@@ -304,10 +294,7 @@ def test_docs_error_codes_search_matches_across_all_indexed_fields(runner):
     # Pick the first code's hint to build a keyword guaranteed to appear.
     hint = payload["codes"][0]["hint"]
     needle = hint.split()[0]  # first word of hint
-    result = runner.invoke(
-        app,
-        ["docs", "error-codes", "--search", needle],
-    )
+    result = _invoke_docs(runner, "--search", needle)
     assert result.exit_code == 0, result.stdout
     rendered = _all_codes_from_default_output(result.stdout)
     assert payload["codes"][0]["code"] in rendered

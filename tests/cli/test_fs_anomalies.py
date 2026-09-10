@@ -31,12 +31,21 @@ def ws(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "---\nauthor: participant\nround: 1\nposted_at: '$ts'\n---\n# dirty\n",
         encoding="utf-8",
     )
+    from map_client import project_config as pc
+
     import cli.commands.fs as fs_cli
     import cli.commands.topic_view as topic_view_cli
+    import cli.main
 
     monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
     # T45: `topic show` 移入 topic_view，_optional_workspace 的 patch 面随迁
     monkeypatch.setattr(topic_view_cli, "_optional_workspace", lambda: tmp_path)
+    # e7244a91 契约：`map topic comment` 的 FS 路由经 ProjectContext
+    # （optional_context → cli.main.find_map_dir）解析，裸 patch `_workspace`
+    # 钉不住它。与 test_local_plane 同款：两处注入面一并钉到 tmp workspace，
+    # 否则干净 checkout（CWD 无 .map）下 comment 会落到 client 路径而非 FS 写。
+    monkeypatch.setattr(pc, "find_map_dir", lambda start=None: map_dir)
+    monkeypatch.setattr(cli.main, "find_map_dir", lambda start=None: map_dir)
     return tmp_path
 
 

@@ -19,7 +19,6 @@ import yaml
 from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
-from cli.project_context import ProjectRootNotFoundError
 
 if TYPE_CHECKING:
     from map_client.exceptions import MAPHTTPError
@@ -53,6 +52,23 @@ def _optional_workspace() -> Path | None:
 
     context = optional_context()
     return None if context is None else context.workspace_root
+
+
+def _optional_fs_workspace_and_root() -> tuple[Path, str] | None:
+    """``_fs_workspace_and_root`` 的可降级版：``.map/`` 缺失时返回 None。
+
+    ``_fs_workspace_and_root`` 经 ``cli.commands.fs._workspace``，root 缺失即
+    ``exit 1``——写命令的**前置**探测（``db_uuid_write_preflight`` 需要在
+    client 构建之前给出 exit 2 退役引导）不能走那条路，否则 root 错误永远
+    抢在定性之前。这里用 :func:`_optional_workspace` 解析，未命中即视为
+    「本地 FS 不存在」，交由调用方降级（DB / 退役引导）。
+    """
+    from cli.commands.fs import _content_root_name
+
+    workspace = _optional_workspace()
+    if workspace is None:
+        return None
+    return workspace, _content_root_name(workspace)
 
 
 # 与 server/services/fs_source_service.py 同源：persona 名 → 稳定展示用 uuid。
@@ -218,12 +234,12 @@ def _fs_slug_by_uuid(ref: str) -> str | None:
         ref_uuid = uuid.UUID(ref)
     except ValueError:
         return None
-    try:
-        workspace, root = _fs_workspace_and_root()
-    except ProjectRootNotFoundError:
+    resolved = _optional_fs_workspace_and_root()
+    if resolved is None:
         # 本地 workspace 不可用（无 .map）＝ FS 话题必然不存在，反查未命中；
         # 让调用方落到 DB/退役引导路径，而不是让 root 错误抢在定性之前。
         return None
+    workspace, root = resolved
     for t in scan_plane(workspace, root).topics:
         if t.id == ref_uuid:
             return t.slug

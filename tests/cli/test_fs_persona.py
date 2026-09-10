@@ -32,9 +32,18 @@ def fs_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         encoding="utf-8",
     )
     write_topic_index(tmp_path, "t", title="T", creator="host")
+    from map_client import project_config as pc
+
     import cli.commands.fs as fs_cli
+    import cli.main
 
     monkeypatch.setattr(fs_cli, "_workspace", lambda: tmp_path)
+    # e7244a91 契约：`map topic comment` 的 FS 路由经 ProjectContext
+    # （optional_context → cli.main.find_map_dir）解析，裸 patch `_workspace`
+    # 钉不住它。与 test_local_plane 同款：两处注入面一并钉到 tmp workspace，
+    # 否则干净 checkout（CWD 无 .map）下 comment 会落到 client 路径而非 FS 写。
+    monkeypatch.setattr(pc, "find_map_dir", lambda start=None: map_dir)
+    monkeypatch.setattr(cli.main, "find_map_dir", lambda start=None: map_dir)
     return tmp_path
 
 
