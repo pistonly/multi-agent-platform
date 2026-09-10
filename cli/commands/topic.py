@@ -614,7 +614,11 @@ def topic_close(
     reason: str | None = typer.Option(
         None,
         "--reason",
-        help="Short reason code for closing (e.g. 'no_experiment_needed', 'superseded').",
+        help=(
+            "Close reason code; one of: experiment_ready / experiment_done / "
+            "cancelled / discussion_converged. discussion_converged also "
+            "requires structured --note fields (experiment_id, followup_gate)."
+        ),
     ),
     note: str | None = typer.Option(
         None,

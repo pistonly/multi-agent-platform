@@ -129,8 +129,12 @@ map --persona host topic close --topic <slug> \
 ## 4. 关闭话题与存量处置
 
 ```bash
-# FS 话题关闭（--reason/--note 可选；结论放 note）
-map --persona host topic close --topic <slug> --reason no_experiment_needed --note "讨论后决定不开实验"
+# FS 话题关闭（--reason 必须为 4 值之一：experiment_ready / experiment_done /
+# cancelled / discussion_converged；结论放 note）
+# 讨论收敛且不开实验 → discussion_converged，此时 note 必含结构化字段
+# experiment_id / followup_gate（必填，不开实验写 experiment_id: none），
+# 可选 drift_ack；字段约定见 map-project-collab/references/commands.md
+map --persona host topic close --topic <slug> --reason discussion_converged --note $'讨论后决定不开实验\nexperiment_id: none\nfollowup_gate: <闭环追踪描述>'
 
 # 重开（FS 等价约定）：把 index.md frontmatter 的 status 改回讨论中，
 # 并在 index 或下一轮 round 文件开头说明重开原因

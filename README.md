@@ -166,7 +166,7 @@ map topic comment --topic <slug> --body "..." --round-summary   # 写独立 roun
 map topic advance-round --topic <slug>                          # roundN → roundN+1
 map topic advance-round --topic <slug> --ready                  # 标记 ready（可开实验）
 map topic advance-round --topic <slug> --waive-ack --waive-reason "参与者离线，结论已收敛"
-map topic close --topic <slug> --reason no_experiment_needed --note "讨论后决定不开实验"
+map topic close --topic <slug> --reason discussion_converged --note $'讨论后决定不开实验\nexperiment_id: none\nfollowup_gate: <闭环追踪描述>'
 map topic archive --topic <slug>                                # 归档 closed 话题
 map topic dismiss --id <topic-id>                            # 退出话题（与 UI ✕ 相同）
 map topic mark-seen --id <topic-id>                          # 清 contextual unread，不清 reply/ack/mention

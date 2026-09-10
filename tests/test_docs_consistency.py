@@ -10,6 +10,8 @@ M50 修复了文档与 CLI / 部署事实之间的漂移；本文件用可执行
 * M50D Skill 不再教 Agent 往 ``docs/topics/``、``docs/experiments/`` 写新内容
 * M50E ``AGENTS.md`` 保持薄索引（行为细节在 Skill，命令细节在 commands.md）
 * M50F 孤儿文件 ``agents/openai.yaml`` 不再回归
+* M50G Skill 模板的 ``topic close --reason`` 取值必须落在
+  ``map_fs.validation.CLOSE_REASON_LEGAL`` 内（issue #1 漂移回归）
 
 设计原则：断言「解析出的事实」而不是硬编码版本号，升级 PRD 版本时
 不需要同步改这里的多数用例；注入漂移样例（改端口 / 改参数 / 改指向）
@@ -22,6 +24,7 @@ import re
 from pathlib import Path
 
 import pytest
+from map_fs import validation as fs_validation
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -234,4 +237,104 @@ class TestAgentsMdStaysThin:
         assert "commands.md" in text, (
             "AGENTS.md should point to the skills command reference "
             "instead of duplicating command blocks"
+        )
+
+
+# 退役的 close_reason 取值：出现在 skill 模板的 close 命令里即为漂移。
+RETIRED_CLOSE_REASONS = ("no_experiment_needed", "superseded")
+
+
+class TestSkillCloseReasonConsistency:
+    """M50G：Skill 模板的 ``topic close --reason`` 必须与枚举单一真值同源。
+
+    背景（issue #1）：0.16.0 wheel 把 ``CLOSE_REASON_LEGAL`` 收窄为 4 值，
+    但 ``cli/skills`` 分发的模板仍教退役值 ``no_experiment_needed``——照模板
+    执行的 host agent 必然撞 ``InvalidCloseReasonError``；下游只能手改已安装
+    模板，而 ``map skill upgrade --force`` 又会把手改覆盖回旧文案。
+    根因是「模板文案」与「枚举定义」之间没有可执行断言，本类补上这一层。
+    """
+
+    _IDENT = re.compile(r"[A-Za-z0-9_]+")
+
+    @staticmethod
+    def _logical_lines(text: str) -> list[tuple[int, str]]:
+        """把以反斜杠续行的命令拼成一条逻辑行（行号取该逻辑行的起始行）。"""
+        merged: list[tuple[int, str]] = []
+        buffer = ""
+        start = 1
+        for lineno, raw in enumerate(text.splitlines(), start=1):
+            line = raw.rstrip()
+            if not buffer:
+                start = lineno
+            if line.endswith("\\"):
+                buffer += line[:-1] + " "
+                continue
+            merged.append((start, buffer + line))
+            buffer = ""
+        if buffer:
+            merged.append((start, buffer))
+        return merged
+
+    @classmethod
+    def _close_reasons(cls, text: str) -> list[tuple[int, str]]:
+        """返回 ``topic close`` 命令里的 ``(行号, reason 取值)``。
+
+        只看 ``topic close`` 之后的 ``--reason``，避免误伤
+        ``action-item cancel --reason "..."`` / ``project config flag set
+        --reason ...`` 这类自由文本用法；占位符（``...`` / ``"..."``）不产
+        生标识符，自动跳过。
+        """
+        found: list[tuple[int, str]] = []
+        for lineno, line in cls._logical_lines(text):
+            pos = line.find("topic close")
+            if pos < 0:
+                continue
+            for match in re.finditer(r"--reason\s+(\S+)", line[pos:]):
+                ident = cls._IDENT.match(match.group(1))
+                if ident:
+                    found.append((lineno, ident.group(0)))
+        return found
+
+    @pytest.mark.parametrize("mirror", SKILL_MIRRORS)
+    def test_close_reason_is_in_enum(self, mirror: str) -> None:
+        """模板里每个 close --reason 取值都必须是当前合法枚举值。"""
+        offenders: list[str] = []
+        for path in sorted((REPO_ROOT / mirror).rglob("*.md")):
+            for lineno, reason in self._close_reasons(_read(path)):
+                if reason not in fs_validation.CLOSE_REASON_LEGAL:
+                    rel = path.relative_to(REPO_ROOT)
+                    offenders.append(f"{rel}:{lineno} --reason {reason}")
+        assert not offenders, (
+            "skill 模板教了非法 close_reason（照模板执行会被 "
+            f"InvalidCloseReasonError 拒绝）；合法值 = "
+            f"{sorted(fs_validation.CLOSE_REASON_LEGAL)}；违规：{offenders}"
+        )
+
+    @pytest.mark.parametrize("reason", RETIRED_CLOSE_REASONS)
+    def test_no_retired_reason_in_close_commands(self, reason: str) -> None:
+        """退役取值不得作为 close 命令参数回归（更精确的定位提示）。"""
+        offenders: list[str] = []
+        for mirror in SKILL_MIRRORS:
+            for path in sorted((REPO_ROOT / mirror).rglob("*.md")):
+                for lineno, found in self._close_reasons(_read(path)):
+                    if found == reason:
+                        rel = path.relative_to(REPO_ROOT)
+                        offenders.append(f"{rel}:{lineno}")
+        assert not offenders, (
+            f"退役 close_reason '{reason}' 仍在 skill 模板的命令里：{offenders}；"
+            f"改用 {sorted(fs_validation.CLOSE_REASON_LEGAL)} 之一"
+        )
+
+    @pytest.mark.parametrize("mirror", SKILL_MIRRORS)
+    def test_close_examples_are_actually_scanned(self, mirror: str) -> None:
+        """反向守卫：必须真解析到 close 示例，否则上面用例会空转假绿。"""
+        scanned: list[str] = []
+        for path in sorted((REPO_ROOT / mirror).rglob("*.md")):
+            scanned += [
+                f"{path.relative_to(REPO_ROOT)}:{lineno}"
+                for lineno, _ in self._close_reasons(_read(path))
+            ]
+        assert scanned, (
+            f"{mirror} 下未解析出任何 `topic close --reason` 示例；"
+            f"要么模板被删空，要么解析器与模板写法已脱节"
         )

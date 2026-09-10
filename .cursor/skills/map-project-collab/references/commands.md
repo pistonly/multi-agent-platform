@@ -51,10 +51,30 @@ map topic action-item complete --topic <slug> --id <n> --evidence "<commit/pytes
 map topic action-item cancel --topic <slug> --id <n> --reason "..."
 
 # 关闭（验证型写：服务端校验 ack 与执行项清零后写回 index.md status=closed）
-map topic close --topic <slug> --reason no_experiment_needed --note "结论（decision / rationale 见 topic-host；执行项在 action-items.yaml）"
+# --reason 只接受 4 值：experiment_ready / experiment_done / cancelled / discussion_converged
+map topic close --topic <slug> --reason discussion_converged --note $'结论（decision / rationale 见 topic-host；执行项在 action-items.yaml）\nexperiment_id: none\nfollowup_gate: <闭环追踪描述>'
 ```
 
 话题关闭前若有 linked experiment，需等实验 done/cancelled；实验处于 `draft`/`review`/`approved`/`running`/`result_review` 时**不要**关闭源话题，等待期间 `topic dismiss` 降噪。
+
+**close `--reason` 枚举**（与 `map_fs.validation.CLOSE_REASON_LEGAL` 同源；非法值在写入时直接拒绝，报 `InvalidCloseReasonError`）：
+
+| reason | 语义 |
+|--------|------|
+| `experiment_ready` | 收敛后开实验，等实验就绪 |
+| `experiment_done` | 收敛后开实验，实验已 done/cancelled |
+| `cancelled` | 话题主动取消（不开实验） |
+| `discussion_converged` | 讨论收敛但不开实验（仅沉淀决策 / 不挂实验链路） |
+
+**`discussion_converged` 的 note 结构化字段**（平台强制校验，缺字段 → `InvalidCloseNoteError`）：首行为自由文本，其后按 `key: value` 行给出——
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `experiment_id` | 是 | 关联实验 uuid；不开实验写 `none` |
+| `followup_gate` | 是 | 闭环追踪描述（必须非空） |
+| `drift_ack` | 可选 | 已知漂移的确认说明 |
+
+其余 reason 不校验 note 字段。
 
 **无 fs 等价物操作的约定**（原 DB 命令退役后按此执行，细节见 [topic-host](../../topic-host/SKILL.md)）：
 
