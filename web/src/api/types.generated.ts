@@ -143,6 +143,10 @@ export type InboundEventSource = "polling" | "sse" | "replay";
  * and DB migrations don't need to widen the column later.
  */
 export type InboundEventSource1 = "polling" | "sse" | "replay";
+/**
+ * A2 sync --check 五类 kind 枚举。
+ */
+export type SyncCheckKind = "aligned" | "fs_only_terminal" | "db_only" | "divergent" | "invalid";
 export type TopicCommentKind = "user" | "system";
 export type TopicCommentKind1 = "user" | "system";
 
@@ -1126,6 +1130,11 @@ export interface FsCloseRequest {
 }
 /**
  * 一个实验内容包 = map/experiments/<slug>/ 文件夹。
+ *
+ * 实验 M2 I2：补全 5 字段与 ``FsExperiment`` 对齐（见 ``map_fs.model.FsExperiment``）
+ * —— ``current_plan_version`` / ``executor`` / ``topic`` / ``updated_at`` /
+ * ``projection_id``。早期 read schema 缺这五项导致 sync --check / 投影对账无法
+ * 引用真实值；新增字段均为可选，向后兼容旧 caller / 旧 cache。
  */
 export interface FsExperimentRead {
   id: string;
@@ -1139,6 +1148,11 @@ export interface FsExperimentRead {
   plan_path?: string | null;
   log_path?: string | null;
   review_path?: string | null;
+  current_plan_version?: number;
+  executor?: string;
+  topic?: string;
+  updated_at?: string | null;
+  projection_id?: string | null;
 }
 /**
  * server 视角的 FS plane 可达状态（部署矩阵探测握手）。
@@ -1501,6 +1515,24 @@ export interface ProjectCreate {
   content_root?: string;
   fs_freshness_sla_seconds?: number | null;
 }
+/**
+ * 读面：值 + 最近 flip 的 actor / 时间 / reason。
+ */
+export interface ProjectFeatureFlagRead {
+  project_id: string;
+  flag_key: "fs_stop_duplicate_insert" | "topic_db_read_retired";
+  flag_value: string;
+  set_by_agent_id: string;
+  set_at: string;
+  reason?: string | null;
+}
+/**
+ * set 请求：flip flag 到 value（reason 在 ON flip 时必填非空）。
+ */
+export interface ProjectFeatureFlagSet {
+  flag_value: "on" | "off";
+  reason?: string | null;
+}
 export interface ProjectStatusRevise {
   content_md: string;
   change_note?: string | null;
@@ -1532,6 +1564,44 @@ export interface ReviewCreate {
 }
 export interface ReviewItemUpdate {
   status: ReviewItemStatus;
+}
+/**
+ * 单个实验的对账结果。
+ */
+export interface SyncCheckItem {
+  experiment_slug: string;
+  kind: SyncCheckKind;
+  blocking: boolean;
+  field_diffs?: SyncFieldDiff[];
+  fs_hash?: string | null;
+  db_hash?: string | null;
+  message?: string;
+}
+/**
+ * 单个字段的不一致点（kind=divergent 时填充）。
+ */
+export interface SyncFieldDiff {
+  field: string;
+  fs_value?: {
+    [k: string]: unknown;
+  };
+  db_value?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * sync --check 整体报告（A2 fixed schema）。
+ */
+export interface SyncCheckReport {
+  generated_at?: string;
+  total?: number;
+  aligned?: number;
+  fs_only_terminal?: number;
+  db_only?: number;
+  divergent?: number;
+  invalid?: number;
+  blocking_count?: number;
+  items?: SyncCheckItem[];
 }
 /**
  * Body for ``POST /api/v1/bootstrap/reissue`` — reissue one agent token.
