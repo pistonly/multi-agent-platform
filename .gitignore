@@ -55,6 +55,9 @@ htmlcov/
 # Collaboration content lives in map/, not here.
 .map/
 
+# Agent 工作区本机记忆（.workbuddy/memory/*.md 等）——本机运行态，不入库
+.workbuddy/
+
 # Local data
 data/
 *.db
