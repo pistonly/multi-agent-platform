@@ -1,6 +1,6 @@
 [project]
 name = "multi-agent-platform"
-version = "0.16.0"
+version = "0.16.1"
 description = "Multi-Agent experiment collaboration platform"
 readme = "README.md"
 license = "MIT"
