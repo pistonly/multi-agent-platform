@@ -55,6 +55,10 @@ dev = [
     "pytest-xdist>=3.6.0,<4.0",
     "mcp>=1.26.0,<2.0",
     "ruff>=0.8.0,<1.0",
+    # mypy：CI lint job 的「Mypy strict」步骤直接裸调 mypy（见 .github/workflows/ci.yml）。
+    # 此前只声明了 [tool.mypy] 配置却漏了依赖，uv.lock 也无此包，
+    # CI 装完 dev extra 仍 command not found（exit 127）——类型门禁从未真正执行。
+    "mypy>=1.13.0,<2.0",
     # codegen：从 Pydantic schema 生成 web/src/api/types.generated.ts
     # （配合 web 的 json-schema-to-typescript 提供 json2ts CLI，见 scripts/gen_types.py）。
     "pydantic-to-typescript>=2.0.0,<3.0",
@@ -144,6 +148,13 @@ ignore = ["E501", "B008"]
 # so each PR can promote one more directory without churning unrelated files.
 python_version = "3.10"
 mypy_path = "sdk/python"
+# 只报「命令行显式传入」的文件；被 import 跟随进来的存量模块仍参与类型解析，
+# 但它们的报错不阻塞门禁。否则渐进式 strict 会被牵连：改 A 模块却因 B 模块
+# 的存量类型错误而红（实测本仓库 23 个受保护模块会牵出 sdk/ 等 28 个存量报错）。
+# 因此 CI 必须把「已纳入门禁的模块」全部显式列进 mypy 命令行——见
+# .github/workflows/ci.yml 的 Mypy 步骤（与下方 overrides 的 module 列表一一对应，
+# 由 tests/test_mypy_gate_sync.py 守卫两者不漂移）。
+follow_imports = "silent"
 warn_unused_ignores = true
 warn_redundant_casts = true
 disallow_untyped_defs = false
@@ -186,7 +197,31 @@ module = [
     "server.services.topic_resolve_service",
     "server.services.topic_action_item_ops",
 ]
-strict = true
+# 为什么这里不写 ``strict = true``：mypy 的 ``strict`` 只有在「全局 section」才
+# 按预期语义生效——写在 per-module section 里不会局限到该模块，而是把整轮检查
+# 都变成 strict（实测 mypy 1.20：配置文件任意位置出现 ``strict = true``，
+# 未匹配的模块也会套上 strict-only 检查）。结果是上面的 ``follow_imports =
+# "silent"`` 之前，被 import 牵连的 sdk/ 等存量模块冒出 28 个 strict 报错，
+# 而这份配置声称的「基线宽松、按目录渐进」从未真正成立。
+# mypy 官方给的替代方案就是逐条展开 ``--strict`` 的等价 flag，即下面这一组。
+# 注意 ``attr-defined`` / ``no-untyped-def`` 仍由上面 [tool.mypy] 的
+# ``disable_error_code`` 全局关闭（re-export shim + 存量 untyped def 的历史约定）。
+# ``warn_redundant_casts`` 不在下面列出——它是「全局专用」flag，mypy 会报
+# "Per-module sections should only specify per-module flags"；该 flag 已由上面
+# [tool.mypy] 全局开启，语义不变。
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
 
 [[tool.mypy.overrides]]
 # Re-export shims use ``from map_types.schemas import *`` so mypy can't

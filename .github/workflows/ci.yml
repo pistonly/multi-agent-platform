@@ -52,12 +52,14 @@ jobs:
       - name: Ruff
         run: ruff check server cli sdk scripts tests alembic test_project
 
-      - name: Mypy strict (topics.py 渐进首目录)
+      - name: Mypy strict (受保护模块清单)
         # eng experiment (55634575) PR2: strict on server/api/topics.py
-        # only. PR3-PR5 will add experiments / agents / services in
-        # order. Pyproject [[tool.mypy.overrides]] enforces the
-        # directory promotion so the strict surface is grep-able.
-        run: mypy server/api/topics.py server/api/experiments.py server/api/projects.py server/api/agents.py server/services/project_service.py server/services/phase_service.py server/services/experiment_capabilities_service.py server/services/mention_service.py server/services/todo_service.py server/services/topic_comment_service.py server/services/agent_work_service.py server/services/topic_work_item_service.py server/services/notification_service.py server/services/topic_service.py
+        # only. PR3-PR5 added experiments / agents / services in order.
+        # 这里的文件清单必须与 pyproject [[tool.mypy.overrides]] 的 module
+        # 列表一一对应：mypy 配置了 follow_imports=silent（只报命令行显式
+        # 传入的文件），所以「没列在这里的受保护模块」其报错会被静默吞掉。
+        # 漂移由 tests/test_mypy_gate_sync.py 守卫。
+        run: mypy server/api/topics.py server/api/experiments.py server/api/experiment_execution.py server/api/experiment_reviews.py server/api/projects.py server/api/agents.py server/services/project_service.py server/services/phase_service.py server/services/fs_projection_store.py server/services/time_utils.py server/services/experiment_capabilities_service.py server/services/mention_service.py server/services/todo_service.py server/services/topic_comment_service.py server/services/agent_work_service.py server/services/topic_work_item_service.py server/services/notification_service.py server/services/notification_stalled.py server/services/topic_service.py server/services/topic_helpers.py server/services/topic_lifecycle_service.py server/services/topic_resolve_service.py server/services/topic_action_item_ops.py
 
       - name: Alembic migrations
         run: |
