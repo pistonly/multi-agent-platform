@@ -1,0 +1,73 @@
+name: Release
+
+# PyPI 发布流水线：push v* tag 到 github 远端后触发（scripts/release.sh tag
+# 的 push reminder 会同时 push origin 与 github）。凭据走 PyPI Trusted
+# Publishing（OIDC），仓库不需要存任何 secret；两个 PyPI 项目的 publisher
+# 配置（workflow 名 release.yml / environment pypi）必须与本文件保持一致。
+#
+# 步骤复刻 scripts/release.sh 的 prepare + upload 编排：
+#   check-release --require-tag → sync-web-dist → check-packaging（主包构建
+#   + SPA/alembic 门禁）→ server-pkg 构建 → 双包上传。
+# 注意顺序：--require-tag 校验 server/web_dist/build-info.json 与 HEAD 一致，
+# 而该文件由 sync-web-dist.sh 生成且 gitignored，所以必须先 sync 再校验
+#（与本地不同：本地 prepare 先跑过一次，upload 时文件已在盘上）。
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # check-release.sh --require-tag 需要 refs/tags/v* 存在
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install build tool
+        run: python -m pip install --upgrade build twine
+
+      - name: Rebuild the SPA board into server/web_dist
+        run: bash scripts/sync-web-dist.sh
+
+      - name: Skills distribution drift check
+        # 与 release.sh prepare 相同的门禁：.cursor/skills 与 cli/skills 漂移即红
+        run: diff -r -x '__init__.py' .cursor/skills cli/skills
+
+      - name: Release pre-flight (version single-source + tag + SPA provenance)
+        run: bash scripts/check-release.sh --require-tag
+
+      - name: Packaging gate + build main wheel/sdist
+        # check-packaging.sh 内部执行 prepare-wheel-assets + python -m build
+        # + wheel 内容断言（web_dist/index.html、assets、alembic 迁移齐全）
+        run: bash scripts/check-packaging.sh
+
+      - name: Build server meta package
+        run: |
+          rm -rf server-pkg/dist
+          (cd server-pkg && python -m build)
+
+      - name: twine check
+        run: twine check dist/* server-pkg/dist/*
+
+      - name: Publish multi-agent-platform
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+      - name: Publish multi-agent-platform-server
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: server-pkg/dist/
