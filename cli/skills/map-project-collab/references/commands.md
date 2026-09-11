@@ -93,7 +93,7 @@ map --persona host topic migrate --id <topic-uuid> --slug <name>             # F
 ```
 
 **读路径退役 flag（`topic_db_read_retired`）**：host/admin 可用
-`map project config flag set --key topic_db_read_retired --value on --reason "<审计理由>"` 退役内容侧 DB 读。开启后：话题列表只出 FS 话题；未迁移存量话题的 show 评论读取与 archive 返回 **410**（错误码 `topic_db_read_retired`），并引导 `map topic migrate` / `map fs archive`。**顺序契约：先把存量迁移清零，再翻 flag**（翻 on 必须带非空 reason；回滚 `--value off`，off 可不带 reason）。迁移进度用 `map sync migrate status` 核对。
+`map project config flag set --key topic_db_read_retired --value on --reason "<审计理由>"` 退役内容侧 DB 读。开启后：话题列表只出 FS 话题；未迁移存量话题的 show 评论读取与 archive 返回 **410**（错误码 `topic_db_read_retired`），并引导 `map topic migrate` / `map topic archive`。**顺序契约：先把存量迁移清零，再翻 flag**（翻 on 必须带非空 reason；回滚 `--value off`，off 可不带 reason）。迁移进度用 `map sync migrate status` 核对。
 
 ## 参与讨论（participant / host）
 
@@ -190,7 +190,7 @@ map notification read-all
 
 ## 用户反馈（MAP 工具 bug / 改进建议）
 
-MAP 工具本身的反馈走 GitHub issue（旧平台 inbox 已于 v0.15 M62 退役，`feedback submit/list/get/update` 均 exit 2）：
+MAP 工具本身的反馈走 GitHub issue（旧平台 inbox 已于 v0.15 M62 退役，`feedback submit/list/get/update` 子命令均 exit 2；根命令 `map feedback` 保留，用于生成预填 issue 链接）：
 
 ```bash
 map feedback --type bug --title "..." --body "复现步骤..."   # 生成预填 issue 链接

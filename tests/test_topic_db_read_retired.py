@@ -7,7 +7,7 @@
 - **flag ON**：list 只回 FS 段（含空集，不再触 SQL 分页 / DB total）；
   detail / comments 在 FS miss 且 DB 行存在（未迁移存量）时 410 引导
   `map topic migrate`；DB 行不存在（FS-native）→ 原 404 语义；
-  PATCH archived 410 引导 `map fs archive`。
+  PATCH archived 410 引导 `map topic archive`。
 - **评论 FS 化**：flag ON 时 comments 唯一来源是 FS 视图
   （`fs_topic_comments_as_reads`：comment_seq 升序、无线程、author 名字直透）。
 """
@@ -233,7 +233,7 @@ def test_flag_on_patch_archived_410(client, db_session, auth_headers, project):
     assert resp.status_code == 410
     detail = resp.json()["detail"]
     assert detail["error"] == "topic_write_retired"
-    assert "map fs archive" in detail["hint"]
+    assert "map topic archive" in detail["hint"]
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 职责边界：
 
 - **读**：优先实时解析 ``<workspace>/<content_root>/``（同机部署）；workspace
-  不可达（Docker / 远程 server）时回退到 ``map fs push`` 上行的投影缓存，
+  不可达（Docker / 远程 server）时回退到 ``map sync publish`` 上行的投影缓存，
   产出统一的 ``_TopicView`` 供主读路径（/topics 合并、/agents/me/work）使用。
 - **可达性**：``fs_plane_status`` 显式暴露 local-fs / projection-cache /
   detached 三态，杜绝"扫不到目录静默返回空"的隐性降级。
@@ -100,7 +100,7 @@ class FsPlaneUnavailableError(Exception):
     """server 看不到 workspace 且无投影缓存/evidence 可用。
 
     部署矩阵显式化的一部分：旧实现里这表现为"静默空列表"或 404，现在
-    抛出带修复指引的错误（挂载 workspace / map fs push / 携带 evidence）。
+    抛出带修复指引的错误（挂载 workspace / map sync publish / 携带 evidence）。
     """
 
 
@@ -148,7 +148,7 @@ def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgress
     pending_topic_reply；host 推进轮次即清除 round_ack。
 
     远程部署：读源回退到投影缓存（plane_views），语义不变、新鲜度取决于
-    最后一次 ``map fs push``。
+    最后一次 ``map sync publish``。
     """
     if agent.project_id is None:
         return []

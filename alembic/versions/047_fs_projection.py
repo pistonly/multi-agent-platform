@@ -2,7 +2,7 @@
 
 Remote/container deployments cannot see ``project.workspace_path``, so the FS
 plane (``map/`` folder source of truth) silently vanished from server reads.
-This migration adds the read-side fallback store used by ``map fs push``:
+This migration adds the read-side fallback store used by ``map sync publish``:
 
 - one row per project (unique ``project_id``), idempotent overwrite on push;
 - ``payload_json`` holds the pushed ``FsProjectionPushRequest`` snapshot

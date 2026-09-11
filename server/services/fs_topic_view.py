@@ -87,7 +87,7 @@ class FsPlaneUnavailableError(Exception):
     """server 看不到 workspace 且无投影缓存/evidence 可用。
 
     部署矩阵显式化的一部分：旧实现里这表现为"静默空列表"或 404，现在
-    抛出带修复指引的错误（挂载 workspace / map fs push / 携带 evidence）。
+    抛出带修复指引的错误（挂载 workspace / map sync publish / 携带 evidence）。
     """
 
 

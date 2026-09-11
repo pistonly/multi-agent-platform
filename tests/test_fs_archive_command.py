@@ -1,4 +1,4 @@
-"""v0.14 M60/M61：``map fs archive`` 薄命令 + ``archive-index`` 生成式投影（map_fs.archive）。
+"""v0.14 M60/M61：``map topic archive`` 薄命令 + ``archive-index`` 生成式投影（map_fs.archive）。
 
 覆盖话题 v014-fs-archive-design round2 定稿验收：
 - R-b 首跑 rebuild：新旧形态条目齐全不重复、legacy ``Status: open`` 失时（F2）修复

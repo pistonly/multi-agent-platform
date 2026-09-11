@@ -31,7 +31,7 @@ _LEGACY_STATUS_RE = re.compile(r"^-\s+\*\*Status\*\*:\s*(\S+)", re.M)
 INDEX_HEADER = """# Archive Index
 
 > Generated projection of `{root}/archive/topics/` — do not edit by hand.
-> Rebuilt by `map fs archive-index --rebuild` (auto-invoked after `map fs archive`).
+> Rebuilt by `map topic archive-index --rebuild` (auto-invoked after `map topic archive`).
 > v0.14 M61: generative projection, not an incrementally-maintained document.
 """
 
@@ -225,7 +225,7 @@ def archive_topic(
     *,
     content_root: str = DEFAULT_CONTENT_ROOT,
 ) -> Path:
-    """``map fs archive``：校验 → 移动 → 自动 rebuild（索引一致性唯一路径）。
+    """``map topic archive``：校验 → 移动 → 自动 rebuild（索引一致性唯一路径）。
 
     前置校验（任一不满足抛 :class:`ArchiveStateError`，不静默成功）：
     目录存在且含 index.md / status: closed / 目标不存在。
@@ -238,7 +238,7 @@ def archive_topic(
     status = str(meta.get("status") or "open").lower()
     if status != "closed":
         raise ArchiveStateError(
-            f"topic '{slug}' is {status} (not closed) — run `map fs close --topic {slug}` first"
+            f"topic '{slug}' is {status} (not closed) — run `map topic close --topic {slug}` first"
         )
     dst = _archive_dir(workspace, content_root) / slug
     if dst.exists():
@@ -254,7 +254,7 @@ def unarchive_topic(
     *,
     content_root: str = DEFAULT_CONTENT_ROOT,
 ) -> Path:
-    """``map fs archive --undo``：反向三步薄层（校验 archive 侧存在 & 目标不存在 → 移回）。
+    """``map topic archive --undo``：反向三步薄层（校验 archive 侧存在 & 目标不存在 → 移回）。
 
     硬约束：不承载任何索引维护逻辑；还原后索引一致性由自动 rebuild 达成。
     """

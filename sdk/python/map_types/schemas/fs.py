@@ -106,7 +106,7 @@ class FsAdvanceRoundRequest(BaseModel):
     """验证型写：推进轮次（服务端校验 ack 后写回 index.md）。
 
     远程/容器部署（server 看不到 workspace）时必须携带 ``base_revision``
-    （CLI 先 ``map fs sync`` 投影再取 revision）；服务端只信任已 CAS 发布
+    （CLI 先 ``map sync publish`` 投影再取 revision）；服务端只信任已 CAS 发布
     的投影来校验 ack 完整性。``evidence`` 为旧客户端兼容字段，不再参与
     权限或 ack 校验。
     """
@@ -148,7 +148,7 @@ class FsPlaneStatusRead(BaseModel):
 
     - ``local-fs``：server 能直接读 ``<workspace>/<content_root>/``（同机部署
       或容器内同路径挂载），实时解析 + 服务端写回均可用。
-    - ``projection-cache``：workspace 不可达，但存在 ``map fs push`` 上行的
+    - ``projection-cache``：workspace 不可达，但存在 ``map sync publish`` 上行的
       投影缓存——读路径回退到缓存，验证型写走 validate → 本地写回 → commit。
     - ``detached``：两者皆无，FS plane 对 server 不可见（读写链路均断，
       ``hint`` 给出修复指引）。
@@ -206,7 +206,7 @@ class FsWriteCommitResponse(BaseModel):
 
 
 class FsProjectionPushRequest(BaseModel):
-    """``map fs push`` 上行的 FS plane 投影（远程/容器部署的读侧回退源）。
+    """``map sync publish`` 上行的 FS plane 投影（远程/容器部署的读侧回退源）。
 
     内容主权仍在本地文件：这里只是 server 侧的只读投影缓存，push 幂等
     覆盖。``topics`` 携带评论元数据与正文（供 Web UI / work 投影离线渲染）。

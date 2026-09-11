@@ -89,7 +89,7 @@ def _archived_write_retired_410() -> HTTPException:
                 "archiving is a filesystem move)"
             ),
             "hint": (
-                "archive FS topics via `map fs archive`; legacy DB topics "
+                "archive FS topics via `map topic archive`; legacy DB topics "
                 "must finish `map topic migrate` before flipping the flag"
             ),
         },
@@ -250,7 +250,7 @@ def update_topic(
     if set(changed_fields) - {"archived"}:
         raise _write_retired_410("patch")
     if _topic_db_read_retired(db, topic_id):
-        # 实验 0f271f7e A5：归档即目录搬移（map fs archive），DB archived
+        # 实验 0f271f7e A5：归档即目录搬移（map topic archive），DB archived
         # 位随读路径一并退役 —— 顺序契约：先跑完 map topic migrate 再翻 flag。
         raise _archived_write_retired_410()
     # Archive/undo is a project-level operation: any project member may archive

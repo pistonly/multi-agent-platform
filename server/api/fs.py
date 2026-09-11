@@ -1,7 +1,7 @@
 """fs plane API：对 map/ 文件夹事实源的实时解析与验证型写。
 
 - **读**端点每次请求重新扫描文件系统（同机部署）；workspace 不可达时
-  回退到 ``map fs push`` 上行的投影缓存，不经过内容 DB。
+  回退到 ``map sync publish`` 上行的投影缓存，不经过内容 DB。
 - **验证型写**拆成两段：``/validate`` 校验权限与 ack 完整性并签发 HMAC
   token + 应写回 fields；CLI 本地写回 index.md 后凭 ``/write-commit``
   审计 + 刷投影缓存。旧的服务端直接写回端点保留（同机部署 / Web UI）。
@@ -102,7 +102,7 @@ def push_fs_projection(
     db: Session = Depends(get_db),
     agent: Agent = Depends(get_current_agent),
 ) -> FsProjectionMetaRead:
-    """``map fs push``：上行 FS plane 投影快照（幂等覆盖）。"""
+    """``map sync publish``：上行 FS plane 投影快照（幂等覆盖）。"""
     project = _project(db, agent, project_id)
     try:
         meta = fs_svc.upsert_fs_projection(db, project, agent, payload)

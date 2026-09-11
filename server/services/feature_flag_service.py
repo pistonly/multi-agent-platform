@@ -98,7 +98,7 @@ REGISTERED_FLAGS: dict[str, FlagSpec] = {
             "实验 0f271f7e A5：内容侧 DB 话题读路径退役总开关。ON："
             "/topics 列表只返回 map/ FS 段；GET topic/comments 在 FS "
             "miss 且 DB 行存在时 410 引导 `map topic migrate`；PATCH "
-            "archived 410 引导 `map fs archive`（故翻 ON 前必须先跑完"
+            "archived 410 引导 `map topic archive`（故翻 ON 前必须先跑完"
             " map topic migrate 收尾）。OFF（默认）：读路径与 v0.13 M58"
             " 行为逐字节一致（DB fallback 保留）。触发人：host persona "
             "或 admin；ON flip 强制非空 reason。"

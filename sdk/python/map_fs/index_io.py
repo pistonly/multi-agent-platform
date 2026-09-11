@@ -93,7 +93,7 @@ def write_topic_index(
     - 评论文件（``round<N>-*.md``）全部保留（不动）
     - ``created_at`` 不变（即使 ``--force`` 也禁止覆盖）；若调用方同时传
       ``created_at`` 参数且与旧值不同 → 抛 :class:`ValueError`
-      "created_at is immutable, use `map topic amend --created-at`"
+      "created_at is immutable"（当前 CLI 无覆盖入口）
     - ``experiments`` 关联列表按 append 语义合并（不重置）
 
     ``participants`` 为参与人白名单（declared），写入 front-matter；
@@ -126,7 +126,7 @@ def write_topic_index(
         old_created = old_meta.get("created_at")
         if old_created is not None and not _created_at_equal(created_at, old_created):
             raise ValueError(
-                f"created_at is immutable, use `map topic amend --created-at` "
+                f"created_at is immutable "
                 f"(old={old_created}, attempted={created_at})"
             )
         meta["created_at"] = created_at

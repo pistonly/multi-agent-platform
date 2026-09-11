@@ -48,8 +48,8 @@ map --persona host host invoke --persona reviewer --prompt "请评审实验 <uui
 | 我看到 | 我该做 |
 |--------|--------|
 | `pending_topic_replies` 非空 | 读 thread 上下文，逐条回复（[checklist §2](references/host-checklist.md)） |
-| Round 已收敛 + participant 已表态 | 发 Round Summary（`fs comment --topic <slug> --round-summary`）→ 等发言补齐 → `fs advance-round --topic <slug>` |
-| 四门 Rubric 全过 | 收敛时把轻量执行项落 `action-items.yaml`（`topic action-item add`）→ `fs close --topic <slug> --note`（门禁校验执行项清零）→ `experiment create`（[rubric](references/experiment-gate-rubric.md)） |
+| Round 已收敛 + participant 已表态 | 发 Round Summary（`map topic comment --topic <slug> --round-summary`）→ 等发言补齐 → `map topic advance-round --topic <slug>` |
+| 四门 Rubric 全过 | 收敛时把轻量执行项落 `action-items.yaml`（`map topic action-item add`）→ `map topic close --topic <slug> --note`（门禁校验执行项清零）→ `map experiment create`（[rubric](references/experiment-gate-rubric.md)） |
 | 只需等他人发言 | `topic dismiss` 降噪 |
 
 ## 硬性规则

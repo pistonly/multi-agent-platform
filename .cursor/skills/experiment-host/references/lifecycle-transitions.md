@@ -13,7 +13,7 @@
 | `running` | 按 plan 改代码、跑测试、写 log（见下方 execute_experiment）；plan 全部验收通过后 `map experiment complete` 提交结果待审批 |
 | `result_review` | 等 reviewer `accept-result` 或 `reject-result`；若被驳回回到 `running`，继续返工 |
 
-> **观察项（v0.9 M30A+M31）**：`running` 期间如改动涉及 `inbound_events.rejection_count`（v1 fingerprint 拒绝路径），需在实验日志里附监控口径 —— 单 fingerprint `rejection_count` 增长率、累计 top-N fingerprint、是否需要 `map admin notification cleanup-v1` 兜底（待后续实验定义）。
+> **观察项（v0.9 M30A+M31）**：`running` 期间如改动涉及 `inbound_events.rejection_count`（v1 fingerprint 拒绝路径），需在实验日志里附监控口径 —— 单 fingerprint `rejection_count` 增长率、累计 top-N fingerprint、是否需要服务端侧 fingerprint 清理兜底（CLI 尚无对应命令，待后续实验定义）。
 
 收到 `my_open_experiments` 待办 wake 时：
 

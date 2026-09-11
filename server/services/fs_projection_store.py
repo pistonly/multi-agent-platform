@@ -7,7 +7,7 @@ payload 校验降级（``get_fs_projection`` / ``projection_payload_*``）、
 超限防线（``_payload_size_ok`` + ``FsProjectionTooLargeError``）与
 发布者权限（``_ensure_projection_publisher_allowed`` 一族）。
 
-这一簇只被远程 / 容器部署（workspace 不可达）走 ``map fs sync`` 上行时
+这一簇只被远程 / 容器部署（workspace 不可达）走 ``map sync publish`` 上行时
 使用；同机部署的实时解析读路径仍在 ``fs_source_service``。拆出后
 ``fs_source_service`` 通过顶层 re-export 维持
 ``fs_svc.upsert_fs_projection`` 等既有导入路径不变。

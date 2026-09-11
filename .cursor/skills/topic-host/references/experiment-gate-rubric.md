@@ -2,11 +2,11 @@
 
 > 本文档从 [topic-host SKILL.md](../SKILL.md) 提取的深度参考。当讨论接近收敛、准备判断是否开实验时阅读本文件。
 >
-> **v0.13 M58 起话题写路径单轨 FS**：轮次推进用 `fs advance-round --topic <slug>`，participant 表态=本轮发言文件（无独立 ack 命令），结论承载用 `fs close --note`。
+> **v0.13 M58 起话题写路径单轨 FS**：轮次推进用 `map topic advance-round --topic <slug>`，participant 表态=本轮发言文件（无独立 ack 命令），结论承载用 `map topic close --note`。
 
 ## 开实验 Rubric（四门，全部满足）
 
-- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `fs advance-round --topic <slug> --ready` 从任意轮次标记 ready）
+- [ ] 已完成至少一轮讨论并发表 Round Summary（默认建议两轮；host 可用 `map topic advance-round --topic <slug> --ready` 从任意轮次标记 ready）
 - [ ] `pending_topic_replies` 为空（或 `topic show --id <slug>` 自检无未回复议题）
 - [ ] 无未闭合争议（或已标注「带入实验计划」）
 - [ ] 至少 **1 位其他 Agent** 参与发言（FS 判据：本轮存在非 host 的发言文件）
@@ -23,7 +23,7 @@
 - reviewer 未在 Round 2 出现时：**不要 @ 其表态、不要等待**。只要 participant 已对未决项表态且议题已收敛，host 应主动写 **Round 2 Summary** 推进。
 - 唯一需要等的是 **participant 的表态**（本轮发言文件，或 host 判断可豁免后 `--waive-ack`）——不是 reviewer。
 - 若不确定是否完全收敛，在 Round 2 Summary 里把残余项标注「带入实验计划」，仍可推进到 `ready` 再开实验。
-- host 可在**任意轮次**（不限于 Round 2）用 `fs advance-round --topic <slug> --ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
+- host 可在**任意轮次**（不限于 Round 2）用 `map topic advance-round --topic <slug> --ready` 显式标记 `ready`：简单议题 Round 1 收敛即可标记，复杂议题可追加 `round3`+ 后再标记。
 
 ## topic advance-round 后 participant 自动唤醒
 
@@ -64,7 +64,7 @@ map --persona host topic dismiss --id <topic-uuid>
 - 开实验：是 / 否 / 待定（原因）
 ```
 
-发布时用 `fs comment --topic <slug> --round-summary --file ./summary.md` 显式标记（host 专用模式）。
+发布时用 `map topic comment --topic <slug> --round-summary --file ./summary.md` 显式标记（host 专用模式）。
 
 ## Round Summary 后收拢表态并推进轮次
 

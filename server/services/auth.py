@@ -125,7 +125,7 @@ def get_agent_by_token(db: Session, token: str) -> Agent | None:
         logger.warning(
             "legacy token candidates hit limit (%d) without a match; "
             "consider reissuing tokens for legacy agents to shrink the "
-            "bcrypt-only pool (map admin reissue-token)",
+            "bcrypt-only pool (map auth reissue)",
             legacy_candidates,
         )
     return None

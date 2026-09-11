@@ -18,7 +18,7 @@ from server.db.base import Base
 class FsProjection(Base):
     """FS plane 投影缓存（远程/容器部署的读侧回退源）。
 
-    内容主权仍在本地 ``map/`` 文件夹；本表只存 ``map fs push`` 上行的
+    内容主权仍在本地 ``map/`` 文件夹；本表只存 ``map sync publish`` 上行的
     解析快照（FsProjectionPushRequest 的 JSON 形态），每 project 一行、
     幂等覆盖。server 读路径在 workspace 不可达时回退到该快照；commit
     验证型写时顺带把 fields 应用到快照，避免额外一轮 push。

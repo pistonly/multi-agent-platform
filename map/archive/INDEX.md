@@ -1,7 +1,7 @@
 # Archive Index
 
 > Generated projection of `map/archive/topics/` — do not edit by hand.
-> Rebuilt by `map fs archive-index --rebuild` (auto-invoked after `map fs archive`).
+> Rebuilt by `map topic archive-index --rebuild` (auto-invoked after `map topic archive`).
 > v0.14 M61: generative projection, not an incrementally-maintained document.
 
 ## Topics (47)

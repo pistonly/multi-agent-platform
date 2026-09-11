@@ -120,7 +120,14 @@ class TestWriteTopicIndexOverwrite:
                 created_at="2026-01-01T00:00:00+00:00",
             )
         assert "created_at is immutable" in str(exc_info.value)
-        assert "amend --created-at" in str(exc_info.value)
+        # 消息须带定位上下文（旧值 / 尝试值）
+        assert "old=" in str(exc_info.value)
+        assert "attempted=" in str(exc_info.value)
+        # 反向守卫：不得引导不存在的 CLI 入口。`map topic amend` 无此子命令、
+        # `--created-at` 亦未暴露（`cli/commands/topic.py:120` 自述属"未来可能
+        # 暴露"）——修复路径只能是本文件的事实源，不要发明命令。
+        assert "amend" not in str(exc_info.value)
+        assert "created-at" not in str(exc_info.value)
 
     def test_f_created_at_same_value_is_idempotent(self, tmp_path: Path) -> None:
         """(f) overwrite=True + 同值 created_at → 不报错(幂等)。"""
