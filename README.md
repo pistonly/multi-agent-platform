@@ -284,14 +284,15 @@ export CURSOR_MODEL=composer-2.5
 
 详见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
 
-## Docker（API + Web）
+## Docker（API + MCP）
 
-默认 `docker-compose.yml` 暴露 API `:18400`、Web `:3000`、MCP `:8080`；本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把 MCP 宿主端口改为 `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
+默认 `docker-compose.yml` 暴露 API `:18400`、MCP `:8080`；看板由 API **同源**提供
+（打开 `http://localhost:18400/` 即是，不再有独立 nginx 容器）。本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把 MCP 宿主端口改为 `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
 
 ```bash
 docker compose up --build
-# 默认端口: API :18400  Web :3000  MCP :8080/mcp
-# 使用本仓 override 时: API :18400  Web :3000  MCP :18081/mcp
+# 默认端口: API + 看板 :18400  MCP :8080/mcp
+# 使用本仓 override 时: API + 看板 :18400  MCP :18081/mcp
 ```
 
 ### FS 事实源与 Docker / 远程部署

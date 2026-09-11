@@ -22,7 +22,7 @@
 │  · 实验状态机 / 权限 / 审计     │  │  服务端只解析投影，不存正文 │
 │  · 验证型写（advance/close）    │  │  （DB 仅存 file_path 引用）│
 │  · todos / 通知 / waker 源     │  └────────────────────────────┘
-│  SQLite/Postgres + Web :3000   │
+│  SQLite/Postgres + 同源 SPA    │
 └────────────────────────────────┘
 ```
 
@@ -106,8 +106,8 @@ comment 的 FS 分支为纯本地写（本地优先路由，离线可用）；sh
 
 ## 7. 部署拓扑
 
-- **API + 看板**：`http://localhost:18400`（Uvicorn；`map-server` 同源提供 SPA。Docker compose 另有 nginx 看板 `:3000`）
-- **Web（Docker nginx）**：`http://localhost:3000`（与 API 同源看板等价；Vite 开发仍为 `:5173`）
+- **API + 看板**：`http://localhost:18400`（Uvicorn；`server/spa.py` 同源提供 SPA。`Dockerfile.api` 的 web stage 把 `web/dist` 打进镜像的 `server/web_dist`，所以 Docker 与裸机部署是**同一拓扑**，没有独立 web 容器）
+- **Web 开发服务器**：Vite `:5173`（仅前端热更新时需要；`/api` 反代 18400，见 `web/vite.config.ts`）
 - **waker**：`./scripts/start-all-simple-wakers.sh`；状态 `.map/simple-waker-state-*.json`、日志 `.map/waker-logs/`、session 转录 `.map/runtime-waker-sessions/`
 - **PyPI**：`multi-agent-platform`（CLI + SDK）；`multi-agent-platform-server` / `map-server` 内含看板静态资源。Alembic 完整迁移链仍建议 Docker 或 clone 仓库。
 - **FS plane 三态**（见 §4.1）：`map sync check` / `GET /fs/status` 握手。Docker 单机需要 server 看到 workspace 时叠加 `docker-compose.fs.yml`（宿主与容器同绝对路径挂载）；远程部署走 `map sync publish --full` 投影上行 + validate/commit 两段式验证型写。`map bootstrap` 末尾自动探测并在 detached 时给出修复指引。

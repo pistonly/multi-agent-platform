@@ -117,11 +117,10 @@ docker compose up --build
 
 | 服务 | 标准部署（docker-compose.yml） | 本仓库 override（docker-compose.override.yml） |
 |------|------|------|
-| API | http://localhost:18400 | http://localhost:18400 |
-| Web | http://localhost:3000 | http://localhost:3000 |
+| API + 看板 | http://localhost:18400 | http://localhost:18400 |
 | MCP | http://localhost:8080/mcp | http://localhost:18081/mcp（宿主 8080 被占用时的备用映射） |
 
-> 与 [QUICKSTART](./QUICKSTART.md) 服务地址表一致：本仓库 override 把 MCP 映射到 `:18081`，其余示例统一使用 18400/3000。
+> 与 [QUICKSTART](./QUICKSTART.md) 服务地址表一致：本仓库 override 把 MCP 映射到 `:18081`，其余示例统一使用 18400（看板与 API 同源，无独立 Web 端口）。
 
 ### Cursor 配置（HTTP）
 

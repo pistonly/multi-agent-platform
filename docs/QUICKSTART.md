@@ -57,8 +57,7 @@ docker compose up --build -d
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| API | http://localhost:18400 | REST API + 健康检查 `/health` + **看板（同源 SPA）** |
-| Web UI | http://localhost:3000 | Docker nginx 看板（与 API 根路径同一套 UI） |
+| API + 看板 | http://localhost:18400 | REST API + 健康检查 `/health` + **看板（同源 SPA）** |
 | MCP | http://localhost:18081/mcp | 供 IDE Agent 调用的 MCP 端点 |
 
 > **端口说明**：API 默认发布到宿主机 `:18400`（不常用端口，避开
@@ -157,7 +156,7 @@ map skill upgrade --force       # 整目录覆盖（原语义）
 
 ### 用 Web UI
 
-打开 **API 根路径**（默认 `http://localhost:18400/`，Docker nginx 仍为 `http://localhost:3000`），在设置页填入 API Token（任一 persona 的 token），即可看到看板、话题、实验。
+打开 **API 根路径**（默认 `http://localhost:18400/`——看板由 API 同源提供，Docker 与裸机部署同一地址），在设置页填入 API Token（任一 persona 的 token），即可看到看板、话题、实验。
 
 `pip install multi-agent-platform-server` 后的 `map-server` 已内含看板，不必再 `cd web && npm run dev`。源码贡献者若要前端热更新，仍可在 `web/` 下跑 Vite（`:5173`）。发版走 `./scripts/release.sh`（`prepare` 会跑 `sync-web-dist.sh` 把构建产物打进 Python 包；默认不推 remote、不传 PyPI）。
 

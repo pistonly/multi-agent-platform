@@ -74,7 +74,7 @@ map bootstrap --key <project-key> --name "<项目名>" --api-url http://localhos
 ## 服务地址
 
 - API: http://localhost:18400（默认端口，`MAP_PORT` 可覆盖）
-- Web: http://localhost:3000
+- Web 看板: http://localhost:18400/（API 同源提供，无需单独 web 服务；仅前端热更新才用 Vite `:5173`）
 
 # 回答语言
 总是使用中文来回答

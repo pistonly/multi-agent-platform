@@ -127,7 +127,7 @@ fi
 
 # ── Start Docker services ──────────────────────────────────────────────────
 if [[ -z "$SKIP_DOCKER" ]]; then
-  step 3 "Starting Docker services (API :${API_PORT}, Web :3000, MCP)"
+  step 3 "Starting Docker services (API + board :${API_PORT}, MCP)"
 
   log "Running: docker compose up --build -d"
   docker compose up --build -d
@@ -234,8 +234,7 @@ if [[ -f "docker-compose.override.yml" ]] && grep -q "18081" docker-compose.over
   MCP_PORT="18081"
 fi
 echo -e "Services:"
-echo -e "  API+Web: ${CYAN}${API_URL}/${NC}  (board is served from the API origin)"
-echo -e "  Web UI:  ${CYAN}http://localhost:3000${NC}  (Docker nginx; same UI)"
+echo -e "  API+UI:  ${CYAN}${API_URL}/${NC}  (board served from the API origin — same URL for Docker and bare metal)"
 echo -e "  MCP:     ${CYAN}http://localhost:${MCP_PORT}/mcp${NC}"
 echo ""
 
