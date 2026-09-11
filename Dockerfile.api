@@ -4,7 +4,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci
 COPY web/ ./
-# Empty VITE_API_URL → browser calls same-origin /api/v1 (map-server or nginx).
+# Empty VITE_API_URL → browser calls same-origin /api/v1, served by map-server
+# itself via server/spa.py (this stage's dist lands in server/web_dist below).
 ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build

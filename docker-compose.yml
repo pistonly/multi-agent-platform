@@ -5,7 +5,9 @@ services:
       dockerfile: Dockerfile.api
     ports:
       # 宿主侧默认用不常用的 18400（8000/8001 易与其他服务/IDE 端口转发冲突）。
-      # 容器内保持 8000：nginx(web)、mcp 的 MAP_API_URL、healthcheck 均按 8000 引用。
+      # 容器内保持 8000：mcp 的 MAP_API_URL、healthcheck 均按 8000 引用。
+      # 看板由本服务同源提供（server/spa.py 挂载镜像内的 server/web_dist），
+      # 不再有独立的 nginx web 容器——见 docs/ARCHITECTURE.md §7。
       - "18400:8000"
     volumes:
       - ./data:/app/data
@@ -13,7 +15,9 @@ services:
       TZ: Asia/Shanghai
       MAP_PORT: "8000"
       MAP_DATABASE_URL: sqlite:////app/data/map.db
-      MAP_CORS_ORIGINS: http://localhost:3000,http://localhost:5173,http://web
+      # 看板与 API 同源，正常路径不触发 CORS；保留 5173 是给前端开发者
+      # 显式设 VITE_API_URL 直连 API（绕过 Vite /api 代理）的场景。
+      MAP_CORS_ORIGINS: http://localhost:5173
       # Required by alembic 037 + EncryptedString (Webhook.secret). Set in .env.
       MAP_WEBHOOK_SECRET_ENCRYPTION_KEY: ${MAP_WEBHOOK_SECRET_ENCRYPTION_KEY}
       NO_PROXY: api,localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16
@@ -28,17 +32,6 @@ services:
       timeout: 3s
       retries: 8
       start_period: 20s
-
-  web:
-    build:
-      context: ./web
-    ports:
-      - "3000:80"
-    environment:
-      TZ: Asia/Shanghai
-    depends_on:
-      api:
-        condition: service_healthy
 
   mcp:
     build:

@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     # 的 18081 同段）；如需沿用旧端口设 MAP_PORT=8000 即可。
     port: int = 18400
     debug: bool = False
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    # 看板与 API 同源（serve_web=True），默认路径不触发 CORS；5173 留给
+    # 显式设 VITE_API_URL 直连 API 的前端开发者。跨域部署时按需追加。
+    cors_origins: str = "http://localhost:5173"
 
     # Default content_root for *new* projects when the client omits it.
     # Existing projects store content_root on the Project row (P1); scan
@@ -85,8 +87,9 @@ class Settings(BaseSettings):
     ci_test_total: int | None = None
 
     # Serve the bundled React SPA from map-server (same origin as /api).
-    # Disable with MAP_SERVE_WEB=false when another process (Vite / nginx)
-    # already serves the board. MAP_WEB_DIST overrides the packaged
+    # Disable with MAP_SERVE_WEB=false when another process (e.g. Vite dev
+    # server, or your own reverse proxy) already serves the board.
+    # MAP_WEB_DIST overrides the packaged
     # server/web_dist directory.
     serve_web: bool = True
     web_dist: str | None = None
