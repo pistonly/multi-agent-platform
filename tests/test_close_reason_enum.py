@@ -86,6 +86,13 @@ def test_case_3_rejection_paths(tmp_path: Path) -> None:
         validate_close(topic, close_reason="discussion_converged")
     assert set(exc_info.value.missing) == {"experiment_id", "followup_gate"}
 
+    # (3.2b) 报错文案自带格式块（话题 ux-write-path-error-messages 第 1 条）：
+    # 缺字段报错必须给出「独立成行 + 行首 key」格式要求——否则 host 只看到
+    # 字段清单，无从发现写在句中的 key: value 不被解析。
+    assert "独立成行" in str(exc_info.value)
+    assert "experiment_id:" in str(exc_info.value)
+    assert "followup_gate:" in str(exc_info.value)
+
     # (3.3) discussion_converged + close_note 缺 experiment_id
     note_no_exp_id = (
         "已收敛。\n"

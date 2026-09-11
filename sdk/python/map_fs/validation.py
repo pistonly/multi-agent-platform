@@ -129,6 +129,18 @@ CLOSE_NOTE_LEGAL_FIELDS: frozenset[str] = frozenset(
     CLOSE_NOTE_REQUIRED_FIELDS + CLOSE_NOTE_OPTIONAL_FIELDS
 )
 
+# 写路径自助提示（话题 ux-write-path-error-messages 第 1 条）：409 文案必须
+# 自带格式要求——解析是逐行扫描、key 须在 strip 后行首，正文句中出现的
+# 「key: value」不生效。CLI --note help 与 skill 文档（experiment-gate-rubric
+# §话题结论承载）与此保持同一语义。
+CLOSE_NOTE_FORMAT_HINT = (
+    "结构化字段按行解析：每个字段须独立成行且 key 位于行首"
+    "（写在句子中间不生效），格式例：\n"
+    "experiment_id: <uuid|none>\n"
+    "followup_gate: <闭环追踪描述>\n"
+    "drift_ack: <desc|none>  (可选)"
+)
+
 
 def _parse_close_note_fields(close_note: str) -> dict[str, str]:
     """从 close_note 多行文本提取结构化字段（T7 I8 第 5 维校验 helper）。
@@ -185,7 +197,7 @@ class InvalidCloseNoteError(Exception):
             parts.append(
                 f"close_note 缺必填字段 {self.missing}; "
                 f"discussion_converged 关闭需至少含 "
-                f"{list(CLOSE_NOTE_REQUIRED_FIELDS)}"
+                f"{list(CLOSE_NOTE_REQUIRED_FIELDS)}; {CLOSE_NOTE_FORMAT_HINT}"
             )
         if self.empty_fields:
             parts.append(

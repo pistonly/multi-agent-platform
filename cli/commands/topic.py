@@ -24,6 +24,7 @@ from typing import Any
 
 import typer
 from map_client.client import MAPClient
+from map_fs import CLOSE_NOTE_FORMAT_HINT
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.commands.action_item import action_item_app  # noqa: E402
@@ -50,6 +51,7 @@ from cli.topic_routing import (  # noqa: E402
     _scan_local_fs_summaries,
     _should_scan_local_fs,
     _slice_page,
+    comment_immutable_ready_hint,
     db_uuid_write_preflight,
 )
 
@@ -591,7 +593,10 @@ def _write_fs_comment(
             overwrite=force,
         )
     except FileExistsError as err:
-        typer.echo(f"Error: {err}", err=True)
+        hint = comment_immutable_ready_hint(
+            workspace, slug, _content_root_name(workspace)
+        )
+        typer.echo(f"Error: {err}{hint}", err=True)
         raise typer.Exit(1) from err
     except ValueError as err:
         # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）
@@ -623,7 +628,10 @@ def topic_close(
     note: str | None = typer.Option(
         None,
         "--note",
-        help="Longer explanation for why the topic is being closed.",
+        help=(
+            "Longer explanation for why the topic is being closed. With "
+            "--reason discussion_converged: " + CLOSE_NOTE_FORMAT_HINT.replace("\n", " ")
+        ),
     ),
 ) -> None:
 

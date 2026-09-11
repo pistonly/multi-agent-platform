@@ -129,6 +129,22 @@ DB 时代的 `topic resolve` payload 由 `topic close --note` 的 note 字段承
 > close 门禁校验清零（closed = 零尾款）。下面模板的 `action_items:`
 > 段已废弃，仅作历史参照；note 只保留 decision / rationale / rejected_options。
 
+### close_note 结构化字段（`--reason discussion_converged` 必读）
+
+`discussion_converged` 关闭时，close_note 除自由文本外**必须**含以下字段，
+且每个字段**独立成行、key 位于行首**（平台按行扫描解析，写在句子中间的
+`key: value` 不生效，409 报错会自带此格式块）：
+
+```
+experiment_id: <uuid|none>
+followup_gate: <闭环追踪描述>
+drift_ack: <desc|none>  (可选)
+```
+
+- `experiment_id`：关联实验的 id；无实验写 `none`；
+- `followup_gate`：闭环追踪描述（显式空字符串会被拒绝）；
+- `drift_ack`：可选漂移表态。
+
 ```yaml
 decision: "采用方案 A：Skill 驱动 + simple-waker 唤醒"
 rationale: "讨论已收敛（默认两轮）；bridge 路径已停用"

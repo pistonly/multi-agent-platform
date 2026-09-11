@@ -527,3 +527,27 @@ def _render_validate_error(exc: MAPHTTPError) -> None:
                 "  修复 action-items.yaml 后再 close（命令见 `map topic action-item --help`）",
                 err=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# 写路径自助提示（话题 ux-write-path-error-messages 第 3 条）
+# ---------------------------------------------------------------------------
+
+
+def comment_immutable_ready_hint(workspace: Path, slug: str, content_root: str) -> str:
+    """ready 态追加发言被 immutable 拦截时的轮次回退引导；非 ready 返回空串。
+
+    ready 下目标轮次静默回退为 max_round（map_fs topic_parser），重写同名
+    round 文件必然命中 immutable 拦截——报错须点名 ready 状态与正确动作
+    （advance-round），否则字面提示「文件不可变」与真实失败原因（轮次回退）脱节。
+    """
+    from map_fs import parse_topic_dir
+
+    topic = parse_topic_dir(workspace / content_root / "topics" / slug, workspace)
+    if topic is None or topic.round != "ready":
+        return ""
+    return (
+        f"\n话题当前处于 ready（目标轮次回退为 round{topic.round_number}）："
+        "如需追加发言请先 `map topic advance-round` 进入下一轮；"
+        "若确要替换已发布内容，走回退约定（先删文件再重写）。"
+    )

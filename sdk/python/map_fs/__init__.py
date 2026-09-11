@@ -75,6 +75,7 @@ from map_fs.topic_parser import (
     scan_plane,
 )
 from map_fs.validation import (
+    CLOSE_NOTE_FORMAT_HINT,
     CLOSE_NOTE_LEGAL_FIELDS,
     CLOSE_NOTE_OPTIONAL_FIELDS,
     CLOSE_NOTE_REQUIRED_FIELDS,
@@ -94,6 +95,7 @@ __all__ = [
     "AckPendingError",
     "ArchiveEntry",
     "ArchiveStateError",
+    "CLOSE_NOTE_FORMAT_HINT",
     "CLOSE_NOTE_LEGAL_FIELDS",
     "CLOSE_NOTE_OPTIONAL_FIELDS",
     "CLOSE_NOTE_REQUIRED_FIELDS",

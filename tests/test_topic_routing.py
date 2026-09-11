@@ -254,6 +254,36 @@ class TestCommentFsRouting:
         assert second.exit_code == 1
         assert "--force" in second.output or "already exists" in second.output
 
+    def test_comment_immutable_in_ready_state_names_advance_round(
+        self, workspace: Path
+    ) -> None:
+        """ready 态追加发言：immutable 报错必须点名 ready + advance-round 引导。
+
+        话题 ux-write-path-error-messages 第 3 条：ready 下目标轮次静默回退
+        为 max_round，重写 round1 文件命中 immutable 拦截——字面只说「文件
+        不可变」，真实原因是轮次回退，报错需自带正确动作。
+        """
+        write_topic_index(workspace, "rdy", title="FS rdy", creator="host", round_="ready")
+        first = runner.invoke(topic_app, ["comment", "--id", "rdy", "--body", "r1 发言"])
+        assert first.exit_code == 0, first.output  # 轮次回退 → 落 round1
+        second = runner.invoke(topic_app, ["comment", "--id", "rdy", "--body", "勘误"])
+        assert second.exit_code == 1
+        assert "already exists" in second.output
+        assert "ready" in second.output
+        assert "advance-round" in second.output
+
+    def test_comment_immutable_non_ready_keeps_original_message(
+        self, workspace: Path
+    ) -> None:
+        """非 ready 态的 immutable 报错保持原样（不误报 ready 引导）。"""
+        _make_fs_topic(workspace, "im2")
+        first = runner.invoke(topic_app, ["comment", "--id", "im2", "--body", "first"])
+        assert first.exit_code == 0
+        second = runner.invoke(topic_app, ["comment", "--id", "im2", "--body", "second"])
+        assert second.exit_code == 1
+        assert "already exists" in second.output
+        assert "advance-round" not in second.output
+
     def test_comment_db_uuid_without_map_exits_2_with_retirement_guidance(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
