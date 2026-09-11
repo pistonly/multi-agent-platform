@@ -802,7 +802,7 @@ def test_apply_project_claude_env_overrides_and_unsets(tmp_path, monkeypatch):
     env_dir = tmp_path / ".map"
     env_dir.mkdir()
     (env_dir / ".claude-env").write_text(
-        "export ANTHROPIC_BASE_URL=http://192.168.20.32:8001\n"
+        "export ANTHROPIC_BASE_URL=http://llm-gateway.example:8001\n"
         "export ANTHROPIC_AUTH_TOKEN=empty\n"
         "export ANTHROPIC_MODEL=claude-sonnet-4-6\n"
     )
@@ -813,8 +813,8 @@ def test_apply_project_claude_env_overrides_and_unsets(tmp_path, monkeypatch):
     monkeypatch.setenv("ZAI_API_LEFTOVER", "secret")
 
     applied = apply_project_claude_env(tmp_path)
-    assert applied["ANTHROPIC_BASE_URL"] == "http://192.168.20.32:8001"
-    assert os.environ["ANTHROPIC_BASE_URL"] == "http://192.168.20.32:8001"
+    assert applied["ANTHROPIC_BASE_URL"] == "http://llm-gateway.example:8001"
+    assert os.environ["ANTHROPIC_BASE_URL"] == "http://llm-gateway.example:8001"
     assert os.environ["ANTHROPIC_MODEL"] == "claude-sonnet-4-6"
     assert os.environ["ANTHROPIC_AUTH_TOKEN"] == "empty"
     assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in os.environ

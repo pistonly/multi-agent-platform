@@ -253,7 +253,7 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 
 ```bash
 # .map/.claude-env —— LLM 键以本文件为权威（见下）
-export ANTHROPIC_BASE_URL=http://192.168.20.32:8001
+export ANTHROPIC_BASE_URL=http://llm-gateway.example:8001
 export ANTHROPIC_AUTH_TOKEN=empty
 export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```

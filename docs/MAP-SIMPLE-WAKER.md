@@ -139,7 +139,7 @@ fall back to the `export VAR=...` lines in **`.map/.claude-env`** (the whole
 
 ```bash
 # .map/.claude-env — LLM keys are authoritative from this file (see below)
-export ANTHROPIC_BASE_URL=http://192.168.20.32:8001
+export ANTHROPIC_BASE_URL=http://llm-gateway.example:8001
 export ANTHROPIC_AUTH_TOKEN=empty
 export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
