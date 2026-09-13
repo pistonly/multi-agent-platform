@@ -76,7 +76,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        # T46：加 3.13（uv.lock 的 resolution-markers 已覆盖 3.13/3.14，
+        # --frozen 可直接用）。注意 3.10 于 2026-10 EOL，退役时同步改这里、
+        # pyproject 的 classifiers 与 requires-python。
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +115,12 @@ jobs:
         # T34（2026-09-01）：-n auto 并行（本地实测 213s → 47s）+ --cov 展示
         # PR 侧覆盖率；不 fail_under——unit subset 覆盖率不代表整体，强制
         # 阈值会持续误报。全量覆盖率门禁在 nightly（--cov-report=xml → Codecov）。
-        run: pytest -n auto --cov --cov-report=term
+        # --cov-branch 必须与 --cov 成对出现：pyproject 的 [tool.coverage.run]
+        # branch=true 只对主进程生效，pytest-cov 仅在显式传 --cov-branch 时才把
+        # COV_CORE_BRANCH=enabled 导出给子进程（pytest-cov.pth 激活的那些）；
+        # 缺了它，子进程写 statement-only 数据，收尾 combine() 抛
+        # "Can't combine statement coverage data with branch data"（INTERNALERROR）。
+        run: pytest -n auto --cov --cov-branch --cov-report=term
 
   frontend:
     runs-on: ubuntu-latest

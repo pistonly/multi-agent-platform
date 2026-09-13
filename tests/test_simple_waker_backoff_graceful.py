@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import signal
 import sys
 from pathlib import Path
@@ -42,7 +43,11 @@ def _make_waker(
     kwargs = {
         "persona": "host",
         "idle_interval": 300.0,
-        "state_file": Path(".map/t39-state.json"),
+        # T46：state_file 必须「每个 worker 进程唯一」。原先是固定相对路径
+        # ``.map/t39-state.json``，xdist 把同一文件的用例分到不同 worker 并行
+        # 跑时，两个进程会同时 atomic-write（tmp + rename）同一路径 →
+        # rename 源被对方先移走，抛 ENOENT 随机红。加 pid 后缀即消除争用。
+        "state_file": Path(f".map/t39-state-{os.getpid()}.json"),
     }
     if config_kwargs:
         kwargs.update(config_kwargs)
