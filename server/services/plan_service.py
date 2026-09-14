@@ -1,5 +1,7 @@
+import hashlib
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from map_types.enums import ReviewArchivedReason
 from sqlalchemy import select
@@ -10,6 +12,7 @@ from server.domain.models import (
     AgentRole,
     ExperimentPhase,
     PlanVersion,
+    Project,
     Review,
     ReviewItem,
     ReviewItemKind,
@@ -69,6 +72,33 @@ def _count_unclosed_unreasonable_items(db: Session, experiment_id: uuid.UUID) ->
     return len(list(db.scalars(stmt)))
 
 
+def _fs_plan_matches_payload(db: Session, experiment, payload_content: str) -> bool | None:
+    """A1-4（flag on 去重判据）：请求正文是否与 FS ``plan.md`` 字节一致。
+
+    B 点修正（话题 plan-db-content-retirement Round 1）：flag on 后 DB
+    ``content_md`` 可能是 stub，全文等值比对恒 False——重复 revise 会误
+    bump 版本并触发评审归档 cascade。判据改为对 FS ``plan.md``（CLI 双写
+    A1-1 已保证与 DB 接受的正文同步）做字节比较。
+
+    返回 ``None`` = 无法判定（workspace 不可达 / 无 plan_file_path /
+    plan.md 缺失，跨机部署合法场景），caller 回退旧等值判据——保守：
+    宁可多 bump，不可吞掉真实修订。
+    """
+    project = db.get(Project, experiment.project_id)
+    if project is None or not getattr(experiment, "plan_file_path", None):
+        return None
+    plan_path = Path(project.workspace_path) / experiment.plan_file_path
+    if not plan_path.is_file():
+        return None
+    try:
+        fs_bytes = plan_path.read_bytes()
+    except OSError:
+        return None
+    return hashlib.sha256(fs_bytes).hexdigest() == hashlib.sha256(
+        payload_content.encode("utf-8")
+    ).hexdigest()
+
+
 def _archive_prior_version_reviews(
     db: Session,
     *,
@@ -120,9 +150,11 @@ def revise_plan(
     # a764abf6 I1.(a): enforce plan frontmatter lint at revise time so
     # missing required fields raise STATE_MACHINE_PLAN_MARKER_MISSING
     # before any version bump / archive cascade runs.
+    from server.services.feature_flag_service import is_plan_db_content_retired_on
     from server.services.plan_marker_service import assert_plan_frontmatter_ok
 
     assert_plan_frontmatter_ok(payload.content_md)
+    plan_db_retired = is_plan_db_content_retired_on(db, experiment.project_id)
 
     if not payload.addressed_item_ids and experiment.current_plan_version > 0:
         current_plan = db.scalar(
@@ -131,12 +163,20 @@ def revise_plan(
                 PlanVersion.version == experiment.current_plan_version,
             )
         )
-        if (
-            current_plan is not None
-            and current_plan.content_md == payload.content_md
-            and _count_unclosed_unreasonable_items(db, experiment.id) == 0
-        ):
-            return current_plan
+        if current_plan is not None:
+            content_same = current_plan.content_md == payload.content_md
+            # A1-4（B 点修正，话题 Round 1 定案）：flag on 后 DB content_md
+            # 可能是 stub，上面的全文等值恒 False——对同一 FS plan.md 的重复
+            # revise 会误 bump 版本并误归档上一版评审。判据换成对 FS
+            # plan.md（A1-1 CLI 双写保证其与 DB 接受的正文同步）做内容哈希
+            # 比较；无法判定（跨机 / plan.md 缺失）回退旧等值，保守不误吞
+            # 真实修订。flag off：等值判据逐字节不变（回归锚点）。
+            if not content_same and plan_db_retired:
+                fs_match = _fs_plan_matches_payload(db, experiment, payload.content_md)
+                if fs_match is not None:
+                    content_same = fs_match
+            if content_same and _count_unclosed_unreasonable_items(db, experiment.id) == 0:
+                return current_plan
 
     new_version = experiment.current_plan_version + 1
     plan = PlanVersion(
