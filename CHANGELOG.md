@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`map-project-collab` 的「工作方式协商」上移到「意图路由」之前**。原顺序下 Agent 按意图路由表
+  走到 persona Skill 就离开了，读不到「先与用户确认协作拓扑 A/B/C/D」这道关卡（按错误假设行动
+  会空转烧 token 或死等）。同时在入口分工表与意图路由表补了指向该节的钩子行，并补上原先只有
+  方式 A 有条目、B/C/D 为空的路由项（方式 C → `map host invoke`；方式 D → 回报即结束，不轮询
+  `map work`）。方式 B 由「三开对话框」改为「多开对话框」（常见 2–3 个，几个不限）。
+  **Skill frontmatter description 未改动**——它每次都随 skill 列表进 prompt，属于常驻成本。
+
 ### Removed
 
 - **MCP 支持整体移除**：`map-mcp` console entry、`sdk/python/map_mcp/` 模块、`[mcp]` extra、
@@ -32,6 +41,15 @@
 - `alembic.ini` 补 `path_separator = os`，消除 alembic 的 DeprecationWarning。
 - 发布面元数据：Homepage/Documentation/Repository/Issues 由已 404 的 `quantaeye/...`
   改为 `pistonly/...`；classifiers 与 CI 测试矩阵加入 Python 3.13。
+- Skill 清单守卫硬化：`tests/test_skill_install.py` 两处 `>= 5` 改为与真实捆绑集合精确比对，
+  并新增 `TestSkillInventoryDocumentation`——校验分发给用户的 `MAP_AGENT_PROMPT.md` 里
+  每个 Skill 名都出现、且「安装 N 个 Skill」的 N 等于实际数（已做漂移注入自检确认会红）。
+
+### Fixed
+
+- **`MAP_AGENT_PROMPT.md` 补回漏列的第 6 个 Skill `experiment-executor`**，并把「安装 5 个」改为
+  「安装 6 个」。该文件是分发给外部用户 Agent 的产品面，漏掉 executor 意味着 host 用
+  `--executor participant` 委派执行时，被委派方不知道有对应 Skill 可读。
 
 ## [0.16.3] - 2026-09-11
 
