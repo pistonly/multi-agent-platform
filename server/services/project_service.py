@@ -346,6 +346,25 @@ def create_experiment(
     from server.services.plan_marker_service import assert_plan_frontmatter_ok
 
     if payload.plan.content_md is not None:
+        # 实验 plan-db-content-retirement A1-3：plan_db_content_retired=on
+        # 时拒绝内联全文写入（判据 = 请求体携带 content_md），给自助化
+        # 引导文案。slim 分支（content_md is None，走 --plan-file-path）
+        # 不进此分支、原样放行——其写 stub 的现状保留。OFF（默认）行为
+        # 与现状逐字节一致。
+        from server.services.feature_flag_service import is_plan_db_content_retired_on
+
+        if is_plan_db_content_retired_on(db, project_id):
+            raise ConflictError(
+                "plan_db_content_retired=on：实验计划正文已退役 DB 全文写入。"
+                "改法（任选其一）：\n"
+                "  1) 新建改用 slim 形态：map experiment create "
+                "--plan-file-path map/experiments/<slug>/plan.md"
+                "（DB 只存引用 + stub，正文以 FS plan.md 为事实源）\n"
+                "  2) 已用内联 --plan-file 创建的存量实验：先跑 "
+                "map experiment plan materialize --id <exp-id> 把 DB 正文"
+                "物化为 FS plan.md，再切 slim 引用",
+                error="plan_db_content_retired",
+            )
         assert_plan_frontmatter_ok(payload.plan.content_md)
     if payload.topic_id is not None:
         topic = db.get(Topic, payload.topic_id)
