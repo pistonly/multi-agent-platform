@@ -196,6 +196,7 @@ def _run_lifecycle(
     complete: ExperimentComplete | None = None,
     decision: ExperimentResultDecision | None = None,
     start_fn=None,
+    plan_content: str | None = None,
 ) -> None:
     """API 门禁通过后回写 index.md（A2）。index 存在时先 preflight 拦手改 phase。
 
@@ -307,6 +308,13 @@ def _run_lifecycle(
         except ExperimentIndexError as exc:
             typer.echo(f"Error: FS write-back rejected: {exc}", err=True)
             raise typer.Exit(1) from exc
+        # A1-1（阶段 0 双写）：revise 恒发全文 content_md，DB 版本 bump 已
+        # 成功回写 index.md，这里把新正文镜像到 FS plan.md（幂等 / 分歧跳
+        # 过，不阻断）。仅 revise 传 plan_content；其余生命周期动作为 None。
+        if plan_content is not None:
+            from cli.experiment_fs import mirror_plan_to_fs
+
+            mirror_plan_to_fs(snapshot, content=plan_content)
         if hasattr(result, "phase"):
             return overlay_fs_authority(result)
         return result
@@ -441,7 +449,12 @@ def experiment_create(
     def action(c: MAPClient):
         pid = runner._resolve_project(c, project, project_key)
         created = c.create_experiment(pid, payload)
-        from cli.experiment_fs import overlay_fs_authority, topic_ref_for_create, write_index_after_create
+        from cli.experiment_fs import (
+            mirror_plan_to_fs,
+            overlay_fs_authority,
+            topic_ref_for_create,
+            write_index_after_create,
+        )
 
         me = c.get_me()
         write_index_after_create(
@@ -450,6 +463,11 @@ def experiment_create(
             creator_persona=resolve_writer_persona(me),
             topic_ref=topic_ref_for_create(topic_id),
         )
+        # A1-1（阶段 0 双写）：内联 --plan-file 创建照旧写 DB 全文，同时
+        # 镜像 FS plan.md，保证 flag plan_db_content_retired 开启前所有实验
+        # 已具备 FS 制品。slim --plan-file-path 形态本就指向 FS，无需镜像。
+        if plan_file is not None:
+            mirror_plan_to_fs(created, content=content)
         return overlay_fs_authority(created)
 
     runner._run(action)

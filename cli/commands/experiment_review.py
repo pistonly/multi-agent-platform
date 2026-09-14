@@ -78,6 +78,7 @@ def plan_revise(
     _run_lifecycle(
         experiment_id,
         call=lambda c, rid, _before: c.revise_plan(rid, payload),
+        plan_content=payload.content_md,
     )
 
 
