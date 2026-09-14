@@ -57,16 +57,22 @@ if TYPE_CHECKING:
 # Flag key 常量（代码引用单源，避免拼写漂移）
 FLAG_FS_STOP_DUPLICATE_INSERT = "fs_stop_duplicate_insert"
 FLAG_TOPIC_DB_READ_RETIRED = "topic_db_read_retired"
+FLAG_PLAN_DB_CONTENT_RETIRED = "plan_db_content_retired"
 
 # 合法 value 集合。``on`` / ``off`` 是当前仅有的两个；未来加 ``phase1``
 # / ``phase2`` 等灰度值时只改这里。
 _FS_STOP_DUPLICATE_INSERT_VALUES: frozenset[str] = frozenset({"on", "off"})
 _TOPIC_DB_READ_RETIRED_VALUES: frozenset[str] = frozenset({"on", "off"})
+_PLAN_DB_CONTENT_RETIRED_VALUES: frozenset[str] = frozenset({"on", "off"})
 
 # ON flip 强制非空 reason 的 flag 集合（单向门决策必须留审计锚点；
 # OFF flip 一律允许空 reason —— fast rollback 不该被空文本阻塞）。
 _ON_FLIP_REQUIRES_REASON: frozenset[str] = frozenset(
-    {FLAG_FS_STOP_DUPLICATE_INSERT, FLAG_TOPIC_DB_READ_RETIRED}
+    {
+        FLAG_FS_STOP_DUPLICATE_INSERT,
+        FLAG_TOPIC_DB_READ_RETIRED,
+        FLAG_PLAN_DB_CONTENT_RETIRED,
+    }
 )
 
 
@@ -102,6 +108,21 @@ REGISTERED_FLAGS: dict[str, FlagSpec] = {
             " map topic migrate 收尾）。OFF（默认）：读路径与 v0.13 M58"
             " 行为逐字节一致（DB fallback 保留）。触发人：host persona "
             "或 admin；ON flip 强制非空 reason。"
+        ),
+    ),
+    FLAG_PLAN_DB_CONTENT_RETIRED: FlagSpec(
+        key=FLAG_PLAN_DB_CONTENT_RETIRED,
+        allowed_values=_PLAN_DB_CONTENT_RETIRED_VALUES,
+        description=(
+            "实验 plan-db-content-retirement A1-2：plan 文档全文 DB 写入"
+            "退役总开关（对齐话题域 topic_db_read_retired 模式）。ON："
+            "create/revise 写入口对携带全文 content_md 的请求拒绝"
+            "（409/410 + 自助化文案指向 --plan-file-path / materialize），"
+            "slim --plan-file-path 分支放行；revise 去重改用 FS plan.md "
+            "内容哈希判据。OFF（默认）：写路径与现状逐字节一致（全文照旧"
+            "落库）。翻 ON 前置：A1-1 CLI 双写已合入，全部实验已具备 FS "
+            "plan.md 制品。触发人：host creator 或 admin；ON flip 强制"
+            "非空 reason。"
         ),
     ),
 }
@@ -295,4 +316,16 @@ def is_topic_db_read_retired_on(db: Session, project_id: uuid.UUID) -> bool:
     的 list / get / comments / PATCH-archived 四个读归档面。
     """
     flag = get_flag(db, project_id, FLAG_TOPIC_DB_READ_RETIRED)
+    return flag is not None and flag.flag_value == "on"
+
+
+def is_plan_db_content_retired_on(db: Session, project_id: uuid.UUID) -> bool:
+    """快捷读：``plan_db_content_retired`` 是否为 ``on``。
+
+    None / off / 任何其他值都视为 False（保守默认：plan 全文照旧落库，
+    写路径与现状逐字节一致）。gate 点在 ``plan_service.revise_plan`` 与
+    ``project_service`` experiment create 两个写入口（A1-3 接线）以及
+    revise 去重判据切换（A1-4）。
+    """
+    flag = get_flag(db, project_id, FLAG_PLAN_DB_CONTENT_RETIRED)
     return flag is not None and flag.flag_value == "on"

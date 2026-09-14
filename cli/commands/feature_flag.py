@@ -57,7 +57,8 @@ def feature_flag_get(
         "--key",
         help=(
             "Flag key. Registered: 'fs_stop_duplicate_insert' (实验 M2 A4), "
-            "'topic_db_read_retired' (实验 0f271f7e A5)."
+            "'topic_db_read_retired' (实验 0f271f7e A5), "
+            "'plan_db_content_retired' (plan 全文 DB 写入退役)."
         ),
     ),
     project: uuid.UUID | None = typer.Option(None, "--project"),

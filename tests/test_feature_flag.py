@@ -385,8 +385,10 @@ def test_registry_keys_match_sdk_constants():
     assert set(svc.REGISTERED_FLAGS) == {
         schemas.FLAG_FS_STOP_DUPLICATE_INSERT,
         schemas.FLAG_TOPIC_DB_READ_RETIRED,
+        schemas.FLAG_PLAN_DB_CONTENT_RETIRED,
     }
     assert svc.FLAG_TOPIC_DB_READ_RETIRED == schemas.FLAG_TOPIC_DB_READ_RETIRED
+    assert svc.FLAG_PLAN_DB_CONTENT_RETIRED == schemas.FLAG_PLAN_DB_CONTENT_RETIRED
 
 
 def test_topic_db_read_retired_on_flip_requires_reason(db_session):
@@ -461,3 +463,90 @@ def test_is_topic_db_read_retired_on_conservative_default(db_session):
     )
     db_session.flush()
     assert svc.is_topic_db_read_retired_on(db_session, project.id) is True
+
+
+# ---------------------------------------------------------------------------
+# A1-2（实验 plan-db-content-retirement）：plan_db_content_retired 注册
+# ---------------------------------------------------------------------------
+
+
+def test_plan_db_content_retired_registered_with_on_off_values(db_session):
+    """A1-2：flag 已注册（仿 fs_stop_duplicate_insert），合法 value 仅 on/off。"""
+    spec = svc.REGISTERED_FLAGS[svc.FLAG_PLAN_DB_CONTENT_RETIRED]
+    assert spec.key == svc.FLAG_PLAN_DB_CONTENT_RETIRED == "plan_db_content_retired"
+    assert spec.allowed_values == {"on", "off"}
+    assert spec.description  # registry 语义说明非空
+
+    project = _make_project(db_session)
+    host = _make_agent(db_session, project_id=project.id, name=f"{project.project_key}-host")
+    with pytest.raises(svc.InvalidFlagValueError) as ei:
+        svc.set_flag(
+            db_session,
+            project_id=project.id,
+            flag_key=svc.FLAG_PLAN_DB_CONTENT_RETIRED,
+            flag_value="true",
+            actor=host,
+            reason="r",
+            commit=False,
+        )
+    assert set(ei.value.allowed) == {"on", "off"}
+
+
+def test_plan_db_content_retired_on_flip_requires_reason(db_session):
+    """A1-2：ON flip 强制非空 reason（单向门）；OFF flip 允许空 reason。"""
+    project = _make_project(db_session)
+    host = _make_agent(db_session, project_id=project.id, name=f"{project.project_key}-host")
+
+    for bad in (None, "", "   "):
+        with pytest.raises(ValueError, match="non-empty reason"):
+            svc.set_flag(
+                db_session,
+                project_id=project.id,
+                flag_key=svc.FLAG_PLAN_DB_CONTENT_RETIRED,
+                flag_value="on",
+                actor=host,
+                reason=bad,
+                commit=False,
+            )
+
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_PLAN_DB_CONTENT_RETIRED,
+        flag_value="off",
+        actor=host,
+        reason=None,
+        commit=False,
+    )
+    db_session.flush()
+
+
+def test_is_plan_db_content_retired_on_reads_flag(db_session):
+    """A1-2：快捷读——未设置默认 False；on → True；off → False（kill switch 语义）。"""
+    project = _make_project(db_session)
+    assert svc.is_plan_db_content_retired_on(db_session, project.id) is False
+
+    host = _make_agent(db_session, project_id=project.id, name=f"{project.project_key}-host")
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_PLAN_DB_CONTENT_RETIRED,
+        flag_value="on",
+        actor=host,
+        reason="A1-1 double-write merged; plan.md artifacts exist",
+        commit=False,
+    )
+    db_session.flush()
+    assert svc.is_plan_db_content_retired_on(db_session, project.id) is True
+
+    svc.set_flag(
+        db_session,
+        project_id=project.id,
+        flag_key=svc.FLAG_PLAN_DB_CONTENT_RETIRED,
+        flag_value="off",
+        actor=host,
+        reason="kill switch",
+        commit=False,
+    )
+    db_session.flush()
+    assert svc.is_plan_db_content_retired_on(db_session, project.id) is False
