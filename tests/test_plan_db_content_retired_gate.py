@@ -132,13 +132,20 @@ def test_flag_on_slim_create_still_ok(
     assert resp.status_code == 201, resp.text
     created = resp.json()
     assert created["plan_file_path"] == "map/experiments/a1-3-slim/plan.md"
-    # 现状保留：content_md NOT NULL → 自描述 stub（slim create 契约）。
+    # 写现状保留：slim create 成功 + 记录 plan_file_path（DB content_md 存
+    # 自描述 stub，slim create 契约不变）。
+    #
+    # 读契约已随 A3-1 改变（本测试原断言「detail 返回 DB stub 全文」已被
+    # 取代）：flag ON 时 FS plan.md 是事实源，此 slim create 实验的 plan.md
+    # 尚未物化 → 读 current_plan 走统一 resolve → fail-closed 409 指向
+    # materialize。这正是 A3-1 验收「plan.md 缺失时报错并指向 materialize」
+    # 的读路径体现；修复通道 = map experiment plan materialize。
     detail = client.get(
         f"/api/v1/experiments/{created['id']}", headers=host_headers
-    ).json()
-    content = detail["current_plan"]["content_md"]
-    assert content.startswith("<!-- slim create")
-    assert "map/experiments/a1-3-slim/plan.md" in content
+    )
+    assert detail.status_code == 409, detail.text
+    body = detail.text
+    assert "plan materialize" in body
 
 
 # ---------------------------------------------------------------------------

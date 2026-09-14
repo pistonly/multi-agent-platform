@@ -24,7 +24,6 @@ from server.domain.schemas import (
     ExperimentLogRead,
     ExperimentSummaryRead,
     ExperimentUpdate,
-    PlanVersionRead,
     ProjectCreate,
     ProjectRead,
     ProjectStatusRead,
@@ -555,9 +554,19 @@ def get_experiment_detail(
         )
         plan = db.scalar(plan_stmt)
         if plan:
-            current_plan = PlanVersionRead.model_validate(plan)
+            # A3-1（实验 plan-db-content-retirement）：current_plan 正文经
+            # 统一 resolve（flag off 恒等；flag on 当前版从 FS plan.md 读，
+            # 缺失 fail-closed 409 指向 materialize）。acceptance_status 用
+            # resolve 后的正文解析——flag on 时 DB content_md 可能是 stub，
+            # 直接 parse 会得空验收清单。
+            from server.services.plan_service import (
+                _resolved_read,
+                resolve_plan_content,
+            )
+
+            current_plan = _resolved_read(db, experiment, plan)
             acceptance_status = parse_acceptance_status(
-                plan.content_md,
+                resolve_plan_content(db, experiment, plan),
                 completion_metadata=latest.metadata_json if latest else None,
             )
 
@@ -635,7 +644,8 @@ def get_experiment_bundle(
     from server.services import comment_service, log_service, plan_service, review_service
 
     experiment = get_experiment_detail(db, experiment_id, actor)
-    plans = [PlanVersionRead.model_validate(p) for p in plan_service.list_plans(db, experiment_id)]
+    # A3-1：bundle 的 plan 列表同样走统一 resolve（flag off 恒等）。
+    plans = plan_service.list_plans_resolved(db, experiment_id)
     # perf experiment (193a5074) PR4 Layer 3: hoist the verdict-reasons
     # lookup out of the ``review_to_read`` loop. The previous code issued
     # one ``SELECT … FROM experiment_logs`` per review — every query hit

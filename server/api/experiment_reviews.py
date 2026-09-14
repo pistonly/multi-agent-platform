@@ -48,8 +48,9 @@ def list_plans(
     agent: Agent = Depends(get_current_agent),
 ) -> list[PlanVersionRead]:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    plans = plan_service.list_plans(db, experiment_id, limit=limit)
-    return [PlanVersionRead.model_validate(p) for p in plans]
+    # A3-1（实验 plan-db-content-retirement）：content_md 经统一 resolve
+    # （flag off 恒等；flag on 时 stub/当前版从 FS plan.md 解引用，缺失 409）。
+    return plan_service.list_plans_resolved(db, experiment_id, limit=limit)
 
 
 @reviews_router.get("/experiments/{experiment_id}/plans/{version}", response_model=PlanVersionRead)
@@ -60,8 +61,8 @@ def get_plan_version(
     agent: Agent = Depends(get_current_agent),
 ) -> PlanVersionRead:
     perm.ensure_experiment_access(db, agent, experiment_id)
-    plan = plan_service.get_plan_version(db, experiment_id, version)
-    return PlanVersionRead.model_validate(plan)
+    # A3-1：单版读取同样走统一 resolve（flag off 恒等）。
+    return plan_service.get_plan_version_resolved(db, experiment_id, version)
 
 
 @reviews_router.post(

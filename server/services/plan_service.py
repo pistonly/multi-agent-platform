@@ -23,6 +23,99 @@ from server.domain.state_machine import ReviewItemTransitionContext, validate_re
 from server.services.errors import ForbiddenError, NotFoundError, StateTransitionError
 from server.services.project_service import get_experiment
 
+_STUB_PREFIXES = ("See file: ", "<!-- slim create:")
+
+
+def resolve_plan_content(db: Session, experiment, plan: PlanVersion) -> str:
+    """A3-1（实验 plan-db-content-retirement）：plan 正文读取的唯一收口。
+
+    **flag ``plan_db_content_retired`` OFF（默认）→ 恒等返回
+    ``plan.content_md``**，与现状逐字节一致（验收 A1 读路径锚点）。
+
+    flag ON → FS ``plan.md`` 是事实源：
+
+    - **当前版**（``plan.version == experiment.current_plan_version``）：
+      一律从 FS 读——DB 里无论存全文（存量未 stub 化）还是 stub，FS 都
+      是权威；``plan.md`` 缺失则 **fail-closed** 抛 ``ConflictError``
+      （409 + 自助化文案指向 ``map experiment plan materialize``，仿 A1-3
+      写门禁先例与 topic_db_read_retired 410 语义）。
+    - **stub**（``See file:`` / ``<!-- slim create:`` 开头，任意版本）：
+      DB 只有指针，必须从 FS 解引用；文件缺失同样 fail-closed。
+    - **历史版全文**：A2-2 stub 化只作用于当前版，历史版本 DB 仍是唯一
+      副本（FS plan.md 只镜像当前版），原样返回。
+
+    所有 plan 正文消费方（API 读端点 / bundle / acceptance 解析 /
+    evidence 校验）必须经本函数取正文，不得直接摸 ``content_md``。
+    """
+    from server.services.errors import ConflictError
+    from server.services.feature_flag_service import is_plan_db_content_retired_on
+
+    if not is_plan_db_content_retired_on(db, experiment.project_id):
+        return plan.content_md
+
+    is_stub = plan.content_md.startswith(_STUB_PREFIXES)
+    is_current = plan.version == (experiment.current_plan_version or 0)
+    if not is_stub and not is_current:
+        return plan.content_md  # 历史版全文：FS 无对应物，DB 仍是唯一副本
+
+    guidance = (
+        "plan_db_content_retired=on：FS plan.md 是计划正文事实源，"
+        f"但该实验的 plan.md 不可读（experiment id={experiment.id} "
+        f"version={plan.version}）。修复：由 creator 跑 "
+        "map experiment plan materialize --id <exp-id> 把 DB 正文物化为 "
+        "map/experiments/<slug>/plan.md；跨机部署需先同步 map/ 目录。"
+    )
+    plan_file_path = getattr(experiment, "plan_file_path", None)
+    if not plan_file_path:
+        raise ConflictError(
+            f"{guidance}\n（当前实验无 plan_file_path——从未物化过。）",
+            error="plan_md_missing",
+        )
+    project = db.get(Project, experiment.project_id)
+    if project is None or not project.workspace_path:
+        raise ConflictError(
+            f"{guidance}\n（project workspace 不可达，无法定位 plan.md。）",
+            error="plan_md_missing",
+        )
+    plan_path = Path(project.workspace_path) / plan_file_path
+    try:
+        return plan_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConflictError(
+            f"{guidance}\n（读取 {plan_path} 失败：{exc}）",
+            error="plan_md_missing",
+        ) from exc
+
+
+def _resolved_read(db: Session, experiment, plan: PlanVersion):
+    """ORM PlanVersion → PlanVersionRead，content_md 经 ``resolve_plan_content``。"""
+    from map_types.schemas.plan import PlanVersionRead
+
+    content = resolve_plan_content(db, experiment, plan)
+    read = PlanVersionRead.model_validate(plan)
+    if content != plan.content_md:
+        read = read.model_copy(update={"content_md": content})
+    return read
+
+
+def list_plans_resolved(
+    db: Session,
+    experiment_id: uuid.UUID,
+    *,
+    limit: int = 50,
+) -> list:
+    """API 读面收口（A3-1）：列 plan 版本，content_md 走统一 resolve。"""
+    experiment = get_experiment(db, experiment_id)
+    plans = list_plans(db, experiment_id, limit=limit)
+    return [_resolved_read(db, experiment, p) for p in plans]
+
+
+def get_plan_version_resolved(db: Session, experiment_id: uuid.UUID, version: int):
+    """API 读面收口（A3-1）：单版读取，content_md 走统一 resolve。"""
+    experiment = get_experiment(db, experiment_id)
+    plan = get_plan_version(db, experiment_id, version)
+    return _resolved_read(db, experiment, plan)
+
 
 def list_plans(
     db: Session,

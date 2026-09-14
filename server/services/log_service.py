@@ -47,7 +47,15 @@ def _load_current_plan_md(db: Session, experiment_id: uuid.UUID) -> str | None:
             PlanVersion.version == experiment.current_plan_version,
         )
     )
-    return plan.content_md if plan is not None else None
+    if plan is None:
+        return None
+    # A3-1（实验 plan-db-content-retirement）：evidence 校验按 plan
+    # frontmatter 的 evidence_keys 匹配 metadata——flag on 后 DB content_md
+    # 可能是 stub，直接拿 stub 文本解析会恒得空 keys（校验静默失效）。
+    # 统一走 resolve_plan_content（flag off 恒等，逐字节不变）。
+    from server.services.plan_service import resolve_plan_content
+
+    return resolve_plan_content(db, experiment, plan)
 
 
 def append_log(
