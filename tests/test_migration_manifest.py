@@ -121,7 +121,9 @@ def test_scan_project_creates_pending_items(db_session):
     assert report.scanned == 3
     assert report.inserted == 3
     assert report.skipped_existing == 0
-    assert report.by_kind == {"topic": 2, "experiment": 1}
+    # A2-1：plan kind 也进 by_kind，但本 fixture 的实验无 PlanVersion 行 →
+    # current_plans 为空 → plan 计数 0（key 恒在，与 topic/experiment 同例）。
+    assert report.by_kind == {"topic": 2, "experiment": 1, "plan": 0}
     items = db_session.scalars(
         select(MigrationManifestItem).where(MigrationManifestItem.run_id == report.run_id)
     ).all()

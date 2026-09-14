@@ -47,6 +47,7 @@ from server.domain.models import (
     Experiment,
     MigrationManifestItem,
     MigrationRun,
+    PlanVersion,
     Topic,
 )
 
@@ -159,6 +160,22 @@ def _experiment_payload(experiment: Experiment) -> dict[str, Any]:
     }
 
 
+def _plan_payload(plan: PlanVersion) -> dict[str, Any]:
+    """把当前 PlanVersion 序列化成 plan 迁移 item 的 payload（实验
+    plan-db-content-retirement A2-1）。
+
+    迁移目标 = DB 里实验当前版的 plan 正文（content_md）。A2-2 的 apply
+    语义 = 幂等物化为 map/experiments/<slug>/plan.md（复用 materialize）
+    并把 content_md stub 化；content_hash 覆盖正文本身，正文修订后重跑
+    scan 自然生成新 item 行（同 experiment kind 的 slug-hash 语义）。
+    """
+    return {
+        "experiment_id": str(plan.experiment_id),
+        "version": plan.version,
+        "content_md": plan.content_md,
+    }
+
+
 def create_run(db: Session, *, project_id: uuid.UUID, phase: str) -> MigrationRun:
     """开一个新 run —— 每次 phase 推进都建一行（audit 链）。"""
     run = MigrationRun(
@@ -202,6 +219,24 @@ def scan_project(
             select(Experiment).where(
                 Experiment.project_id == project_id,
                 Experiment.deleted_at.is_(None),
+            )
+        )
+    )
+
+    # A2-1（实验 plan-db-content-retirement）：plan 迁移候选——每个未删除
+    # 实验的「当前版」PlanVersion 各产一条 kind="plan" item。kind 空间是
+    # migration manifest 的簿记维度（topic / experiment / plan），与
+    # waker 的 WORK_ITEM_KINDS 正交——与 topic kind 同例：scan 先登记，
+    # apply 路径在 A2-2 接线（materialize 物化 + content_md stub 化）。
+    # content_hash 覆盖正文：plan 修订 → 新 item 行（experiment 同语义）。
+    current_plans = list(
+        db.scalars(
+            select(PlanVersion)
+            .join(Experiment, PlanVersion.experiment_id == Experiment.id)
+            .where(
+                Experiment.project_id == project_id,
+                Experiment.deleted_at.is_(None),
+                PlanVersion.version == Experiment.current_plan_version,
             )
         )
     )
@@ -252,6 +287,28 @@ def scan_project(
             }
         )
 
+    for plan in current_plans:
+        payload = _plan_payload(plan)
+        content_hash = _compute_content_hash("plan", payload)
+        rows.append(
+            {
+                "id": uuid.uuid4().hex,
+                "project_id": project_id,
+                "run_id": run.id,
+                "kind": "plan",
+                "slug": str(plan.experiment_id),
+                "content_hash": content_hash,
+                "idempotency_key": _compute_idempotency_key(
+                    project_id=project_id,
+                    kind="plan",
+                    slug=str(plan.experiment_id),
+                    content_hash=content_hash,
+                ),
+                "status": "pending",
+                "attempts": 0,
+            }
+        )
+
     inserted = 0
     skipped = 0
     if rows:
@@ -273,7 +330,11 @@ def scan_project(
                 f"scan insert mismatch: inserted={inserted} skipped={skipped} total={len(rows)}"
             )
 
-    by_kind = {"topic": len(topics), "experiment": len(experiments)}
+    by_kind = {
+        "topic": len(topics),
+        "experiment": len(experiments),
+        "plan": len(current_plans),
+    }
     by_status = {"pending": len(rows), "applied": 0, "failed": 0, "skipped": 0}
 
     return ScanReport(
