@@ -7,6 +7,7 @@ Owns ``experiment review add/list/withdraw/resolve-item`` and
 (e.g. ``monkeypatch.setattr("cli.commands.experiment._rid", ...)``) — so
 command bodies import them at call time (T23).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -136,6 +137,94 @@ def plan_validate(
 
     if strict and result.warnings:
         raise typer.Exit(1)
+
+
+@plan_app.command("materialize")
+def plan_materialize(
+    experiment_id: str = typer.Option(..., "--id", help=_ID_HELP),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Replace an existing plan.md only when it differs from the current DB plan.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate the current DB plan and report the target path without writing it.",
+    ),
+) -> None:
+    """Materialize the current DB-backed plan to its experiment ``plan.md``.
+
+    This is an explicit repair path for experiments created with
+    ``--plan-file`` (inline content) before a filesystem plan artifact was
+    requested.  The target is derived from the existing, projected experiment
+    folder; callers cannot choose an arbitrary filesystem destination.
+    """
+    from map_fs import validate_experiment_index_file
+
+    from cli.commands.experiment import _rid
+    from cli.experiment_fs import (
+        find_fs_experiment,
+        materialize_experiment_plan,
+    )
+    from cli.project_context import current_context
+    from server.services.plan_marker_service import validate_plan_frontmatter
+
+    def action(c: MAPClient):
+        exp = c.get_experiment(_rid(c, experiment_id))
+        me = c.get_me()
+        if exp.creator_agent_id != me.id:
+            typer.echo("Error: only the experiment creator may materialize its plan", err=True)
+            raise typer.Exit(1)
+        if exp.plan_file_path:
+            typer.echo(
+                "Error: this experiment already uses --plan-file-path; read its referenced file instead",
+                err=True,
+            )
+            raise typer.Exit(2)
+        if exp.current_plan is None or not exp.current_plan.content_md.strip():
+            typer.echo("Error: current experiment plan content is unavailable", err=True)
+            raise typer.Exit(1)
+
+        content = exp.current_plan.content_md
+        lint = validate_plan_frontmatter(content)
+        if not lint.valid:
+            typer.echo("Error: current DB plan fails frontmatter validation; refuse to materialize", err=True)
+            raise typer.Exit(1)
+
+        ctx = current_context()
+        fs = find_fs_experiment(ctx.workspace_root, ref=exp.id)
+        if fs is None:
+            typer.echo(
+                "Error: experiment has no projected map/experiments/<slug>/index.md; refuse to infer a destination",
+                err=True,
+            )
+            raise typer.Exit(1)
+        validate_experiment_index_file(ctx.workspace_root, fs.slug, content_root=ctx.content_root)
+        target = ctx.workspace_root / ctx.content_root / "experiments" / fs.slug / "plan.md"
+        if dry_run:
+            return {
+                "experiment_id": str(exp.id),
+                "plan_path": str(target.relative_to(ctx.workspace_root)),
+                "wrote": False,
+                "dry_run": True,
+            }
+
+        path, wrote = materialize_experiment_plan(
+            ctx.workspace_root,
+            fs.slug,
+            content,
+            force=force,
+            content_root=ctx.content_root,
+        )
+        return {
+            "experiment_id": str(exp.id),
+            "plan_path": str(path.relative_to(ctx.workspace_root)),
+            "wrote": wrote,
+            "dry_run": False,
+        }
+
+    runner._run(action, experiment_id=experiment_id)
 
 
 @review_app.command("list")

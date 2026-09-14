@@ -4,8 +4,10 @@ DB 实验行仍是投影（锁 / 通知 / review item / token 仍在库）。退
 ``map experiment sync --check`` 对账零 diff 后，再考虑停 INSERT 主行。
 show/list 以 FS index.md 为实验数据事实源；生命周期写仍走 API 门禁。
 """
+
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,6 +85,7 @@ def _phase_owner_for(phase: ExperimentPhase, mode: ExperimentMode | str) -> Phas
         return PhaseOwner.participant
     return _PHASE_OWNER.get(phase, PhaseOwner.host)
 
+
 _CONTENT_ROOT = "map"
 
 
@@ -140,9 +143,7 @@ def _enum_value(value: Any) -> str:
 def find_fs_experiment(workspace: Path, *, slug: str | None = None, ref: uuid.UUID | None = None):
     root = content_root_name(workspace)
     if slug:
-        parsed = parse_experiment_dir(
-            workspace / root / "experiments" / slug, workspace
-        )
+        parsed = parse_experiment_dir(workspace / root / "experiments" / slug, workspace)
         if parsed is not None:
             return parsed
     plane = scan_plane(workspace, root)
@@ -241,9 +242,7 @@ def _review_yaml_count(workspace: Path, fs: Any) -> int:
     return sum(1 for p in reviews.iterdir() if p.suffix.lower() in {".yaml", ".yml"})
 
 
-def _plan_version_from_fs(
-    workspace: Path, fs: Any, experiment_id: uuid.UUID
-) -> PlanVersionRead | None:
+def _plan_version_from_fs(workspace: Path, fs: Any, experiment_id: uuid.UUID) -> PlanVersionRead | None:
     plan_path = getattr(fs, "plan_path", None)
     if not plan_path:
         return None
@@ -315,15 +314,11 @@ def overlay_fs_authority(experiment: _SummaryT, workspace: Path | None = None) -
         plan = _plan_version_from_fs(root, fs, experiment.id)
         if plan is not None:
             updates["current_plan"] = plan
-            updates["plan_version_count"] = max(
-                int(getattr(experiment, "plan_version_count", 0) or 0), 1
-            )
+            updates["plan_version_count"] = max(int(getattr(experiment, "plan_version_count", 0) or 0), 1)
     return experiment.model_copy(update=updates)
 
 
-def fs_experiment_to_summary(
-    fs: Any, project_id: uuid.UUID, workspace: Path
-) -> ExperimentSummaryRead:
+def fs_experiment_to_summary(fs: Any, project_id: uuid.UUID, workspace: Path) -> ExperimentSummaryRead:
     """Synthesize a list/show record from index.md (no DB row required)."""
     now = datetime.now(timezone.utc)
     created = fs.created_at or fs.updated_at or now
@@ -359,9 +354,7 @@ def fs_experiment_to_summary(
     )
 
 
-def fs_experiment_to_detail(
-    fs: Any, project_id: uuid.UUID, workspace: Path
-) -> ExperimentDetailRead:
+def fs_experiment_to_detail(fs: Any, project_id: uuid.UUID, workspace: Path) -> ExperimentDetailRead:
     summary = fs_experiment_to_summary(fs, project_id, workspace)
     plan = _plan_version_from_fs(workspace, fs, summary.id)
     return ExperimentDetailRead(
@@ -410,10 +403,7 @@ def merge_experiment_summaries(
 ) -> list[ExperimentSummaryRead]:
     """FS-only extras first (like topic list), then API rows with FS overlay."""
     api_ids = {item.id for item in api_items}
-    api_slugs = {
-        slug_from_plan_file_path(getattr(item, "plan_file_path", None))
-        for item in api_items
-    }
+    api_slugs = {slug_from_plan_file_path(getattr(item, "plan_file_path", None)) for item in api_items}
     api_slugs.discard(None)
     extras: list[ExperimentSummaryRead] = []
     for fs in fs_exps:
@@ -675,6 +665,52 @@ def write_index_after_create(
         projection_id=created.id,
         content_root=content_root_name(workspace),
     )
+
+
+def materialize_experiment_plan(
+    workspace: Path,
+    slug: str,
+    content: str,
+    *,
+    force: bool = False,
+    content_root: str | None = None,
+) -> tuple[Path, bool]:
+    """Atomically persist an already-approved DB plan through the MAP CLI.
+
+    ``--plan-file`` creation stores plan content in the lifecycle record.  This
+    helper is the repair path for those records when a reviewer/executor also
+    needs the normal FS-plane ``plan.md`` artifact.  It deliberately requires
+    an existing experiment ``index.md`` and refuses a divergent overwrite
+    unless the creator explicitly passes ``--force``.
+
+    Returns ``(path, wrote)``; ``wrote=False`` means the identical artifact was
+    already present.
+    """
+    from map_fs import experiment_index_path
+
+    if not content.strip():
+        raise ValueError("plan content is empty")
+    root = content_root or content_root_name(workspace)
+    index = experiment_index_path(workspace, slug, content_root=root)
+    if not index.is_file():
+        raise FileNotFoundError(f"experiment index not found for '{slug}': {index}; refuse to create an unbound plan")
+
+    plan_path = index.parent / "plan.md"
+    if plan_path.is_file():
+        existing = plan_path.read_text(encoding="utf-8")
+        if existing == content:
+            return plan_path, False
+        if not force:
+            raise FileExistsError(f"plan already exists and differs: {plan_path}; re-run with --force to replace it")
+
+    tmp = plan_path.with_suffix(".md.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, plan_path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+    return plan_path, True
 
 
 def writeback_after_transition(

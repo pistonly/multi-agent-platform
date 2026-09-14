@@ -1,4 +1,5 @@
 """M1: experiment index.md 契约 + 验证型写（非法手改 phase 拒绝）。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,7 +17,7 @@ from map_fs import (
     write_experiment_review_yaml,
 )
 
-from cli.experiment_fs import slug_from_plan_file_path
+from cli.experiment_fs import materialize_experiment_plan, slug_from_plan_file_path
 
 
 def test_experiment_id_for_slug_is_stable() -> None:
@@ -163,10 +164,31 @@ def test_same_phase_plan_version_bump_allowed(tmp_path: Path) -> None:
 
 def test_slug_from_plan_file_path() -> None:
     assert (
-        slug_from_plan_file_path("map/experiments/experiment-lifecycle-fs-m1/plan.md")
-        == "experiment-lifecycle-fs-m1"
+        slug_from_plan_file_path("map/experiments/experiment-lifecycle-fs-m1/plan.md") == "experiment-lifecycle-fs-m1"
     )
     assert slug_from_plan_file_path(None) is None
+
+
+def test_materialize_db_plan_is_idempotent_and_rejects_divergence(tmp_path: Path) -> None:
+    write_experiment_index(
+        tmp_path,
+        "materialize",
+        title="Materialize",
+        creator="host",
+        phase="running",
+        executor="participant",
+        topic="t",
+    )
+    plan = "---\ntitle: Materialize\n---\n\n# Plan\n"
+    path, wrote = materialize_experiment_plan(tmp_path, "materialize", plan)
+    assert wrote is True
+    assert path.read_text(encoding="utf-8") == plan
+    assert materialize_experiment_plan(tmp_path, "materialize", plan) == (path, False)
+
+    with pytest.raises(FileExistsError, match="differs"):
+        materialize_experiment_plan(tmp_path, "materialize", "other")
+    assert materialize_experiment_plan(tmp_path, "materialize", "other", force=True) == (path, True)
+    assert path.read_text(encoding="utf-8") == "other"
 
 
 def test_lock_untouched_by_index_write(tmp_path: Path) -> None:
