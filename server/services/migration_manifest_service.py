@@ -229,17 +229,8 @@ def scan_project(
     # waker 的 WORK_ITEM_KINDS 正交——与 topic kind 同例：scan 先登记，
     # apply 路径在 A2-2 接线（materialize 物化 + content_md stub 化）。
     # content_hash 覆盖正文：plan 修订 → 新 item 行（experiment 同语义）。
-    current_plans = list(
-        db.scalars(
-            select(PlanVersion)
-            .join(Experiment, PlanVersion.experiment_id == Experiment.id)
-            .where(
-                Experiment.project_id == project_id,
-                Experiment.deleted_at.is_(None),
-                PlanVersion.version == Experiment.current_plan_version,
-            )
-        )
-    )
+    # 「当前版」定义与 verify_project 共用 current_plans_all（单一真值）。
+    current_plans = current_plans_all(db, project_id=project_id)
 
     rows: list[dict[str, Any]] = []
     for topic in topics:
@@ -1212,6 +1203,51 @@ def verify_project(db: Session, *, project) -> dict[str, Any]:
         else:
             mismatched.append(entry)
 
+    # A2-2（实验 plan-db-content-retirement）：plan 域对账——DB 当前版
+    # PlanVersion.content_md ↔ FS plan.md 内容一致性。scan 已登记 kind=plan
+    # item；本对账证明「FS plan.md 已就位且与 DB 权威正文一致」，是 A2-2
+    # stub 化 content_md（destructive）与 A3-1 读路径切 FS 的安全前置。
+    #
+    # 相位门禁：flag ``plan_db_content_retired`` OFF 时 plan 域问题按
+    # **信息**处理（plan_domain_blocking=False，不进 mismatch/missing 计数）
+    # ——DB 仍是权威、读路径未切、materialize 未跑完，此时报红会破
+    # 验收 A1「flag off 行为与现状一致」，也会误伤所有 FS 制品尚未物化
+    # 的存量实验。flag ON 时 plan 域问题才升级为 blocking。
+    #
+    # 分类：
+    #   verified — FS plan.md 与 DB content_md 字节一致；或 DB 已是 stub
+    #              （``See file:`` / ``<!-- slim create:``）指向 FS 现存文件
+    #              → 视为已就位（A2-2 stub 化 / slim create 完成态）。
+    #   mismatch — 两侧都存在但字节不同；DB 权威正文需 materialize 覆盖 FS。
+    #   missing  — 无 plan_file_path，或 plan_file_path 指向的文件不存在；
+    #              需 `map experiment plan materialize`（creator 通道）先物化。
+    from server.services.feature_flag_service import is_plan_db_content_retired_on
+
+    plan_flag_on = is_plan_db_content_retired_on(db, project.id)
+    plan_verified: list[dict[str, Any]] = []
+    plan_mismatched: list[dict[str, Any]] = []
+    plan_missing: list[dict[str, Any]] = []
+    current_plan_by_exp: dict[uuid.UUID, PlanVersion] = {}
+    for plan in current_plans_all(db, project_id=project.id):
+        current_plan_by_exp[plan.experiment_id] = plan
+    for entity in entities:
+        plan = current_plan_by_exp.get(entity.id)
+        if plan is None:
+            continue  # 无当前版 PlanVersion → 不入 plan 域对账
+        entry = _verify_plan_entry(db, project=project, entity=entity, plan=plan)
+        bucket = entry.pop("bucket")
+        if bucket == "verified":
+            plan_verified.append(entry)
+        elif bucket == "mismatch":
+            plan_mismatched.append(entry)
+        else:
+            plan_missing.append(entry)
+
+    # 顶层 mismatch/missing 计数保持 experiment 域语义不变（现有测试 + CLI
+    # 逐条列举只覆盖 experiment 域）。plan 域的 blocking 信号在
+    # plan_domain.blocking / plan_domain.{mismatch,missing}_count 单独暴露，
+    # 由 caller（CLI verify / host 编排）在 flag ON 时一并检查——CLI 展示
+    # 更新随 A3-2（文档与分发面）接线。
     return {
         "verified_count": len(verified),
         "mismatch_count": len(mismatched),
@@ -1221,7 +1257,110 @@ def verify_project(db: Session, *, project) -> dict[str, Any]:
         "mismatched": mismatched,
         "missing": missing,
         "legacy": legacy,
+        # A2-2 plan 域对账（附加、独立计数；flag OFF 时不污染上面 blocking 计数）
+        "plan_domain": {
+            "flag_on": plan_flag_on,
+            "blocking": plan_flag_on,
+            "verified_count": len(plan_verified),
+            "mismatch_count": len(plan_mismatched),
+            "missing_count": len(plan_missing),
+            "verified": plan_verified,
+            "mismatched": plan_mismatched,
+            "missing": plan_missing,
+        },
         "summary": summarize_project(db, project_id=project.id),
+    }
+
+
+def current_plans_all(db: Session, *, project_id: uuid.UUID) -> list[PlanVersion]:
+    """project 下所有未删除实验的**当前版** PlanVersion（对账侧使用）。
+
+    与 ``scan_project`` 里的 current_plans 查询同 SQL；提取为 helper 让
+    scan 与 verify 共用同一「当前版」定义，避免两侧漂移。
+    """
+    return list(
+        db.scalars(
+            select(PlanVersion)
+            .join(Experiment, PlanVersion.experiment_id == Experiment.id)
+            .where(
+                Experiment.project_id == project_id,
+                Experiment.deleted_at.is_(None),
+                PlanVersion.version == Experiment.current_plan_version,
+            )
+        )
+    )
+
+
+def _verify_plan_entry(
+    db: Session, *, project, entity: Experiment, plan: PlanVersion
+) -> dict[str, Any]:
+    """单个实验当前版 plan 的 DB↔FS 对账，返回带 ``bucket`` 字段的 entry。
+
+    bucket ∈ {verified, mismatch, missing}；caller 按 flag 决定是否计 blocking。
+
+    - **缺 plan_file_path / 文件不存在** → missing（需 materialize）
+    - **两侧都存在、字节一致** → verified
+    - **DB 已是 stub（``See file:`` / ``<!-- slim create:``）指向同一路径** →
+      verified（A2-2 stub 化 / slim create 完成态；FS 是权威）
+    - **两侧都存在、字节不同** → mismatch（需 materialize --force 覆盖 FS）
+
+    路径口径与 ``plan_service._fs_plan_matches_payload``（A1-4 去重判据）
+    一致：``project.workspace_path / experiment.plan_file_path``。
+    """
+    plan_file_path = getattr(entity, "plan_file_path", None)
+    base = {
+        "kind": "plan",
+        "slug": str(entity.id),
+        "version": plan.version,
+        "plan_file_path": plan_file_path,
+    }
+    if not plan_file_path:
+        return {
+            **base,
+            "bucket": "missing",
+            "reason": "实验无 plan_file_path（DB 内联 plan 未物化）",
+        }
+    from pathlib import Path
+
+    plan_path = Path(project.workspace_path) / plan_file_path
+    if not plan_path.is_file():
+        return {
+            **base,
+            "bucket": "missing",
+            "reason": f"FS plan.md 不存在: {plan_path}（先 `map experiment plan materialize`）",
+        }
+    try:
+        fs_text = plan_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {
+            **base,
+            "bucket": "missing",
+            "reason": f"读取 FS plan.md 失败: {exc}",
+        }
+    db_text = plan.content_md or ""
+    if db_text == fs_text:
+        return {**base, "bucket": "verified", "form": "full"}
+    # DB 侧已是 stub（A2-2 完成态 / slim create 现状）：DB 存自描述 stub，
+    # FS 是权威；只要 stub 指向同一路径即视为已就位。
+    stub_markers = (
+        f"See file: {plan_file_path}",
+        f"<!-- slim create: plan content lives in {plan_file_path}",
+    )
+    if any(m in db_text for m in stub_markers):
+        return {**base, "bucket": "verified", "form": "stub"}
+    # 两侧都在但字节不同：需物化覆盖 FS（creator 通道 materialize --force）。
+    return {
+        **base,
+        "bucket": "mismatch",
+        "fields": [
+            {
+                "field": "content_md",
+                "db_sha256": hashlib.sha256(db_text.encode("utf-8")).hexdigest(),
+                "fs_sha256": hashlib.sha256(fs_text.encode("utf-8")).hexdigest(),
+                "db_len": len(db_text),
+                "fs_len": len(fs_text),
+            }
+        ],
     }
 
 

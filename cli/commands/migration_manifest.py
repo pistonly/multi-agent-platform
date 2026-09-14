@@ -173,7 +173,22 @@ def migrate_verify(
     def action(c: MAPClient):
         pid = runner._resolve_project(c, project, project_key)
         report = c.fs_migration_verify(pid)
-        blocking = report["mismatch_count"] + report["missing_count"]
+        # A2-2（实验 plan-db-content-retirement）：plan 域对账 blocking 信号。
+        # 服务端把 plan 域计数单独放在 report["plan_domain"]，并用
+        # plan_domain.blocking 表示 flag plan_db_content_retired 是否 ON——
+        # OFF（默认）时 plan 域问题只是信息（DB 仍是权威、读路径未切），
+        # ON 时才是「切 FS 权威前必须消解」的阻塞。漏掉这一段会让 flag ON
+        # + FS plan.md 缺失时 verify 仍退 0，给 destructive stub 化假绿灯。
+        plan_domain = report.get("plan_domain") or {}
+        plan_blocking_count = 0
+        if plan_domain.get("blocking"):
+            plan_blocking_count = (
+                plan_domain.get("mismatch_count", 0)
+                + plan_domain.get("missing_count", 0)
+            )
+        blocking = (
+            report["mismatch_count"] + report["missing_count"] + plan_blocking_count
+        )
         if as_json:
             _emit_json(report)
         else:
@@ -209,6 +224,25 @@ def migrate_verify(
                         f"  [LEGACY] {entry['kind']} {entry['slug']}: "
                         f"audit-field drift ({fields}) phase={entry.get('phase')}"
                     )
+            # A2-2 plan 域对账明细（仅 flag ON 计入 blocking 时展开，供定位）。
+            if plan_blocking_count:
+                typer.echo(
+                    f"  plan_domain (blocking): mismatch={plan_domain.get('mismatch_count', 0)} "
+                    f"missing={plan_domain.get('missing_count', 0)}"
+                )
+                for entry in plan_domain.get("mismatched", []):
+                    typer.echo(
+                        f"  [PLAN MISMATCH] {entry['slug']}: {entry.get('plan_file_path')}"
+                    )
+                for entry in plan_domain.get("missing", []):
+                    typer.echo(f"  [PLAN MISSING] {entry['slug']}: {entry.get('reason')}")
+            elif plan_domain:
+                typer.echo(
+                    f"  plan_domain (informational, flag off): "
+                    f"verified={plan_domain.get('verified_count', 0)} "
+                    f"mismatch={plan_domain.get('mismatch_count', 0)} "
+                    f"missing={plan_domain.get('missing_count', 0)}"
+                )
         if blocking == 0:
             # LKG 锚点只在对账健康时更新（client-side 记录，非权威）。
             lkg_path = _lkg_path(
