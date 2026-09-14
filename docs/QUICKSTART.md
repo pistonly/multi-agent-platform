@@ -17,7 +17,7 @@
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| Docker + Docker Compose | 任意现代版本 | 运行 API / Web / MCP 服务 |
+| Docker + Docker Compose | 任意现代版本 | 运行 API / Web 服务 |
 | Python | 3.10+ | 安装 `map` CLI（用于 bootstrap 接入） |
 | pip | 任意 | 安装 CLI |
 
@@ -58,11 +58,9 @@ docker compose up --build -d
 | 服务 | 地址 | 说明 |
 |------|------|------|
 | API + 看板 | http://localhost:18400 | REST API + 健康检查 `/health` + **看板（同源 SPA）** |
-| MCP | http://localhost:18081/mcp | 供 IDE Agent 调用的 MCP 端点 |
 
 > **端口说明**：API 默认发布到宿主机 `:18400`（不常用端口，避开
-> 8000/8001 冲突重灾区）；本仓 `docker-compose.override.yml` 把 MCP 映射到
-> `:18081`。本文所有示例统一使用 18400；自行改端口时对应替换即可。
+> 8000/8001 冲突重灾区）。本文所有示例统一使用 18400；自行改端口时对应替换即可。
 
 验证服务是否正常：
 
@@ -223,9 +221,8 @@ export MAP_ADMIN_TOKEN=<返回的 api_token>
 
 ### Q: 想换端口 / 端口仍被占用
 
-API 默认端口为 `:18400`（Docker 侧见 `docker-compose.yml`；pip 侧见 `MAP_PORT`），
-MCP 在本仓 override 中发布到 `:18081`。如需改端口：Docker 编辑
-`docker-compose.override.yml` 的端口映射，pip 设 `MAP_PORT=<端口>` 启动
+API 默认端口为 `:18400`（Docker 侧见 `docker-compose.yml`；pip 侧见 `MAP_PORT`）。
+如需改端口：Docker 编辑 `docker-compose.yml` 的端口映射，pip 设 `MAP_PORT=<端口>` 启动
 `map-server`，并保证 bootstrap 的 `--api-url` 与实际端口一致。
 
 ### Q: 重新 bootstrap 报 `agents.local.yaml already exists` / `.map/agents.local.yaml` 丢失、token 失效
@@ -251,6 +248,5 @@ map bootstrap --key my-project --name "My Project" --api-url http://localhost:18
 
 - [CLI 完整命令参考](./CLI.md)
 - [Python SDK 指南](./SDK.md)
-- [MCP Server 指南](./MCP.md)
 - [架构设计](./ARCHITECTURE.md)
 - [协作 Skill 文档](../.cursor/skills/map-project-collab/SKILL.md)

@@ -47,7 +47,6 @@ map skill install          # 将 6 个 Skill 安装到 .cursor/skills/（--runti
 - [CLI 指南](docs/CLI.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
-- [MCP Server 指南（stdio）](docs/MCP.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
 - [Persona 行为差异](docs/MAP-PERSONA-COMPARE.md)
@@ -68,7 +67,7 @@ map skill install          # 将 6 个 Skill 安装到 .cursor/skills/（--runti
 - **话题协作**：独立话题 + 评论树 + @提及 + 多轮讨论 + Round Summary + 结论与行动项
 - **待办与通知**：Agent 待办视图 + 站内通知 + SSE 实时推送 + Webhook 出站
 - **Web UI**：React + Vite 看板 / 话题 / 实验详情；实验写操作走 API，话题写入走本地 CLI（看板提供可复制命令）
-- **多入口接入**：Python SDK + `map` CLI + MCP stdio/HTTP（`map-mcp`）
+- **多入口接入**：Python SDK + `map` CLI
 - **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 - **Plan mode (direct)**：跳过 review/result_review 的快速执行通道；host 通过 `start --executor participant` 委派后由 `experiment-executor` Skill 接管（complete 即 `done`，见下方使用示例）
@@ -77,7 +76,7 @@ map skill install          # 将 6 个 Skill 安装到 .cursor/skills/（--runti
 
 历史里程碑详见 [PRD 归档](docs/prd/README.md#历史归档按时间倒序)。
 
-**Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
+**Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）。
 
 ### 连接已有 MAP 服务（本仓库协作）
 
@@ -201,7 +200,7 @@ map --persona host host invoke --persona reviewer --prompt-file ./review-task.md
 
 ## 多项目协作（Skill + `.map/`，推荐）
 
-不依赖 Cursor MCP。每个代码仓库：
+每个代码仓库：
 
 ```bash
 map bootstrap --key my-app --name "My App" --api-url http://localhost:18400
@@ -284,15 +283,14 @@ export CURSOR_MODEL=composer-2.5
 
 详见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
 
-## Docker（API + MCP）
+## Docker（API + 看板）
 
-默认 `docker-compose.yml` 暴露 API `:18400`、MCP `:8080`；看板由 API **同源**提供
-（打开 `http://localhost:18400/` 即是，不再有独立 nginx 容器）。本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把 MCP 宿主端口改为 `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
+默认 `docker-compose.yml` 暴露 API `:18400`；看板由 API **同源**提供
+（打开 `http://localhost:18400/` 即是，不再有独立 nginx 容器）。本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
 
 ```bash
 docker compose up --build
-# 默认端口: API + 看板 :18400  MCP :8080/mcp
-# 使用本仓 override 时: API + 看板 :18400  MCP :18081/mcp
+# 端口: API + 看板 :18400
 ```
 
 ### FS 事实源与 Docker / 远程部署
@@ -312,20 +310,6 @@ Docker / 远程的推荐路径是 **projection-cache + 写后自动 sync**，不
 ```bash
 python -c "from map_client import MAPClient; print(MAPClient.from_env().get_me())"
 # 详见 docs/SDK.md
-```
-
-## MCP（IDE Agent）
-
-```bash
-pip install "multi-agent-platform[mcp]"
-export MAP_TOKEN=<your-token>
-
-# stdio — Cursor 本地子进程（默认）
-map-mcp
-
-# HTTP — Docker 或本机独立服务
-map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
-# 详见 docs/MCP.md
 ```
 
 ## 核心流程（简述）

@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **MCP 支持整体移除**：`map-mcp` console entry、`sdk/python/map_mcp/` 模块、`[mcp]` extra、
+  `Dockerfile.mcp`、docker-compose `mcp` 服务、`docker-compose.override.yml`（仅含 MCP 端口
+  重映射）、`tests/test_mcp*.py` 与 `docs/MCP.md`。MCP 工具面停留在 FS 事实源迁移前的 DB
+  模型（话题评论无 `file_path`/`excerpt`，无 `map work` 等），与当前协作流程脱节；且上游
+  `mcp` 2.x 已将 FastMCP 改名 MCPServer，继续依赖需钉死 `<2.0`。外部项目请改用 `map` CLI
+  或 Python SDK（能力等价且持续维护）。
+
 工程与门禁（无功能变更）：
 
 - **修 CI 覆盖率崩溃**：`pytest -n auto --cov` 缺 `--cov-branch`，子进程写 statement-only 数据、

@@ -38,7 +38,7 @@ jobs:
       - name: Sync dependencies (frozen)
         # uv.lock is the source of truth; --frozen fails the build if
         # pyproject changed without re-locking.
-        run: uv sync --frozen --extra dev --extra mcp
+        run: uv sync --frozen --extra dev
 
       - name: Add .venv/bin to PATH
         # 修复上游 CI 连红（8-28 起）：uv sync 装包进 .venv 但 .venv/bin
@@ -47,7 +47,7 @@ jobs:
         run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install package in editable mode
-        run: uv pip install --python "$(uv python find)" -e ".[dev,mcp]"
+        run: uv pip install --python "$(uv python find)" -e ".[dev]"
 
       - name: Ruff
         run: ruff check server cli sdk scripts tests alembic test_project
@@ -101,14 +101,14 @@ jobs:
       - name: Sync dependencies (frozen)
         # uv.lock is the source of truth; --frozen fails the build if
         # pyproject changed without re-locking.
-        run: uv sync --frozen --extra dev --extra mcp
+        run: uv sync --frozen --extra dev
 
       - name: Add .venv/bin to PATH
         # 同 lint job：uv sync 装进 .venv，PATH 注入后 pytest 可用。
         run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install package in editable mode
-        run: uv pip install --python "$(uv python find)" -e ".[dev,mcp]"
+        run: uv pip install --python "$(uv python find)" -e ".[dev]"
 
       - name: Pytest (unit subset, parallel + coverage visibility)
         # PR 只跑 unit 子集（fast gate，默认 addopts 排除 slow/integration/claude_cli）求快反馈。

@@ -23,7 +23,7 @@ description: >-
 | **被 waker 唤醒** | [references/wake.md](references/wake.md)（最小协议，约 50 行）→ persona Skill |
 | **手动协作** | 本 Skill → persona Skill |
 
-历史：Cursor MCP（`map-agent` / `map-admin`）v0.7 起停用；host bridge 已停用——不要启动，也不要假设其在后台执行实验。
+历史：host bridge 已停用——不要启动，也不要假设其在后台执行实验。
 
 ## 何时启用
 

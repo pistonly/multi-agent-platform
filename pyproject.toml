@@ -54,7 +54,6 @@ dev = [
     "pytest-cov>=5.0.0,<8.0",
     # T34：xdist 并行跑测试（-n auto），2000 例串行 220s → 并行后显著缩短。
     "pytest-xdist>=3.6.0,<4.0",
-    "mcp>=1.26.0,<2.0",
     "ruff>=0.8.0,<1.0",
     # mypy：CI lint job 的「Mypy strict」步骤直接裸调 mypy（见 .github/workflows/ci.yml）。
     # 此前只声明了 [tool.mypy] 配置却漏了依赖，uv.lock 也无此包，
@@ -63,12 +62,6 @@ dev = [
     # codegen：从 Pydantic schema 生成 web/src/api/types.generated.ts
     # （配合 web 的 json-schema-to-typescript 提供 json2ts CLI，见 scripts/gen_types.py）。
     "pydantic-to-typescript>=2.0.0,<3.0",
-]
-# T40：map_mcp import 链零 server 依赖（httpx/mcp/starlette/pydantic 均由
-# 核心依赖或 mcp 自带），原 multi-agent-platform[server] 拉入整个 server
-# 依赖树属过度声明——MCP server 经 httpx 调远端 API，不 import server 模块。
-mcp = [
-    "mcp>=1.26.0,<2.0",
 ]
 claude-runtime = [
     # Optional: needed only by tests that import claude_agent_sdk directly
@@ -86,7 +79,6 @@ map-server = "server.main:run"
 map = "cli.main:main"
 # T20（2026-08）：map-participant-bridge / map-reviewer-bridge 已删除，
 # 见 docs/LEGACY-ENTRY-MATRIX.md「已退役」——用 simple-waker + persona Skill。
-map-mcp = "map_mcp.main:cli"
 
 [build-system]
 requires = ["setuptools>=75.0"]
@@ -97,7 +89,7 @@ backend-path = ["scripts"]
 
 [tool.setuptools.packages.find]
 where = [".", "sdk/python"]
-include = ["server*", "cli*", "lib*", "map_client*", "map_fs*", "map_mcp*", "map_sdk*", "map_types*"]
+include = ["server*", "cli*", "lib*", "map_client*", "map_fs*", "map_sdk*", "map_types*"]
 exclude = ["server._migrate", "server._migrate.*"]
 
 [tool.setuptools.package-data]
@@ -239,7 +231,7 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 # 关注生产代码的覆盖率；测试脚本、迁移、SDK 生成代码不计入。
-source = ["server", "cli", "map_client", "map_mcp"]
+source = ["server", "cli", "map_client"]
 branch = true
 omit = [
     # alembic migrations 是 DDL 声明，没有可测的分支

@@ -19,8 +19,12 @@ MAP 本仓库默认协作路径：**Skill + `map` CLI + simple-waker**（`./scri
 |-------|------|------|------|
 | `map` | `cli.main` | 主路径 | Persona + CLI 协作入口 |
 | `map-server` | `server.main` | 主路径 | API 服务 |
-| `map-mcp` | `map_mcp.main` | 独立线 | MCP 验证路径，不在本实验退役范围 |
 
+> **已退役**：`map-mcp` console entry、`sdk/python/map_mcp/` 模块、
+> `Dockerfile.mcp`、docker-compose `mcp` 服务、`tests/test_mcp*.py` 与
+> `docs/MCP.md` 已整体移除。MCP 面停留在 FS 事实源迁移前的 DB 模型
+> （无 `file_path`/`excerpt`/`map work`），与当前协作流程脱节，不再分发。
+>
 > **已退役**（v0.10）：`map-runtime-waker` console entry、`cli/runtime_waker.py`
 > 模块、`cli/host_worker*.py` 整套及配套测试（`tests/test_runtime_waker*.py`、
 > `tests/test_waker_phase2_*.py`、`tests/test_host_worker.py`、
@@ -69,7 +73,7 @@ check-deprecated.sh 同时执行两条防回潮规则（实验 124e9a00 A3）：
 
 ## v1.0 移除时间表（T40，2026-09-01 评估）
 
-console scripts 层当前 3 个入口（`map` / `map-server` / `map-mcp`）全部为主路径或独立线，**无 deprecated entry point，v1.0 无需移除计划**。仍处于 warning 级 deprecated（未删、不阻断）的兼容面如下，按「连续两个 minor 版本无使用告警即移除」执行，最迟 v1.0：
+console scripts 层当前 2 个入口（`map` / `map-server`）均为主路径，**无 deprecated entry point，v1.0 无需移除计划**。仍处于 warning 级 deprecated（未删、不阻断）的兼容面如下，按「连续两个 minor 版本无使用告警即移除」执行，最迟 v1.0：
 
 | 兼容面 | 位置 | 迁移目标 |
 |--------|------|----------|

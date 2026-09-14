@@ -1,4 +1,4 @@
-"""Shared API types for MAP server, SDK, and MCP."""
+"""Shared API types for MAP server and SDK."""
 
 from map_types.enums import (
     AcceptanceType,

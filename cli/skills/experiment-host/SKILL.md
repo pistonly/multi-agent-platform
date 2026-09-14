@@ -39,7 +39,7 @@ git status --short
 
 ## 硬性规则
 
-1. 只用 `map --persona host ...` 写 MAP；禁止 MCP 写操作与手写 HTTP
+1. 只用 `map --persona host ...` 写 MAP；禁止手写 HTTP
 2. **`phase=running` 且 `executor_agent_id == my-id` 表示由你执行**——`executor_agent_id != my-id` 表示已委派给 participant，对 host 是 informational_only，不要写 log、不要代 complete、不要写「等桥接」（participant 在另一条 persona 路径上推进）
 3. 一次 wake 完成**当前 phase 的下一步**；自执行时 `running` 每次至少推进**一个 plan 子项**（计划 frontmatter 里的某个编号验收项），写 log 后结束
 4. 实验须由本 host persona 创建，否则 approve/start/complete 会 403

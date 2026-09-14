@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.api
     ports:
       # 宿主侧默认用不常用的 18400（8000/8001 易与其他服务/IDE 端口转发冲突）。
-      # 容器内保持 8000：mcp 的 MAP_API_URL、healthcheck 均按 8000 引用。
+      # 容器内保持 8000：healthcheck 按 8000 引用。
       # 看板由本服务同源提供（server/spa.py 挂载镜像内的 server/web_dist），
       # 不再有独立的 nginx web 容器——见 docs/ARCHITECTURE.md §7。
       - "18400:8000"
@@ -32,31 +32,3 @@ services:
       timeout: 3s
       retries: 8
       start_period: 20s
-
-  mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile.mcp
-    ports:
-      - "8080:8080"
-    environment:
-      TZ: Asia/Shanghai
-      MAP_API_URL: http://api:8000
-      MAP_MCP_HOST: 0.0.0.0
-      MAP_MCP_PORT: 8080
-      MAP_MCP_PATH: /mcp
-      NO_PROXY: api,localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16
-      no_proxy: api,localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16
-      HTTP_PROXY: ""
-      HTTPS_PROXY: ""
-      http_proxy: ""
-      https_proxy: ""
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
