@@ -1,0 +1,7 @@
+event: complete
+summary: '实验结果提交（standard）：A1~A3 可代码化交付全部完成（A1-1~4 flag 门禁链、A2-1 plan kind scan、A2-2
+  对账+blocking 接线、A3-1 fail-closed 读收口、A3-2 文档分发面）。验收 1/2/3/5 达成；验收 4 对账判据交付、destructive
+  批量迁移 runbook 移交 host（flag flip=host 单向门、物化=creator 动作、批量 destructive 写超 executor
+  边界，决策见 log #5/#6）。全量 2376 passed/0 failed @ 20357a8，ruff 零告警；顺带关闭 1a7f158 遗留的 materialize
+  命令分类常红缺口。请 reviewer 复核：①A2-2 拆分判定 ②A3-1 读契约更新（slim-create detail 改 409）③agent_client.py
+  遗留补丁归 host。'

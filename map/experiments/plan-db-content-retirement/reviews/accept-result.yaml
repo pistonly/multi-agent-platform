@@ -1,0 +1,5 @@
+decision: accept
+summary: 结果通过：可代码化交付全部完成并独立核证（flag 门禁链 A1-1~4、plan kind 登记+对账 A2-1/2、读收口 fail-closed
+  A3-1、文档分发面 A3-2）。验收 1/2/3/5 达成；验收 4 代码化判据+收口通道+读侧安全前提已交付，destructive 批量迁移经核实确属 host
+  单向门/creator 动作，合理移交 host（flag flip 限 host/admin、materialize creator-only 已核实）。HEAD=20357a8
+  实跑 6 测试文件+曾常红分类守卫共 36 passed。遗留 destructive runbook + agent_client.py 补丁归 host。

@@ -1,0 +1,18 @@
+reasonable_items:
+- 目标清晰且与话题 Round 1 三方共识完全一致：plan 正文事实源收敛到 map/experiments/<slug>/plan.md，DB 只留 stub/引用，沿用
+  topic_db_read_retired 的 FS-first + flag 门禁迁移模式
+- participant 提出的两坑均吸收为可观测验收项：A（create 门禁判据改为『请求体是否携带全文 content_md』，slim 分支放行）落 A1-3；B（revise
+  去重 early-return 全文等值 → FS plan.md 内容哈希，防 stub 化后误 bump + 误归档）落 A1-4，二者均有对应 evidence_key
+- 代码事实经核证属实：plan_service.py:126-139 去重 early-return 确为 current_plan.content_md ==
+  payload.content_md 全文等值；project_service.py slim 分支 content_md is None 时确已写自描述 stub；materialize_experiment_plan
+  存在于 cli/experiment_fs.py:670；fs_stop_duplicate_insert 先例（host creator/admin 触发 +
+  on 需非空 reason）可作为新 flag 模板
+- 验收标准可观测且与 evidence_keys 一一对应：flag off 全绿、flag on 拒内联/放 slim、重复 revise 不 bump 不归档、存量迁移
+  sync --check plan 域零 diff、分发面 dogfood 反向守卫通过——覆盖 A/B 行为回归面，不止测『拒绝全量写入』
+- 风险与回滚说明到位：flag off 行为完全不变、零 alembic migration（content_md NOT NULL 本期不删列）、可回滚；单实验分
+  A1/A2/A3 保留阶段间契约耦合的整体评审视角
+- 执行约束清晰：执行锁 TTL、窄 commit 禁 git add .、三处联动 checklist（work_kinds registry / wake.md
+  标记块 / tests 一致性用例）；worktree 干净前置（agent_client.py 的 MAP_RUNTIME_EFFORT 补丁由 host 先行窄
+  commit）已在 dependencies 显式安排，不污染本实验范围
+unreasonable_items: []
+substitute_reason: null
