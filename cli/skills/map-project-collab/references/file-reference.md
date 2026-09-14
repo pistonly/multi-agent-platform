@@ -42,8 +42,12 @@
 | 对象 | 写文件 | 发布（CLI） | 平台存储 |
 |------|--------|-------------|----------|
 | 话题评论 | `map/topics/<slug>/round<N>-<persona>.md` / `round<N>-summary-<persona>.md` | `topic comment --file-path <相对路径> --excerpt "摘要"` | `file_path` + `excerpt`（≤200 字符） |
-| 实验计划 | `map/experiments/<slug>/plan.md` | `experiment create --plan-file-path <相对路径>` | `plan_file_path` |
+| 实验计划 | `map/experiments/<slug>/plan.md` | `experiment create --plan-file-path <相对路径>`；存量内联实验物化 `experiment plan materialize --id <exp-uuid>` | `plan_file_path` |
 | 实验日志 | `map/experiments/<slug>/log.md` | `experiment complete --log-file-path <相对路径>` | `log_file_path` |
+
+> 实验计划的 `plan_db_content_retired` flag（host/admin 设置）开启后，FS
+> `plan.md` 是正文唯一事实源：内联全文写入被拒、读取端 plan.md 缺失时
+> fail-closed 并指向 materialize；未开启时行为不变（DB 仍存全文）。
 
 ## 规则
 

@@ -514,6 +514,7 @@ _WRITE_COMMANDS_2: set[tuple[str, str]] = {
 
 _WRITE_COMMANDS_3: set[tuple[str, str, str]] = {
     ("experiment", "plan", "revise"),
+    ("experiment", "plan", "materialize"),
     ("experiment", "review", "add"),
     ("experiment", "review", "resolve-item"),
     ("experiment", "review", "withdraw"),

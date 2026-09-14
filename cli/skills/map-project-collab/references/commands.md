@@ -118,6 +118,19 @@ map experiment create --title "..." --plan-file ./plan.md --submit-for-review
 map experiment create --title "..." --plan-file-path map/experiments/<slug>/plan.md --topic-id <topic-ref>
 ```
 
+计划正文退役 DB 全文的模式：项目 feature flag `plan_db_content_retired`
+开启（host/admin 设置，需非空 reason）后，内联全文写入（`--plan-file`）
+被 409 拒绝并给出自助指引，改用 `--plan-file-path` 文件引用模式；计划
+正文以 FS `map/experiments/<slug>/plan.md` 为事实源（读取端 flag 开启后
+plan.md 缺失会 409 fail-closed 并指向 materialize）。存量内联实验先物化
+再切引用：
+
+```bash
+# 把 DB 里的当前版计划正文物化为 FS plan.md（仅实验 creator；幂等，
+# 已存在且内容不同时需 --force 显式覆盖）
+map experiment plan materialize --id <exp-uuid>
+```
+
 ## 实验生命周期（host）
 
 ```bash
