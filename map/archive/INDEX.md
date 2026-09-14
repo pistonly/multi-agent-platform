@@ -4,7 +4,7 @@
 > Rebuilt by `map topic archive-index --rebuild` (auto-invoked after `map topic archive`).
 > v0.14 M61: generative projection, not an incrementally-maintained document.
 
-## Topics (47)
+## Topics (48)
 
 | Title | Status | Decision | Notes | File |
 |-------|--------|----------|-------|------|
@@ -30,6 +30,7 @@
 | 合并 github/main 到本地 main：分叉 19 vs 28 提交，如何对齐 | closed | 采纳 participant Round 1 五条立场（实证核证到位，host 全部拍板）： | concluded | [topics/merge-github-main-into-local/](topics/merge-github-main-into-local/) |
 | 运维可见性四件套:server status pid 失真 / 管道停滞检测未平台化 / remote 分叉无监控 / audit 无 CLI 出口 | closed | ④ audit CLI 双入口已由实验 4770ea76 done 落地（map audit list --target + map topic history）；① pid 探活 / ② 管道停滞平台化 / ③ remote 分叉仍按原 close_note 留待后续实验，不在本话题尾款。rationale: 本轮重开仅为挂 ④ 执行实验，现实验完成重新 close。 | concluded | [topics/ops-visibility-batch/](topics/ops-visibility-batch/) |
 | pending_review 路由死锁：plan 修订后实验从 reviewer 队列消失 | closed | 关闭源话题（T8 实验 done，路由死锁修复闭环） | experiment_done | [topics/pending-review-routing-deadlock/](topics/pending-review-routing-deadlock/) |
+| plan 文档不存 DB：分阶段 flag 门禁退役 plan_versions 全文写入 | closed | 采用分阶段 flag 门禁退役 plan_versions 全文写入：CLI 双写（--plan-file 内联镜像 FS plan.md）→ plan_db_content_retired flag fail-closed（拒内联全文/放 slim/revise 去重换 FS plan.md 内容哈希）→ sync migrate 增 plan 类 kind + verify 对账 + apply stub 化 → 读路径 resolve_plan_content 统一 fail-closed → 文档分发面更新 | experiment_done | [topics/plan-db-content-retirement/](topics/plan-db-content-retirement/) |
 | running 阶段架构级 revise plan 直接生效,不回 review——reviewer 验收对照物可能是旧版 | closed | | | experiment_ready | [topics/plan-revision-review-gate/](topics/plan-revision-review-gate/) |
 | 体验优化：config project_id 静默分叉无对账/修复路径，local-fs workspace 双归属无约束，缺 project archive（平台反馈批次） | closed | no | converged | [topics/platform-config-lifecycle-feedback/](topics/platform-config-lifecycle-feedback/) |
 | 退役面只退文档不退文件:host bridge 脚本仍在,退役命令靠「勿依赖」提醒 | closed | | | experiment_ready | [topics/retired-surface-physical-cleanup/](topics/retired-surface-physical-cleanup/) |
