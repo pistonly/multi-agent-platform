@@ -12,6 +12,8 @@ M50 修复了文档与 CLI / 部署事实之间的漂移；本文件用可执行
 * M50F 孤儿文件 ``agents/openai.yaml`` 不再回归
 * M50G Skill 模板的 ``topic close --reason`` 取值必须落在
   ``map_fs.validation.CLOSE_REASON_LEGAL`` 内（issue #1 漂移回归）
+* M50H ``docs/``、两份 Skill 镜像与根级 md 内的**相对链接必须指向存在的目标**
+  （含 ``#锚点``）：归档文档整体挪目录后相对路径会静默失效，此前无人发现
 
 设计原则：断言「解析出的事实」而不是硬编码版本号，升级 PRD 版本时
 不需要同步改这里的多数用例；注入漂移样例（改端口 / 改参数 / 改指向）
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from map_fs import validation as fs_validation
@@ -338,3 +341,143 @@ class TestSkillCloseReasonConsistency:
             f"{mirror} 下未解析出任何 `topic close --reason` 示例；"
             f"要么模板被删空，要么解析器与模板写法已脱节"
         )
+
+
+# =========================================================================
+# M50H 相对链接护栏
+#
+# 背景：文档挪目录（如 docs/x.md -> docs/archive/x.md）时，其中的相对链接
+# 会静默失效——既不报错，也不在任何门禁里变红，只有点进去的人才会发现。
+# 本仓此前已有 33 处这类死链（绝大多数是归档快照上移一层后失效），全部靠
+# 人工核对才发现，故补上可执行断言。
+# =========================================================================
+
+# 扫描范围：docs/ 全树、两份 Skill 镜像（分发面，同样有内部相对链接）、根级 md。
+LINK_CHECK_ROOTS = ["docs", "cli/skills", ".cursor/skills"]
+
+# 归档快照：整体上移一层目录后其相对链接天然失效，属历史记录，不回填（见 M50H 背景）。
+LINK_CHECK_SKIP_PARTS = {"archive"}
+
+_MD_LINK = re.compile(r"\[[^\]]*\]\(([^()\s]+)\)")
+_ABSOLUTE_URL = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
+
+
+def _strip_fenced_code(text: str) -> str:
+    """剔除 fenced code block 内容——其中的路径多为示例，不是真链接。"""
+    kept: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            kept.append("")
+            continue
+        kept.append("" if in_fence else line)
+    return "\n".join(kept)
+
+
+def _heading_anchor(title: str) -> str:
+    """GitHub 风格标题锚点：小写、去标点、空白转 ``-``。"""
+    slug = title.strip().lower()
+    slug = re.sub(r"[`*_]", "", slug)
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    return re.sub(r"\s+", "-", slug).strip("-")
+
+
+def _heading_anchors(text: str) -> set[str]:
+    return {
+        _heading_anchor(match.group(1))
+        for match in re.finditer(r"^#{1,6}\s+(.*?)\s*$", text, re.M)
+    }
+
+
+def _relative_link_targets(text: str) -> list[str]:
+    """返回 md 里所有「相对」链接目标，外部 URL / 页内锚点 / 引用式不参与。"""
+    targets: list[str] = []
+    for match in _MD_LINK.finditer(_strip_fenced_code(text)):
+        target = match.group(1)
+        if _ABSOLUTE_URL.match(target) or target.startswith(("#", "[")):
+            continue
+        targets.append(target)
+    return targets
+
+
+def _link_problems(md_path: Path) -> list[str]:
+    """返回该 md 内所有死链的人类可读描述（空列表 = 全部可达）。"""
+    text = md_path.read_text(encoding="utf-8")
+    problems: list[str] = []
+    for target in _relative_link_targets(text):
+        path_part, _, fragment = target.partition("#")
+        if path_part:
+            resolved = (md_path.parent / unquote(path_part)).resolve()
+            if not resolved.exists():
+                problems.append(f"{target} -> 目标不存在")
+                continue
+        else:  # 纯页内锚点
+            resolved = md_path
+        if fragment and resolved.is_file() and resolved.suffix == ".md":
+            anchors = _heading_anchors(resolved.read_text(encoding="utf-8"))
+            if unquote(fragment) not in anchors:
+                problems.append(f"{target} -> 锚点不存在")
+    return problems
+
+
+def _iter_link_check_files() -> list[Path]:
+    files: set[Path] = set(REPO_ROOT.glob("*.md"))
+    for root in LINK_CHECK_ROOTS:
+        base = REPO_ROOT / root
+        if not base.is_dir():
+            continue
+        files.update(
+            path
+            for path in base.rglob("*.md")
+            if not LINK_CHECK_SKIP_PARTS & set(path.relative_to(base).parts)
+        )
+    return sorted(files)
+
+
+class TestDocsRelativeLinks:
+    """M50H：markdown 相对链接必须指向存在的目标（含 ``#锚点``）。"""
+
+    # 解析器必须真解析到这个量级的链接；否则下面的用例会因解析失败而空转假绿。
+    MIN_SCANNED_LINKS = 200
+
+    def test_no_broken_relative_links(self) -> None:
+        offenders: list[str] = []
+        for path in _iter_link_check_files():
+            for problem in _link_problems(path):
+                offenders.append(f"{path.relative_to(REPO_ROOT)}: {problem}")
+        assert not offenders, (
+            "发现死链（相对链接指向不存在的目标；归档快照请挪进 archive/ 目录，"
+            "历史文档若需豁免请显式登记）：\n  " + "\n  ".join(sorted(offenders))
+        )
+
+    def test_relative_links_are_actually_scanned(self) -> None:
+        total = sum(
+            len(_relative_link_targets(_read(path)))
+            for path in _iter_link_check_files()
+        )
+        assert total >= self.MIN_SCANNED_LINKS, (
+            f"只解析出 {total} 条相对链接（下限 {self.MIN_SCANNED_LINKS}）；"
+            f"要么文档被删空，要么链接正则与当前写法脱节"
+        )
+
+    def test_parser_flags_broken_target_and_ignores_urls(self, tmp_path: Path) -> None:
+        """漂移注入自检：死链/死锚点必须被抓到，外部 URL 与合法链接不得误报。"""
+        (tmp_path / "target.md").write_text("## Real Heading\n", encoding="utf-8")
+
+        good = tmp_path / "good.md"
+        good.write_text(
+            "# Local\n\n[ok](./target.md#real-heading) "
+            "[ext](https://example.com/x) [self](#local)\n",
+            encoding="utf-8",
+        )
+        assert _link_problems(good) == [], _link_problems(good)
+
+        bad = tmp_path / "bad.md"
+        bad.write_text(
+            "[missing file](./nope.md) [bad anchor](./target.md#nope)\n",
+            encoding="utf-8",
+        )
+        problems = _link_problems(bad)
+        assert len(problems) == 2, problems
+        assert "目标不存在" in problems[0] and "锚点不存在" in problems[1]

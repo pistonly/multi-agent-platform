@@ -35,7 +35,7 @@ MAP_SIMPLE_RUNTIME=cursor ./scripts/start-simple-waker.sh --persona host --once 
 ```
 
 Credentials: `.map/.claude-env` (Claude) or `.map/.cursor-env` (Cursor). See
-[docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md).
+[docs/MAP-SIMPLE-WAKER.md](./MAP-SIMPLE-WAKER.md).
 
 ## Status
 

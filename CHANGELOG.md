@@ -58,6 +58,12 @@
 - **`MAP_AGENT_PROMPT.md` 补回漏列的第 6 个 Skill `experiment-executor`**，并把「安装 5 个」改为
   「安装 6 个」。该文件是分发给外部用户 Agent 的产品面，漏掉 executor 意味着 host 用
   `--executor participant` 委派执行时，被委派方不知道有对应 Skill 可读。
+- **修 4 处文档死链**：`docs/MAP-AGENT-RUNTIME-UNIFIED.md` 的 waker 文档链接多写了 `docs/` 前缀；
+  `docs/prd/v0.12.md` / `v0.13.md` 的评审话题链接仍指向 `map/topics/`（话题已归档到
+  `map/archive/topics/`）；`docs/prd/v0.9.md` 指向已随 legacy runtime-waker 停用的
+  `MAP-RUNTIME-WAKER.md`。同时新增相对链接守卫（`tests/test_docs_consistency.py` 的
+  `TestDocsRelativeLinks`），覆盖 `docs/`、两份 Skill 镜像与根级 md 共 321 条相对链接，
+  含 `#锚点` 存在性校验——文档挪目录导致的静默死链此后会在 CI 变红。
 
 ## [0.16.3] - 2026-09-11
 
