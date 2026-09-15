@@ -1,7 +1,18 @@
 # 优化任务清单
 
+> [!WARNING]
+> **本文件已归档，不再维护（2026-09-15）**。
+> 内容定格在 T45（`b84c75d`，2026-09-02），43/45 项已落地；T46（2026-09-13/14 模块拆分 + MCP 移除）
+> 及其后的工作未登记在此。保留它是因为 T01–T45 的**问题定位、改法权衡与验证手法**只集中记录在这里，
+> 是 git 历史之外的唯一可读出处。
+> - **当前待办请见** [`AUDIT-2026-09-14.md`](AUDIT-2026-09-14.md)（含「执行结果（T46）」与「未做（有意）」两节，
+>   原属本文件的 T35 / T44 已迁至该文）。
+> - **勿据此操作 MCP 相关内容**：MCP 已于 2026-09-14 整体移除（`map-mcp` 入口、`sdk/python/map_mcp/`、
+>   `[mcp]` extra、`Dockerfile.mcp`、`tests/test_mcp*.py` 全删），文中 **T32 / T40** 两处对
+>   `Dockerfile.mcp`、`[mcp]` extra、`test_mcp` 的描述已失效（见对应条目的行内标注）。
+
 > 来源：2026-08-25 对 `server/`、`cli/`、`sdk/`、`tests/`、`web/`、CI 与打包配置的三路静态审查（约 9.7 万行 Python）。
-> 用法：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
+> 用法（归档后停用）：完成一项把 `[ ]` 改成 `[x]`；涉及服务端行为的改动跑 `pytest` 验证（快测用 `./scripts/test-fast.sh`）。
 > 预估口径：小 = 半天内｜中 = 1-3 天｜大 = 超过 3 天。
 
 统计：P0 × 5｜P1 × 27｜P2 × 13，共 45 项。**P0 已全部完成（2026-08-25）**，验证：ruff + alembic 001→051 + 相关测试 83 通过。**P1 已全部完成 27/27（2026-09-01，T24 收官）**：T06-T23、T25-T27、T29（2026-08-25/26）与 T28/T30/T31/T32（2026-09-01）+ T24 分两批（2026-08-26 热路径 / 2026-09-01 e2e 迁移 + deprecated 标记）。P2 已完成 11/13：T39（2026-08-27）、T34/T38（2026-09-01 上午批）、T40/T41/T42/T43（2026-09-01 下午批）与 T33/T36/T37（2026-09-01）、T45（2026-09-02）；T24 2/2 验证：ruff 全绿 + fast gate 1945 passed 50s（T24 测试扩至 16 例）。
@@ -163,6 +174,8 @@
 - [x] **T32 Dockerfile 镜像源 ARG 化 + 非 root 运行**（预估：小）✅ 2026-09-01
   落地：Dockerfile.api / Dockerfile.mcp 新增 `ARG PIP_INDEX_URL`（默认空=官方源，国内构建传 `--build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple`，`--timeout 120 --retries 5` 保留）；`ARG UID/GID=1000` 创建 map 用户（api 侧 `chown -R map:map /app/data` 后 `USER map`，mcp 侧无持久写入统一安全基线）。docker-compose.fs.yml 的 build.args 透传 `MAP_UID/MAP_GID`（默认 1000，建议 `export MAP_UID=$(id -u) MAP_GID=$(id -g)` 对齐宿主），原「root-owned 文件」已知权衡改为 UID/GID 对齐方案。未动 web/Dockerfile（nginx 基础镜像，不在本项位置清单内）。
   位置：`Dockerfile.api` L17-18、`Dockerfile.mcp` L6-7。
+  > **2026-09-15 失效标注**：`Dockerfile.mcp` 与 docker-compose 的 mcp 服务已于 2026-09-14 随 MCP
+  > 整体移除（`750cac5`），本条中「mcp 侧」的描述不再适用于当前代码；`Dockerfile.api` 部分仍有效。
 
 ## P2 可排期项
 
@@ -173,6 +186,9 @@
   落地：`pytest-xdist>=3.6` dev 依赖 + `-n auto` 并行（`scripts/test-fast.sh` / CI PR gate / nightly 全量；本地实测 1933 例 213s→44s）；PR gate 加 `--cov --cov-report=term` 展示 unit subset 覆盖率（不 fail_under——unit 覆盖率不代表整体，全量门禁仍走 nightly → Codecov）；修复 CI 上游连红：`uv sync` 后 `.venv/bin` 不在 PATH，裸调 ruff/mypy/pytest 全部 exit 127，lint 从未真正执行（两 job 各注入 `$GITHUB_PATH`）；`tests/conftest.py` 新增 autouse `reset_cli_options`——CLI 测试改写 `cli.main._cli_options` 泄漏全局态，xdist worker 分组下人类可读断言随机失败；顺带清 ruff 积压（B904/E402/SIM108/I001/F541 等）。**降级**：204 文件按域分子目录机械量大、git 历史噪声高且收益低（pytest 已按 marker 分层），独立为将来可选重构，不再列待办。
 
 - [ ] **T35 alembic 迁移 squash（v1.0 时机）**（预估：中）
+  > **2026-09-15 迁出**：本项已移至 [`AUDIT-2026-09-14.md`](AUDIT-2026-09-14.md)「未做（有意）」节，
+  > 此处仅存档。仍为有意延后（有生产库在跑则迁移历史即部署历史，不宜 squash）。
+
   50 个迁移中约 20 个不足 60 行（011/018/019/020/028/030/040/041/045/049/050 等）。仅在有存量部署评估后于大版本做一次基线重建 + 数据校验脚本；有生产库在跑则保持现状，迁移历史即部署历史。
 
 - [x] **T36 前端依赖升级**（预估：中）✅ 2026-09-01
@@ -190,6 +206,9 @@
 - [x] **T40 依赖与入口清理**（预估：小）✅ 2026-09-01
   落地：dev 组 httpx 冗余声明删除（核心 dependencies 已含）；`mcp` extra 移除 `multi-agent-platform[server]`——经 import 链核查 map_mcp 全模块零 server 依赖（httpx/pydantic/typer 来自核心依赖，starlette 随 mcp 装），原拆 `server-core` 方案直接升级为"不需要"，Dockerfile.mcp Layer 1 依赖清单同步去掉 server extra（fastapi/sqlalchemy/alembic 等不再进镜像，显著减重；server/ 源码仍 COPY 仅为 wheel 打包完整性）；deprecated entry points 1.0 时间表评估完成——console scripts 层零 deprecated（3 入口全主路径），warning 级兼容面（`--format legacy`、2 个 JSON 别名、API `page_size`）在 LEGACY-ENTRY-MATRIX.md 登记「连续两个 minor 无使用告警即移除，最迟 v1.0」。uv.lock 手工同步（requires-dist + optional-dependencies）。
   验证：ruff 全绿 + fast gate 1937 passed（含 test_mcp 全套）。
+  > **2026-09-15 失效标注**：`[mcp]` extra、`sdk/python/map_mcp/`、`tests/test_mcp*.py` 已于
+  > 2026-09-14 随 MCP 整体移除（`750cac5`），本条「mcp extra 减重 / test_mcp 验证」部分不再适用；
+  > dev 组 httpx 冗余删除与 deprecated 入口评估部分仍有效。
 
 - [x] **T41 API 一致性小项**（预估：小）✅ 2026-09-01
   落地：`/agents`、`/webhooks`、`/projects` 三个列表端点补齐 `page`/`page_size` 参数 + `X-Total-Count` 响应头（与 experiments/topics/audit 风格对齐）；`agents.py` 两处 category 归一化抽为 `_normalize_notification_category` helper，422 报错带上参数名；SDK `list_agents`/`list_webhooks`/`list_projects` 透传分页参数；`status_service` 看板聚合显式传 `page_size=None` 取全量。专项测试 `tests/test_optimization_t41.py` 4 例（分页 + total 头 + 422 文案）。
@@ -202,6 +221,9 @@
   验证：ruff 全绿 + fast gate 1940 passed 49s（新增专项测试 `tests/test_optimization_t43.py` 3 例）+ 受影响 slow 测试 167 passed（`test_18a64691_linkage` 3 例失败为改动前既有，需 live server，已 stash 复核确认）。
 
 - [ ] **T44 本地与仓库卫生**（预估：小）⏳ 2026-09-01 落地 1/2
+  > **2026-09-15 迁出**：剩余子项（`git gc`、`test_project/` 迁移）已移至
+  > [`AUDIT-2026-09-14.md`](AUDIT-2026-09-14.md)「未做（有意）」节，此处仅存档。
+
   落地：`build/`、`dist/`（0.8.0 过期产物）、`multi_agent_platform.egg-info/` 本地清理完成。`reference/noise_solver_agent_claudecode` 复查实为无 .gitmodules 的悬空 gitlink（mode 160000、本地目录已空、代码与 CI 零引用，仅 `map/archive/topics/` 归档讨论提及该 persona 名），按用户决定整体移除（untrack + 删空目录 + gitignore `reference/` 防误提交）。`git gc`、`test_project/` 迁移仍为可选项。
   `build/`、`dist/`（过期 0.8.0 产物，当前 0.9.1）、`*.egg-info/` 均已被 gitignore，本地清理即可；偶跑 `git gc --prune=now`（实测 2055 loose objects）；`reference/noise_solver_agent_claudecode` 确认是否仍需跟踪；`test_project/` 是测试 fixture 保留，可选迁 `tests/fixtures/`。
 

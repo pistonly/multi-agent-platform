@@ -54,7 +54,8 @@
 
 ### 运维 / 兼容
 
-- [OPTIMIZATION-TASKS.md](OPTIMIZATION-TASKS.md) — 优化任务清单（2026-08 审查，可勾选跟踪）
+- [AUDIT-2026-09-14.md](AUDIT-2026-09-14.md) — 项目体检报告 + **当前待办（含执行结果与「未做（有意）」）**
+- [OPTIMIZATION-TASKS.md](OPTIMIZATION-TASKS.md) — **历史归档**：T01–T45 优化台账（2026-08/09 冲刺，43/45 完成，已停更；决策理由仅存于此，勿据此操作 MCP 相关段落）
 - [LEGACY-ENTRY-MATRIX.md](LEGACY-ENTRY-MATRIX.md) — 旧入口分类（已退役入口索引）
 - `runbooks/` — 故障排查手册（独立目录，按场景分子目录）
 - `probes/` — 探针脚本（独立目录）
