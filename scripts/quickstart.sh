@@ -3,7 +3,7 @@
 #
 # One command to get MAP running from a fresh clone:
 #   1. Generate Fernet encryption key and write .env
-#   2. Start API + Web + MCP via Docker Compose
+#   2. Start API + Web via Docker Compose
 #   3. Wait for API health check
 #   4. Register the first Admin agent
 #   5. Print next-step instructions (bootstrap + CLI)
@@ -127,7 +127,7 @@ fi
 
 # ── Start Docker services ──────────────────────────────────────────────────
 if [[ -z "$SKIP_DOCKER" ]]; then
-  step 3 "Starting Docker services (API + board :${API_PORT}, MCP)"
+  step 3 "Starting Docker services (API + board :${API_PORT})"
 
   log "Running: docker compose up --build -d"
   docker compose up --build -d
@@ -229,13 +229,8 @@ echo -e "${BOLD}${GREEN}========================================${NC}"
 echo -e "${BOLD}${GREEN}  MAP is ready!${NC}"
 echo -e "${BOLD}${GREEN}========================================${NC}"
 echo ""
-MCP_PORT="8080"
-if [[ -f "docker-compose.override.yml" ]] && grep -q "18081" docker-compose.override.yml 2>/dev/null; then
-  MCP_PORT="18081"
-fi
 echo -e "Services:"
 echo -e "  API+UI:  ${CYAN}${API_URL}/${NC}  (board served from the API origin — same URL for Docker and bare metal)"
-echo -e "  MCP:     ${CYAN}http://localhost:${MCP_PORT}/mcp${NC}"
 echo ""
 
 if [[ -n "${ADMIN_TOKEN:-}" ]]; then

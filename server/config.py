@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     database_url: str = Field(default_factory=default_sqlite_url)
     api_prefix: str = "/api/v1"
     # 8000/8001 是开发端口重灾区（uvicorn/Django 默认口 + 最常见备选口，
-    # 也常被 IDE 端口转发占用）。默认改用不常用的 18400（与 MCP 常用
-    # 的 18081 同段）；如需沿用旧端口设 MAP_PORT=8000 即可。
+    # 也常被 IDE 端口转发占用）。默认改用不常用的 18400；如需沿用旧端口
+    # 设 MAP_PORT=8000 即可。
     port: int = 18400
     debug: bool = False
     # 看板与 API 同源（serve_web=True），默认路径不触发 CORS；5173 留给

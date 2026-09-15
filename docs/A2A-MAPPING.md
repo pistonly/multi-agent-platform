@@ -75,6 +75,6 @@
 
 ## 3. 定位边界
 
-- MAP 本仓库协作走 **persona + `map` CLI**（见 [QUICKSTART](./QUICKSTART.md)）；外部项目可用 MCP 或 CLI 任一接入（见 [MCP](./MCP.md)）
+- MAP 本仓库协作走 **persona + `map` CLI**（见 [QUICKSTART](./QUICKSTART.md)）；外部项目同样用 `map` CLI / SDK 接入
 - A2A 映射仅为**互操作可行性验证**：让 MAP 对象可被 A2A 生态识别为 Agent / Task，不承诺反向（A2A → MAP）写路径
 - 未来双向网关（A2A transport、跨组织发现）超出 v0.11 范围

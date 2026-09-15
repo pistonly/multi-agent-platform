@@ -61,7 +61,44 @@ CAPPED_FILES: list[str] = [
     "server/services/notification_inbox.py",
     "server/services/phase_service.py",
     "server/services/phase_completion.py",
+    # --- T46 新增登记 ---
+    # 这两个是 2026-09-14 体检发现的「白名单逃逸」：migration_manifest_service
+    # 1209 行（2026-09-05 新建）、runner.py 809 行，都没进过本清单。现已各自
+    # 拆分到上限以下并登记（拆分产物一并登记）。
+    "server/services/migration_manifest_service.py",
+    "server/services/migration_manifest_stale.py",
+    "server/services/migration_manifest_lkg.py",
+    "server/services/migration_manifest_execute.py",
+    "cli/runner.py",
+    "cli/runner_resolve.py",
 ]
+
+# ---------------------------------------------------------------------------
+# 全仓扫描（T46）：只查白名单会让「新建的大文件」天然逃逸——上面那两个就是
+# 这样长到 1209 行没人知道的。这里补一道全量扫描兜底，与 mypy 门禁同一类洞。
+# ---------------------------------------------------------------------------
+SCAN_ROOTS: tuple[str, ...] = ("cli", "server", "sdk/python", "lib")
+SCAN_EXCLUDE_PARTS: frozenset[str] = frozenset({"__pycache__", "_migrate"})
+
+
+def _iter_prod_modules() -> list[str]:
+    rel_paths: list[str] = []
+    for root in SCAN_ROOTS:
+        for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            if SCAN_EXCLUDE_PARTS & set(path.parts):
+                continue
+            rel_paths.append(path.relative_to(REPO_ROOT).as_posix())
+    return rel_paths
+
+
+@pytest.mark.parametrize("rel_path", _iter_prod_modules())
+def test_no_unregistered_oversized_module(rel_path: str) -> None:
+    """全仓兜底：任何生产模块超过 800 行即失败（不问是否登记过）。"""
+    actual = sum(1 for _ in (REPO_ROOT / rel_path).open(encoding="utf-8"))
+    assert actual <= MAX_LINES, (
+        f"{rel_path} is {actual} lines (cap={MAX_LINES}) — 拆到上限以下，"
+        "或在本文件显式登记并说明理由。"
+    )
 
 
 @pytest.mark.parametrize("rel_path", CAPPED_FILES)

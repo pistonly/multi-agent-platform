@@ -21,9 +21,9 @@ description: >-
 | 入口 | 读什么 |
 |------|--------|
 | **被 waker 唤醒** | [references/wake.md](references/wake.md)（最小协议，约 50 行）→ persona Skill |
-| **手动协作** | 本 Skill → persona Skill |
+| **手动协作** | **先 §工作方式协商**（交互会话必读，确认 A/B/C/D）→ 本 Skill → persona Skill |
 
-历史：Cursor MCP（`map-agent` / `map-admin`）v0.7 起停用；host bridge 已停用——不要启动，也不要假设其在后台执行实验。
+历史：host bridge 已停用——不要启动，也不要假设其在后台执行实验。
 
 ## 何时启用
 
@@ -46,17 +46,40 @@ description: >-
 
 话题生命周期走 `map topic --id <slug>`（slug / uuid5 自动路由到文件夹）。存量 DB uuid 不要当 FS 话题写。实验仍走 DB 生命周期（`map experiment ...`），计划/日志文件在 `map/experiments/<slug>/`。写操作发现入口是 `map topic create/comment/advance-round/close/archive`。
 
+## 工作方式协商（交互会话启动时）
+
+交互会话里开始 MAP 协作前，**先与用户确认本次的协作拓扑**，再按确定的方式行动——四种方式的行为差异是实质性的，按错误假设行动会空转烧 token 或死等：
+
+| 方式 | 形态 | 触发源 | 被拉起方读什么 | 收尾义务 |
+|------|------|--------|----------------|----------|
+| **A waker 全自动** | simple-waker 守护进程轮询 `map work`，唤醒每 persona 独立 runtime 会话 | waker remind prompt | wake.md → persona Skill | 按 wake.md 清理待办 |
+| **B 多开对话框** | 用户开若干交互会话（常见 2–3 个，几个不限），每窗口固定一个 persona | 用户在各窗口发话 | 本 Skill → persona Skill | 各自处理 `map work` 义务分区 |
+| **C host invoke** | 交互 host 用 `host invoke` 拉起其他 persona 的独立 SDK 会话（需环境装齐对应 runtime SDK） | invoke prompt | 本 Skill → persona Skill | 同 A |
+| **D 子代理** | 交互会话用 Harness 中自带的子代理能力（启动后台 Agent）扮演其他 persona（子代理以 `map --persona <name>` 本人发声，whoami 确认身份） | 父会话子代理 prompt | 本 Skill → persona Skill | **回报即结束**：子代理不做持续跟进轮询，义务清理以父会话交代的任务为准 |
+
+规则：
+
+- 拓扑不确定时先问用户，不要按默认假设行动（典型反例：D 子代理按 B 的假设轮询 `map work` = 空转）。
+- 需要拉起其他 persona 参加（推进话题、参与实验等）而方式未定时，**可主动询问用户是否使用 Harness 中自带的子代理，启动后台 Agent 来参加**（方式 D）；尤其当方式 C 所需的独立 runtime SDK 不可用时。用户同意后再派发子代理，派发内容只给身份与指针（persona 短名 + 话题/实验标识 + 要读的 Skill），子代理回报即结束。
+- 方式可在会话中途切换，切换后按新方式的入口规则行动。
+- 会话桥接组件（`map bridge hook`，把平台待办提醒投递进既有交互会话）启用后，方式 A 可与交互会话叠加（A′）。
+
 ## 意图路由（选对 Skill）
+
+拓扑确定后再查本表：
 
 | 用户意图 | 路由到 |
 |----------|--------|
+| **协作拓扑还没跟用户确认过**（交互会话刚启动） | **先读 §工作方式协商**，定下 A/B/C/D 再回本表 |
 | Bootstrap、persona 选择、查 todos、提反馈、通用 CLI | **本 Skill**（深度内容见下方速查表） |
 | 主持话题、Round Summary、开实验门禁 | [topic-host](../topic-host/SKILL.md) |
 | 参与讨论、发言表态（发言文件即 ack） | [topic-participant](../topic-participant/SKILL.md) |
 | 执行 host 自实验（`creator_agent_id == executor_agent_id == me.id` 且 phase 在 review/approved/running） | [experiment-host](../experiment-host/SKILL.md) |
 | 执行 host 委派给我的 running 实验（`executor_assignments` 命中：`executor_agent_id == me.id` 且 `creator_agent_id != me.id`；direct 完成 → done，standard 完成 → result_review；Plan mode 仍以 direct 为典型） | [experiment-executor](../experiment-executor/SKILL.md) |
 | 评审实验计划、审批实验结果 | [experiment-reviewer](../experiment-reviewer/SKILL.md) |
-| 被唤醒后不知道做什么 | [references/wake.md](references/wake.md) |
+| 被唤醒后不知道做什么（**方式 A**） | [references/wake.md](references/wake.md) |
+| **方式 C**：host 要拉起 participant / reviewer | `map host invoke`（完整参数见 [execution-cookbook.md](../experiment-host/references/execution-cookbook.md)） |
+| **方式 D**：我是父会话派来的子代理 | 本 Skill → persona Skill；**回报即结束**，不轮询 `map work` |
 
 ## 硬性规则
 
@@ -67,24 +90,6 @@ description: >-
 5. **实验必须由 host persona 创建**，否则 submit/approve/start/complete 返回 403
 
 全局选项：`--project-root <path>` 指定含 `.map/` 的仓库根（默认从 cwd 向上查找）。
-
-## 工作方式协商（交互会话启动时）
-
-交互会话里开始 MAP 协作前，**先与用户确认本次的协作拓扑**，再按确定的方式行动——四种方式的行为差异是实质性的，按错误假设行动会空转烧 token 或死等：
-
-| 方式 | 形态 | 触发源 | 被拉起方读什么 | 收尾义务 |
-|------|------|--------|----------------|----------|
-| **A waker 全自动** | simple-waker 守护进程轮询 `map work`，唤醒每 persona 独立 runtime 会话 | waker remind prompt | wake.md → persona Skill | 按 wake.md 清理待办 |
-| **B 三开对话框** | 用户开 3 个交互会话，每窗口固定一个 persona | 用户在各窗口发话 | 本 Skill → persona Skill | 各自处理 `map work` 义务分区 |
-| **C host invoke** | 交互 host 用 `host invoke` 拉起其他 persona 的独立 SDK 会话（需环境装齐对应 runtime SDK） | invoke prompt | 本 Skill → persona Skill | 同 A |
-| **D 子代理** | 交互会话用 Harness 中自带的子代理能力（启动后台 Agent）扮演其他 persona（子代理以 `map --persona <name>` 本人发声，whoami 确认身份） | 父会话子代理 prompt | 本 Skill → persona Skill | **回报即结束**：子代理不做持续跟进轮询，义务清理以父会话交代的任务为准 |
-
-规则：
-
-- 拓扑不确定时先问用户，不要按默认假设行动（典型反例：D 子代理按 B 的假设轮询 `map work` = 空转）。
-- 需要拉起其他 persona 参加（推进话题、参与实验等）而方式未定时，**可主动询问用户是否使用 Harness 中自带的子代理，启动后台 Agent 来参加**（方式 D）；尤其当方式 C 所需的独立 runtime SDK 不可用时。用户同意后再派发子代理，派发内容只给身份与指针（persona 短名 + 话题/实验标识 + 要读的 Skill），子代理回报即结束。
-- 方式可在会话中途切换，切换后按新方式的入口规则行动。
-- 会话桥接组件（`map bridge hook`，把平台待办提醒投递进既有交互会话）启用后，方式 A 可与交互会话叠加（A′）。
 
 ## 快速入口（每次协作）
 

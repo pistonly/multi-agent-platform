@@ -98,5 +98,5 @@ map --persona host work --notification-category wakeable
 | metadata 文件不存在 / YAML 读失败 | 先创建或修正 evidence 文件，再重跑 `pre-complete`；不要把 traceback 当作 MAP 已写入 |
 | `complete` 缺 evidence | metadata 至少包含 `pytest_summary`、`alembic_current`、`api_health`、`image_digest` 或 `evidence`；非部署型才显式 `--allow-missing-evidence` |
 | lock busy | 用 `experiment status` 看 holder；必要时 `lock skip --next-attempt-at <ISO8601>` 退避 |
-| `403` lifecycle | 核对实验是否由当前 host persona 创建；不要换 MCP/admin 代跑 |
+| `403` lifecycle | 核对实验是否由当前 host persona 创建；不要换 admin 代跑 |
 | `result_review` 仍出现在清单 | 这是等待 reviewer 的可见性，不是 host 可执行项 |

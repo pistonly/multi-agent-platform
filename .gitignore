@@ -25,6 +25,9 @@ ENV/
 # Testing / coverage
 .pytest_cache/
 .coverage
+# T46：xdist/pytest-cov 的 per-worker 数据文件（.coverage.<host>.<pid>.<rand>）
+# 原先只忽略 .coverage，全量跑完会在仓库根留下一堆未跟踪文件。
+.coverage.*
 htmlcov/
 .tox/
 .nox/

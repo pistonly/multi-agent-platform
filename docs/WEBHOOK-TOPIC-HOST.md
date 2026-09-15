@@ -126,14 +126,6 @@ Webhook payload (topic_id, comment_id)
         → LLM 生成回复 → create_topic_comment
 ```
 
-### MCP 等价调用
-
-```
-get_topic(topic_id=...)
-get_todos()
-create_topic_comment(topic_id=..., body=..., parent_id=...)
-```
-
 ### CLI 等价
 
 ```bash

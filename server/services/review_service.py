@@ -671,7 +671,7 @@ def update_review_item(
 
 # Terminal status values that the I1(c) state migration collapses into
 # ``closed``. Existing callers (CLI ``--status resolved``, review dashboard
-# PATCHes, MCP tools) keep sending the legacy values; the API layer rewrites
+# PATCHes) keep sending the legacy values; the API layer rewrites
 # them on the way to the database so the new ``closed`` terminal becomes the
 # single source of truth.
 #

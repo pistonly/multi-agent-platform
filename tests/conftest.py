@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -276,24 +277,31 @@ def admin_headers(admin_token: tuple[str, str]) -> dict[str, str]:
 
 
 @pytest.fixture
-def project(client: TestClient, admin_headers: dict[str, str]) -> dict:
-    # fixture workspace 是固定路径：跨测试运行的 FS 话题/实验目录残留会进
-    # plane 扫描，污染合并列表断言（test_topics / test_todos 的「存量失败」
-    # 即此根因，实验 0f271f7e 清场实证）。每个测试开始前清空，需要 FS 状态
-    # 的测试自行创建。
-    shutil.rmtree("/tmp/test-project", ignore_errors=True)
+def project(
+    client: TestClient, admin_headers: dict[str, str], tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[dict]:
+    # workspace 必须「每个测试独占一个目录」。原先是固定 /tmp/test-project +
+    # 每个测试开头 rmtree 清场：xdist 多 worker 并行时这条路径被所有 worker
+    # 共用，A worker 的清场会删掉 B worker 刚写进 plane 的话题目录，表现为
+    # 「只在 -n auto 全量下失败、单跑必过」的随机红
+    # （test_direct_executor_e2e.py::test_direct_complete_emits_topic_close_pending）。
+    # 改为 tmp_path_factory 造唯一目录 + teardown 清理：既消除跨 worker 争用，
+    # 也保留「每个测试从空 workspace 开始」的原语义。
+    workspace = tmp_path_factory.mktemp("map-project")
     response = client.post(
         "/api/v1/projects",
         headers=admin_headers,
         json={
             "project_key": "test-project",
             "name": "Test Project",
-            "workspace_path": "/tmp/test-project",
+            "workspace_path": str(workspace),
             "description": "测试项目",
         },
     )
     assert response.status_code == 201
-    return response.json()
+    data = response.json()
+    yield data
+    shutil.rmtree(workspace, ignore_errors=True)
 
 
 @pytest.fixture

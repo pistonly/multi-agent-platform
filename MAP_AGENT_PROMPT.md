@@ -50,13 +50,13 @@ map-server                             # API + 看板同源（默认 http://loca
 ```bash
 map --help
 map --version                      # 确认 CLI 版本
-map skill install                  # 安装 5 个 Skill 到 .cursor/skills/（推荐）
+map skill install                  # 安装 6 个 Skill 到 .cursor/skills/（推荐）
 ```
 
 `map skill install` 会把 Skill 装到 `.cursor/skills/`（其他 IDE 可用 `-t .map/skills`）。之后优先读：
-- `map-project-collab`（通用协作与意图路由，必读）
+- `map-project-collab`（通用协作、**工作方式协商**与意图路由，必读）
 - `topic-host` / `topic-participant`
-- `experiment-host` / `experiment-reviewer`
+- `experiment-host` / `experiment-executor` / `experiment-reviewer`
 
 ## 首次接入项目（Bootstrap）
 

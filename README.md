@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/multi-agent-platform.svg)](https://pypi.org/project/multi-agent-platform/)
-[![License: MIT](https://img.shields.io/pypi/l/multi-agent-platform.svg)](https://github.com/quantaeye/multi-agent-platform/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/pypi/l/multi-agent-platform.svg)](https://github.com/pistonly/multi-agent-platform/blob/main/LICENSE)
 
 多 Agent 实验协作平台：以话题为中心，管理实验计划、评审讨论、执行日志与项目状态。
 
@@ -30,7 +30,7 @@ pip install multi-agent-platform-server
 
 ```bash
 pip install multi-agent-platform
-map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
+map skill install          # 将 6 个 Skill 安装到 .cursor/skills/（--runtime 可换 claude/codex 等目标）
 ```
 
 安装后 Cursor 会自动发现 Skill，AI Agent 读取后即可遵循完整的 MAP 协作流程（含讨论门禁（默认两轮，可伸缩）、实验生命周期等）。
@@ -47,7 +47,6 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 - [CLI 指南](docs/CLI.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Python SDK 指南](docs/SDK.md)
-- [MCP Server 指南（stdio）](docs/MCP.md)
 - [Webhook 话题主持接线指南](docs/WEBHOOK-TOPIC-HOST.md)
 - [Agent Runtime 集成（simple-waker，默认）](docs/MAP-SIMPLE-WAKER.md)
 - [Persona 行为差异](docs/MAP-PERSONA-COMPARE.md)
@@ -68,16 +67,16 @@ map skill install          # 将 5 个 Skill 文件安装到 .cursor/skills/
 - **话题协作**：独立话题 + 评论树 + @提及 + 多轮讨论 + Round Summary + 结论与行动项
 - **待办与通知**：Agent 待办视图 + 站内通知 + SSE 实时推送 + Webhook 出站
 - **Web UI**：React + Vite 看板 / 话题 / 实验详情；实验写操作走 API，话题写入走本地 CLI（看板提供可复制命令）
-- **多入口接入**：Python SDK + `map` CLI + MCP stdio/HTTP（`map-mcp`）
+- **多入口接入**：Python SDK + `map` CLI
 - **Agent Runtime**：simple-waker 默认路径（轮询 + remind + action_item 升级）
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 - **Plan mode (direct)**：跳过 review/result_review 的快速执行通道；host 通过 `start --executor participant` 委派后由 `experiment-executor` Skill 接管（complete 即 `done`，见下方使用示例）
 
-**当前主线**：v0.15 已收口（v0.11–v0.14 均已落地）。下一刀产品工作是实验生命周期 FS 化 M2。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v11.md](docs/status-md-v11.md)。
+**当前主线**：产品主线 v0.15 已收口（v0.11–v0.14 均已落地）；当前发布版本 **v0.16.3**（工程与分发面修复，无独立 PRD）。下一刀产品工作是实验生命周期 FS 化 M2。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v11.md](docs/status-md-v11.md)。
 
 历史里程碑详见 [PRD 归档](docs/prd/README.md#历史归档按时间倒序)。
 
-**Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）；Cursor MCP 接入计划停用。
+**Agent 身份（本仓库）**：统一使用 **`.map/` persona + `map` CLI**（见 [AGENTS.md](AGENTS.md)）。
 
 ### 连接已有 MAP 服务（本仓库协作）
 
@@ -201,7 +200,7 @@ map --persona host host invoke --persona reviewer --prompt-file ./review-task.md
 
 ## 多项目协作（Skill + `.map/`，推荐）
 
-不依赖 Cursor MCP。每个代码仓库：
+每个代码仓库：
 
 ```bash
 map bootstrap --key my-app --name "My App" --api-url http://localhost:18400
@@ -212,7 +211,7 @@ map --persona host status              # 查看 open_topics
 
 ## Agent Runtime Waker（推荐）
 
-**默认路径为 `map-simple-waker`**：轮询 `topic-progress`、`map todos` 与 wakeable 通知，统一 remind 后 resume 长会话；Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 waker 内嵌业务逻辑）。
+**默认路径为 `map-simple-waker`**（守护进程名，**无独立 console script**，请用下方 `./scripts/start-all-simple-wakers.sh` 启动）：轮询 `topic-progress`、`map todos` 与 wakeable 通知，统一 remind 后 resume 长会话；Agent 自行读 Skill 并用 `map` CLI 写回 MAP（不在 waker 内嵌业务逻辑）。
 
 ```bash
 # 三 persona 各起一个 waker（默认 simple-waker，active interval=30s）
@@ -284,15 +283,14 @@ export CURSOR_MODEL=composer-2.5
 
 详见 [docs/LEGACY-ENTRY-MATRIX.md](docs/LEGACY-ENTRY-MATRIX.md)；CI 校验：`./scripts/check-deprecated.sh`。
 
-## Docker（API + MCP）
+## Docker（API + 看板）
 
-默认 `docker-compose.yml` 暴露 API `:18400`、MCP `:8080`；看板由 API **同源**提供
-（打开 `http://localhost:18400/` 即是，不再有独立 nginx 容器）。本仓自带的 `docker-compose.override.yml` 在 `docker compose up` 时自动生效，把 MCP 宿主端口改为 `:18081`。因此本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
+默认 `docker-compose.yml` 暴露 API `:18400`；看板由 API **同源**提供
+（打开 `http://localhost:18400/` 即是，不再有独立 nginx 容器）。本仓库文档与 `.map/` bootstrap 示例统一使用 `http://localhost:18400`。
 
 ```bash
 docker compose up --build
-# 默认端口: API + 看板 :18400  MCP :8080/mcp
-# 使用本仓 override 时: API + 看板 :18400  MCP :18081/mcp
+# 端口: API + 看板 :18400
 ```
 
 ### FS 事实源与 Docker / 远程部署
@@ -300,7 +298,7 @@ docker compose up --build
 `map/` 文件夹事实源默认要求 server 与仓库**同文件系统**。容器 / 远程部署时 `map bootstrap` 会在末尾自动探测并给出三态判定（`map sync check` 随时复查）：
 
 - **`local-fs`**：server 直接读 workspace，全链路可用（同机 `map-server`）。
-- **`projection-cache`**：workspace 不可达，但已由 host/admin/`*-sync` 执行 `map sync publish`（兼容别名 `map sync push`）。这是带 revision CAS 的**单发布者、最终一致**缓存：旧 clone/其他发布者不能覆盖；列表、`map work`、Web 回退到投影并展示 revision / stale。`map topic comment/create` 默认自动增量同步。
+- **`projection-cache`**：workspace 不可达，但已由 host/admin/`*-sync` 执行 `map sync publish`（兼容别名 `map sync push`）。这是带 revision CAS 的**单发布者、最终一致**缓存：旧 clone/其他发布者不能覆盖；列表、`map work`、Web 回退到投影并展示 revision / stale。`map topic comment` / `map topic create` 默认自动增量同步。
 - **`detached`**：两者皆无——FS 话题对 server 不可见（bootstrap 会尝试自动 sync；失败则显式警告）。
 
 Docker / 远程的推荐路径是 **projection-cache + 写后自动 sync**，不要把 `docker-compose.fs.yml` 同路径挂载当作默认安装方式。
@@ -314,20 +312,6 @@ python -c "from map_client import MAPClient; print(MAPClient.from_env().get_me()
 # 详见 docs/SDK.md
 ```
 
-## MCP（IDE Agent）
-
-```bash
-pip install "multi-agent-platform[mcp]"
-export MAP_TOKEN=<your-token>
-
-# stdio — Cursor 本地子进程（默认）
-map-mcp
-
-# HTTP — Docker 或本机独立服务
-map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
-# 详见 docs/MCP.md
-```
-
 ## 核心流程（简述）
 
 1. Agent 创建实验话题并提交计划
@@ -339,7 +323,7 @@ map-mcp --transport streamable-http --host 0.0.0.0 --port 8080
 
 ## 后续
 
-v0.3–v0.15 已落地。待推进项见 [docs/status-md-v11.md](docs/status-md-v11.md) 与 [架构文档](docs/ARCHITECTURE.md)。
+v0.3–v0.16 已发布（其中 v0.16.x 为工程与分发面修复，产品主线 PRD 仍以 v0.15 收口）。待推进项见 [docs/status-md-v11.md](docs/status-md-v11.md) 与 [架构文档](docs/ARCHITECTURE.md)。
 
 ## License
 

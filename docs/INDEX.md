@@ -11,7 +11,6 @@
 | [架构设计](ARCHITECTURE.md) | 系统架构 + 数据模型 + 模块边界 | 工程师 |
 | [CLI 指南](CLI.md) | `map` CLI 命令参考 | 工程师 / Agent |
 | [SDK 指南](SDK.md) | Python SDK 用法 | Agent 开发者 |
-| [MCP Server 指南](MCP.md) | MCP stdio 服务 | Agent 开发者 |
 | [Agent Runtime 集成](MAP-SIMPLE-WAKER.md) | simple-waker 默认路径 | 部署 / 运维 |
 
 ## PRD 历史归档
@@ -34,7 +33,6 @@
 
 - [CLI.md](CLI.md) — `map` CLI 命令
 - [SDK.md](SDK.md) — Python SDK
-- [MCP.md](MCP.md) — MCP Server
 - [A2A-MAPPING.md](A2A-MAPPING.md) — A2A 互操作映射（M53，实验性）
 - [MAP-EVIDENCE-METADATA.md](MAP-EVIDENCE-METADATA.md) — 证据元数据契约
 - [MAP-ERROR-CODES.md](MAP-ERROR-CODES.md) — 错误码清单
