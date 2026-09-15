@@ -40,10 +40,34 @@ FIELD_CACHE_READ = "cache_read_input_tokens"
 # version + 字段映射表。
 # 已知 SDK schema：
 #   - "2.1.191" 实测（spike_note.md:26-48）用 ``input_tokens``
+#   - "2.1.220" / "2.1.233" / "2.1.259" 实测（2026-09-15 本机 runtime home
+#     全量 2435 条 assistant 行验证）字段名与 2.1.191 完全一致
 #   - 历史版本可能用 ``prompt_tokens`` / ``completion_tokens`` 等别名
 # 新版本只需在此追加子 dict。
+# 已知缺陷（待立项）：精确版本号键控意味着 SDK 每次升级都会让新数据落入
+# unknown-version 分支（4 字段全 unknown、成本视图变空）——与 layer1 曾写死
+# 目录名是同一类环境耦合。根治方向：按字段名 schema 探测或维护「现代 schema
+# 默认表 + 例外表」，须先经实验流程确认 fail-explicit 契约边界，故未擅改。
 VERSION_FIELD_MAP: dict[str, dict[str, str]] = {
     "2.1.191": {
+        FIELD_INPUT: "input_tokens",
+        FIELD_OUTPUT: "output_tokens",
+        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
+        FIELD_CACHE_READ: "cache_read_input_tokens",
+    },
+    "2.1.220": {
+        FIELD_INPUT: "input_tokens",
+        FIELD_OUTPUT: "output_tokens",
+        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
+        FIELD_CACHE_READ: "cache_read_input_tokens",
+    },
+    "2.1.233": {
+        FIELD_INPUT: "input_tokens",
+        FIELD_OUTPUT: "output_tokens",
+        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
+        FIELD_CACHE_READ: "cache_read_input_tokens",
+    },
+    "2.1.259": {
         FIELD_INPUT: "input_tokens",
         FIELD_OUTPUT: "output_tokens",
         FIELD_CACHE_CREATION: "cache_creation_input_tokens",

@@ -23,10 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from cli.cost_ledger.layer1_collector import (  # noqa: E402
-    PROJECT_DIR_SUFFIX,
     RUNTIME_HOME_PERSONAS,
     RawUsageEvent,
     _runtime_home_for,
+    project_dir_name,
     scan_runtime_homes,
     scan_session_jsonl,
 )
@@ -35,7 +35,7 @@ from cli.cost_ledger.layer1_collector import (  # noqa: E402
 def _write_runtime_home(project_root: Path, persona: str, lines: list[str]) -> Path:
     """Helper: write a synthetic jsonl file under runtime home for persona."""
     runtime_home = _runtime_home_for(project_root, persona)
-    project_dir = runtime_home / ".claude" / "projects" / PROJECT_DIR_SUFFIX
+    project_dir = runtime_home / ".claude" / "projects" / project_dir_name(project_root)
     project_dir.mkdir(parents=True, exist_ok=True)
     session_file = project_dir / "test-session.jsonl"
     session_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -123,7 +123,7 @@ def test_case_b_non_assistant_lines_skipped(tmp_path: Path) -> None:
 def test_case_c_corrupt_line_warns_and_skips(tmp_path: Path) -> None:
     """Case (c): 半截 JSON 行 → RuntimeWarning + 跳过（聚合不崩）。"""
     runtime_home = _runtime_home_for(tmp_path, "host")
-    project_dir = runtime_home / ".claude" / "projects" / PROJECT_DIR_SUFFIX
+    project_dir = runtime_home / ".claude" / "projects" / project_dir_name(tmp_path)
     project_dir.mkdir(parents=True)
     session_file = project_dir / "sess.jsonl"
     session_file.write_text(
@@ -231,6 +231,47 @@ def test_case_h_missing_runtime_home_returns_empty(tmp_path: Path) -> None:
     """Case (h): .map/claude-runtime-home-* 不存在 → 空 iter（跨主机 / 全新 repo）。"""
     events = list(scan_runtime_homes(tmp_path))
     assert events == []
+
+
+# =========================================================================
+# Case (i) 旧机器遗留目录名仍能扫到（rglob 兜底；曾因写死目录名而静默丢数据）
+# =========================================================================
+
+
+def test_case_i_legacy_foreign_machine_dir_still_scanned(tmp_path: Path) -> None:
+    """Case (i): .claude/projects/ 下的目录名与本项目无关（如旧机器路径段）→ 仍扫描。
+
+    回归背景：PROJECT_DIR_SUFFIX 曾写死 '-home-AI02-...-platform'，换机器后
+    project_dir 精确匹配失败 → 采集静默返回空。现在按 rglob 扫全部子目录。
+    """
+    legacy_dir = (
+        _runtime_home_for(tmp_path, "host")
+        / ".claude"
+        / "projects"
+        / "-home-AI02-Documents-quantaeye-multi-agents-platform"
+    )
+    legacy_dir.mkdir(parents=True)
+    session_file = legacy_dir / "legacy-session.jsonl"
+    session_file.write_text(
+        _assistant_line(session_id="sess-legacy") + "\n", encoding="utf-8"
+    )
+    events = list(scan_runtime_homes(tmp_path))
+    assert len(events) == 1
+    assert events[0].session_id == "sess-legacy"
+    assert events[0].persona == "host"
+
+
+# =========================================================================
+# Case (j) project_dir_name 编码规则（非字母数字 → '-'，含 '_' 与 '.'）
+# =========================================================================
+
+
+def test_case_j_project_dir_name_encoding(tmp_path: Path) -> None:
+    """Case (j): cwd 编码与 Claude Code 实测一致——'/'、'_'、'.' 均替换为 '-'。"""
+    assert project_dir_name(Path("/home/AI02/x")) == "-home-AI02-x"
+    assert project_dir_name(Path("/Volumes/disk_2/repo.name")) == (
+        "-Volumes-disk-2-repo-name"
+    )
 
 
 # =========================================================================

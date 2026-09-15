@@ -47,6 +47,14 @@
 
 ### Fixed
 
+- **成本账本 layer1 采集器修复「换机器即静默空采」**：`cli/cost_ledger/layer1_collector.py` 曾把
+  开发机路径段 `-home-AI02-Documents-quantaeye-multi-agents-platform` 写死为 `.claude/projects/`
+  下的精确目录名，换机器 / 改目录名后扫描静默返回空（本机实测 0 事件）。现提供
+  `project_dir_name()` 按 `project_root` 现算编码目录名（非字母数字 → `-`），且扫描改为
+  rglob 遍历 `projects/` 全部子目录兜底（runtime home 本身位于项目 `.map/` 内，无跨项目误采）。
+- **layer2 映射表补 3 个实测版本**：真实数据含 SDK 2.1.220 / 2.1.233 / 2.1.259，字段名与
+  2.1.191 一致；此前精确版本键控使全部真实数据落入 unknown-version 分支。已知缺陷
+  （SDK 升级需手动追加映射表）已在代码注释登记，待立项根治。
 - **`MAP_AGENT_PROMPT.md` 补回漏列的第 6 个 Skill `experiment-executor`**，并把「安装 5 个」改为
   「安装 6 个」。该文件是分发给外部用户 Agent 的产品面，漏掉 executor 意味着 host 用
   `--executor participant` 委派执行时，被委派方不知道有对应 Skill 可读。

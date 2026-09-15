@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -31,10 +33,19 @@ _log = logging.getLogger("cli.cost_ledger.layer1_collector")
 # persona -> runtime home 子目录名（固定三种，与 cli/simple_waker.py 一致）
 RUNTIME_HOME_PERSONAS: tuple[str, ...] = ("host", "participant", "reviewer")
 
-# project_dir 是 runtime home 下 .claude/projects/<cwd-hash> 的最后一段
-# cwd 路径里的 '/' 替换为 '-'（实测 spike_note.md 验证）
-# 例：/home/AI02/.../multi_agents_platform → -home-AI02-...-multi_agents_platform
-PROJECT_DIR_SUFFIX = "-home-AI02-Documents-quantaeye-multi-agents-platform"
+# project_dir 是 runtime home 下 .claude/projects/<encoded-cwd>/ 的最后一段。
+# Claude Code 的编码规则：cwd 绝对路径里所有非 [0-9A-Za-z] 字符替换为 '-'
+# （'/Volumes/disk_2/x' → '-Volumes-disk-2-x'；'/'、'_'、'.' 同样替换）。
+# 历史教训（实验 e63ec33e 后续修订）：此值曾写死开发机器路径段
+# '-home-AI02-Documents-quantaeye-multi-agents-platform'，换机器后采集
+# 静默返回空。现按 project_root 现算，且扫描时不再依赖该目录名（见
+# _project_jsonl_paths 的 rglob 兜底），目录名只用于写测试夹具。
+def project_dir_name(project_root: Path) -> str:
+    """Encode ``project_root`` the way Claude Code names ``.claude/projects/`` dirs."""
+    # abspath 而非 resolve()：不触碰文件系统（macOS 上 /home 是 autofs，
+    # resolve() 会把 /home/x 改写成 /System/Volumes/Data/home/x）。
+    # abspath 恒为绝对路径，首字符 '/' 经替换即得首导 '-'，无需再前置。
+    return re.sub(r"[^0-9A-Za-z]", "-", os.path.abspath(project_root))
 
 
 @dataclass(frozen=True)
@@ -64,18 +75,19 @@ def _project_jsonl_paths(project_root: Path) -> Iterator[tuple[str, Path]]:
     """Yield ``(persona, jsonl_path)`` for every session file under 3 runtime homes.
 
     路径契约：
-      ``<project_root>/.map/claude-runtime-home-<persona>/.claude/projects/<PROJECT_DIR_SUFFIX>/<session_id>.jsonl``
+      ``<project_root>/.map/claude-runtime-home-<persona>/.claude/projects/<encoded-cwd>/<session_id>.jsonl``
 
-    与 simple-waker / claude-runtime SDK 默认 layout 对齐。
+    与 simple-waker / claude-runtime SDK 默认 layout 对齐。扫描按 ``rglob``
+    兜底：不假设 encoded-cwd 目录名（跨机器 / 目录改名 / 旧机器数据拷贝
+    都能扫到）——runtime home 本身就位于项目 ``.map/`` 内，其下所有
+    session 均属于本项目，不存在跨项目误采。
     """
     for persona in RUNTIME_HOME_PERSONAS:
         runtime_home = _runtime_home_for(project_root, persona)
-        if not runtime_home.is_dir():
+        projects_root = runtime_home / ".claude" / "projects"
+        if not projects_root.is_dir():
             continue
-        project_dir = runtime_home / ".claude" / "projects" / PROJECT_DIR_SUFFIX
-        if not project_dir.is_dir():
-            continue
-        for jsonl_path in sorted(project_dir.glob("*.jsonl")):
+        for jsonl_path in sorted(projects_root.rglob("*.jsonl")):
             yield persona, jsonl_path
 
 
@@ -145,7 +157,7 @@ def scan_runtime_homes(project_root: Path) -> Iterator[RawUsageEvent]:
     """Scan all 3 persona runtime homes; yield ``RawUsageEvent`` for every assistant row.
 
     主入口。CLI ``map experiment show --cost`` / ``map waker costs --by-*``
-    通过 lib/cost_ledger/aggregation.py 调用本函数做 raw 扫描。
+    经 cli/cost_ledger/orchestrator.py 调用本函数做 raw 扫描。
     """
     for persona, jsonl_path in _project_jsonl_paths(project_root):
         yield from scan_session_jsonl(jsonl_path, persona=persona)
@@ -154,7 +166,7 @@ def scan_runtime_homes(project_root: Path) -> Iterator[RawUsageEvent]:
 __all__ = [
     "RawUsageEvent",
     "RUNTIME_HOME_PERSONAS",
-    "PROJECT_DIR_SUFFIX",
+    "project_dir_name",
     "scan_runtime_homes",
     "scan_session_jsonl",
     "_runtime_home_for",

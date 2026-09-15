@@ -32,8 +32,8 @@ from cli.cost_ledger.attribution import (  # noqa: E402
     ExperimentWindow,
 )
 from cli.cost_ledger.layer1_collector import (  # noqa: E402
-    PROJECT_DIR_SUFFIX,
     _runtime_home_for,
+    project_dir_name,
 )
 from cli.cost_ledger.orchestrator import (  # noqa: E402
     cost_breakdown_to_yaml_dict,
@@ -82,7 +82,7 @@ def _write_session_jsonl(
     独立文件对应 layer1 source_file → attribution 不会合并）。
     """
     runtime_home = _runtime_home_for(project_root, persona)
-    project_dir = runtime_home / ".claude" / "projects" / PROJECT_DIR_SUFFIX
+    project_dir = runtime_home / ".claude" / "projects" / project_dir_name(project_root)
     project_dir.mkdir(parents=True, exist_ok=True)
     session_file = project_dir / filename
     session_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -356,7 +356,7 @@ def test_case_g_match_breakdown_four_buckets(tmp_path: Path) -> None:
     )
     # 2. file_window → source_file 含 EXP_B UUID (但要避开 session_id 自身)
     runtime_home = _runtime_home_for(tmp_path, "participant")
-    project_dir = runtime_home / ".claude" / "projects" / PROJECT_DIR_SUFFIX
+    project_dir = runtime_home / ".claude" / "projects" / project_dir_name(tmp_path)
     project_dir.mkdir(parents=True, exist_ok=True)
     # 文件名 = EXP_B_xxx.jsonl；EXP_B 在前
     file_path = project_dir / f"exp_{EXP_B}_session.jsonl"
