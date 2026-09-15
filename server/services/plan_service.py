@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from map_types.enums import ReviewArchivedReason
 from sqlalchemy import select
@@ -22,6 +25,10 @@ from server.domain.schemas import PlanRevise
 from server.domain.state_machine import ReviewItemTransitionContext, validate_review_item_transition
 from server.services.errors import ForbiddenError, NotFoundError, StateTransitionError
 from server.services.project_service import get_experiment
+
+if TYPE_CHECKING:
+    # 仅注解用：运行时在函数内按需 import，保持原导入时机。
+    from map_types.schemas.plan import PlanVersionRead
 
 _STUB_PREFIXES = ("See file: ", "<!-- slim create:")
 
@@ -65,7 +72,10 @@ def resolve_plan_content(db: Session, experiment, plan: PlanVersion) -> str:
         "map experiment plan materialize --id <exp-id> 把 DB 正文物化为 "
         "map/experiments/<slug>/plan.md；跨机部署需先同步 map/ 目录。"
     )
-    plan_file_path = getattr(experiment, "plan_file_path", None)
+    # getattr 而非直接取属性：plan_file_path 是实验上的可选列，历史行可能为 NULL
+    # 或尚未迁移；cast 只是把 Any 钉成真实类型（否则 `Path(...) / Any` 让
+    # 下游 read_text() 也变 Any，在 no-any-return 下报错）。
+    plan_file_path = cast(str | None, getattr(experiment, "plan_file_path", None))
     if not plan_file_path:
         raise ConflictError(
             f"{guidance}\n（当前实验无 plan_file_path——从未物化过。）",
@@ -87,7 +97,9 @@ def resolve_plan_content(db: Session, experiment, plan: PlanVersion) -> str:
         ) from exc
 
 
-def _resolved_read(db: Session, experiment, plan: PlanVersion):
+def _resolved_read(
+    db: Session, experiment, plan: PlanVersion
+) -> PlanVersionRead:
     """ORM PlanVersion → PlanVersionRead，content_md 经 ``resolve_plan_content``。"""
     from map_types.schemas.plan import PlanVersionRead
 
@@ -103,14 +115,16 @@ def list_plans_resolved(
     experiment_id: uuid.UUID,
     *,
     limit: int = 50,
-) -> list:
+) -> list[PlanVersionRead]:
     """API 读面收口（A3-1）：列 plan 版本，content_md 走统一 resolve。"""
     experiment = get_experiment(db, experiment_id)
     plans = list_plans(db, experiment_id, limit=limit)
     return [_resolved_read(db, experiment, p) for p in plans]
 
 
-def get_plan_version_resolved(db: Session, experiment_id: uuid.UUID, version: int):
+def get_plan_version_resolved(
+    db: Session, experiment_id: uuid.UUID, version: int
+) -> PlanVersionRead:
     """API 读面收口（A3-1）：单版读取，content_md 走统一 resolve。"""
     experiment = get_experiment(db, experiment_id)
     plan = get_plan_version(db, experiment_id, version)

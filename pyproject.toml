@@ -189,6 +189,7 @@ module = [
     "server.services.topic_lifecycle_service",
     "server.services.topic_resolve_service",
     "server.services.topic_action_item_ops",
+    "server.services.plan_service",
 ]
 # 为什么这里不写 ``strict = true``：mypy 的 ``strict`` 只有在「全局 section」才
 # 按预期语义生效——写在 per-module section 里不会局限到该模块，而是把整轮检查
