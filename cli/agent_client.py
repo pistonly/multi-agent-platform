@@ -378,6 +378,12 @@ class PersonaAgentClient:
             kwargs["resume"] = resume
         if self.model:
             kwargs["model"] = self.model
+        # CLI stream-json 模式对 --setting-sources=project 的默认 reasoning
+        # effort 是 "high"；部分网关（如内网 LLM 网关）只接受
+        # xhigh/medium/low，缺省即 400——显式传 --effort 兜底，
+        # MAP_RUNTIME_EFFORT 可覆盖。
+        effort = os.environ.get("MAP_RUNTIME_EFFORT", "").strip() or "medium"
+        kwargs["extra_args"] = {"effort": effort}
         return ClaudeAgentOptions(**kwargs)
 
     @staticmethod
