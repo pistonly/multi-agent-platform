@@ -8,6 +8,10 @@
 
 ### Changed
 
+- **`cryptography` 上界放开 `<50.0` → `<51.0`**（实际锁定 50.0.1）：nightly 新增的 `pip-audit`
+  首次运行即报 `cryptography 49.0.0` 的 PYSEC-2026-3552 ×2，修复版本 50.0.0 恰好被原上界挡住。
+  该库仅用于 `server/services/secret_encryption.py` 的 Fernet 加密，API 跨版本稳定；
+  `uv.lock` 改动仅限该包（1 处版本 + hash）。
 - 重生成 `web/src/api/types.generated.ts`：补上 `261d5d6`（09-14）注册的 feature flag
   `plan_db_content_retired`。该 flag 进 schema 后生成产物未同步，CI `gen-types` 自 09-14 起
   一直在红（`git diff --exit-code` 非零）。

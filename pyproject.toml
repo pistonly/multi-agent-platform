@@ -45,7 +45,7 @@ server = [
     "bcrypt>=4.2.0,<6.0",
     "python-multipart>=0.0.17,<1",
     # Fernet at-rest encryption for Webhook.secret (EncryptedString)
-    "cryptography>=44.0.0,<50.0",
+    "cryptography>=44.0.0,<51.0",
 ]
 dev = [
     "multi-agent-platform[server]",  # server 依赖：测试需要
