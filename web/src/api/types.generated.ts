@@ -1520,7 +1520,7 @@ export interface ProjectCreate {
  */
 export interface ProjectFeatureFlagRead {
   project_id: string;
-  flag_key: "fs_stop_duplicate_insert" | "topic_db_read_retired";
+  flag_key: "fs_stop_duplicate_insert" | "topic_db_read_retired" | "plan_db_content_retired";
   flag_value: string;
   set_by_agent_id: string;
   set_at: string;

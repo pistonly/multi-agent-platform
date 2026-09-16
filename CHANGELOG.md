@@ -8,6 +8,9 @@
 
 ### Changed
 
+- 重生成 `web/src/api/types.generated.ts`：补上 `261d5d6`（09-14）注册的 feature flag
+  `plan_db_content_retired`。该 flag 进 schema 后生成产物未同步，CI `gen-types` 自 09-14 起
+  一直在红（`git diff --exit-code` 非零）。
 - **`map-project-collab` 的「工作方式协商」上移到「意图路由」之前**。原顺序下 Agent 按意图路由表
   走到 persona Skill 就离开了，读不到「先与用户确认协作拓扑 A/B/C/D」这道关卡（按错误假设行动
   会空转烧 token 或死等）。同时在入口分工表与意图路由表补了指向该节的钩子行，并补上原先只有
