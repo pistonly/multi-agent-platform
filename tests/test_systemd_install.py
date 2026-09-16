@@ -27,10 +27,17 @@ exit {exit_code}
 
 
 def _run_install(tmp_path: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    # root 下安装脚本走系统级 unit（/etc/systemd/system），与这里断言的
+    # user unit 路径（$XDG_CONFIG_HOME/systemd/user）是两条分支——本文件测后者。
+    if os.geteuid() == 0:  # pragma: no cover - CI 以非 root 运行
+        pytest.skip("以 root 运行时脚本装系统级 unit，本用例断言的是 user unit 路径")
     merged = {
         **os.environ,
         "PATH": f"{tmp_path}:{os.environ.get('PATH', '')}",
         "HOME": str(tmp_path),
+        # 脚本取 ${XDG_CONFIG_HOME:-$HOME/.config}：不钉住就会把 unit 写进宿主
+        # 真实 XDG 目录（CI 有该环境变量时即失败，且污染宿主）。
+        "XDG_CONFIG_HOME": str(tmp_path / ".config"),
     }
     if env:
         merged.update(env)

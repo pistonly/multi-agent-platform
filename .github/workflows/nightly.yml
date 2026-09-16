@@ -27,6 +27,24 @@ jobs:
       - name: Ruff
         run: ruff check server cli sdk scripts tests alembic test_project
 
+      - name: Python dependency audit (pip-audit)
+        # 审计 #13：前端已有 npm audit，Python 侧此前无漏洞扫描。
+        # 与 Codecov 步骤同款处理（软失败 + 可见告警）：依赖漏洞的升级
+        # 决策常涉及跨大版本（如 starlette），不宜由 nightly 直接阻断，
+        # 但必须让人看见——结论与豁免记录在 docs/AUDIT-2026-09-14.md。
+        id: pip_audit
+        continue-on-error: true
+        run: |
+          pip install --quiet pip-audit
+          pip-audit --progress-spinner=off
+
+      - name: pip-audit 漏洞告警（软失败，但必须可见）
+        if: steps.pip_audit.outcome == 'failure'
+        run: |
+          echo "::warning title=Python 依赖存在已知漏洞::pip-audit 报告了漏洞" \
+               "（软失败，不阻断 nightly）。查看上一步输出评估升级；" \
+               "结论与豁免记录到 docs/AUDIT-2026-09-14.md。"
+
       - name: Alembic migrations (full upgrade path)
         run: |
           tmpdb="$(mktemp /tmp/map-nightly-XXXXXX.db)"
@@ -46,11 +64,23 @@ jobs:
         run: pytest -m "not claude_cli" -n auto --cov --cov-branch --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
+        id: codecov
         if: ${{ !cancelled() }}
+        # 审计 #8：原先 ``fail_ci_if_error: false`` 让上传失败完全静默——
+        # 覆盖率趋势会无声消失。这里反转职责：由 action 负责「判定失败」
+        # （fail_ci_if_error: true），由 continue-on-error 负责「不阻断」，
+        # 失败状态因此能被下一步捕获并升级为可见告警。
+        continue-on-error: true
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
+
+      - name: Codecov 上传失败告警（软失败，但必须可见）
+        if: steps.codecov.outcome == 'failure'
+        run: |
+          echo "::warning title=Codecov 上传失败::覆盖率未上传（软失败，不阻断 nightly）。" \
+               "趋势数据会中断——请检查 CODECOV_TOKEN 是否过期 / 网络连通性 / codecov 服务状态。"
 
   frontend:
     runs-on: ubuntu-latest

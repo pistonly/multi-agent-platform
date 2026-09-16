@@ -661,6 +661,34 @@ def test_cli_pre_complete_missing_metadata_directory_error(
     assert "Traceback" not in result.output
 
 
+def _patch_persona_compare_client(
+    monkeypatch, tmp_path: Path, fake_config, host_token: str = "h-tok"
+) -> None:
+    """``--persona-compare`` 用例的 hermetic 夹具（CI 无 ``.map/`` 也能跑）。
+
+    有两处建客户端的路径，缺一即泄漏到真实凭据：
+
+    1. ``ProjectContext`` 解析走 ``cli.main`` 注入面（``find_map_dir`` /
+       ``load_project_map_config``）——per-persona 客户端由
+       ``fake_config.tokens`` 现造，本身是 hermetic 的；
+    2. **主客户端**另走 ``_client_ctx`` → ``project_config.resolve_client``，
+       后者读的是真实 ``.map/`` / ``MAP_TOKEN``。不 patch 时本机（有
+       ``.map/``）假绿，CI 上抛 ``No MAP credentials``——nightly 连红的根因。
+    """
+    from contextlib import contextmanager
+
+    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+
+    host_client = cli_main.MAPClient(fake_config.api_url, token=host_token)
+
+    @contextmanager
+    def fake_client_ctx(*args, **kwargs):
+        yield host_client
+
+    monkeypatch.setattr(cli_main, "_client_ctx", fake_client_ctx)
+
+
 def test_cli_experiment_status_persona_compare_diffs_per_actor_view(
     runner, monkeypatch, tmp_path: Path
 ):
@@ -675,8 +703,7 @@ def test_cli_experiment_status_persona_compare_diffs_per_actor_view(
         api_url="http://test",
         tokens={"host": "h-tok", "reviewer": "r-tok", "participant": "p-tok"},
     )
-    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
-    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+    _patch_persona_compare_client(monkeypatch, tmp_path, fake_config)
 
     views_by_token = {
         "h-tok": SimpleNamespace(
@@ -745,8 +772,7 @@ def test_cli_experiment_status_persona_compare_raw_dumps_full_views(
         api_url="http://test",
         tokens={"host": "h-tok", "reviewer": "r-tok"},
     )
-    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
-    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+    _patch_persona_compare_client(monkeypatch, tmp_path, fake_config)
 
     views_by_token = {
         "h-tok": SimpleNamespace(
@@ -804,8 +830,7 @@ def test_cli_experiment_status_persona_compare_for_personas_limits_subset(
         api_url="http://test",
         tokens={"host": "h-tok", "reviewer": "r-tok", "participant": "p-tok"},
     )
-    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
-    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+    _patch_persona_compare_client(monkeypatch, tmp_path, fake_config)
 
     views_by_token = {
         "h-tok": SimpleNamespace(actions=["complete"], blocked_on=None, phase_owner="host", informational_only=False),
@@ -852,20 +877,11 @@ def test_cli_experiment_status_persona_compare_writes_audit(
         api_url="http://test",
         tokens={"host": "h-tok", "reviewer": "r-tok"},
     )
-    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
-    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
+    _patch_persona_compare_client(monkeypatch, tmp_path, fake_config)
 
     # The host client passed into ``_persona_compare_view`` is the default
-    # ``_run`` client. Replace ``_client_ctx`` to yield a host-token client.
-    from contextlib import contextmanager
-
-    host_client = cli_main.MAPClient("http://test", token="h-tok")
-
-    @contextmanager
-    def fake_client_ctx(*args, **kwargs):
-        yield host_client
-
-    monkeypatch.setattr(cli_main, "_client_ctx", fake_client_ctx)
+    # ``_run`` client; ``_patch_persona_compare_client`` 已把它换成 host-token
+    # 客户端（见其 docstring）。
 
     views_by_token = {
         "h-tok": SimpleNamespace(
@@ -961,18 +977,7 @@ def test_cli_experiment_status_persona_compare_audit_failure_does_not_break_outp
         api_url="http://test",
         tokens={"host": "h-tok", "reviewer": "r-tok"},
     )
-    monkeypatch.setattr(cli_main, "find_map_dir", lambda *a, **kw: tmp_path)
-    monkeypatch.setattr(cli_main, "load_project_map_config", lambda **kw: fake_config)
-
-    from contextlib import contextmanager
-
-    host_client = cli_main.MAPClient("http://test", token="h-tok")
-
-    @contextmanager
-    def fake_client_ctx(*args, **kwargs):
-        yield host_client
-
-    monkeypatch.setattr(cli_main, "_client_ctx", fake_client_ctx)
+    _patch_persona_compare_client(monkeypatch, tmp_path, fake_config)
 
     views_by_token = {
         "h-tok": SimpleNamespace(
