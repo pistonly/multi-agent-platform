@@ -4,7 +4,21 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 更早的历史见 git tag 与提交记录。
 
-## [Unreleased]
+## [0.17.0] - 2026-09-18
+
+### Added
+
+- **实验计划正文支持以 FS 为事实源（feature flag `plan_db_content_retired`）**：flag 未开启时
+  行为不变（计划全文仍存 DB）；由 host/admin 开启（需非空 reason）后
+  `map/experiments/<slug>/plan.md` 成为正文唯一事实源——`map experiment create --plan-file`
+  的内联全文写入被 409 拒绝并给出自助指引，改用 `--plan-file-path` 文件引用模式；读取端统一
+  收口到 `resolve_plan_content`，plan.md 缺失时 fail-closed（409）并指向 materialize，不再
+  静默回落到 DB 里的旧全文。
+- **`map experiment plan materialize --id <exp-uuid>`**：把 DB 中当前版计划正文物化为 FS
+  `plan.md`，供存量内联实验在切 flag 前完成迁移。仅实验 creator 可调用；幂等，目标文件已存在
+  且内容不同时需 `--force` 显式覆盖。
+- **`map sync migrate` 覆盖 plan 域**：新增 plan 类 kind（进入 `--kinds` 登记面），`verify`
+  增加 plan 域对账——flag 关闭时以信息级呈现差异，开启后为 blocking。
 
 ### Changed
 
@@ -21,6 +35,11 @@
   方式 A 有条目、B/C/D 为空的路由项（方式 C → `map host invoke`；方式 D → 回报即结束，不轮询
   `map work`）。方式 B 由「三开对话框」改为「多开对话框」（常见 2–3 个，几个不限）。
   **Skill frontmatter description 未改动**——它每次都随 skill 列表进 prompt，属于常驻成本。
+- **`map experiment revise` 的去重判据在 flag 开启后改为 FS `plan.md` 字节级哈希**：flag 开启后
+  DB `content_md` 可能只是指向文件的 stub，原「DB 全文等值」判据恒不成立，对同一份 plan.md 的
+  重复 revise 会误 bump 版本并误归档上一版评审；改为比较 FS 文件哈希。workspace 不可达 /
+  无 `plan_file_path` / plan.md 缺失（跨机部署的合法场景）时保守回退旧判据——宁可多 bump，
+  不吞真实修订。flag 关闭时逐字节不变。
 
 ### Removed
 
