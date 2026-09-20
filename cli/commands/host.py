@@ -120,6 +120,13 @@ def host_invoke(
         "--model",
         help="Optional Claude model override",
     ),
+    env_file: Path | None = typer.Option(
+        None, "--env-file",
+        help="Claude runtime env file (or MAP_CLAUDE_ENV_FILE; default: .map/.claude-env)",
+    ),
+    effort: str | None = typer.Option(
+        None, "--effort", help="Override reasoning effort (default: configured value or medium)",
+    ),
     ignore_waker: bool = typer.Option(
         False,
         "--ignore-waker",
@@ -179,26 +186,41 @@ def host_invoke(
     from cli.main import _cli_options  # runtime state (monkeypatch surface)
     from cli.orchestrator import run_invoke
 
+    json_output = json_output or _cli_options.get("format") == "json"
+
     # Resolve prompt
     if prompt_file is not None:
-        actual_prompt = prompt_file.read_text(encoding="utf-8")
+        try:
+            actual_prompt = prompt_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            message = f"Cannot read prompt file: {prompt_file}"
+            if json_output:
+                typer.echo(json_lib.dumps({"persona": persona, "status": "error", "error": message}))
+            else:
+                typer.echo(f"Error: {message}", err=True)
+            raise typer.Exit(1) from None
     elif prompt is not None:
         actual_prompt = prompt
     else:
         typer.echo("Error: either --prompt or --prompt-file is required", err=True)
         raise typer.Exit(1)
 
-    result = run_invoke(
-        persona=persona,
-        prompt=actual_prompt,
-        project_root=project_root or _cli_options.get("project_root"),
-        new_session=new_session,
-        model=model,
-        ignore_waker=ignore_waker,
-        timeout=timeout,
-        follow=follow,
-        on_stream=_render_stream_event if follow else None,
-    )
+    try:
+        result = run_invoke(
+            persona=persona,
+            prompt=actual_prompt,
+            project_root=project_root or _cli_options.get("project_root"),
+            new_session=new_session,
+            model=model,
+            env_file=env_file,
+            effort=effort,
+            ignore_waker=ignore_waker,
+            timeout=timeout,
+            follow=follow,
+            on_stream=_render_stream_event if follow else None,
+        )
+    except Exception as exc:
+        result = InvokeResult(persona=persona, status="error", error=f"{type(exc).__name__}: {exc}")
 
     if result.timed_out:
         # A1: 到点友好报错(无堆栈)+ 向被调方发取消通知(wakeable 通道)
@@ -212,6 +234,7 @@ def host_invoke(
                         "session_id": result.session_id,
                         "session_state": result.session_state,
                         "waited_seconds": result.waited_seconds,
+                        "error": result.error,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -235,19 +258,24 @@ def host_invoke(
                     "response": result.response_text,
                     "session_id": result.session_id,
                     "session_state": result.session_state,
+                    "error": result.error,
+                    "hint": f"map runtime check --persona {persona}" if result.status != "ok" else None,
                 },
                 ensure_ascii=False,
                 indent=2,
             )
         )
+        if result.status != "ok":
+            raise typer.Exit(1)
         return
 
-    if result.status == "error":
+    if result.status != "ok":
         typer.echo(
-            f"Error: agent '{persona}' returned error status"
+            f"Error: agent '{persona}' returned {result.status} status"
             + (f": {result.error}" if result.error else ""),
             err=True,
         )
+        typer.echo(f"Check runtime configuration: map runtime check --persona {persona}", err=True)
         raise typer.Exit(1)
 
     if result.response_text:

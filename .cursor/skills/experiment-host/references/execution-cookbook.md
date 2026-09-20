@@ -69,7 +69,9 @@ map --persona host host invoke --persona reviewer \
 |------|------|
 | `--prompt` | 完整任务描述（含 experiment_id、需要评审的维度） |
 | `--prompt-file` | 从文件读取长 prompt |
-| `--json` | 以 JSON 格式输出（含 response + session_id） |
+| `--json` | 以 JSON 格式输出（含 status、response、session_id、error）；仅 `status=ok` 返回 0，`error/no_response/timeout` 均非零 |
+| `--env-file <path>` | 显式选择已有 Claude 配置文件；也可设 `MAP_CLAUDE_ENV_FILE`。默认读取项目 `.map/.claude-env`，不自动搜索其他项目 |
+| `--effort <value>` | 本次推理强度；覆盖进程和配置文件的 effort，缺省 `medium`。保留配置好的 model，勿为修复 effort 擅自换模型 |
 | `--new-session` | 强制开启新 session（默认等待进行中会话结束） |
 | `--timeout <秒>` | 等待上限；到点输出**友好报错**（含已等待时长 + 目标 session 状态、无堆栈），并自动向被调方发一条 `host.invoke.cancelled` 的 **wakeable 取消通知**（语义是「告知对方会话已被放弃」，不是强杀进程；被调方 session 仍挂在其 persona 侧，收到通知后自行决定收尾） |
 | `--follow` | 流式：阶段性事件（text / tool_use / tool_result）实时打到 **stderr**，stdout 仍只在结束时含最终结果（stdout=数据 / stderr=人类可读） |
@@ -88,6 +90,8 @@ map --persona host host invoke --persona participant \
 **适用场景**：`submit-review` 后主动通知 reviewer 评审、`complete` 后主动通知 reviewer 审批结果、需要快速获得 reviewer 反馈而不等待 waker 轮询。
 
 **注意**：调用后仍需通过 `map experiment status` 核实 reviewer 是否已提交评审；reviewer agent 的回复文本在 stdout，但其实际操作（如 `experiment review add`）是通过 `map --persona reviewer` CLI 写入 MAP 平台的。
+
+首次调用或登录/网关报错时先执行 `map runtime check --persona <persona>`（使用共享文件时加相同 `--env-file`）。检查不会调用模型，也不显示凭据值；`configured` 只表示本地配置齐备，不能当成鉴权成功。小型文档/代码任务参照 [连续执行与有限返修](../../topic-host/references/bounded-task-closeout.md)，研究实验保留原门禁。
 
 ### 双 invoke 后台并发 + 汇合点模式（A5）
 

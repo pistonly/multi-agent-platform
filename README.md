@@ -255,13 +255,14 @@ simple-waker 在每次 remind 后会写一条聚合 `inbound_event` 审计行（
 export ANTHROPIC_BASE_URL=http://llm-gateway.example:8001
 export ANTHROPIC_AUTH_TOKEN=empty
 export ANTHROPIC_MODEL=claude-sonnet-4-6
+export MAP_RUNTIME_EFFORT=medium
 ```
 
 解析键：`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`（凭据）、`ANTHROPIC_MODEL` / `CLAUDE_MODEL` 及 `ANTHROPIC_DEFAULT_*` / `ANTHROPIC_SMALL_FAST_MODEL`（模型）。
 
-解析优先级：
-- **waker 进程（simple-waker）**：存在 `.map/.claude-env` 时，对其 LLM 键**强制以文件值为准**——无论从哪条路径启动（含 `nohup python3 -m cli.simple_waker ...` 直启），都会覆盖并清理继承 shell 残留的端点/账号/模型（防止落到 z.ai 等端点触发 5 小时 429 用量上限，见 `cli.agent_client.apply_project_claude_env`）。
-- **其他调用路径**（如 `host invoke` 直接使用 SDK 客户端）：**进程环境变量 > `.map/.claude-env` > `~/.bashrc` 等 shell rc**。
+所有 Claude 调用入口统一选择：`host invoke --env-file <path>` > `MAP_CLAUDE_ENV_FILE` > 项目 `.map/.claude-env`。选中的文件对端点、账号和模型为权威，未定义的 LLM 键不会混入 shell 残留值；显式 `--model` 可覆盖模型。没有配置文件时保留进程环境变量 > shell rc 的兼容路径。共享已有配置用文件路径，无需复制凭据或另写启动脚本。
+
+调用前可用 `map runtime check --persona participant [--env-file <path>]` 检查配置来源、model、effort 和凭据是否存在，不显示凭据值、不调用模型。推理强度可用 `host invoke --effort` 或配置文件的 `MAP_RUNTIME_EFFORT` 指定，默认 `medium`；完整优先级见 [运行配置说明](docs/MAP-SIMPLE-WAKER.md#claude-sdk-credentials-for-resumed-agents-mapclaude-env)。`host invoke` 的文本和 JSON 模式都在运行失败、无结果或超时时返回非零退出码。
 
 这是 Claude SDK 凭据，与 MAP 平台 API token（`~/.map/config.yaml`）是两回事。
 

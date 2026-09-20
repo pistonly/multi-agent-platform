@@ -96,6 +96,7 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("topic", "show"),
     ("topic", "progress"),
     ("runtime", "chat"),
+    ("runtime", "check"),
     ("runtime", "status"),
     ("project", "list"),
     ("project", "decisions"),

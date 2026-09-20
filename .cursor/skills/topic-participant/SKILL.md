@@ -46,6 +46,8 @@ description: >-
 
 ## 表态模型：发言文件即 ack（核心职责）
 
+**范围明确的交付任务（方式 C）**：host 已委派文档/代码行动项时，可按任务的文件边界修改、验证并回报；按 [小任务收尾约定](../topic-host/references/bounded-task-closeout.md) 回应原问题编号、保留证据。连续返修的中间记录先写约定的交付文件，最终再发布本轮结论；不重复创建行动项，不自行调用下一位 Agent。活跃实验的 executor 仍走 `experiment-executor`。
+
 FS 话题里**没有独立的 ack 命令**——你本轮写的 `round<N>-<agent>.md` 发言文件就是你的表态：
 
 | 场景 | 动作 |

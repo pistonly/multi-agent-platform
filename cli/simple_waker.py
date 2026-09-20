@@ -691,7 +691,11 @@ def run(
     if resolved_runtime == "cursor":
         apply_project_cursor_env(root)
     else:
-        apply_project_claude_env(root)
+        try:
+            apply_project_claude_env(root)
+        except ValueError as exc:
+            typer.echo(f"[simple-waker] {exc}", err=True)
+            raise typer.Exit(code=2) from None
     resolved_runtime_home = runtime_home
     if resolved_runtime != "cursor" and resolved_runtime_home is not None and not dry_run:
         _startup_sync_with_audit(root, resolved_runtime_home)

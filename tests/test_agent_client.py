@@ -201,6 +201,28 @@ def test_options_includes_required_fields(tmp_path: Path) -> None:
     assert opts.model == "claude-test-model"
 
 
+def test_configured_effort_reaches_sdk_options(tmp_path, monkeypatch):
+    monkeypatch.delenv("MAP_RUNTIME_EFFORT", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_EFFORT_LEVEL", raising=False)
+    monkeypatch.delenv("MAP_CLAUDE_ENV_FILE", raising=False)
+    config_dir = tmp_path / ".map"
+    config_dir.mkdir()
+    (config_dir / ".claude-env").write_text("export MAP_RUNTIME_EFFORT=low\n")
+    agent, fake = _make_client(state={}, project_root=tmp_path)
+    asyncio.run(agent.connect())
+    assert fake.options.extra_args["effort"] == "low"
+    assert fake.options.env["CLAUDE_CODE_EFFORT_LEVEL"] == "low"
+
+
+def test_error_result_details_are_forwarded(tmp_path):
+    failure = FakeResultMessage(session_id="failed", is_error=True)
+    failure.errors = ["Not logged in", "Please run /login"]
+    agent, _ = _make_client(state={}, project_root=tmp_path, messages=[failure])
+    events = []
+    assert asyncio.run(agent.wake_up("task", on_event=events.append)) == "error"
+    assert events[-1]["error"] == "Not logged in\nPlease run /login"
+
+
 def test_system_prompt_appends_persona_directive(tmp_path: Path) -> None:
     state = {"topics": {}, "experiments": {}}
 

@@ -33,6 +33,40 @@ runner = CliRunner()
 class TestHostOrchestrator:
     """Unit tests for HostOrchestrator with mocked Claude SDK."""
 
+    @pytest.mark.asyncio
+    async def test_sdk_result_error_is_not_lost(self, tmp_path):
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client(status="error")
+
+        async def fail(prompt, *, on_event, **kwargs):
+            on_event({"type": "result", "session_id": "failed-session", "is_error": True,
+                      "error": "Gateway rejected effort high"})
+            return "error"
+
+        mock_client.wake_up.side_effect = fail
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+        result = await orchestrator.invoke("participant", "task")
+        assert result.error == "Gateway rejected effort high"
+        assert result.session_id == "failed-session"
+
+    @pytest.mark.asyncio
+    async def test_connection_is_included_in_timeout(self, tmp_path):
+        from cli.orchestrator import HostOrchestrator
+
+        mock_client = self._make_mock_client()
+
+        async def hang():
+            await asyncio.sleep(30)
+
+        mock_client.connect.side_effect = hang
+        orchestrator = HostOrchestrator(project_root=tmp_path, ignore_waker=True)
+        orchestrator._get_or_create_client = MagicMock(return_value=mock_client)
+        result = await orchestrator.invoke("participant", "task", timeout=0.02)
+        assert result.status == "timeout"
+        mock_client.wake_up.assert_not_called()
+
     def _make_mock_client(
         self,
         *,
@@ -376,6 +410,66 @@ class TestRunInvoke:
 
 class TestHostInvokeCommand:
     """Tests for `map host invoke` CLI command."""
+
+    def test_invalid_env_file_is_json_error_without_sdk_call(self, tmp_path):
+        import json
+
+        with (
+            patch("cli.orchestrator.ensure_waker_not_running"),
+            patch("cli.orchestrator.sync_runtime_skills", return_value=([], None)),
+        ):
+            result = runner.invoke(host_app, [
+                "invoke", "--persona", "participant", "--prompt", "task", "--json",
+                "--project-root", str(tmp_path), "--env-file", str(tmp_path / "missing"),
+            ])
+        assert result.exit_code == 1
+        data = json.loads(result.stdout)
+        assert data["status"] == "error"
+        assert "does not exist" in data["error"]
+        assert "runtime check" in data["hint"]
+
+    def test_global_json_failure_has_nonzero_exit(self, tmp_path):
+        import json
+
+        from cli.main import app
+
+        with patch("cli.orchestrator.run_invoke", return_value=InvokeResult("reviewer", "error", error="failed")):
+            result = runner.invoke(app, [
+                "--json", "--project-root", str(tmp_path), "host", "invoke",
+                "--persona", "reviewer", "--prompt", "task",
+            ])
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.stdout)["status"] == "error"
+
+    @pytest.mark.parametrize("status", ["error", "no_response", "timeout"])
+    @pytest.mark.parametrize("json_output", [False, True])
+    def test_all_runtime_failures_exit_nonzero(self, status, json_output):
+        import json
+
+        with patch("cli.orchestrator.run_invoke") as mock_run:
+            mock_run.return_value = InvokeResult(
+                persona="participant", status=status, error="Not logged in; run runtime check",
+            )
+            args = ["invoke", "--persona", "participant", "--prompt", "task"]
+            result = runner.invoke(host_app, args + (["--json"] if json_output else []))
+        assert result.exit_code == 1
+        if json_output:
+            data = json.loads(result.stdout)
+            assert data["status"] == status
+            assert "Not logged in" in data["error"]
+        else:
+            assert "Not logged in" in result.stderr
+
+    def test_runtime_configuration_options_are_forwarded(self, tmp_path):
+        with patch("cli.orchestrator.run_invoke", return_value=InvokeResult("participant", "ok")) as invoke:
+            env_file = tmp_path / "shared-env"
+            result = runner.invoke(host_app, [
+                "invoke", "--persona", "participant", "--prompt", "task",
+                "--env-file", str(env_file), "--effort", "medium",
+            ])
+        assert result.exit_code == 0
+        assert invoke.call_args.kwargs["env_file"] == env_file
+        assert invoke.call_args.kwargs["effort"] == "medium"
 
     def test_missing_prompt_and_prompt_file_errors(self):
         """Both --prompt and --prompt-file missing should error."""

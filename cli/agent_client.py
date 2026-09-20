@@ -72,6 +72,7 @@ class WakeUpEvent(TypedDict, total=False):
     content: str
     session_id: str
     is_error: bool
+    error: str
 
 
 class PersonaAgentLike(Protocol):
@@ -95,6 +96,8 @@ class PersonaAgentClient:
         project_root: Path,
         extra_env: dict[str, str] | None = None,
         model: str | None = None,
+        env_file: Path | None = None,
+        effort: str | None = None,
         allowed_tools: list[str] | None = None,
         integration: IntegrationMode = "bridge",
         session_log_dir: Path | None = None,
@@ -111,7 +114,19 @@ class PersonaAgentClient:
         # 每次 wake 解析 credentials 共 5 key × 4 文件，原实现重复读 20 次）。
         # 必须先于 ``_resolve_model()`` 初始化（其查 rc 时即走缓存）。
         self._rc_env_cache: dict[Path, dict[str, str]] | None = None
+        self.env_file = resolve_claude_env_file(project_root, env_file)
+        self._file_env = (
+            parse_export_env_file(self.env_file, strict=True) if self.env_file else None
+        )
         self.model = model or self._resolve_model()
+        self.effort = (
+            effort
+            or os.environ.get("MAP_RUNTIME_EFFORT", "").strip()
+            or os.environ.get("CLAUDE_CODE_EFFORT_LEVEL", "").strip()
+            or (self._file_env or {}).get("MAP_RUNTIME_EFFORT")
+            or (self._file_env or {}).get("CLAUDE_CODE_EFFORT_LEVEL")
+            or "medium"
+        )
         self.allowed_tools = list(allowed_tools or DEFAULT_ALLOWED_TOOLS)
         self.integration = integration
         self._wake_logger = SessionWakeLogger(
@@ -290,11 +305,16 @@ class PersonaAgentClient:
             elif isinstance(msg, ResultMessage):
                 result = msg
                 if on_event is not None:
+                    errors = getattr(msg, "errors", None) or []
+                    error = "\n".join(str(item) for item in errors)
+                    if getattr(msg, "is_error", False) and not error:
+                        error = str(getattr(msg, "result", None) or "".join(response_parts))
                     on_event(
                         {
                             "type": "result",
                             "session_id": msg.session_id,
                             "is_error": bool(getattr(msg, "is_error", False)),
+                            "error": error,
                         }
                     )
 
@@ -382,8 +402,7 @@ class PersonaAgentClient:
         # effort 是 "high"；部分网关（如内网 LLM 网关）只接受
         # xhigh/medium/low，缺省即 400——显式传 --effort 兜底，
         # MAP_RUNTIME_EFFORT 可覆盖。
-        effort = os.environ.get("MAP_RUNTIME_EFFORT", "").strip() or "medium"
-        kwargs["extra_args"] = {"effort": effort}
+        kwargs["extra_args"] = {"effort": self.effort}
         return ClaudeAgentOptions(**kwargs)
 
     @staticmethod
@@ -440,14 +459,19 @@ class PersonaAgentClient:
 
     def _resolve_env(self) -> dict[str, str]:
         env: dict[str, str] = {}
-        for key in _CREDENTIAL_ENV_KEYS:
+        for key in LLM_ENV_KEYS:
             value = self._resolve_env_key(key)
-            if value:
-                env[key] = value
+            if value or self._file_env is not None:
+                # The SDK overlays os.environ. Empty values suppress stale
+                # inherited accounts/model aliases without mutating our process.
+                env[key] = value or ""
+        env["CLAUDE_CODE_EFFORT_LEVEL"] = self.effort
         env.update(self.extra_env)
         return env
 
     def _resolve_env_key(self, name: str) -> str | None:
+        if self._file_env is not None and name in LLM_ENV_KEYS:
+            return self._file_env.get(name)
         existing = os.environ.get(name, "").strip()
         if existing:
             return existing
@@ -481,18 +505,21 @@ class PersonaAgentClient:
         ]
 
 
-def parse_export_env_file(path: Path) -> dict[str, str]:
+def parse_export_env_file(path: Path, *, strict: bool = False) -> dict[str, str]:
     """Parse ``export VAR=...`` lines into {VAR: value}.
 
-    Returns {} when the file is missing or unreadable. Unquoting rules:
+    Returns {} when the file is missing or unreadable, unless strict=True
+    (explicit runtime config fails with an actionable ValueError). Unquoting rules:
     strip paired quotes / trailing inline comment. T43 起本函数也是
     ``PersonaAgentClient`` rc 凭证解析的唯一实现。
     """
-    if not path.is_file():
+    if not strict and not path.is_file():
         return {}
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeError) as exc:
+        if strict:
+            raise ValueError(f"Cannot read Claude runtime env file: {path}") from exc
         return {}
     values: dict[str, str] = {}
     for line in text.splitlines():
@@ -513,17 +540,30 @@ def load_project_claude_env(project_root: Path) -> dict[str, str]:
     return parse_export_env_file(Path(project_root) / ".map" / ".claude-env")
 
 
+def resolve_claude_env_file(project_root: Path, env_file: Path | None = None) -> Path | None:
+    """Select an explicit shared file or the project file; never search other repos."""
+    configured = env_file or os.environ.get("MAP_CLAUDE_ENV_FILE", "").strip()
+    path = Path(configured).expanduser() if configured else Path(project_root) / ".map" / ".claude-env"
+    if configured or path.exists():
+        if not path.is_file():
+            raise ValueError(f"Claude runtime env file does not exist or is not a file: {path}")
+        return path.resolve()
+    return None
+
+
 def apply_project_claude_env(project_root: Path) -> dict[str, str]:
-    """Make ``.map/.claude-env`` authoritative for :data:`LLM_ENV_KEYS`.
+    """Make the selected Claude env file authoritative for :data:`LLM_ENV_KEYS`.
 
     对存在该文件的项目（MAP 仓库）：文件中定义的 LLM 键覆盖继承的
     os.environ；文件未定义的 LLM 键（如 shell 残留的 z.ai 端点/glm 默认模型）
-    一律 unset，防止直启 waker/agent 时落到错误端点。文件缺失则不动环境。
+    一律 unset，防止直启 waker/agent 时落到错误端点。未选文件则不动环境。
+    MAP_CLAUDE_ENV_FILE 可显式选共享文件；显式路径无效时失败。
     返回实际应用/清除的 {key: value} 子集（文件值），供测试断言。
     """
-    if not (Path(project_root) / ".map" / ".claude-env").is_file():
+    env_file = resolve_claude_env_file(project_root)
+    if env_file is None:
         return {}
-    values = load_project_claude_env(project_root)
+    values = parse_export_env_file(env_file, strict=True)
     applied: dict[str, str] = {}
     for key in LLM_ENV_KEYS:
         if key in values:

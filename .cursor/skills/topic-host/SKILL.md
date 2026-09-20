@@ -36,6 +36,8 @@ description: >-
 
 ## Host 编排模式（直接调用 participant）
 
+对于已授权、范围明确的文档/代码任务，按 [小任务执行、审阅与有限返修](references/bounded-task-closeout.md) 连续推进 executor → reviewer → 最多两次返修 → host 验收。复用任务说明和行动项；不把每个措辞修正升级成新实验或新行动项。
+
 不依赖 waker 轮询，host 同步调用其他 persona（`--new-session` 强制新会话；默认等待进行中会话结束）：
 
 ```bash

@@ -86,10 +86,14 @@ class HostOrchestrator:
         *,
         project_root: Path | None = None,
         model: str | None = None,
+        env_file: Path | None = None,
+        effort: str | None = None,
         ignore_waker: bool = False,
     ) -> None:
         self.project_root = resolve_project_root(project_root)
         self.model = model
+        self.env_file = env_file
+        self.effort = effort
         self.ignore_waker = ignore_waker
         self._clients: dict[str, PersonaAgentClient] = {}
         self._states: dict[str, tuple[Path, dict[str, Any]]] = {}
@@ -147,8 +151,6 @@ class HostOrchestrator:
             if client._connected:
                 await client.disconnect()
 
-        await client.connect()
-
         # A3: 启动状态行 —— 目标 session 是复用既有会话(running)还是将新建
         # (waiting-for-session)。由 CLI 层打印给用户。
         session_state = (
@@ -159,9 +161,10 @@ class HostOrchestrator:
 
         response_parts: list[str] = []
         result_session_id: str | None = None
+        runtime_error: str | None = None
 
         def on_event(event: WakeUpEvent) -> None:
-            nonlocal result_session_id
+            nonlocal result_session_id, runtime_error
             if follow and on_stream is not None:
                 on_stream(event)
             etype = event.get("type")
@@ -169,8 +172,12 @@ class HostOrchestrator:
                 response_parts.append(str(event.get("content") or ""))
             elif etype == "result":
                 result_session_id = event.get("session_id") or result_session_id
+                if event.get("is_error"):
+                    runtime_error = event.get("error") or None
 
         async def _run_wake_up() -> str:
+            # Connection setup is part of the caller's wait ceiling too.
+            await client.connect()
             return await client.wake_up(
                 prompt,
                 on_event=on_event,
@@ -205,6 +212,10 @@ class HostOrchestrator:
             response_text="".join(response_parts),
             session_id=result_session_id or client.state.get("claude_session_id"),
             session_state=session_state,
+            error=(
+                runtime_error or "".join(response_parts) or f"Agent runtime returned {status}"
+                if status != "ok" else None
+            ),
         )
 
     async def disconnect_all(self) -> None:
@@ -252,6 +263,8 @@ class HostOrchestrator:
             project_root=self.project_root,
             extra_env=extra_env,
             model=self.model,
+            env_file=self.env_file,
+            effort=self.effort,
             integration="orchestrator",
         )
 
@@ -267,6 +280,8 @@ def run_invoke(
     project_root: Path | None = None,
     new_session: bool = False,
     model: str | None = None,
+    env_file: Path | None = None,
+    effort: str | None = None,
     ignore_waker: bool = False,
     timeout: float | None = None,
     follow: bool = False,
@@ -283,6 +298,8 @@ def run_invoke(
         orchestrator = HostOrchestrator(
             project_root=project_root,
             model=model,
+            env_file=env_file,
+            effort=effort,
             ignore_waker=ignore_waker,
         )
         try:
@@ -294,6 +311,8 @@ def run_invoke(
                 follow=follow,
                 on_stream=on_stream,
             )
+        except Exception as exc:
+            return InvokeResult(persona=persona, status="error", error=f"{type(exc).__name__}: {exc}")
         finally:
             await orchestrator.disconnect_all()
 

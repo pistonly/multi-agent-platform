@@ -133,29 +133,47 @@ pip install -e ".[cursor-runtime]"
 
 Wake/invoke only produces the remind prompt; session runner clones the actual agent via
 `PersonaAgentClient`, which needs Claude Agent SDK connection info (base URL, token,
-model) in the subprocess environment. When not set on the current process env, they
-fall back to the `export VAR=...` lines in **`.map/.claude-env`** (the whole
-`.map/` dir is gitignored — do not commit):
+model) in the subprocess environment. The project file **`.map/.claude-env`** uses
+literal `export VAR=...` lines (the whole `.map/` dir is gitignored — do not commit):
 
 ```bash
 # .map/.claude-env — LLM keys are authoritative from this file (see below)
 export ANTHROPIC_BASE_URL=http://llm-gateway.example:8001
 export ANTHROPIC_AUTH_TOKEN=empty
 export ANTHROPIC_MODEL=claude-sonnet-4-6
+export MAP_RUNTIME_EFFORT=medium
 ```
 
 Resolved keys: credentials `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
 `ANTHROPIC_BASE_URL`, models `ANTHROPIC_MODEL` / `CLAUDE_MODEL` plus
 `ANTHROPIC_DEFAULT_*` / `ANTHROPIC_SMALL_FAST_MODEL`.
 
-Resolution order: **simple-waker enforces `.map/.claude-env` as authoritative**
-for its LLM keys whenever the file exists — `run()` calls
-`cli.agent_client.apply_project_claude_env`, which overrides inherited process
-env and unsets LLM keys the file does not define, so a *direct* launch
-(`nohup python3 -m cli.simple_waker ...`) cannot fall back to a leftover
-endpoint/account/model from the launching shell (e.g. z.ai's 5-hour 429 usage
-cap). Other call paths (e.g. `host invoke`) still resolve
-**process env > `.map/.claude-env` > `~/.bashrc` and other shell rc**.
+All Claude entry points now use the same selection: explicit `host invoke --env-file`
+or `runtime check --env-file` > `MAP_CLAUDE_ENV_FILE` > project `.map/.claude-env`.
+An explicit missing/unreadable file fails rather than silently switching accounts.
+No sibling repository is searched automatically. The chosen file is authoritative
+for credentials, endpoint and model aliases: absent LLM keys are suppressed in the
+SDK child's environment, so inherited shell values cannot select another account.
+An explicit `--model` still overrides the configured model. With no selected file,
+legacy process-env > shell-rc fallback remains available.
+
+Effort is resolved separately: `host invoke --effort` > process `MAP_RUNTIME_EFFORT`
+> process `CLAUDE_CODE_EFFORT_LEVEL` > file `MAP_RUNTIME_EFFORT` > file
+`CLAUDE_CODE_EFFORT_LEVEL` > `medium`. The value reaches both the SDK CLI option
+and child environment; unsupported gateway values are reported, not silently retried
+with another model. For a shared file across projects, set `MAP_CLAUDE_ENV_FILE` to
+its path rather than copying credentials or writing a custom launcher.
+
+`map runtime check --persona participant [--env-file <path>]` reports the selected
+file, model, effort, credential **key names**, SDK availability and repair hints.
+It does not expose token/endpoint values, connect to the gateway, create a session or
+modify runtime state. `configured` proves local configuration presence only.
+Isolated persona homes do not automatically share the shell user's Claude login.
+
+`host invoke` returns nonzero for `error`, `no_response` and `timeout`, in both text
+and JSON modes (including global `--json`). JSON includes the runtime error details;
+`--follow` still writes progress to stderr. A successful invocation is not task or
+review acceptance: check the actual artifacts and MAP state.
 This is Claude SDK credentials — distinct from the MAP platform API token
 (`~/.map/config.yaml`).
 
