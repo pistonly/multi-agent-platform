@@ -1,0 +1,3 @@
+decision: accept
+summary: 结果通过：A1–A9 逐条独立复核（未采信日志自述），真身迁移/双镜像/契约v4+哈希逐字符一致/中立化优先级/版本递增/ruff0+I7后全量1failed为既有不稳定/skill
+  install-list真机复跑/边界未越，全部满足验收。遗留3项非阻塞：waker冷启动镜像待监督者重启核对、test_waker_status_view::case_f既有flaky已登记、.gitignore窄提交白名单留痕。

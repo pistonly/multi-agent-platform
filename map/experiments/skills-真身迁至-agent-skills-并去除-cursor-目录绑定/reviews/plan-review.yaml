@@ -1,0 +1,26 @@
+reasonable_items:
+- 方案与话题共识一致：真身迁 .agent/skills + 三厂商目录降级为 git 跟踪符号链接（mode 120000，现状 .claude/.codex
+  已是同构链接，无新模式引入）；A1 用 git ls-files -s 核证，可机检
+- 回滚面核对：迁移为单 git mv + 链接重建，git revert 即可整体回退且内容无损；Windows core.symlinks=false 风险为现状既有（两链接已存在），非本次新增。要求
+  I1 在执行日志写明回滚顺序=先 revert 再重启 waker（v4→v3 同样需要重启，与 A3 文档说明对称）
+- waker 契约升级时序核对（cli/simple_waker.py:115-132）：runtime_contract_hash 把 RUNTIME_CONTRACT_VERSION
+  与逐文件相对路径串入 digest；迁移后旧路径经 symlink 仍可解析且文件内容不变 → 未重启的 v3 waker 计算结果不变、不误报 drift；重启进
+  v4 后首次 poll 因 version+路径串变化触发一次 reset_session（预期内一次性会话重置）。建议 docs/MAP-SIMPLE-WAKER.md
+  的升级说明补一句「v4 首启会一次性 reset_session」，避免监督者误判异常
+- 分发探测顺序无回归：现默认 --runtime cursor → .cursor/skills（skill.py:148-160），新探测序 .cursor→.claude→.codex→.agent
+  对已有 .cursor/ 的老用户结果不变；install/upgrade 共用 _resolve_target 解析一致，无新增失配面。注意两点落地：①「未显式传
+  --runtime」与默认值 cursor 需用 sentinel（如 auto）区分，否则无法落入探测分支；②Option help 里 default 文案要同步改
+- 窄提交白名单核对：MANIFEST.in/pyproject 不含 .cursor/skills（A9 分发结构不变成立，无需动）；.github/workflows/release.yml:47
+  的 diff 门禁操作数是符号链接路径，GNU diff 跟随尾链接，CI 不改动仍绿（A9 边界自洽）；scripts/check-deprecated.sh、sync-bundled-skills.sh、release.sh
+  均在 ^scripts/ 内被 I2 覆盖。要求：release.yml 第 46 行注释所指路径迁移后语义漂移，列入 A5 文档批量替换清单（或明确记为可接受遗留）
+- 验收可证伪：A8 三条（waker 冷启动日志 startup_sync+skills_count=6 / install --target 临时目录 + --runtime
+  cursor 双路 / skill list 6 个）均为人工可复核的具体命令输出；A7 门禁含 gen_types 无 diff 校验，符合本次不动 schema
+  的边界
+- 执行时必须处理两处 runbook 瑕疵（不构成设计阻塞）：① I1 的 `rm .cursor/skills .claude/skills .codex/skills`——mv
+  后 .cursor/skills 已不存在，该行在 set -e 下必失败，应只 rm 两个旧链接或拆行；② evidence grep `grep -rn '.cursor/skills'
+  cli/ scripts/` 在 scripts/archive/*.py（6 个历史 runner）有真实源路径命中，与「只剩注释/兼容性说明」表述冲突——明确
+  archive 列入不改动豁免并把 grep 加 --exclude-dir=archive，否则 evidence 无法自洽通过
+- A6 版本纪律与双镜像纪律一致（A2 diff 为空 + map-plugin.yaml 补丁位递增），与仓库分发面纪律（双镜像一致、改内容必递增）吻合；A9
+  三条禁止越界边界清晰
+unreasonable_items: []
+substitute_reason: null

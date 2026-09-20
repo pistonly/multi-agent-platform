@@ -1,0 +1,9 @@
+event: complete
+summary: I5 收口 + I6 完成，提交 4 条窄 commit（I5a 74aa238 / I5b 9a48bb8 / I5c f16408b / I6
+  ad15bd8，父 I4 5c0df41）。I5：唤醒 prompt 9 处 + gitignore negation 收口（symlink 不再被忽略）；tests
+  断言迁 .agent/skills（RUNTIME_TARGETS cursor 映射保留）；README/docs 链接与 install 默认目标说明改到
+  .agent/skills（archive/cursor-runtime/RUNTIME_TARGETS/问题陈述/带日期报告有意保留）。I6：6 Skill
+  版本补丁位+1，sync 双镜像 diff 空；真机 install(--target & --runtime cursor)各 6 SKILL.md、skill
+  list 版本号正确、契约哈希=simple-waker-runtime-contract-v4 非 None。A7：ruff 0；全量 pytest 2680
+  passed/2 failed/3 skipped——2 条 failed 经 git worktree 5c0df41 核证为 I4 基线既有（skill.py:183
+  Path.cwd 隐式解析守卫 + waker case_f 沙箱时序），非本轮引入，已 --known-failures 登记。待 reviewer 审批。
