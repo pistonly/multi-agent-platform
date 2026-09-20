@@ -50,7 +50,7 @@ htmlcov/
 .mcp.json
 .cursor/*
 .trae
-!.cursor/skills/
+!.cursor/skills
 !.cursor/skills/**
 
 # MAP project-local runtime (bootstrap, tokens, cache, waker state, drafts).

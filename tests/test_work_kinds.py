@@ -20,7 +20,7 @@ from server.services.work_kinds import WORK_ITEM_KINDS, get_kind_spec, render_ki
 
 WAKE_MD = (
     Path(__file__).resolve().parents[1]
-    / ".cursor/skills/map-project-collab/references/wake.md"
+    / ".agent/skills/map-project-collab/references/wake.md"
 )
 
 

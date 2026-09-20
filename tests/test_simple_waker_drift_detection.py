@@ -74,14 +74,14 @@ class _FakeMapClient(MapCommandClient):
 
 
 def _make_skill_tree(root: Path, skill: str = "demo-skill") -> Path:
-    """建立 ``<root>/.cursor/skills/<skill>/SKILL.md`` + references 子目录。"""
-    skills_root = root / ".cursor" / "skills" / skill
+    """建立 ``<root>/.agent/skills/<skill>/SKILL.md`` + references 子目录。"""
+    skills_root = root / ".agent" / "skills" / skill
     skills_root.mkdir(parents=True, exist_ok=True)
     (skills_root / "SKILL.md").write_text("# demo skill", encoding="utf-8")
     refs = skills_root / "references"
     refs.mkdir(exist_ok=True)
     (refs / "extra.md").write_text("extra ref", encoding="utf-8")
-    return root / ".cursor" / "skills"
+    return root / ".agent" / "skills"
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def test_drift_detection_triggers_resync_on_source_change(
     waker.run_once()
     waker._run_drift_check(cycle_index=1)
     # 改源 skill 文件 mtime + size
-    skill_md = tmp_path / ".cursor" / "skills" / "demo-skill" / "SKILL.md"
+    skill_md = tmp_path / ".agent" / "skills" / "demo-skill" / "SKILL.md"
     skill_md.write_text("# demo skill updated with more content", encoding="utf-8")
     # 第二次 cycle，模拟主循环累计 2 cycles 后触发 drift check
     waker._run_drift_check(cycle_index=2)
@@ -187,7 +187,7 @@ def test_resync_failure_emits_alert_event(tmp_path: Path, audit_records: list[di
     # 第一次 scan 填充缓存（首次全 scan 不报漂移）
     waker._drift_detector.check_drift()
     # 改源 skill 触发漂移
-    skill_md = tmp_path / ".cursor" / "skills" / "demo-skill" / "SKILL.md"
+    skill_md = tmp_path / ".agent" / "skills" / "demo-skill" / "SKILL.md"
     skill_md.write_text("# completely different content", encoding="utf-8")
     # 第二次 run_drift_check 触发 resync；patch sync_runtime_skills 让它抛错
     with patch("cli.drift_detector.sync_runtime_skills", side_effect=PermissionError("read-only fs")):
@@ -249,7 +249,7 @@ def test_startup_sync_disabled_env(audit_records: list[dict[str, Any]]) -> None:
 
 
 def test_startup_sync_source_missing(tmp_path: Path, audit_records: list[dict[str, Any]]) -> None:
-    """.cursor/skills 不存在 → skipped_reason=source_missing。"""
+    """.agent/skills 不存在 → skipped_reason=source_missing。"""
     runtime_home = tmp_path / "runtime_home"
     runtime_home.mkdir()
     simple_waker._startup_sync_with_audit(tmp_path, runtime_home)
@@ -271,13 +271,13 @@ def test_drift_detector_skips_resync_within_skip_window(
     runtime_home = tmp_path / "runtime_home"
     runtime_home.mkdir()
     detector = DriftDetector(
-        source_root=tmp_path / ".cursor" / "skills",
+        source_root=tmp_path / ".agent" / "skills",
         dest_root=runtime_home / ".claude" / "skills",
     )
     # 第一次全 scan（空 entries → 缓存填充）
     detector.check_drift()
     # 改源 skill → 触发 1 个 DriftEntry
-    skill_md = tmp_path / ".cursor" / "skills" / "demo-skill" / "SKILL.md"
+    skill_md = tmp_path / ".agent" / "skills" / "demo-skill" / "SKILL.md"
     skill_md.write_text("# brand new content", encoding="utf-8")
     entries = detector.check_drift()
     assert entries, "expected drift entry after source change"
@@ -299,7 +299,7 @@ def test_drift_detector_mtime_tolerance_suppresses_false_drift(
     runtime_home = tmp_path / "runtime_home"
     runtime_home.mkdir()
     dest_root = runtime_home / ".claude" / "skills"
-    src_root = tmp_path / ".cursor" / "skills"
+    src_root = tmp_path / ".agent" / "skills"
     # 拷贝 + 模拟微秒级 mtime 差异
     import shutil
 

@@ -250,7 +250,7 @@ cmd_prepare() {
   done
   echo "release prepare:"
   echo "  1. scripts/check-release.sh"
-  echo "  2. scripts/sync-bundled-skills.sh (if .cursor/skills and cli/skills drifted)"
+  echo "  2. scripts/sync-bundled-skills.sh (if .agent/skills and cli/skills drifted)"
   echo "  3. scripts/sync-web-dist.sh"
   echo "  4. scripts/check-packaging.sh"
   echo "  5. python -m build server-pkg"
@@ -260,9 +260,9 @@ cmd_prepare() {
   fi
   require_clean_tree
   bash "$SCRIPT_DIR/check-release.sh"
-  if [[ -d "$ROOT/.cursor/skills" && -d "$ROOT/cli/skills" ]]; then
-    if ! diff -r -x '__init__.py' "$ROOT/.cursor/skills" "$ROOT/cli/skills" >/dev/null; then
-      echo "release prepare: .cursor/skills and cli/skills drifted — run scripts/sync-bundled-skills.sh" >&2
+  if [[ -d "$ROOT/.agent/skills" && -d "$ROOT/cli/skills" ]]; then
+    if ! diff -r -x '__init__.py' "$ROOT/.agent/skills" "$ROOT/cli/skills" >/dev/null; then
+      echo "release prepare: .agent/skills and cli/skills drifted — run scripts/sync-bundled-skills.sh" >&2
       exit 1
     fi
   fi

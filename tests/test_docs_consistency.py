@@ -48,7 +48,7 @@ PORT_CHECK_SKIP_DIRS = {
     "venv",
 }
 
-# M50D 涉及的 Skill 文件（cli/skills 与 .cursor/skills 两份镜像）。
+# M50D 涉及的 Skill 文件（cli/skills 与 .agent/skills 两份镜像）。
 LEGACY_PATH_SKILL_FILES = [
     "topic-host/references/host-checklist.md",
     "topic-participant/references/participant-checklist.md",
@@ -58,7 +58,7 @@ LEGACY_PATH_SKILL_FILES = [
     "map-project-collab/SKILL.md",
     "map-project-collab/references/commands.md",
 ]
-SKILL_MIRRORS = ["cli/skills", ".cursor/skills"]
+SKILL_MIRRORS = ["cli/skills", ".agent/skills"]
 
 
 def _read(path: Path) -> str:
@@ -353,7 +353,7 @@ class TestSkillCloseReasonConsistency:
 # =========================================================================
 
 # 扫描范围：docs/ 全树、两份 Skill 镜像（分发面，同样有内部相对链接）、根级 md。
-LINK_CHECK_ROOTS = ["docs", "cli/skills", ".cursor/skills"]
+LINK_CHECK_ROOTS = ["docs", "cli/skills", ".agent/skills"]
 
 # 归档快照：整体上移一层目录后其相对链接天然失效，属历史记录，不回填（见 M50H 背景）。
 LINK_CHECK_SKIP_PARTS = {"archive"}

@@ -160,5 +160,5 @@ map --persona host topic comment --id <topic-uuid> --body "..." --parent <commen
 ## 参考
 
 - [PRD v0.5](./prd/archive/v0.5.md) — M21  
-- [topic-host Skill](../.cursor/skills/topic-host/SKILL.md)  
+- [topic-host Skill](../.agent/skills/topic-host/SKILL.md)
 - [PRD v0.3](./prd/archive/v0.3.md) — Webhook 出站基础能力  

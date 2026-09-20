@@ -4,7 +4,7 @@ Drives a scripted host → participant → host → ... → reviewer flow by spa
 the per-persona Agent runtime (``PersonaAgentClient`` with
 ``integration="manual"``) and sending one turn per step. Each step's prompt
 tells the agent what to do; the agent reads the relevant Skill under
-``.cursor/skills/`` and uses ``map --persona <name>`` CLI to act. The
+``.agent/skills/`` and uses ``map --persona <name>`` CLI to act. The
 orchestrator never mutates MAP state directly — it only reads MAP (via
 in-process ``MapSdkClient``, T24) between steps to discover ``topic_id`` /
 ``experiment_id`` and to branch when a decision step picks the "no" path.
@@ -108,7 +108,7 @@ def build_prompt(persona: str, body: str) -> str:
         "project. An end-to-end collaboration demo is being driven by an "
         "external orchestrator; this turn is ONE step of that demo. "
         f"Use `map --persona {persona}` CLI and the Skills under "
-        "`.cursor/skills/` (start with `map-project-collab` "
+        "`.agent/skills/` (start with `map-project-collab` "
         "(§ Waker 模式) → your persona Skill: topic-host / "
         "topic-participant / experiment-host / experiment-reviewer). Do not "
         "wait for further prompts within this turn — gather state yourself "
@@ -263,7 +263,7 @@ class E2EDriver:
             "  2. `map --persona host experiment create --title \"<title>\" "
             f"--plan-file {self.scenario.plan_file} --topic-id <topic_id> "
             "--submit-for-review`\n"
-            "  3. Use the experiment-host Skill (.cursor/skills/experiment-host/SKILL.md).\n"
+            "  3. Use the experiment-host Skill (.agent/skills/experiment-host/SKILL.md).\n"
             "  4. Confirm the experiment_id in your E2E summary line.\n\n"
             "If you choose Option A, just post the reply and say so in your "
             "E2E summary; the orchestrator will end the demo."

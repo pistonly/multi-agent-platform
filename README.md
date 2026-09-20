@@ -30,7 +30,7 @@ pip install multi-agent-platform-server
 
 ```bash
 pip install multi-agent-platform
-map skill install          # 将 6 个 Skill 安装到 .cursor/skills/（--runtime 可换 claude/codex 等目标）
+map skill install          # 装入项目：自动探测 .cursor/.claude/.codex，否则 .agent/skills（--runtime 可显式指定）
 ```
 
 安装后 Cursor 会自动发现 Skill，AI Agent 读取后即可遵循完整的 MAP 协作流程（含讨论门禁（默认两轮，可伸缩）、实验生命周期等）。
@@ -207,7 +207,7 @@ map bootstrap --key my-app --name "My App" --api-url http://localhost:18400
 map --persona host status              # 查看 open_topics
 ```
 
-**实验须由 host persona 创建**，否则生命周期操作可能 403。详见 [AGENTS.md](./AGENTS.md) 与 [.cursor/skills/map-project-collab/SKILL.md](./.cursor/skills/map-project-collab/SKILL.md)。
+**实验须由 host persona 创建**，否则生命周期操作可能 403。详见 [AGENTS.md](./AGENTS.md) 与 [.agent/skills/map-project-collab/SKILL.md](./.agent/skills/map-project-collab/SKILL.md)。
 
 ## Agent Runtime Waker（推荐）
 

@@ -64,7 +64,7 @@ unregistered=0
 declare -a declare_files=(
   "CLAUDE.md"
   "AGENTS.md"
-  ".cursor/skills/map-project-collab/references/wake.md"
+  ".agent/skills/map-project-collab/references/wake.md"
 )
 for rel in "${declare_files[@]}"; do
   decl="$ROOT/$rel"

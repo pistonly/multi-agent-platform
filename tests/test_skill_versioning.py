@@ -91,14 +91,14 @@ class TestPluginManifest:
             assert not unknown, f"{name}: unknown runtime_targets {unknown}"
 
     def test_cursor_mirror_manifests_in_sync(self) -> None:
-        """The committed .cursor/skills mirror must carry the same version."""
+        """The committed .agent/skills mirror must carry the same version."""
         skills_root = _get_bundled_skills_dir()
-        mirror_root = _REPO_ROOT / ".cursor" / "skills"
+        mirror_root = _REPO_ROOT / ".agent" / "skills"
         for name in _list_skill_dirs():
             bundled = _read_version(skills_root / name)
             mirror = _read_version(mirror_root / name)
             assert bundled == mirror, (
-                f"{name}: cli/skills v{bundled} != .cursor/skills v{mirror}"
+                f"{name}: cli/skills v{bundled} != .agent/skills v{mirror}"
             )
 
 

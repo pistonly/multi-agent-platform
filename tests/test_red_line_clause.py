@@ -8,8 +8,8 @@ wheel 分发同步副本（随包分发，`map skill install` 落到用户项目
 本测试断言四层，任一处破坏即红：
 1. 嵌入副本覆盖单源常量：RED_LINE_CLAUSE / INCIDENT_TRIGGER 必选；
    persona 专属 skill 必须真实嵌入对应 PERSONA_INCIDENT_RESPONSE 行
-2. wheel 分发副本（cli/skills）与源（.cursor/skills）全文件一致
-3. 分发面零 dogfood 引用：.cursor/skills 不含本仓库专属路径 / 实验
+2. wheel 分发副本（cli/skills）与源（.agent/skills）全文件一致
+3. 分发面零 dogfood 引用：.agent/skills 不含本仓库专属路径 / 实验
    hash / memory 文件名（外部用户项目中全部悬空）。操作指引中的
    `<slug>` 类占位符不在黑名单
 
@@ -29,10 +29,10 @@ from lib.red_line_clause import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CURSOR_SKILLS = REPO_ROOT / ".cursor" / "skills"
+AGENT_SKILLS = REPO_ROOT / ".agent" / "skills"
 DIST_SKILLS = REPO_ROOT / "cli" / "skills"
 
-# (相对 .cursor/skills 的嵌入文件, 该 skill 必嵌的 persona 响应键)
+# (相对 .agent/skills 的嵌入文件, 该 skill 必嵌的 persona 响应键)
 EMBEDDINGS: list[tuple[str, str | None]] = [
     ("experiment-host/SKILL.md", "host"),
     ("experiment-executor/SKILL.md", "participant"),
@@ -55,7 +55,7 @@ DOGFOOD_REF_PATTERNS: list[tuple[str, str]] = [
 
 @pytest.mark.parametrize(("rel", "persona"), EMBEDDINGS)
 def test_embedding_matches_single_source(rel: str, persona: str | None):
-    content = (CURSOR_SKILLS / rel).read_text(encoding="utf-8")
+    content = (AGENT_SKILLS / rel).read_text(encoding="utf-8")
     assert RED_LINE_CLAUSE in content, rel
     assert INCIDENT_TRIGGER in content, rel
     if persona is not None:
@@ -63,7 +63,7 @@ def test_embedding_matches_single_source(rel: str, persona: str | None):
 
 
 def test_dist_copy_matches_source():
-    """wheel 分发副本（cli/skills）与源（.cursor/skills）全文件一致。"""
+    """wheel 分发副本（cli/skills）与源（.agent/skills）全文件一致。"""
     dist_files = sorted(
         p.relative_to(DIST_SKILLS).as_posix()
         for p in DIST_SKILLS.rglob("*")
@@ -71,17 +71,17 @@ def test_dist_copy_matches_source():
     )
     assert dist_files, "cli/skills 分发目录为空（打包配置或目录被移动？）"
     for rel in dist_files:
-        source, dist = CURSOR_SKILLS / rel, DIST_SKILLS / rel
+        source, dist = AGENT_SKILLS / rel, DIST_SKILLS / rel
         assert source.exists(), f"分发副本 {rel} 在源侧不存在（单向镜像被破坏）"
         assert dist.read_bytes() == source.read_bytes(), rel
 
 
 @pytest.mark.parametrize(("label", "pattern"), DOGFOOD_REF_PATTERNS)
 def test_dist_source_free_of_dogfood_refs(label: str, pattern: str):
-    """分发面零 dogfood 引用：`.cursor/skills/**` 不含本仓库专属引用。"""
+    """分发面零 dogfood 引用：`.agent/skills/**` 不含本仓库专属引用。"""
     rx = re.compile(pattern)
     offenders: list[str] = []
-    for md in sorted(CURSOR_SKILLS.rglob("*.md")):
+    for md in sorted(AGENT_SKILLS.rglob("*.md")):
         for lineno, line in enumerate(
             md.read_text(encoding="utf-8").splitlines(), start=1
         ):

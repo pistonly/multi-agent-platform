@@ -46,8 +46,8 @@ from cli.main import app
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 与 test_docs_consistency.SKILL_MIRRORS / test_red_line_clause 保持一致：
-# .cursor/skills 是源，cli/skills 是随 wheel 分发的同步副本。
-SKILL_MIRRORS = ["cli/skills", ".cursor/skills"]
+# .agent/skills 是源，cli/skills 是随 wheel 分发的同步副本。
+SKILL_MIRRORS = ["cli/skills", ".agent/skills"]
 
 # ``map fs`` 允许的子命令白名单。fs 组现在是 audit 漂移检测专用；话题/实验的
 # FS 写路径全部收归 ``map topic``（v0.13 M58 起，v0.14 M60 归档命令改名）。

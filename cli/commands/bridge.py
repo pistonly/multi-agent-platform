@@ -81,7 +81,7 @@ def _build_remind_text(work: dict[str, Any], *, escalation: int) -> str:
         header = f"[MAP] 平台待办仍未处理（第 {escalation} 次提醒）。"
     lines = _obligation_lines(work)
     protocol = (
-        "处理协议：读 .cursor/skills/map-project-collab/references/wake.md "
+        "处理协议：读 .agent/skills/map-project-collab/references/wake.md "
         "→ 按 persona Skill 行动 → 用 map --persona <name> 写回 MAP。"
     )
     return "\n".join([header, *lines, protocol])

@@ -5,7 +5,10 @@ v0.11 (M52A/M52B) upgrades:
       (``version`` / ``requires`` / ``runtime_targets``).
     - ``map skill install`` reports installed-vs-bundled version drift
       instead of silently skipping, and accepts ``--runtime`` to target
-      ``.cursor/skills`` / ``.claude/skills`` / ``.codex/skills`` / ``./skills``.
+      ``.cursor/skills`` / ``.claude/skills`` / ``.codex/skills`` /
+      ``.agent/skills`` / ``./skills``. With neither ``--target`` nor
+      ``--runtime`` it probes the project for an existing vendor dir and
+      otherwise installs to the neutral ``.agent/skills`` (exp 6f63c672 I4).
     - ``map skill list --installed`` shows version drift per Skill.
     - ``map skill upgrade`` prints a diff summary (added / removed /
       changed files + changed line counts) before overwriting;
@@ -28,8 +31,9 @@ skill_app = typer.Typer(help="Manage MAP Skills (install bundled Skills to your 
 # Directory name inside the cli package
 _SKILLS_PACKAGE_DIR = "skills"
 
-# Default install target relative to project root (backward compatible)
-_DEFAULT_TARGET = ".cursor/skills"
+# Fallback install target when the project has no vendor dir to probe
+# (exp 6f63c672 I4: neutral default, no Cursor binding).
+_DEFAULT_TARGET = ".agent/skills"
 
 # Per-Skill version manifest (M52A)
 PLUGIN_MANIFEST = "map-plugin.yaml"
@@ -40,8 +44,19 @@ RUNTIME_TARGETS: dict[str, str] = {
     "claude-code": ".claude/skills",
     "codex": ".codex/skills",
     "generic": "skills",
+    "agent": ".agent/skills",
 }
-_DEFAULT_RUNTIME = "cursor"
+
+# Probe order when neither --target nor --runtime is given: install into the
+# vendor dir the project already has, so an existing setup keeps working
+# untouched. Falls back to _DEFAULT_TARGET when none exist.
+_VENDOR_PROBE: tuple[tuple[str, str], ...] = (
+    (".cursor", ".cursor/skills"),
+    (".claude", ".claude/skills"),
+    (".codex", ".codex/skills"),
+)
+
+_RUNTIME_CHOICES = "cursor|claude-code|codex|generic|agent"
 
 # Post-install troubleshooting anchor (relative to the installed Skill dir)
 _TROUBLESHOOTING_ANCHOR = (
@@ -145,22 +160,50 @@ def _drift_label(installed: str | None, bundled: str | None) -> str:
     return "up-to-date"
 
 
-def _resolve_target(target: Path | None, runtime: str) -> Path:
+def _resolve_target(target: Path | None, runtime: str | None) -> Path:
     """Resolve the install target directory.
 
-    ``--target`` explicitly given wins; otherwise map ``--runtime``
-    (default ``cursor`` → ``.cursor/skills``, backward compatible).
+    Precedence (exp 6f63c672 I4):
+
+    1. ``--target`` explicitly given → used verbatim (behaviour unchanged).
+    2. ``--runtime`` explicitly given → ``RUNTIME_TARGETS[runtime]``
+       (behaviour unchanged, including unknown-name rejection).
+    3. Neither given → probe the project root for an existing vendor dir
+       (``.cursor`` → ``.claude`` → ``.codex``); none found → ``.agent/skills``.
     """
     if target is not None:
         return target
-    if runtime not in RUNTIME_TARGETS:
-        raise typer.BadParameter(
-            f"unknown runtime '{runtime}'. Available: {', '.join(sorted(RUNTIME_TARGETS))}"
-        )
-    return Path(RUNTIME_TARGETS[runtime])
+    if runtime is not None:
+        if runtime not in RUNTIME_TARGETS:
+            raise typer.BadParameter(
+                f"unknown runtime '{runtime}'. Available: {', '.join(sorted(RUNTIME_TARGETS))}"
+            )
+        return Path(RUNTIME_TARGETS[runtime])
+    workspace_root = _probe_root()
+    if workspace_root is not None:
+        for vendor_dir, vendor_target in _VENDOR_PROBE:
+            if (workspace_root / vendor_dir).is_dir():
+                return Path(vendor_target)
+    return Path(_DEFAULT_TARGET)
 
 
-def _skill_cmd_preamble(target: Path | None, runtime: str) -> tuple[str, Path, Path]:
+def _probe_root() -> Path | None:
+    """探测根目录（唯一收口点 cli.project_context）。
+
+    ``cli/`` 下禁止裸 ``Path.cwd()`` 做隐式 workspace 解析（守卫
+    ``tests/test_cli_context_guard.py``，实验 e7244a91 A5），唯一落点是
+    ``cli/project_context.py``。未 bootstrap 或解析失败时返回 ``None``，
+    调用方回退到相对默认目标（相对 CWD 安装，语义与旧默认一致）。
+    """
+    from cli.project_context import optional_context
+
+    context = optional_context()
+    return context.workspace_root if context is not None else None
+
+
+def _skill_cmd_preamble(
+    target: Path | None, runtime: str | None
+) -> tuple[str, Path, Path]:
     """Shared ``install`` / ``upgrade`` setup (T33: both commands repeated
     this block verbatim).
 
@@ -299,13 +342,14 @@ def skill_list(
         None,
         "--target",
         "-t",
-        help="Installed-Skills directory to inspect (default: from --runtime).",
+        help="Installed-Skills directory to inspect "
+        f"(default: auto-detected, else {_DEFAULT_TARGET}).",
     ),
-    runtime: str = typer.Option(
-        _DEFAULT_RUNTIME,
+    runtime: str | None = typer.Option(
+        None,
         "--runtime",
-        help="Runtime whose default target to inspect "
-        f"(cursor|claude-code|codex|generic; default: {_DEFAULT_RUNTIME}).",
+        help=f"Runtime whose target to inspect ({_RUNTIME_CHOICES}); "
+        "omit to auto-detect the project's existing vendor dir.",
     ),
 ) -> None:
     """List bundled Skills available for installation."""
@@ -368,14 +412,14 @@ def skill_install(
         None,
         "--target",
         "-t",
-        help="Destination directory (overrides --runtime; "
-        f"default: {RUNTIME_TARGETS[_DEFAULT_RUNTIME]})",
+        help=f"Destination directory (overrides --runtime; "
+        f"default: auto-detected, else {_DEFAULT_TARGET})",
     ),
-    runtime: str = typer.Option(
-        _DEFAULT_RUNTIME,
+    runtime: str | None = typer.Option(
+        None,
         "--runtime",
-        help="Install target runtime: cursor|claude-code|codex|generic "
-        f"(default: {_DEFAULT_RUNTIME}).",
+        help=f"Install target runtime ({_RUNTIME_CHOICES}); "
+        "omit to auto-detect the project's existing vendor dir.",
     ),
     force: bool = typer.Option(
         False,
@@ -392,15 +436,18 @@ def skill_install(
 ) -> None:
     """Install MAP Skill files into your project.
 
-    By default, copies all bundled Skill directories from the pip package
-    into ``.cursor/skills/`` in the current project (``--runtime`` selects
-    ``.claude/skills/`` etc.). After installation, your AI Agent (Cursor,
+    Copies all bundled Skill directories from the pip package into the
+    current project. With no flags the target is detected from the vendor
+    dir the project already has (``.cursor`` → ``.claude`` → ``.codex``),
+    falling back to the neutral ``.agent/skills/``; ``--runtime`` /
+    ``--target`` override that. After installation, your AI Agent (Cursor,
     Claude Code, etc.) can read the SKILL.md files and follow the MAP
     collaboration workflow.
 
     \b
     Examples:
-        map skill install                            # all Skills → .cursor/skills/
+        map skill install                            # → detected vendor dir, else .agent/skills/
+        map skill install --runtime cursor           # all Skills → .cursor/skills/
         map skill install --runtime claude-code      # all Skills → .claude/skills/
         map skill install -t .map/skills             # custom directory
         map skill install -s topic-host              # single Skill
@@ -491,7 +538,11 @@ def skill_install(
     )
     typer.echo(
         "Next steps: point your AI Agent to the installed SKILL.md files. "
-        "For Cursor, they are automatically discovered from .cursor/skills/."
+        "Runtimes auto-discover them from their own Skills dir."
+    )
+    typer.echo(
+        f"Installed into {target}/ (auto-detected unless --target/--runtime given). "
+        f"Use --runtime {_RUNTIME_CHOICES} to pick a vendor dir explicitly."
     )
     _post_install_self_check(target)
 
@@ -502,14 +553,14 @@ def skill_upgrade(
         None,
         "--target",
         "-t",
-        help="Directory holding installed Skills (overrides --runtime; "
-        f"default: {RUNTIME_TARGETS[_DEFAULT_RUNTIME]})",
+        help=f"Directory holding installed Skills (overrides --runtime; "
+        f"default: auto-detected, else {_DEFAULT_TARGET})",
     ),
-    runtime: str = typer.Option(
-        _DEFAULT_RUNTIME,
+    runtime: str | None = typer.Option(
+        None,
         "--runtime",
-        help="Runtime whose target to upgrade "
-        f"(cursor|claude-code|codex|generic; default: {_DEFAULT_RUNTIME}).",
+        help=f"Runtime whose target to upgrade ({_RUNTIME_CHOICES}); "
+        "omit to auto-detect the project's existing vendor dir.",
     ),
     force: bool = typer.Option(
         False,

@@ -14,7 +14,7 @@
 4. `host invoke` 的文本、局部 `--json` 和全局 `--json` 均只在 `status=ok` 时退出 0；`error/no_response/timeout` 均非零。SDK 错误详情传到 JSON 的 `error` 字段，连接建立也受调用超时限制。waker 的无效共享配置路径返回清晰启动错误。
 5. 分发 Skill 增加 executor → 独立 reviewer → 最多两次返修 → host 验收的连续执行约定。复用原任务说明、行动项和问题编号，中间修正记录在任务约定的证据文件，最终发布本轮结论。普通发言仍不可覆盖，owner 仍须亲自完成行动项，实验门禁保留。
 
-配置优先级详见 [运行配置说明](MAP-SIMPLE-WAKER.md#claude-sdk-credentials-for-resumed-agents-mapclaude-env)。小任务流程见 [收尾约定](../.cursor/skills/topic-host/references/bounded-task-closeout.md)。源 Skill 与 `cli/skills/` 分发副本已同步。
+配置优先级详见 [运行配置说明](MAP-SIMPLE-WAKER.md#claude-sdk-credentials-for-resumed-agents-mapclaude-env)。小任务流程见 [收尾约定](../.agent/skills/topic-host/references/bounded-task-closeout.md)。源 Skill 与 `cli/skills/` 分发副本已同步。
 
 ## 使用
 

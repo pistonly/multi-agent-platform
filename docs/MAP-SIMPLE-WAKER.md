@@ -67,7 +67,7 @@ and obligation rows in `todos`).
 When a reviewer has `pending_review` or `pending_result_review`, simple-waker
 **does not remind** on topic **contextual** items (`unread_change`). Obligation
 items (e.g. `@mention`, `round_ack`) still remind. See
-[map-project-collab Skill (§ Waker 模式)](../.cursor/skills/map-project-collab/SKILL.md).
+[map-project-collab Skill (§ Waker 模式)](../.agent/skills/map-project-collab/SKILL.md).
 
 ## Usage
 
@@ -201,6 +201,39 @@ agent per persona (`Agent.create` / `Agent.resume`). It does **not** isolate
 `HOME` or copy skills into `.claude/skills`; project Skills load from
 `.cursor/skills` via `setting_sources=["project"]`. `host invoke` / `map runtime chat`
 still use the Claude client in this change.
+
+## Runtime Skill 源与契约版本（v3 → v4）
+
+Skill 真身在 **`.agent/skills/`**（中立目录）。`.cursor/skills`、`.claude/skills`、
+`.codex/skills` 三者都是指向 `../.agent/skills/` 的符号链接，只为让各 runtime 的
+自动发现与历史文档链接继续可用——**不要**单独同步或改写这三个链接。
+
+`cli/simple_waker.py` 用两组常量描述「可能影响 Agent 行为的运行时事实」：
+
+| 常量 | 作用 |
+|------|------|
+| `RUNTIME_CONTRACT_FILES` | 参与哈希的清单，v4 起为 `.agent/skills/<skill>/SKILL.md` 五条（map-project-collab / topic-host / topic-participant / experiment-host / experiment-reviewer） |
+| `RUNTIME_CONTRACT_VERSION` | 版本盐值，随清单语义一起递增；当前 `simple-waker-runtime-contract-v4` |
+
+两者共同产出 `runtime_contract_hash`，写进 persona state 供对比（见
+`cli/simple_waker.py:runtime_contract_hash`）。
+
+### 契约版本变更需重启 waker
+
+哈希在 `SimpleWaker.__init__` 计算**一次**并缓存在实例上，运行期不重算。因此：
+
+- 升级后仍在跑的 waker 会继续持有 **v3 时期的旧哈希**，而漂移检测的源已变成
+  `.agent/skills/**`。此时它可能把新路径判成 drift 并按旧内容静默回写，或反过来
+  对本应生效的清单变更视而不见。
+- 正确姿势：**改完契约（清单或版本号）→ 重启 waker**
+  （`scripts/start-simple-waker.sh --persona <name>`，或 `scripts/start-all-simple-wakers.sh`），
+  让冷启动的 `_startup_sync_with_audit` 以新清单重新镜像一次。
+- 审计留痕：启动日志的 `startup_sync` 事件含 `skills_count` / `synced_skills` /
+  `skipped_reason`，重启后应看到 `skills_count=6`。
+
+镜像语义未因迁目录而改变：`sync_runtime_skills` 仍是「全量镜像
+（rmtree + copytree + 孤儿清理）」，源只读、目标只在 `<runtime_home>/.claude/skills`
+之下，项目里的三个符号链接不参与 rmtree/copytree，不会被删成普通目录或断链。
 
 ## Agent rules
 

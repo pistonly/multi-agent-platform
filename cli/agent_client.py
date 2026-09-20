@@ -423,7 +423,7 @@ class PersonaAgentClient:
                 "project. When woken by simple-waker you receive a single wake event. "
                 f"Confirm identity with `map --persona {self.persona} persona whoami`, read "
                 f"latest work with `map --persona {self.persona} todos`, then handle only the "
-                "event in the wake prompt using the appropriate skill from `.cursor/skills/`. "
+                "event in the wake prompt using the appropriate skill from `.agent/skills/`. "
                 "Gather missing context via the `map` CLI; do not wait for the waker to supply "
                 "a full plan."
             )
@@ -431,7 +431,7 @@ class PersonaAgentClient:
             return (
                 f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
                 "project. A human operator resumed this session via `map runtime chat`. "
-                f"Use `map --persona {self.persona}` CLI and skills under `.cursor/skills/` "
+                f"Use `map --persona {self.persona}` CLI and skills under `.agent/skills/` "
                 "(topic-host, topic-participant, experiment-host, experiment-reviewer, "
                 "map-project-collab). Follow the operator's instructions for the current task. "
                 "Do not assume simple-waker will send another wake for the same work item."
@@ -441,7 +441,7 @@ class PersonaAgentClient:
                 f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
                 "project. You are being invoked directly by the host agent via "
                 f"`map host invoke`. Use `map --persona {self.persona}` CLI and skills "
-                "under `.cursor/skills/` (topic-host, topic-participant, experiment-host, "
+                "under `.agent/skills/` (topic-host, topic-participant, experiment-host, "
                 "experiment-reviewer, map-project-collab) to handle the task in the prompt. "
                 "Gather context via the `map` CLI, perform the requested action, and report "
                 "a brief summary when done. Do not wait for a waker — this is a synchronous "
@@ -451,7 +451,7 @@ class PersonaAgentClient:
             f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
             "project. When woken up by the bridge, ALWAYS start by running "
             f"`map --persona {self.persona} todos` to inspect pending work, then invoke "
-            "the appropriate skill from `.cursor/skills/` (topic-host, topic-participant, "
+            "the appropriate skill from `.agent/skills/` (topic-host, topic-participant, "
             "topic-reviewer, experiment-host, or map-project-collab) to act on each item. "
             "Do not wait for the bridge to feed you a complete plan; gather state "
             "yourself via the `map` CLI."
@@ -626,7 +626,7 @@ def make_wakeup_prompt(persona: str, todos: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "Use the appropriate skill from `.cursor/skills/` (topic-host, "
+            "Use the appropriate skill from `.agent/skills/` (topic-host, "
             "topic-participant, topic-reviewer, experiment-host, or "
             "map-project-collab). Report a brief status when done.",
         ]

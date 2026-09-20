@@ -33,7 +33,7 @@
 | 层 | 组件 | 做什么 | 不做什么 |
 |----|------|--------|----------|
 | Agent 层 | `map` CLI + persona（`.map/`） | 按 Skill 流程读写话题/实验；`topic --id` 统一路由（DB uuid / FS uuid5 / slug） | 不绕过状态机直写 DB |
-| Agent 层 | Skill（`.cursor/skills/` 等） | 定义被唤醒后怎么做（host/participant/reviewer 行为） | 不替代平台状态机 |
+| Agent 层 | Skill（`.agent/skills/` 真身 + 各厂商符号链接） | 定义被唤醒后怎么做（host/participant/reviewer 行为） | 不替代平台状态机 |
 | 内容层 | `map/topics/<slug>/` 等 | 话题/实验内容事实源；发言 = `round<N>-<persona>.md`，Summary = `round<N>-summary-<persona>.md`（均 immutable） | — |
 | 服务层 | API + DB | 实验生命周期门禁、验证型写（校验后写回 index.md）、todos/通知聚合、审计 | 不存储话题/评论正文 |
 | 服务层 | simple-waker | 轮询 `GET /agents/me/work` → remind 唤醒 Agent Runtime | 不做业务判断、不写 MAP |

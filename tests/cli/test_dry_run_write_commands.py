@@ -119,7 +119,7 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("agent", "escalation-target"),
     ("project", "export"),
     ("skill", "list"),
-    ("skill", "install"),  # 只写本地文件（.cursor/skills/），不改 MAP 状态
+    ("skill", "install"),  # 只写本地文件（.agent/skills/），不改 MAP 状态
     # M52A：upgrade 同 install，仅覆写本地 Skill 目录（可 diff 摘要预览）
     ("skill", "upgrade"),
     # 话题文件夹离线命令：只写本地 map/，不走 MAP API。

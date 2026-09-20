@@ -62,7 +62,7 @@ _audit_drift_logger = logging.getLogger("cli.simple_waker.verify_audit")
 def _startup_sync_with_audit(project_root: Path, runtime_home: Path) -> None:
     """启动时同步 skills 并按 plan v0.x §A5 固定 JSON schema 留痕。
 
-    skipped_reason 枚举: ``source_missing`` (源 .cursor/skills 不存在)
+    skipped_reason 枚举: ``source_missing`` (源 .agent/skills 不存在)
     / ``permission_denied`` (PermissionError 派生) / ``disabled`` (显式
     关闭: 通过环境变量 ``WAKER_SKILL_SYNC_DISABLED=1`` 跳过)。
     """
@@ -112,13 +112,13 @@ def _startup_sync_with_audit(project_root: Path, runtime_home: Path) -> None:
         )
     )
 
-RUNTIME_CONTRACT_VERSION = "simple-waker-runtime-contract-v3"
+RUNTIME_CONTRACT_VERSION = "simple-waker-runtime-contract-v4"
 RUNTIME_CONTRACT_FILES: tuple[str, ...] = (
-    ".cursor/skills/map-project-collab/SKILL.md",
-    ".cursor/skills/topic-host/SKILL.md",
-    ".cursor/skills/topic-participant/SKILL.md",
-    ".cursor/skills/experiment-host/SKILL.md",
-    ".cursor/skills/experiment-reviewer/SKILL.md",
+    ".agent/skills/map-project-collab/SKILL.md",
+    ".agent/skills/topic-host/SKILL.md",
+    ".agent/skills/topic-participant/SKILL.md",
+    ".agent/skills/experiment-host/SKILL.md",
+    ".agent/skills/experiment-reviewer/SKILL.md",
 )
 
 
@@ -200,7 +200,7 @@ class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
         )
         self._runtime_contract_hash = runtime_contract_hash(self.config.project_root)
         # 实验 waker-runtime-skill-hotcheck I4：构造 DriftDetector。
-        # source_root = .cursor/skills；dest_root = <runtime_home>/.claude/skills。
+        # source_root = .agent/skills；dest_root = <runtime_home>/.claude/skills。
         # 若 source_root 不存在（极端场景），detector 退化为空 scan，resync 由
         # detector.resync 走 source_missing 路径——不抛异常。
         self._drift_detector = self._build_drift_detector()

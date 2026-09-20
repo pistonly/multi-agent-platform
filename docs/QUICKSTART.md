@@ -129,12 +129,14 @@ map --persona host persona whoami
 bootstrap 只接入平台；要让你的 AI Agent 知道**怎么**协作，还需安装内置 Skill：
 
 ```bash
-# 默认安装到 .cursor/skills/（Cursor 自动发现）
+# 默认自动探测已存在的 .cursor/.claude/.codex，否则装到中立目录 .agent/skills/
 map skill install
 
-# 其他 Runtime：Claude Code / Codex / 通用目录
+# 显式指定 Runtime 目标目录
+map skill install --runtime cursor         # → .cursor/skills/
 map skill install --runtime claude-code    # → .claude/skills/
 map skill install --runtime codex          # → .codex/skills/
+map skill install --runtime agent          # → .agent/skills/
 map skill install --runtime generic        # → ./skills/
 ```
 
@@ -249,4 +251,4 @@ map bootstrap --key my-project --name "My Project" --api-url http://localhost:18
 - [CLI 完整命令参考](./CLI.md)
 - [Python SDK 指南](./SDK.md)
 - [架构设计](./ARCHITECTURE.md)
-- [协作 Skill 文档](../.cursor/skills/map-project-collab/SKILL.md)
+- [协作 Skill 文档](../.agent/skills/map-project-collab/SKILL.md)

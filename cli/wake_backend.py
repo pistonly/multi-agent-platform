@@ -150,22 +150,25 @@ TODO_BUCKET_UI_LABELS: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Skill chain 同步 — 把 .cursor/skills 拷贝到 runtime HOME
+# Skill chain 同步 — 把 .agent/skills 拷贝到 runtime HOME
 # ---------------------------------------------------------------------------
 
 
 def sync_runtime_skills(
     *, project_root: Path, runtime_home: Path
 ) -> tuple[list[str], str | None]:
-    """Mirror ``.cursor/skills/<skill>`` to ``<runtime_home>/.claude/skills/<skill>``.
+    """Mirror ``.agent/skills/<skill>`` to ``<runtime_home>/.claude/skills/<skill>``.
 
     全量镜像（rmtree+copytree+孤儿清理）行为保持不变；返回
     ``(synced_skills, skipped_reason)``: ``synced_skills`` 是同步成功的
     skill 列表;``skipped_reason`` 仅在 ``synced_skills == []`` 时为
-    ``source_missing``（源 .cursor/skills 不存在）;PermissionError 由
+    ``source_missing``（源 .agent/skills 不存在）;PermissionError 由
     调用方捕获并派生 ``permission_denied``。
+
+    源只读、目标只在 ``runtime_home`` 下：项目里的 ``.cursor/skills`` 等符号链接
+    不参与 rmtree/copytree，不会被删成普通目录或断链。
     """
-    source_root = project_root / ".cursor" / "skills"
+    source_root = project_root / ".agent" / "skills"
     if not source_root.is_dir():
         return ([], "source_missing")
     target_root = runtime_home / ".claude" / "skills"

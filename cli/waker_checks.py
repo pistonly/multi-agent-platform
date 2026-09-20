@@ -32,13 +32,13 @@ class SimpleWakerChecksMixin:
     def _build_drift_detector(self) -> DriftDetector | None:
         """构造 DriftDetector；runtime_home 缺失或源 skills 不存在时返回 None。
 
-        source_root = ``<project_root>/.cursor/skills``；
+        source_root = ``<project_root>/.agent/skills``；
         dest_root   = ``<runtime_home>/.claude/skills``。
         """
         runtime_home = self.config.runtime_home
         if runtime_home is None:
             return None
-        source_root = self.config.project_root / ".cursor" / "skills"
+        source_root = self.config.project_root / ".agent" / "skills"
         if not source_root.is_dir():
             return None
         return DriftDetector(

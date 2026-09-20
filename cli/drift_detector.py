@@ -1,6 +1,6 @@
 """Runtime skill drift detector — 实验 waker-runtime-skill-hotcheck I1+I2。
 
-对比 ``.cursor/skills/<skill>/*`` 源与 runtime home 副本
+对比 ``.agent/skills/<skill>/*`` 源与 runtime home 副本
 ``.claude/skills/<skill>/*``，发现漂移立即调用
 :meth:`sync_runtime_skills` 重同步（同周期内同 skill 抑制）。
 

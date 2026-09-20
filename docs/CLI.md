@@ -138,7 +138,7 @@ generate-log | map --persona host experiment log --id <exp-uuid> --summary "执�
 |------|------|
 | `map project export` | 导出项目历史到本地 Markdown（默认 `.map/history/`，gitignore；要入库用 `-o`） |
 | `map skill list` | 列出 pip 包内置的 Skill |
-| `map skill install` | 将 Skill 文件安装到当前项目（默认 `.cursor/skills/`），让 AI Agent 自动发现 |
+| `map skill install` | 将 Skill 文件安装到当前项目（自动探测 `.cursor/.claude/.codex`，否则 `.agent/skills/`），让 AI Agent 自动发现 |
 | `map sync pull` | 拉取远程项目数据到本地 SQLite 缓存（`.map/cache.db`），支持离线浏览 |
 | `map sync status` | 查看本地缓存的同步状态（最后拉取时间、缓存条目数） |
 | `map sync topics` | 离线列出本地缓存中的话题 |
@@ -305,8 +305,12 @@ configured as an offline local-plane project. ...
 将 pip 包内置的 MAP Skill 文件安装到当前项目，让 AI Agent（Cursor、Claude Code 等）自动发现并遵循 MAP 协作流程。
 
 ```bash
-# 安装全部 Skill 到 .cursor/skills/（默认，Cursor 自动发现）
+# 默认自动探测已存在的 .cursor/.claude/.codex，否则装到中立目录 .agent/skills/
 map skill install
+
+# 显式指定 Runtime 目标目录
+map skill install --runtime cursor         # → .cursor/skills/
+map skill install --runtime agent          # → .agent/skills/
 
 # 安装到自定义目录
 map skill install -t .map/skills
@@ -324,6 +328,6 @@ map skill install --force
 map skill list
 ```
 
-安装后，Cursor 会自动从 `.cursor/skills/` 读取 SKILL.md。其他 IDE 用户可将安装目录指向 Agent 的规则文件路径。
+安装后，各 Runtime 会从其自己的 Skills 目录（`.cursor/skills`、`.claude/skills`、`.codex/skills` 等）自动读取 SKILL.md；无厂商目录时落到中立的 `.agent/skills/`，可用 `--runtime`/`--target` 显式指定。
 
 完整子命令列表请运行 `map --help`。
