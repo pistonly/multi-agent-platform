@@ -6,6 +6,7 @@ expected_from 防手改），写后回读复核；失败不落盘或回滚原文
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -226,6 +227,76 @@ def write_round_comment(
     }
     _atomic_write(comment_path, _render_file(meta, body))
     _merge_participant(workspace, slug, persona, content_root=content_root)
+    return comment_path
+
+
+_ADDENDUM_HEADING_RE = re.compile(r"^## Addendum\b.*$", re.MULTILINE)
+
+
+def _round_meta_matches(meta: dict[str, Any], *, persona: str, round_number: int) -> bool:
+    """frontmatter 的 author/round 与追加参数是否一致（防手改文件错位）。"""
+    author = str(meta.get("author") or "")
+    round_raw = meta.get("round")
+    round_str = str(round_raw).strip()
+    if round_str.startswith("round"):
+        round_str = round_str[len("round"):]
+    return author == persona and round_str == str(round_number)
+
+
+def append_round_comment(
+    workspace: Path,
+    slug: str,
+    *,
+    round_number: int,
+    persona: str,
+    body: str,
+    content_root: str = DEFAULT_CONTENT_ROOT,
+) -> Path:
+    """在已存在的普通发言文件末尾追加 Addendum 小节（只增不改）。
+
+    补充已发布发言的合法通道：原正文不动，追加内容以
+    ``## Addendum <n> @ <utc-ts>`` 小节附在文末，front-matter 增记
+    ``updated_at``（``posted_at`` 保持原值）。与 immutable 约定兼容
+    ——已发布内容不可篡改，补充内容可审计可区分。
+
+    抛错：
+    - :class:`FileNotFoundError`：目标 ``round<N>-<persona>.md`` 不存在
+      （新发言去掉 append 直接走 :func:`write_round_comment`）；
+    - :class:`ValueError`：body 自带 frontmatter（W1 前置校验，与
+      ``write_round_comment`` 同口径），或现有文件 frontmatter 的
+      author/round 与参数不一致（文件名与内容错位，防手改）。
+    """
+    _reject_embedded_frontmatter(body)
+    slug = _require_slug(slug)
+    topic_dir = workspace / content_root / "topics" / slug
+    comment_path = topic_dir / f"round{round_number}-{persona}.md"
+    if not comment_path.exists():
+        raise FileNotFoundError(
+            f"comment file not found, nothing to append: {comment_path}; "
+            "for a new comment drop append and use the normal write path"
+        )
+    text = comment_path.read_text(encoding="utf-8")
+    meta, old_body = parse_front_matter(text)
+    if not _round_meta_matches(meta, persona=persona, round_number=round_number):
+        raise ValueError(
+            f"existing comment frontmatter does not match append args "
+            f"(file author={meta.get('author')!r}, round={meta.get('round')!r}; "
+            f"expected author={persona!r}, round={round_number}): {comment_path}"
+        )
+    addendum_count = len(_ADDENDUM_HEADING_RE.findall(old_body))
+    now = datetime.now(timezone.utc).isoformat()
+    new_body = (
+        f"{old_body.rstrip()}\n\n"
+        f"## Addendum {addendum_count + 1} @ {now}\n\n{body.strip()}\n"
+    )
+    # YAML 反序列化可能把 posted_at 变成 datetime 对象；规范化回 ISO 字符串，
+    # 避免重写时 safe_dump 输出格式与原文件漂移。
+    meta = {
+        key: (value.isoformat() if isinstance(value, datetime) else value)
+        for key, value in meta.items()
+    }
+    meta["updated_at"] = now
+    _atomic_write(comment_path, _render_file(meta, new_body))
     return comment_path
 
 

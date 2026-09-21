@@ -40,6 +40,7 @@ from map_fs.archive import (
 )
 from map_fs.frontmatter import make_excerpt, parse_front_matter, slugify
 from map_fs.index_io import (
+    append_round_comment,
     commit_experiment_index_write,
     experiment_index_path,
     update_experiment_index,
@@ -116,6 +117,7 @@ __all__ = [
     "OpenExperimentError",
     "TopicOwnerError",
     "TopicStateError",
+    "append_round_comment",
     "comment_id_for_path",
     "commit_experiment_index_write",
     "derive_work",

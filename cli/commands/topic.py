@@ -435,6 +435,14 @@ def topic_comment(
         "--force",
         help="仅允许替换已存在的 Round Summary 文件；普通发言始终 immutable；不豁免 frontmatter 前置校验",
     ),
+    append: bool = typer.Option(
+        False,
+        "--append",
+        help=(
+            "在本轮已存在的发言文件末尾追加 Addendum 小节（只增不改，原正文不可篡改）；"
+            "front-matter 记 updated_at。与 --force / --round-summary 互斥。"
+        ),
+    ),
     file_path: str | None = typer.Option(
         None,
         "--file-path",
@@ -451,6 +459,13 @@ def topic_comment(
 
     if body is not None and body_file is not None:
         typer.echo("Error: use only one of --body or --file", err=True)
+        raise typer.Exit(2)
+    if append and (force or round_summary):
+        typer.echo(
+            "Error: --append cannot be combined with --force or --round-summary "
+            "(append only adds an Addendum section to an existing comment)",
+            err=True,
+        )
         raise typer.Exit(2)
     if body is not None:
         content = body
@@ -500,6 +515,7 @@ def topic_comment(
             persona=persona,
             round_number=round_number,
             force=force,
+            append=append,
         )
         return
     if storage is None and (slug := _fs_comment_target()) is not None:
@@ -513,6 +529,7 @@ def topic_comment(
             persona=persona,
             round_number=round_number,
             force=force,
+            append=append,
         )
         return
 
@@ -530,6 +547,7 @@ def topic_comment(
                 persona=persona,
                 round_number=round_number,
                 force=force,
+                append=append,
             )
             raise typer.Exit(0)
         _db_write_retired("comment", str(target))
@@ -550,8 +568,13 @@ def _write_fs_comment(
     persona: str | None = None,
     round_number: int | None = None,
     force: bool = False,
+    append: bool = False,
 ) -> None:
-    """话题发言 = 写普通 round 文件或独立 Summary 文件（纯本地）。"""
+    """话题发言 = 写普通 round 文件或独立 Summary 文件（纯本地）。
+
+    ``append=True`` 时改为在已存在的本轮发言文件末尾追加 Addendum 小节
+    （原正文不可篡改，front-matter 记 ``updated_at``）。
+    """
     if content is None:
         typer.echo(
             "Error: folder topics need --body, --file, or piped stdin (content is "
@@ -567,7 +590,7 @@ def _write_fs_comment(
             err=True,
         )
         raise typer.Exit(2)
-    from map_fs import write_round_comment
+    from map_fs import append_round_comment, write_round_comment
 
     from cli.commands.fs import _content_root_name, _current_round, _persona, _workspace
 
@@ -579,24 +602,46 @@ def _write_fs_comment(
             "Commit first if you need the old content auditable.",
             err=True,
         )
+    resolved_round = (
+        round_number if round_number is not None else _current_round(workspace, slug)
+    )
     try:
-        path = write_round_comment(
-            workspace,
-            slug,
-            round_number=(
-                round_number if round_number is not None else _current_round(workspace, slug)
-            ),
-            persona=_persona(persona),
-            body=content,
-            is_round_summary=round_summary,
-            content_root=_content_root_name(workspace),
-            overwrite=force,
-        )
+        if append:
+            path = append_round_comment(
+                workspace,
+                slug,
+                round_number=resolved_round,
+                persona=_persona(persona),
+                body=content,
+                content_root=_content_root_name(workspace),
+            )
+        else:
+            path = write_round_comment(
+                workspace,
+                slug,
+                round_number=resolved_round,
+                persona=_persona(persona),
+                body=content,
+                is_round_summary=round_summary,
+                content_root=_content_root_name(workspace),
+                overwrite=force,
+            )
     except FileExistsError as err:
         hint = comment_immutable_ready_hint(
             workspace, slug, _content_root_name(workspace)
         )
-        typer.echo(f"Error: {err}{hint}", err=True)
+        typer.echo(
+            f"Error: {err}{hint}\n"
+            "Hint: 想在本轮发言后补充内容，用 `map topic comment --append` "
+            "（只增不改，原发言保留）。",
+            err=True,
+        )
+        raise typer.Exit(1) from err
+    except FileNotFoundError as err:
+        typer.echo(
+            f"Error: {err}\nHint: 本轮还没有你的发言文件；如需新发言请去掉 --append。",
+            err=True,
+        )
         raise typer.Exit(1) from err
     except ValueError as err:
         # W1 写路径前置校验：body 自带 frontmatter（--force 不豁免）

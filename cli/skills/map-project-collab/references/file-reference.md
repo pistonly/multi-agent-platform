@@ -22,6 +22,7 @@
 |------|------|------|
 | 创建话题 | `map topic create --slug <name> --title "..."` | 写 index.md；远程模式下默认自动 sync |
 | 发言 | `map topic comment --topic <slug> --file ./opinion.md` | 写 round 文件；远程模式下默认自动 sync（`--no-sync` 可关） |
+| 补充发言 | `map topic comment --topic <slug> --append --body "..."` | 在本轮已发布发言文件末尾追加 `## Addendum` 小节（只增不改）；原正文不可篡改 |
 | Round Summary | `map topic comment --topic <slug> --round-summary --file ./summary.md` | 写独立 Summary 文件，不覆盖本轮原发言 |
 | 查看 | `map topic list` / `map topic show --id <slug>` | list 合并本地 map/ + API 存量；show 优先读本地文件夹 |
 | 我的待办 | `map work`（离线可用 `map topic work --persona <name>`） | required participant 无本轮文件 = pending；creator 只承担 round ack 主持义务 |

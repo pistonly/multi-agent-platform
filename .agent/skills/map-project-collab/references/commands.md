@@ -107,6 +107,16 @@ cat ./my-opinion.md | map --persona participant topic comment --topic <slug>
 
 slug 自动路由到 FS，纯本地写。host 的轮次 Summary 加 `--round-summary`，CLI 会写入独立的 `round<N>-summary-host.md`，无需 `--force` 覆盖原发言。存量 DB 话题只读，不对其跑写命令。`map topic comment --id <slug>` 与 `--topic` 等价。
 
+**发完想补充内容用 `--append`**（每轮每人一个发言文件，重复发言会撞 immutable 保护）：
+
+```bash
+# 在本轮已发布的发言文件末尾追加 ## Addendum 小节：原正文不动、不可篡改，
+# front-matter 记 updated_at；与 --force / --round-summary 互斥
+map --persona host topic comment --topic <slug> --append --body "补充：数据口径修正"
+```
+
+适用场景：发帖后发现漏了内容、口径需要修正说明。追加内容可审计可区分（Addendum 编号自增）；若要开展全新议题，应 `advance-round` 进下一轮或开新话题，而非 append。
+
 ## 实验创建（仅 host）
 
 ```bash

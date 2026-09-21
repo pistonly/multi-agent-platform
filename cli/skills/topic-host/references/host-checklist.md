@@ -26,6 +26,11 @@ map --persona host topic comment --topic <slug> --body "回复内容"
 # 长发言：CLI 写入 round<N>-<persona>.md（默认 immutable）
 map --persona host topic comment --topic <slug> --file ./host-opinion.md
 
+# 发完想补充内容：--append 在本轮发言文件末尾追加 ## Addendum 小节
+# （只增不改，原正文不可篡改，front-matter 记 updated_at）；
+# 与 --force / --round-summary 互斥；文件不存在时提示去掉 --append。
+map --persona host topic comment --topic <slug> --append --body "补充：修正说明"
+
 # 发布 Round Summary：CLI 写入独立的
 # round<N>-summary-<persona>.md，不覆盖同轮原始发言，也不需要 --force。
 # --round-summary 标记 Summary 性质并触发 ack 流。
