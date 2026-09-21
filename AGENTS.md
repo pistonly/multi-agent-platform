@@ -18,7 +18,7 @@ MAP 的产品目标是让用户在自己的项目中安装 SDK/CLI、放入 Skil
 |------|--------|----------|
 | **waker** | 发现待办/话题进展 → 短 prompt 唤醒 Runtime | 不写 MAP、不跑实验、不替 Agent 做业务判断 |
 | **Skill** | 定义被唤醒后**怎么做** | 不替代平台状态机 |
-| **被唤醒的 Agent** | `whoami` → `map work` → 写回 MAP | 不凭 session 记忆跳过待办 |
+| **被唤醒的 Agent** | `map work`（顶部 agent 块即身份，省独立 whoami）→ 写回 MAP | 不凭 session 记忆跳过待办 |
 
 被唤醒时 Agent **必须先读** [.cursor/skills/map-project-collab/references/wake.md](.cursor/skills/map-project-collab/references/wake.md)（最小唤醒协议 + kind→清理分发表），再读 persona Skill。waker 设计与部署细节见 [docs/MAP-SIMPLE-WAKER.md](docs/MAP-SIMPLE-WAKER.md)。
 

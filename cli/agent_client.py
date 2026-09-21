@@ -421,9 +421,11 @@ class PersonaAgentClient:
             return (
                 f"You are the **{self.persona}** persona of the MAP (Multi-Agent Platform) "
                 "project. When woken by simple-waker you receive a single wake event. "
-                f"Confirm identity with `map --persona {self.persona} persona whoami`, read "
-                f"latest work with `map --persona {self.persona} todos`, then handle only the "
-                "event in the wake prompt using the appropriate skill from `.agent/skills/`. "
+                f"Read the latest work snapshot with `map --persona {self.persona} work` — the "
+                "agent block at the top of its output confirms your identity (run a standalone "
+                f"`map --persona {self.persona} persona whoami` only if that block is missing or "
+                "identity is unclear) — then handle only the event in the wake prompt using the "
+                "appropriate skill from `.agent/skills/`. "
                 "Gather missing context via the `map` CLI; do not wait for the waker to supply "
                 "a full plan."
             )

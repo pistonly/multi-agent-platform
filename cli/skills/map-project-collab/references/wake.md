@@ -4,8 +4,8 @@
 
 ## 唤醒后四步
 
-1. `map --persona <persona> persona whoami` — 确认身份
-2. `map --persona <persona> work` — 统一真相快照（topic work items + todos + wakeable 通知）；等价拆分：`topic progress` + `todos`
+1. `map --persona <persona> work` — 统一真相快照（topic work items + todos + wakeable 通知）；等价拆分：`topic progress` + `todos`
+2. 确认身份：直接读上一步输出顶部的 **agent 块**（已含 whoami 信息，省一次独立调用）；仅当身份存疑或 agent 块缺失时才单独跑 `persona whoami`
 3. 逐项处理，**obligation 优先于 contextual**，按下方分发表路由
 4. 收尾再跑一次 `map work`，验证已清空或每项有文档化 blocker；**禁止**凭 session 记忆判断"无事可做"
 
