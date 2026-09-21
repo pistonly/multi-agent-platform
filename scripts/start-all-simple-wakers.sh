@@ -24,7 +24,8 @@ extra_args=()
 
 cleanup() {
   local pid
-  for pid in "${pids[@]}"; do
+  # bash 3.2 (macOS) + set -u: expand empty arrays safely.
+  for pid in ${pids[@]+"${pids[@]}"}; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -95,7 +96,7 @@ start_waker() {
   fi
   MAP_SIMPLE_STATE_FILE=".map/simple-waker-state-${name}.json" \
   MAP_SIMPLE_RUNTIME_HOME=".map/claude-runtime-home-${name}" \
-  ./scripts/start-simple-waker.sh --persona "$name" "${args[@]}" >>"$LOG_DIR/${name}.log" 2>&1 &
+  ./scripts/start-simple-waker.sh --persona "$name" ${args[@]+"${args[@]}"} >>"$LOG_DIR/${name}.log" 2>&1 &
   pids+=("$!")
   echo "started simple waker $name pid=$! log=$LOG_DIR/${name}.log" >&2
 }
@@ -107,9 +108,9 @@ for persona in host participant reviewer; do
   fi
 done
 
-start_waker host "${extra_args[@]}"
-start_waker participant "${extra_args[@]}"
-start_waker reviewer "${extra_args[@]}"
+start_waker host ${extra_args[@]+"${extra_args[@]}"}
+start_waker participant ${extra_args[@]+"${extra_args[@]}"}
+start_waker reviewer ${extra_args[@]+"${extra_args[@]}"}
 
 echo "" >&2
 echo "All simple wakers running. Tail logs:" >&2
