@@ -315,7 +315,17 @@ def test_map_command_client_work_requests_wakeable(monkeypatch) -> None:
 
     monkeypatch.setattr(MapCommandClient, "_run", fake_run)
     MapCommandClient(persona="host").work()
-    assert seen["args"] == ["work", "--notification-category", "wakeable", "--client", "waker"]
+    # map exp 4e4206de I1：默认 work 视图为精简人类输出，本路径按 YAML
+    # 解析 stdout，必须显式固定 --format yaml。
+    assert seen["args"] == [
+        "work",
+        "--notification-category",
+        "wakeable",
+        "--client",
+        "waker",
+        "--format",
+        "yaml",
+    ]
 
 
 def test_should_send_remind_requires_work_and_respects_cooldown() -> None:

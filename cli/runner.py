@@ -497,6 +497,7 @@ def _run(
     admin: bool = False,
     table_renderer=None,
     client_ctx=None,
+    human_renderer=None,
 ) -> None:
     """Run an SDK action with MAP-aware error rendering (I1(c)~(e)).
 
@@ -526,6 +527,11 @@ def _run(
         client_ctx: Optional context manager that yields the client.
             When provided (e.g. :func:`_null_client_ctx` for local-plane
             commands), the admin/persona client resolution is skipped.
+        human_renderer: Optional callable that takes the action result and
+            returns the human-readable string used when the user has NOT
+            chosen a format explicitly (``format_source == "default"``).
+            Explicit ``--format yaml``/``json`` bypass it — the machine
+            contract stays byte-identical (map exp 4e4206de I1/A1).
     """
     if experiment_id is not None and not isinstance(experiment_id, uuid.UUID):
         experiment_id = normalize_uuid_like(experiment_id)
@@ -585,6 +591,14 @@ def _run(
                 typer.echo(table_renderer(result))
             elif output_format == "json":
                 emit_json_success(result)
+            elif (
+                human_renderer is not None
+                and output_format == "yaml"
+                and _cli_options().get("format_source", "default") == "default"
+            ):
+                # map exp 4e4206de I1：默认（未显式选 format）才用精简人类
+                # 视图；显式 --format yaml / json 走原全量输出，机器契约不动。
+                typer.echo(human_renderer(result))
             else:
                 _print_yaml(result)
     except MAPHTTPError as exc:

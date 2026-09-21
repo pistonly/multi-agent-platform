@@ -81,16 +81,24 @@ class TestEmitConnectionFailure:
 
 
 class TestMainBoundary:
-    """走真实 main() 入口的集成路径（monkeypatch _run 注入连接错误）。"""
+    """走真实 main() 入口的集成路径（monkeypatch _run 注入连接错误）。
 
-    def _invoke_main(self, monkeypatch, argv):
+    I1 起 work 命令本体在 ``cli.commands.work``（自 main.py 拆出），
+    ``_run`` 的注入点是该模块的模块级绑定——patch ``cli.main._run``
+    拦截不到拆出后的命令。
+    """
+
+    def _invoke_main(self, monkeypatch, argv, exc=None):
         monkeypatch.setattr(
             "sys.argv", ["map", *argv, "work"], raising=True
         )
+        thrown = exc if exc is not None else _wrapped_error()
+        import cli.commands.work as cli_work
+
         monkeypatch.setattr(
-            cli_main,
+            cli_work,
             "_run",
-            lambda *a, **k: (_ for _ in ()).throw(_wrapped_error()),
+            lambda *a, **k: (_ for _ in ()).throw(thrown),
         )
         cli_main.main()
 
@@ -121,13 +129,5 @@ class TestMainBoundary:
 
     def test_unrelated_exception_passthrough(self, monkeypatch):
         _reset_cli_options()
-        monkeypatch.setattr(
-            "sys.argv", ["map", "--persona", "host", "work"], raising=True
-        )
-        monkeypatch.setattr(
-            cli_main,
-            "_run",
-            lambda *a, **k: (_ for _ in ()).throw(ValueError("unrelated")),
-        )
         with pytest.raises(ValueError):
-            cli_main.main()
+            self._invoke_main(monkeypatch, ["--persona", "host"], exc=ValueError("unrelated"))

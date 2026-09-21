@@ -132,8 +132,18 @@ class MapCommandClient:
         # last_waker_poll_at (D1). Human ``map work`` invocations leave it
         # unset so they only refresh last_api_seen_at — stale-waker detection
         # reads only last_waker_poll_at, so manual work cannot pollute liveness.
+        # ``--format yaml``：I1 起 ``map work`` 默认输出为精简人类视图，
+        # 本路径按 YAML 解析 stdout，需显式固定全量 YAML（map exp 4e4206de）。
         return self._run(
-            ["work", "--notification-category", "wakeable", "--client", "waker"],
+            [
+                "work",
+                "--notification-category",
+                "wakeable",
+                "--client",
+                "waker",
+                "--format",
+                "yaml",
+            ],
             retryable=True,
         )
 

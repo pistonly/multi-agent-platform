@@ -261,6 +261,7 @@ EXPECTED_SUBAPP_FILES = [
     "version.py",
     "verify_audit.py",
     "waker_status.py",
+    "work.py",  # map exp 4e4206de I1: map work command extracted from cli/main.py
 ]
 
 
