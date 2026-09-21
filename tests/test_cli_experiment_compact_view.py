@@ -9,16 +9,13 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-
 import pytest
 import yaml
 from map_types.schemas import ExperimentDetailRead, LogCreateResponse
 from typer.testing import CliRunner
 
-import cli.main as cli_main
 import cli.commands.experiment as experiment_module
+import cli.main as cli_main
 from cli.main import app
 
 EXP_ID = "3f2a1c9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b"

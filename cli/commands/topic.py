@@ -28,7 +28,6 @@ from map_fs import CLOSE_NOTE_FORMAT_HINT
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.commands.action_item import action_item_app  # noqa: E402
-from cli.io_helpers import _read_piped_text, _read_text_file  # noqa: E402
 from cli.runner import (  # noqa: E402
     _load_topic_resolve_payload,
     _resolve_creator_agent_id,
@@ -39,20 +38,18 @@ from cli.table_render import enum_value, format_datetime, render_table, short_uu
 # command bodies below import them by name (tests pin them at the source).
 from cli.topic_routing import (  # noqa: E402
     STORAGE_HELP as _STORAGE_HELP,  # noqa: F401 — help text shared with topic_comment.py
+)
+from cli.topic_routing import (
     _db_write_retired,
     _filter_local_summaries,
     _fs_projection_noop,
-    _fs_slug_by_uuid,
     _fs_transition_rejected,
     _list_api_topics_all,
-    _looks_like_uuid,
     _merge_topic_summaries,
-    _optional_fs_workspace_and_root,
     _resolve_topic_ref,
     _scan_local_fs_summaries,
     _should_scan_local_fs,
     _slice_page,
-    comment_immutable_ready_hint,
     db_uuid_write_preflight,
 )
 
