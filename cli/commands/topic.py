@@ -165,7 +165,14 @@ def _render_topic_table(topics: Any) -> str:
 def topic_list(
     project: uuid.UUID | None = typer.Option(None, "--project"),
     project_key: str | None = typer.Option(None, "--project-key"),
-    status: str | None = typer.Option(None, "--status"),
+    status: str | None = typer.Option(
+        None,
+        "--status",
+        help=(
+            "Filter by topic status (e.g. open, closed). 'all' disables filtering. "
+            "默认人类视图只列 open；显式 --format json/yaml 始终全量（机器契约，map exp 4e4206de I3）。"
+        ),
+    ),
     creator: str | None = typer.Option(
         None,
         "--creator",
@@ -184,10 +191,24 @@ def topic_list(
 ) -> None:
     """List topics in the current project (local map/ folders merged with API leftovers).
 
-    Defaults to a compact table view. Use ``--format yaml`` or
-    ``--format json`` for full structured output (scripts / piping).
+    Defaults to a compact table view showing open topics only (map exp
+    4e4206de I3); pass ``--status all`` to list every topic. Explicit
+    ``--format yaml`` / ``--format json`` always return the full unfiltered
+    list (machine contract).
     """
     from map_types.enums import TopicStatus
+
+    # map exp 4e4206de I3：默认（未显式选 format）人类视图只列 open；
+    # ``--status all`` 恢复全量。显式 --format json/yaml（format_source 非
+    # default）永不受默认视图影响——机器契约逐字段不变（A3 契约测试固定）。
+    from cli.main import _cli_options
+
+    if status == "all":
+        effective_status: str | None = None
+    elif status is None and _cli_options.get("format_source", "default") == "default":
+        effective_status = "open"
+    else:
+        effective_status = status
 
     # local plane：FS 是唯一事实源，list 纯本地（不建客户端、不合并 API）。
     # --include-archived / --creator-agent-id 为 server 概念，local plane 不适用。
@@ -208,7 +229,7 @@ def topic_list(
             pid = uuid.UUID(cfg.project_id)
             rows = _filter_local_summaries(
                 _scan_local_fs_summaries(pid),
-                status=status,
+                status=effective_status,
                 creator=creator,
                 creator_agent_id=None,
                 q=q,
@@ -224,7 +245,7 @@ def topic_list(
 
     def action(c: MAPClient):
         pid = runner._resolve_project(c, project, project_key)
-        st = TopicStatus(status) if status else None
+        st = TopicStatus(effective_status) if effective_status else None
         resolved_creator_id = _resolve_creator_agent_id(c, pid, creator, creator_agent_id)
         api_topics = _list_api_topics_all(
             c,
@@ -238,7 +259,7 @@ def topic_list(
         if _should_scan_local_fs(project, project_key, pid):
             local_fs = _filter_local_summaries(
                 _scan_local_fs_summaries(pid),
-                status=status,
+                status=effective_status,
                 creator=creator,
                 creator_agent_id=resolved_creator_id,
                 q=q,

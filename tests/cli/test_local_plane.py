@@ -298,18 +298,46 @@ def test_topic_list_local_only(runner: CliRunner, local_workspace: Path) -> None
     result = runner.invoke(app, ["topic", "close", "--topic", "t2"])
     assert result.exit_code == 0, result.output
 
-    # 表格列展示短 id（非 slug），按 title 断言
+    # map exp 4e4206de I3：默认人类视图只列 open（closed 的 Beta check 不出现）
     result = runner.invoke(app, ["topic", "list"])
     assert result.exit_code == 0, result.output
-    assert "Noise alpha" in result.output and "Beta check" in result.output
+    assert "Noise alpha" in result.output and "Beta check" not in result.output
 
     result = runner.invoke(app, ["topic", "list", "--status", "closed"])
     assert result.exit_code == 0, result.output
     assert "Beta check" in result.output and "Noise alpha" not in result.output
 
+    # --status all 恢复全量（人类视图逃生口）
+    result = runner.invoke(app, ["topic", "list", "--status", "all"])
+    assert result.exit_code == 0, result.output
+    assert "Noise alpha" in result.output and "Beta check" in result.output
+
     result = runner.invoke(app, ["topic", "list", "--q", "noise"])
     assert result.exit_code == 0, result.output
     assert "Noise alpha" in result.output and "Beta check" not in result.output
+
+
+def test_topic_list_json_contract_ignores_default_view(
+    runner: CliRunner, local_workspace: Path
+) -> None:
+    """A3 契约：显式 --format json 始终全量，默认 open 过滤只影响人类视图。"""
+    import json as jsonlib
+
+    _create(runner, "t1", "Noise alpha")
+    _create(runner, "t2", "Beta check")
+    result = runner.invoke(app, ["topic", "close", "--topic", "t2"])
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(app, ["topic", "list", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    payload = jsonlib.loads(result.stdout)
+    titles = {t["title"] for t in payload["data"]}
+    assert titles == {"Noise alpha", "Beta check"}
+
+    # --status all 与 json 组合：同为全量（组合语义一致）
+    result = runner.invoke(app, ["topic", "list", "--format", "json", "--status", "all"])
+    assert result.exit_code == 0, result.output
+    assert len(jsonlib.loads(result.stdout)["data"]) == 2
 
 
 def test_unsupported_command_hint(runner: CliRunner, local_workspace: Path) -> None:

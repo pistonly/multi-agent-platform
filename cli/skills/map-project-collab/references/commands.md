@@ -22,13 +22,16 @@
 
 ```bash
 map status                          # 快照（open_topics / active_experiments）+ 叙事（status_md）
-map topic list --status open
+map topic list                      # 默认只列 open
+map topic list --status all         # 全量（含 closed/archived）
 map topic show --id <slug-or-uuid>
 map topic progress                  # topic work items 投影（obligation + contextual）
-map work                            # 统一快照：whoami + topic-progress + todos + 通知
+map work                            # 统一快照：whoami + topic-progress + todos + 通知（默认精简视图；--verbose 全量诊断）
 ```
 
 **规则**：清单以快照字段为准，勿从 `status_md` 解析话题/实验列表。
+
+**默认视图组合语义（topic list / work）**：`map topic list` 默认只列 open、`map work` 默认精简视图——两者只影响**未显式选 format** 的人类可读输出；`--format json` / `--format yaml` 始终返回与改前逐字段一致的全量结构（机器消费不受默认视图影响），逃生口分别为 `--status all` 与 `--verbose`。脚本/waker 消费一律走显式 format。
 
 host 修订叙事层（`status_md`）：
 
