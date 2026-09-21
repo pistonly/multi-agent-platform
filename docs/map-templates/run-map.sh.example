@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# MAP CLI wrapper —— 复制本模板到项目内 `.map/run-map.sh`（与本目录的
+# config.yaml 并列），`chmod +x` 后用 `./.map/run-map.sh <map 子命令>` 调用。
+#
+# 它只负责清理会破坏 `map` 运行的外部环境变量，不改 map 本身的行为：
+#   1. 代理变量：httpx 会从 all_proxy/HTTP_PROXY 读取并尝试用 socksio（未必装），
+#      污染时本地请求会失败或走错网络。
+#   2. PYTHONHOME / PYTHONPATH：外部 shell 或工具链残留这两个变量会让项目
+#      `.venv` 里的解释器找错标准库/包路径，导致 `map` 启动即崩或导入到错误的包。
+#      项目 venv 需要干净的解释器环境，所以这里一并 unset。
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 默认：.venv 与 .map 同级（项目根）。如布局不同，改这一行或用 MAP_BIN 覆盖。
+MAP_BIN="${MAP_BIN:-$SCRIPT_DIR/../.venv/bin/map}"
+
+if [[ ! -x "$MAP_BIN" ]]; then
+  echo "Error: $MAP_BIN not found. Run: python3 -m venv .venv && .venv/bin/pip install -e ." >&2
+  exit 1
+fi
+
+exec env \
+    -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    -u all_proxy -u ALL_PROXY -u NO_PROXY -u no_proxy \
+    -u PYTHONHOME -u PYTHONPATH \
+    "$MAP_BIN" "$@"

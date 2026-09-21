@@ -121,6 +121,8 @@ map --persona host persona whoami
 > **`.map/` 整目录是本机运行时（含 `config.yaml` 的 `project_id` 与 token），请勿提交到 Git。**
 > 备份 `agents.local.yaml` 到安全位置；若丢失，用 `map auth reissue --key my-project --name <agent-name>` 恢复。
 > 模板见 [`docs/map-templates/`](map-templates/)。
+>
+> 若你的 shell 里残留了会破坏 `map` 运行的环境变量（`HTTP_PROXY`/`all_proxy` 走错网络，或 `PYTHONHOME`/`PYTHONPATH` 让项目 venv 的解释器找错路径导致启动即崩），可把 [`run-map.sh.example`](map-templates/run-map.sh.example) 复制成 `.map/run-map.sh` 并 `chmod +x`，用 `./.map/run-map.sh <子命令>` 调用——它会先清干净这些变量再执行 `map`。
 
 ---
 
