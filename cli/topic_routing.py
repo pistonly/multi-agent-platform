@@ -24,6 +24,17 @@ if TYPE_CHECKING:
     from map_client.exceptions import MAPHTTPError
 
 # ---------------------------------------------------------------------------
+# Shared option help texts (used by topic.py and topic_comment.py)
+# ---------------------------------------------------------------------------
+
+STORAGE_HELP = (
+    "Route --id explicitly: 'fs' (map/ folder topic) or 'db' (platform DB). "
+    "Default auto-routing: uuid -> DB first, then FS uuid5; slug -> FS first, then DB slug. "
+    "v0.13 M58: explicit 'db' on write commands is rejected with guidance (DB write paths retired)."
+)
+
+
+# ---------------------------------------------------------------------------
 # M51：--id 路由层（DB 话题 vs FS 事实源话题统一入口）
 # ---------------------------------------------------------------------------
 

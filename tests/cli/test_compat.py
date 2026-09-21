@@ -256,6 +256,7 @@ EXPECTED_SUBAPP_FILES = [
     "mention.py",  # T45: mention sub-app extracted from topic.py
     "todo.py",  # T45: todo sub-app extracted from topic.py
     "topic.py",
+    "topic_comment.py",  # map exp 4e4206de I4: comment command extracted from topic.py
     "topic_migrate.py",  # T45: migrate domain extracted from topic.py
     "topic_view.py",  # T45: show/history extracted from topic.py
     "version.py",

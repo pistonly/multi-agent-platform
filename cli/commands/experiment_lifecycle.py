@@ -402,6 +402,13 @@ def register(app: typer.Typer) -> None:
             help="cli-ux PR1: print the --metadata YAML template (with field hints) and exit. "
             "Use this to discover accepted keys without grepping the SDK.",
         ),
+        full: bool = typer.Option(
+            False,
+            "--full",
+            help="Inline plan content_md in the default (non-json) view. Default trims "
+            "the post-transition snapshot to plan pointer + excerpt (4e4206de I4); "
+            "--format yaml keeps the full payload unchanged.",
+        ),
     ) -> None:
         """Submit experiment result for reviewer approval (running → result_review).
 
@@ -413,6 +420,7 @@ def register(app: typer.Typer) -> None:
         transition — add a follow-up log to address them.
         """
         from cli.commands.experiment import _run_lifecycle
+        from cli.experiment_compact_view import render_experiment_compact
 
         if schema:
             _print_complete_metadata_schema_and_exit()
@@ -452,6 +460,7 @@ def register(app: typer.Typer) -> None:
             call=lambda c, rid, _before: c.complete_experiment(rid, payload),
             review_payload={"event": "complete", "summary": summary},
             review_filename="complete.yaml",
+            human_renderer=None if full else render_experiment_compact,
         )
 
 

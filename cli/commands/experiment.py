@@ -197,6 +197,7 @@ def _run_lifecycle(
     decision: ExperimentResultDecision | None = None,
     start_fn=None,
     plan_content: str | None = None,
+    human_renderer=None,
 ) -> None:
     """API 门禁通过后回写 index.md（A2）。index 存在时先 preflight 拦手改 phase。
 
@@ -319,7 +320,7 @@ def _run_lifecycle(
             return overlay_fs_authority(result)
         return result
 
-    runner._run(_action, experiment_id=experiment_id)
+    runner._run(_action, experiment_id=experiment_id, human_renderer=human_renderer)
 
 
 @experiment_app.command("create")

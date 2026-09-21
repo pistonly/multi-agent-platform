@@ -46,6 +46,13 @@ def register(app: typer.Typer) -> None:
             ),
         ),
         metadata_file: Path | None = typer.Option(None, "--metadata"),
+        full: bool = typer.Option(
+            False,
+            "--full",
+            help="Re-echo the stored log body in the default (non-json) view. "
+            "Default trims the stdout echo to summary + pointer (4e4206de I4); "
+            "explicit --format yaml/json always carries the full payload.",
+        ),
         force_skip_similarity: bool = typer.Option(
             False,
             "--force-skip-similarity",
@@ -82,6 +89,7 @@ def register(app: typer.Typer) -> None:
         validation is metadata-driven and behaves identically in both forms.
         """
         from cli.commands.experiment import _rid
+        from cli.experiment_compact_view import render_log_create_compact
 
         if log_file is not None and log_file_path is not None:
             typer.echo("Error: use only one of --file or --log-file-path", err=True)
@@ -122,7 +130,11 @@ def register(app: typer.Typer) -> None:
                 metadata=metadata,
                 force_skip_similarity=force_skip_similarity,
             )
-        runner._run(lambda c: c.create_log(_rid(c, experiment_id), payload), experiment_id=experiment_id)
+        runner._run(
+            lambda c: c.create_log(_rid(c, experiment_id), payload),
+            experiment_id=experiment_id,
+            human_renderer=None if full else render_log_create_compact,
+        )
 
 
     @app.command("logs")
@@ -170,9 +182,17 @@ def register(app: typer.Typer) -> None:
             help="0db51e10 I1(5a): with --persona-compare, comma-separated persona "
             "names to compare (e.g. 'host,reviewer'); default = all known personas.",
         ),
+        full: bool = typer.Option(
+            False,
+            "--full",
+            help="Inline plan content_md in the default (non-json) view. Default "
+            "trims to plan pointer + excerpt (4e4206de I4); --format yaml keeps "
+            "the full payload unchanged.",
+        ),
     ) -> None:
         """Show one experiment's phase, actions, blocked_on, and (per-actor) capabilities."""
         from cli.commands.experiment import _load_experiment, _rid
+        from cli.experiment_compact_view import render_experiment_compact
         from cli.main import _cli_options  # runtime state (monkeypatch surface)
         if persona_compare:
             runner._run(
@@ -237,7 +257,10 @@ def register(app: typer.Typer) -> None:
                 )
             return result
 
-        runner._run(_action)
+        runner._run(
+            _action,
+            human_renderer=None if full else render_experiment_compact,
+        )
 
 
     @app.command("show")
@@ -258,14 +281,26 @@ def register(app: typer.Typer) -> None:
             "--json",
             help="JSON 输出（结构化；便于脚本消费）。",
         ),
+        full: bool = typer.Option(
+            False,
+            "--full",
+            help="Inline plan content_md in the default (non-json) view. Default "
+            "trims to plan pointer + excerpt (4e4206de I4); --full or explicit "
+            "--format yaml restores the legacy full payload.",
+        ),
     ) -> None:
         """Show one experiment (including archived) by UUID, uuid5, slug, or short prefix.
 
         ``--cost`` 切换到 T5-B 成本视图：persona × session_kind 二维 +
         match_breakdown 4 桶 + sanity_warning；缺价目表显式 pricing_unavailable 标记
         （不允许 0 兜底；plan §A6）。
+
+        4e4206de I4：默认视图不内联 plan ``content_md`` 全文（指针 + 摘录 +
+        行数）；``--full`` / 显式 ``--format yaml`` 恢复全文；``--format
+        json`` 契约逐字段不变。
         """
         from cli.commands.experiment import _load_experiment, _require_id
+        from cli.experiment_compact_view import render_experiment_compact
 
         raw = _require_id(experiment_id)
         if cost:
@@ -274,7 +309,11 @@ def register(app: typer.Typer) -> None:
                 experiment_id=raw,
             )
             return
-        runner._run(lambda c: _load_experiment(c, raw), experiment_id=raw)
+        runner._run(
+            lambda c: _load_experiment(c, raw),
+            experiment_id=raw,
+            human_renderer=None if full else render_experiment_compact,
+        )
 
 
 def _show_experiment_cost(
