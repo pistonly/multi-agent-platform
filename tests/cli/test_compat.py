@@ -90,6 +90,8 @@ EXPECTED_TOP_LEVEL_SUBAPPS = [
     "fs",
     # db97aeac I2：交互会话桥接（map bridge hook）
     "bridge",
+    # map exp 4e4206de I7：CLI 出口记账聚合查询（map usage summary）
+    "usage",
 ]
 
 
@@ -149,6 +151,8 @@ EXPECTED_SUBAPP_COMMANDS: dict[str, list[str]] = {
     "fs": ["verify-audit"],
     # db97aeac I2：交互会话桥接
     "bridge": ["hook"],
+    # map exp 4e4206de I7：CLI 出口记账聚合查询
+    "usage": ["summary"],
 }
 
 
@@ -259,6 +263,7 @@ EXPECTED_SUBAPP_FILES = [
     "topic_comment.py",  # map exp 4e4206de I4: comment command extracted from topic.py
     "topic_migrate.py",  # T45: migrate domain extracted from topic.py
     "topic_view.py",  # T45: show/history extracted from topic.py
+    "usage.py",  # map exp 4e4206de I7: CLI 出口记账聚合查询 (map usage summary)
     "version.py",
     "verify_audit.py",
     "waker_status.py",

@@ -57,6 +57,7 @@ from cli.commands.skill import skill_app
 from cli.commands.sync import sync_app
 from cli.commands.todo import todo_app  # T45: split from topic.py
 from cli.commands.topic import topic_app
+from cli.commands.usage import usage_app
 from cli.commands.verify_audit import verify_audit_app
 from cli.commands.version import version_app
 from cli.commands.waker_status import waker_app
@@ -133,6 +134,8 @@ app.add_typer(server_app, name="server")
 app.add_typer(waker_app, name="waker")
 # 实验 e6d23886 I3：verify-audit CLI 子命令（map fs verify-audit）。
 app.add_typer(verify_audit_app, name="fs")
+# 实验 4e4206de I7：CLI 出口记账聚合查询（map usage summary）。
+app.add_typer(usage_app, name="usage")
 
 _transport: httpx.BaseTransport | None = None
 _cli_options: dict[str, Any] = {
@@ -598,17 +601,45 @@ def _emit_connection_failure(root_exc: BaseException) -> None:
     sys.exit(2)
 
 
+def _finalize_cli(proxy: Any, exit_code: int) -> None:
+    """出口记账（实验 4e4206de I7）：还原 stdout 后落一行 JSONL。
+
+    尽力而为——``record_cli_call`` 内部吞异常，记账失败绝不影响进程退出码。
+    """
+    sys.stdout = proxy._inner
+    from cli.usage_ledger import extract_cmd, record_cli_call, resolve_map_dir
+
+    record_cli_call(
+        map_dir=resolve_map_dir(),
+        persona=_cli_options.get("persona"),
+        cmd=extract_cmd(sys.argv[1:]),
+        output_bytes=proxy.bytes_written,
+        exit_code=exit_code,
+    )
+
+
 def main() -> None:
     _verify_runtime_imports()
+    # 实验 4e4206de I7：命令出口记账——每命令独立进程，swap 早于首次 echo，
+    # click/typer 解析 stdout 时命中计数代理。记账失败不改退出码、不动输出。
+    from cli.usage_ledger import CountingStdout, exit_code_from_exc
+
+    proxy = CountingStdout(sys.stdout)
+    sys.stdout = proxy
     try:
-        app()
-    except Exception as exc:  # noqa: BLE001 — top-level CLI boundary
-        if _cli_options.get("debug"):
+        try:
+            app()
+        except Exception as exc:  # noqa: BLE001 — top-level CLI boundary
+            if _cli_options.get("debug"):
+                raise
+            conn = _root_connection_error(exc)
+            if conn is not None:
+                _emit_connection_failure(conn)
             raise
-        conn = _root_connection_error(exc)
-        if conn is not None:
-            _emit_connection_failure(conn)
+    except BaseException as exc:  # SystemExit（typer.Exit / sys.exit）亦计入退出码后原样传播
+        _finalize_cli(proxy, exit_code_from_exc(exc))
         raise
+    _finalize_cli(proxy, 0)
 
 
 if __name__ == "__main__":

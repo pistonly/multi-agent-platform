@@ -61,6 +61,8 @@ _APP_VAR_TO_PATH: dict[str, tuple[str, ...]] = {
     "flag_app": ("project", "config", "flag"),
     # M2 I5+I6（A5+A6）：DB → FS projection 存量迁移 manifest 子命名空间。
     "migration_app": ("sync", "migrate"),
+    # map exp 4e4206de I7：CLI 出口记账聚合查询（本地读取，不写 MAP）。
+    "usage_app": ("usage",),
 }
 
 # 已知只读子组命令（不写 MAP 状态）。_is_write_command 必须对其返回 False。
@@ -137,6 +139,8 @@ _READ_ONLY_COMMANDS: set[tuple[str, ...]] = {
     ("doctor", "config"),
     # 3b7c2b44 A6 P3-1：版本/对照范围——只读本仓 bundled skills 清单。
     ("version", "info"),
+    # map exp 4e4206de I7：map usage summary 只读本地 .map/usage JSONL，不写 MAP。
+    ("usage", "summary"),
     # 实验 waker-status-view I3：waker 巡检视图——只读 .map/simple-waker-state-*.json。
     ("waker", "status"),
     # T5-B I4：per-实验 token 成本跨实验汇总视图（只读 jsonl + DB list；不改任何状态）
