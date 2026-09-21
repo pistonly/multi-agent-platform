@@ -1,4 +1,6 @@
+import json
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -139,6 +141,7 @@ _cli_options: dict[str, Any] = {
     "project_root": None,
     "config_root": None,  # 实验 e7244a91 A3：--config-root 双根显式化
     "format": "yaml",
+    "debug": False,
 }
 
 
@@ -235,12 +238,21 @@ def cli_global_options(
         "--json",
         help="Shortcut for --format json. Overrides --format and MAP_CLI_FORMAT.",
     ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        help=(
+            "Debug mode: keep full Python tracebacks on unexpected errors "
+            "(default renders a compact hint for connection failures)."
+        ),
+    ),
 ) -> None:
     # 先落位全局选项再解析 format：_identity_root_safe() 经 _cli_options
     # 读 project/config 根（实验 e7244a91 A3），读取必须发生在写入之后。
     _cli_options["persona"] = persona
     _cli_options["project_root"] = project_root
     _cli_options["config_root"] = config_root
+    _cli_options["debug"] = debug
 
     # 8a8822b5 (f): resolve --format / MAP_CLI_FORMAT priority.
     # --json shortcut > Explicit --format flag > MAP_CLI_FORMAT env var > default 'yaml'.
@@ -670,9 +682,50 @@ def _verify_runtime_imports() -> None:
         raise typer.Exit(1) from None
 
 
+def _root_connection_error(
+    exc: BaseException | None,
+) -> httpx.ConnectError | httpx.ConnectTimeout | None:
+    """Walk the ``__cause__``/``__context__`` chain for a transport-level
+    connection failure (map exp 4e4206de I6).
+
+    Command layers wrap ``httpx.RequestError`` into ``WorkerError`` etc.;
+    the classification signal lives at the root of the chain.
+    """
+    seen = 0
+    while exc is not None and seen < 8:
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return exc
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return None
+
+
+def _emit_connection_failure(root_exc: BaseException) -> None:
+    message = str(root_exc) or root_exc.__class__.__name__
+    hint = "Start it with: map server start  (check api_url in .map/config.yaml)"
+    if _cli_options.get("format") == "json":
+        typer.echo(
+            json.dumps(
+                {"error": "connection_error", "message": message, "hint": hint}
+            )
+        )
+        sys.exit(2)
+    typer.echo(f"Error: MAP server unreachable — {message}", err=True)
+    typer.echo(f"Hint: {hint}", err=True)
+    sys.exit(2)
+
+
 def main() -> None:
     _verify_runtime_imports()
-    app()
+    try:
+        app()
+    except Exception as exc:  # noqa: BLE001 — top-level CLI boundary
+        if _cli_options.get("debug"):
+            raise
+        conn = _root_connection_error(exc)
+        if conn is not None:
+            _emit_connection_failure(conn)
+        raise
 
 
 if __name__ == "__main__":
