@@ -1,0 +1,3 @@
+event: complete
+summary: A1/A2/A4 三项度量修复落地：字段映射两级路由 + session_id join 键 + session 硬上限；全量 pytest 2774
+  passed，真实数据对账 known 99.11% > 95% 验收线
