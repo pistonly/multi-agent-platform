@@ -1,0 +1,34 @@
+reasonable_items:
+- '**v2 第 1 条（第三真相源）回应到位**：A2 升级为「三处真相源同步」——wake.md 四步 + `cli/agent_client.py` waker
+  系统提示词 + `AGENTS.md`「Waker 与职责边界」唤醒流程行（并给出具体改写：`whoami → map work → 写回 MAP` ⇒ `map
+  work（agent 块即身份）→ 写回 MAP`）。reviewer 独立复核两点：① 断言「AGENTS.md 不在 RUNTIME_CONTRACT_FILES
+  清单」成立（实测清单只有 5 个 `.agent/skills/<skill>/SKILL.md`）；② persona SKILL「先 whoami」的处理方式比我建议的更好——我没有区分交互与唤醒两种用途，v3
+  把措辞统一成「whoami 或 work 的 agent 块任一确认身份」，既保住交互会话「向用户确认身份」的语义，又消掉唤醒冗余，比 carve-out 更干净；且把它列为**联动评估项**并要求核对
+  `test_red_line_clause.py`（persona SKILL.md 含红线副本，改动会触守卫）与 RUNTIME_CONTRACT 联动，判断正确'
+- '**v2 第 2 条（RUNTIME_CONTRACT 义务）回应到位**：A4 现明确该文件 ∈ `RUNTIME_CONTRACT_FILES` 且哈希随正文变化而
+  `SimpleWaker` 只在 `__init__` 计算缓存，(a) 升 `RUNTIME_CONTRACT_VERSION` 的评估结论无论升与否都要写进实验
+  log 给理由、(b) 验收含「改后重启本机 waker 并观察一个 cycle 无 drift 误判」，实施顺序也同步改成 I4 完成后即重启观察——(b)
+  正是我担心的「无 CI 兜住」那半条，现在落在验收里而不是指望回归测试。I4 行与实施顺序两处一致，无表述漂移'
+- '**v2 第 3 条（A6 `--json` 错误形态）回应到位**：A6 三层齐全——人类可读 ≤3 行 / `--debug` 保留 traceback
+  / `--json` 单行机器可读（固定字段 `error`/`message`/`hint`）+ 固定非零 exit code + 契约测试；且与「`--json`
+  契约不动」硬约束不冲突（此前错误输出是 traceback，本就不在契约面内，这是补定义而非改字段）'
+- v1→v2→v3 三轮修订的收敛质量：A1 夹具主判据、A1–A4 四处 `--json` 契约测试、`--full`/`--status all` 只作用人类视图而
+  `--json` 恒与改前一致的优先级选择（含写进 file-reference/commands 分发面）、A5 本机实例 + `docs/map-templates/run-map.sh.example`
+  双层落点、A7 单一机器可判的 `map usage summary --since`——每条验收现在都可由 CI 或单条命令复核，不依赖 reviewer 信任自述。范围始终未越出话题
+  Round Summary 的阶段一+二，#1/#2/#3/#4 保持在非目标
+- '**【非阻塞·实施前必读】AGENTS.md 的 M50E 行预算已用满，I2 与 I5 都要改这个文件**：reviewer 实测 `AGENTS.md`
+  `splitlines()=80`，而 `tests/test_docs_consistency.py::TestAgentsMdStaysThin::test_line_budget`
+  断言 `<= 80`——**余量 0**（该守卫当前绿）。因此 I2（唤醒流程行）与 I5（把 run-map.sh 引用指向新模板）对 AGENTS.md 的改动必须**净增行
+  ≤0**：I2 是原地改一行的单元格、I5 可并进已存在的第 43 行「模板见 `docs/map-templates/`」，两者都能做到净零；但计划里没写这条预算，executor
+  若为省token新增一行就会把 A8 的「现有测试 0 回归」判红，而它最省事的补救是删掉 AGENTS.md 别处内容——那等于对仓库级 Agent 指令面做一笔无人评审的改动。建议
+  host 把「AGENTS.md 净增行 ≤0（M50E 预算 80 行，当前已满）」直接写进给 executor 的 I2/I5 指派里，无需再改计划版本'
+- '**【非阻塞】分发面纪律（v2 第 2 条的 (c) 项）仍未写进 A4/A2**：改 `.agent/skills/**` 正文需 sync 双镜像（`sync-bundled-skills.sh`
+  输出 OK + `diff -r -x ''__init__.py'' .agent/skills/ cli/skills/` 为空）并递增 `map-plugin.yaml`
+  补丁位。之所以降为非阻塞：这一半有 CI/门禁兜底（`test_skill_versioning` 镜像一致性 + `scripts/release.sh` 漂移门禁），且
+  CLAUDE.md「Skill 分发面纪律」本就随 executor 上下文无条件注入；未被兜住的只有「sync 了但没递增版本号」。建议同样写进 I4/I2
+  指派，与 6f63c672 A2/A6 口径一致'
+- '**【非阻塞】两处已知事项留档**：① I5 新增模板文件与其引用必须同 commit 落地，否则根级 md 指向尚不存在的 `run-map.sh.example`
+  会触 M50H 相对链接守卫；② v2 评审遗留的 dependencies 第 19 行措辞项（item `b9526b3d`，阶段三还需运行时侧 Read
+  观测实验作前置）host 未修订、现为 open——非阻塞，建议 host 在首条实验 log 里一句澄清或直接 rebut，别让它在归档评审里静默'
+unreasonable_items: []
+substitute_reason: null

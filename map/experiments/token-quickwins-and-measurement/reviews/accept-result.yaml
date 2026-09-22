@@ -1,0 +1,3 @@
+decision: accept
+summary: 结果审批通过：A1–A8 验收逐条核对，全量 2754 passed/ruff 干净，CLI --json 契约不变；A4 SKILL.md --full
+  指引子项为可忽略后续项（详见 --file）

@@ -1,0 +1,3 @@
+event: complete
+summary: I1–I7 全部落地：CLI 输出精简（work/list/show/status 默认瘦视图 + 逃生口）、whoami 冗余三处一致化 work-first、网络错误输出收敛、run-map.sh
+  分发模板、usage_ledger 轻量记账面 + map usage summary。全量 2754 passed / ruff 干净。提审。
