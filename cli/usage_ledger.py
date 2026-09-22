@@ -68,6 +68,7 @@ class CliCallRecord:
     cmd: str
     output_bytes: int
     exit_code: int
+    session_id: str | None = None  # 当前 runtime session join 键（实验 bccb59ea A3）
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +78,7 @@ class CliCallRecord:
             "cmd": self.cmd,
             "output_bytes": self.output_bytes,
             "exit_code": self.exit_code,
+            "session_id": self.session_id,
         }
 
     @property
@@ -235,6 +237,59 @@ def extract_cmd(argv: list[str]) -> str:
     return " ".join(positional)
 
 
+# ---------------------------------------------------------------------------
+# Runtime session 指针 — 两源对账 join 键（实验 bccb59ea A3）
+# ---------------------------------------------------------------------------
+
+
+def _safe_persona_segment(persona: str | None) -> str | None:
+    """persona → 指针文件名安全段；空值 / 路径分隔符 / 目录别名 → None。"""
+    if not persona or persona in (".", "..") or "/" in persona or "\\" in persona:
+        return None
+    return persona
+
+
+def runtime_session_pointer_path(map_dir: Path, persona: str) -> Path:
+    """当前 runtime session 指针落点：``.map/usage/runtime-sessions/<persona>.json``。"""
+    return map_dir / "usage" / "runtime-sessions" / f"{persona}.json"
+
+
+def write_runtime_session_pointer(map_dir: Path, persona: str, session_id: str) -> None:
+    """唤醒成功后写当前 runtime session 指针（供 ledger 记账与两源对账 join）。"""
+    segment = _safe_persona_segment(persona)
+    if segment is None or not session_id:
+        return
+    path = runtime_session_pointer_path(map_dir, segment)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"session_id": session_id}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def clear_runtime_session_pointer(map_dir: Path, persona: str) -> None:
+    """session 重置时删除指针，避免 stale join 键（missing_ok 容忍不存在）。"""
+    segment = _safe_persona_segment(persona)
+    if segment is None:
+        return
+    runtime_session_pointer_path(map_dir, segment).unlink(missing_ok=True)
+
+
+def read_runtime_session_id(map_dir: Path | None, persona: str | None) -> str | None:
+    """读取 persona 当前 runtime session id；缺失 / 损坏 / persona 不安全 → None。"""
+    segment = _safe_persona_segment(persona)
+    if map_dir is None or segment is None:
+        return None
+    try:
+        obj = json.loads(
+            runtime_session_pointer_path(map_dir, segment).read_text(encoding="utf-8")
+        )
+    except Exception:  # noqa: BLE001 — measurement surface must never break the CLI
+        return None
+    session_id = obj.get("session_id") if isinstance(obj, dict) else None
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
 def record_cli_call(
     *,
     map_dir: Path | None,
@@ -255,6 +310,7 @@ def record_cli_call(
             cmd=cmd,
             output_bytes=output_bytes,
             exit_code=exit_code,
+            session_id=read_runtime_session_id(map_dir, persona),
         )
         append_record(map_dir, record)
     except Exception:  # noqa: BLE001 — measurement surface must never break the CLI
@@ -278,13 +334,17 @@ __all__ = [
     "KINDS_ENV",
     "UsageSummaryRow",
     "append_record",
+    "clear_runtime_session_pointer",
     "exit_code_from_exc",
     "extract_cmd",
     "ledger_path",
     "parse_since",
     "read_records",
+    "read_runtime_session_id",
     "record_cli_call",
     "resolve_map_dir",
+    "runtime_session_pointer_path",
     "summarize",
     "wake_kind_from_env",
+    "write_runtime_session_pointer",
 ]

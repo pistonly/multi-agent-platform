@@ -266,6 +266,8 @@ class PersonaAgentWakeBackend:
         self._save_state_fn()
         if status == "error":
             raise WorkerError(f"Claude wake failed with status={status!r}")
+        if session_id:
+            self._write_session_pointer(str(session_id))
         return WakeResult(session_id=session_id)
 
     async def disconnect(self) -> None:
@@ -279,7 +281,31 @@ class PersonaAgentWakeBackend:
             self._agent_client = None
         state = self._get_agent_state()
         clear_runtime_session_state(state)
+        self._clear_session_pointer()
         self._save_state_fn()
+
+    def _map_dir(self) -> Path:
+        """本 persona 项目 ``.map`` 目录（与 agent_client 等模块同一约定）。"""
+        return self.project_root / ".map"
+
+    def _write_session_pointer(self, session_id: str) -> None:
+        """A3（实验 bccb59ea）：唤醒成功后写 runtime session 指针，供 usage
+        ledger 记账注入 join 键与两源对账。best-effort：失败不影响唤醒。"""
+        try:
+            from cli.usage_ledger import write_runtime_session_pointer
+
+            write_runtime_session_pointer(self._map_dir(), self.persona, session_id)
+        except Exception:  # noqa: BLE001 — measurement surface must never break the wake
+            pass
+
+    def _clear_session_pointer(self) -> None:
+        """session 重置时同步删指针，避免后续记账命中 stale join 键。"""
+        try:
+            from cli.usage_ledger import clear_runtime_session_pointer
+
+            clear_runtime_session_pointer(self._map_dir(), self.persona)
+        except Exception:  # noqa: BLE001 — measurement surface must never break the wake
+            pass
 
     def wake(
         self,

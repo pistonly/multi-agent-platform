@@ -50,6 +50,7 @@ from cli.waker_context import (  # noqa: F401  (_filter…: test import compat)
     summarize_pending_work,
     wake_signature,
 )
+from cli.waker_session_cap import reset_session_if_wake_limit_reached
 from cli.waker_state import SimpleWakerStateMixin
 from cli.worker_cycle_log import log_cycle_summary
 
@@ -134,7 +135,6 @@ def runtime_contract_hash(project_root: Path) -> str:
         else:
             digest.update(b"<missing>")
     return digest.hexdigest()
-
 
 
 class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
@@ -418,6 +418,15 @@ class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
         # 会话时，先 reset_session——旧话题完整历史不背进新会话。
         current_topic_ids = tuple(sorted({e.topic_id for e in context.topic_progress}))
         await self._reset_session_if_topic_switched(persona_state, current_topic_ids, stats)
+        # A4（实验 bccb59ea）：session 硬上限——同 session 连续唤醒达阈值
+        # 时先强制重置再唤醒（话题切换重置后无旧会话，此检查自动跳过）。
+        await reset_session_if_wake_limit_reached(
+            backend=self.backend,
+            persona_state=persona_state,
+            stats=stats,
+            persona=self.config.persona,
+            cli_override=self.config.session_max_wakes,
+        )
 
         self._inflight = True
         # 实验 b3ec2e4d I2：进入 runtime 调用（remind → claude 子进程）
@@ -432,6 +441,12 @@ class SimpleWaker(SimpleWakerChecksMixin, SimpleWakerStateMixin):
             persona_state["last_wake_topic_ids"] = list(current_topic_ids)
             self._state_dirty = True
             stats.reminds_sent = 1
+            # A4（实验 bccb59ea）：累计当前 runtime session 的成功唤醒次数；
+            # 与 session 生命周期绑定，跨 waker 进程重启保留（重启不换
+            # session，见 waker_state._archive_and_reset_on_restart 保留策略）。
+            persona_state["session_wake_count"] = (
+                int(persona_state.get("session_wake_count", 0)) + 1
+            )
             # v0.10：写一条聚合 inbound_event 作为可观测性审计。
             # fingerprint 含 cycle 时间戳，确保每个 remind cycle 唯一；
             # 同一 cycle 内 min_remind_seconds 已防重，409 仅作并发兜底。
@@ -677,6 +692,15 @@ def run(
             " Env fallback: WAKER_DRIFT_CHECK_INTERVAL_CYCLES。"
         ),
     ),
+    session_max_wakes: int | None = typer.Option(
+        None,
+        "--session-max-wakes",
+        help=(
+            "实验 bccb59ea A4：同一 runtime session 连续唤醒达到该次数即强制"
+            " reset_session（防上下文无限膨胀）；<=0 关闭硬上限。"
+            " Env fallback: MAP_WAKER_SESSION_MAX_WAKES。默认 300。"
+        ),
+    ),
 ) -> None:
     """Run the simplified MAP waker loop."""
     root = project_root.resolve()
@@ -763,6 +787,7 @@ def run(
         max_prompt_topics=max_prompt_topics,
         stale_threshold_minutes=stale_threshold_minutes,
         drift_check_interval_cycles=drift_check_interval_cycles,
+        session_max_wakes=session_max_wakes,
     )
     waker = SimpleWaker(client=client, config=config)
     waker.run_forever()

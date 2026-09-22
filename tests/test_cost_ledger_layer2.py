@@ -6,12 +6,16 @@
   （A1 契约：不静默丢弃）
 - (c) cache 字段分桶：cache_creation_input_tokens + cache_read_input_tokens
   独立计数，不并入 input（A6 契约）
-- (d) version 未在 VERSION_FIELD_MAP → 4 字段全 unknown（不兜底 0，A6 边界）
+- (d1) 未知版本 + 不可识别 usage → 4 字段全 unknown（不兜底 0，fail-explicit 保持）
+- (d2) 未知版本 + 现代 usage 字段名 → 字段名探测解析成功（实验 bccb59ea A1）
 - (e) legacy version schema（"prompt_tokens" 别名）→ 正确归一化
 - (f) usage 字段类型错误（如 bool / string）→ None + unknown（A1 契约）
 - (g) 缺 message.usage 块 → 4 字段全 None + 4 unknown
 - (h) map_events 流式入口：iterator → iterator，1:1 映射
 - (i) is_complete property：所有字段齐全 → True；任一缺 → False
+- (j) 未知版本 + legacy usage（prompt_tokens）→ 探测命中 legacy 表归一化
+- (k) 交叉字段不误判：仅 completion_tokens → 探测 None → 全 unknown
+- (l) 精确版本表优先于探测：2.1.191 + legacy usage → 按版本表路由不猜测
 """
 
 from __future__ import annotations
@@ -127,12 +131,29 @@ def test_case_c_cache_fields_counted_independently() -> None:
 
 
 # =========================================================================
-# Case (d) version 未在 VERSION_FIELD_MAP → 4 字段全 unknown
+# Case (d1)/(d2) 未知版本：两级路由（精确例外表 → 字段名探测 → None）
 # =========================================================================
 
 
-def test_case_d_unknown_version_full_unknown_no_zero_fallback() -> None:
-    """Case (d): version 不在映射表 → 4 字段全 None + 4 unknown（不 0 兜底）。"""
+def test_case_d1_unknown_version_unrecognizable_usage_full_unknown() -> None:
+    """Case (d1): 未知版本 + usage 无任何可识别字段名 → 4 字段全 unknown
+    （不兜底 0，fail-explicit 契约保持）。"""
+    ev = _make_event(
+        version="99.99.99-future",
+        usage={"weird_tokens": 42},
+    )
+    n = map_event(ev)
+    assert n.input_tokens is None
+    assert n.output_tokens is None
+    assert n.cache_creation_input_tokens is None
+    assert n.cache_read_input_tokens is None
+    assert len(n.unknown_fields) == 4
+    assert n.is_complete is False
+
+
+def test_case_d2_unknown_version_modern_usage_probe_resolves() -> None:
+    """Case (d2): 未知版本（99.99.99-future）+ 现代 usage 字段名 →
+    字段名探测命中现代表，4 字段解析成功（实验 bccb59ea A1 修复目标）。"""
     ev = _make_event(
         version="99.99.99-future",
         usage={
@@ -143,12 +164,12 @@ def test_case_d_unknown_version_full_unknown_no_zero_fallback() -> None:
         },
     )
     n = map_event(ev)
-    assert n.input_tokens is None
-    assert n.output_tokens is None
-    assert n.cache_creation_input_tokens is None
-    assert n.cache_read_input_tokens is None
-    assert len(n.unknown_fields) == 4
-    assert n.is_complete is False
+    assert n.input_tokens == 100
+    assert n.output_tokens == 50
+    assert n.cache_creation_input_tokens == 10
+    assert n.cache_read_input_tokens == 20
+    assert not n.unknown_fields
+    assert n.is_complete is True
 
 
 # =========================================================================
@@ -173,6 +194,68 @@ def test_case_e_legacy_version_prompt_tokens_alias() -> None:
     assert n.cache_creation_input_tokens == 10
     assert n.cache_read_input_tokens == 20
     assert n.is_complete is True
+
+
+# =========================================================================
+# Case (j) 未知版本 + legacy usage 字段名 → 探测命中 legacy 表
+# =========================================================================
+
+
+def test_case_j_unknown_version_legacy_usage_probe_resolves() -> None:
+    """Case (j): 未知版本 + legacy usage（prompt_tokens / completion_tokens）→
+    字段名探测命中 legacy 表并归一化（实验 bccb59ea A1）。"""
+    ev = _make_event(
+        version="9.9.9-unknown",
+        usage={
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+        },
+    )
+    n = map_event(ev)
+    assert n.input_tokens == 100
+    assert n.output_tokens == 50
+    # legacy usage 未带 cache 字段 → 显式 unknown，不猜 0
+    assert n.cache_creation_input_tokens is None
+    assert n.cache_read_input_tokens is None
+    assert len(n.unknown_fields) == 2
+
+
+# =========================================================================
+# Case (k) 交叉字段不误判：仅 completion_tokens（缺 legacy 输入标记）→ None
+# =========================================================================
+
+
+def test_case_k_cross_field_no_misjudge() -> None:
+    """Case (k): usage 仅含 completion_tokens（无 input_tokens / prompt_tokens
+    等锚点字段）→ 探测返回 None → 4 字段全 unknown（确定性不猜测）。"""
+    ev = _make_event(
+        version="9.9.9-unknown",
+        usage={"completion_tokens": 50},
+    )
+    n = map_event(ev)
+    assert n.input_tokens is None
+    assert n.output_tokens is None
+    assert n.cache_creation_input_tokens is None
+    assert n.cache_read_input_tokens is None
+    assert len(n.unknown_fields) == 4
+
+
+# =========================================================================
+# Case (l) 精确版本表优先于字段探测
+# =========================================================================
+
+
+def test_case_l_exact_version_table_wins_over_probe() -> None:
+    """Case (l): 版本精确命中时探测不参与 —— 2.1.191 + legacy usage →
+    按版本表（现代）路由，legacy 字段不做猜测性翻译（实验 bccb59ea A1）。"""
+    ev = _make_event(
+        version="2.1.191",
+        usage={"prompt_tokens": 100, "completion_tokens": 50},
+    )
+    n = map_event(ev)
+    assert n.input_tokens is None
+    assert n.output_tokens is None
+    assert len(n.unknown_fields) == 4
 
 
 # =========================================================================

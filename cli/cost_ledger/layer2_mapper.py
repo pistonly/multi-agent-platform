@@ -37,48 +37,35 @@ FIELD_OUTPUT = "output_tokens"
 FIELD_CACHE_CREATION = "cache_creation_input_tokens"
 FIELD_CACHE_READ = "cache_read_input_tokens"
 
-# version + 字段映射表。
-# 已知 SDK schema：
+# 现代 schema 默认表（Claude Agent SDK ≥2.x 实测）：
 #   - "2.1.191" 实测（spike_note.md:26-48）用 ``input_tokens``
 #   - "2.1.220" / "2.1.233" / "2.1.259" 实测（2026-09-15 本机 runtime home
 #     全量 2435 条 assistant 行验证）字段名与 2.1.191 完全一致
-#   - 历史版本可能用 ``prompt_tokens`` / ``completion_tokens`` 等别名
-# 新版本只需在此追加子 dict。
-# 已知缺陷（待立项）：精确版本号键控意味着 SDK 每次升级都会让新数据落入
-# unknown-version 分支（4 字段全 unknown、成本视图变空）——与 layer1 曾写死
-# 目录名是同一类环境耦合。根治方向：按字段名 schema 探测或维护「现代 schema
-# 默认表 + 例外表」，须先经实验流程确认 fail-explicit 契约边界，故未擅改。
+#   - "2.1.277" 实测（2026-09-22 探针 token-cost-audit.py）字段名不变
+# legacy schema：历史版本 ``prompt_tokens`` / ``completion_tokens`` 别名。
+#
+# 实验 bccb59ea A1：路由从「精确版本号键控」改为「现代默认表 + 字段名探测 +
+# 版本例外覆盖」——SDK 升级（新版本号）不再让数据落入全 unknown 分支；
+# 版本精确键仅作例外覆盖保留。fail-explicit 边界不变：usage 无任何可识别
+# 字段名时仍全 unknown 兜底，绝不 0 填充、不静默猜测。
+MODERN_FIELD_MAP: dict[str, str] = {
+    FIELD_INPUT: "input_tokens",
+    FIELD_OUTPUT: "output_tokens",
+    FIELD_CACHE_CREATION: "cache_creation_input_tokens",
+    FIELD_CACHE_READ: "cache_read_input_tokens",
+}
+LEGACY_FIELD_MAP: dict[str, str] = {
+    FIELD_INPUT: "prompt_tokens",
+    FIELD_OUTPUT: "completion_tokens",
+    FIELD_CACHE_CREATION: "cache_creation_input_tokens",
+    FIELD_CACHE_READ: "cache_read_input_tokens",
+}
 VERSION_FIELD_MAP: dict[str, dict[str, str]] = {
-    "2.1.191": {
-        FIELD_INPUT: "input_tokens",
-        FIELD_OUTPUT: "output_tokens",
-        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
-        FIELD_CACHE_READ: "cache_read_input_tokens",
-    },
-    "2.1.220": {
-        FIELD_INPUT: "input_tokens",
-        FIELD_OUTPUT: "output_tokens",
-        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
-        FIELD_CACHE_READ: "cache_read_input_tokens",
-    },
-    "2.1.233": {
-        FIELD_INPUT: "input_tokens",
-        FIELD_OUTPUT: "output_tokens",
-        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
-        FIELD_CACHE_READ: "cache_read_input_tokens",
-    },
-    "2.1.259": {
-        FIELD_INPUT: "input_tokens",
-        FIELD_OUTPUT: "output_tokens",
-        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
-        FIELD_CACHE_READ: "cache_read_input_tokens",
-    },
-    "legacy": {  # 旧版本 alias 兜底
-        FIELD_INPUT: "prompt_tokens",
-        FIELD_OUTPUT: "completion_tokens",
-        FIELD_CACHE_CREATION: "cache_creation_input_tokens",
-        FIELD_CACHE_READ: "cache_read_input_tokens",
-    },
+    "2.1.191": MODERN_FIELD_MAP,
+    "2.1.220": MODERN_FIELD_MAP,
+    "2.1.233": MODERN_FIELD_MAP,
+    "2.1.259": MODERN_FIELD_MAP,
+    "legacy": LEGACY_FIELD_MAP,  # 旧版本 alias 例外覆盖
 }
 
 
@@ -115,13 +102,37 @@ class NormalizedUsage:
         )
 
 
-def _resolve_field_map(version: str) -> dict[str, str] | None:
-    """Lookup ``VERSION_FIELD_MAP[version]``; 缺失返回 None（unknown version）。
+def _probe_field_map(usage: dict) -> dict[str, str] | None:
+    """按 usage 字段名探测 schema（实验 bccb59ea A1）。
 
-    未知 version **不**回退到 legacy schema：plan §A1 契约要求缺字段显式
-    unknown 而非静默猜测；I4 报表据此发 WARN。
+    规则（确定性，无猜测）：含任一现代字段名（``input_tokens`` /
+    ``cache_read_input_tokens``）→ 现代表；否则含 ``prompt_tokens`` →
+    legacy 表；两者皆非 → None（调用方全 unknown 兜底）。
+    现代优先：两族字段同时存在（防御场景）按现代表解析。
     """
-    return VERSION_FIELD_MAP.get(version)
+    if FIELD_INPUT in usage or FIELD_CACHE_READ in usage:
+        return MODERN_FIELD_MAP
+    if "prompt_tokens" in usage:
+        return LEGACY_FIELD_MAP
+    return None
+
+
+def _resolve_field_map(
+    version: str, usage: dict | None = None
+) -> dict[str, str] | None:
+    """两级路由：版本精确例外表 → 字段名探测 → None（unknown version）。
+
+    - 精确键命中：与既有语义逐字节一致（五键不回归）。
+    - 未命中且 ``usage`` 可用：字段名探测（SDK 升级新版本号不再全 unknown）。
+    - 仍无法判定：None → 4 字段全 unknown（不兜底 0；plan §A1 契约保持，
+      I4 报表据此发 WARN）。
+    """
+    exact = VERSION_FIELD_MAP.get(version)
+    if exact is not None:
+        return exact
+    if usage:
+        return _probe_field_map(usage)
+    return None
 
 
 def _extract_int(usage: dict, raw_field: str) -> int | None:
@@ -147,7 +158,7 @@ def map_event(event: RawUsageEvent) -> NormalizedUsage:
     if not isinstance(usage, dict):
         usage = {}
 
-    field_map = _resolve_field_map(event.version)
+    field_map = _resolve_field_map(event.version, usage)
     if field_map is None:
         # version 未在映射表中 → 4 字段全 unknown（不兜底 0）
         return NormalizedUsage(

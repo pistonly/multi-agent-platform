@@ -132,6 +132,10 @@ class SimpleWakerConfig:
     # 窗口（秒）内 = 交互会话在场，waker 降级跳过本次唤醒；state 缺失 /
     # 过期 / 损坏时不降级（宁重复不遗漏）。<=0 关闭该检查。
     bridge_active_seconds: float = 600.0
+    # 实验 bccb59ea A4：runtime session 硬上限——同一 runtime session 连续
+    # 唤醒达到该次数即强制 reset_session（新会话）。None = 用默认 300；
+    # env MAP_WAKER_SESSION_MAX_WAKES 可覆盖；CLI flag --session-max-wakes。
+    session_max_wakes: int | None = None
 
 
 @dataclass
@@ -172,6 +176,10 @@ class SimpleWakerStats:
     # 会话以话题为边界复用；唤醒工作集话题 id 集合变化 → reset_session
     # 后再唤醒，旧话题完整历史不背进新会话）。
     session_resets_topic_switch: int = 0
+    # 实验 bccb59ea A4：session 硬上限触发的 runtime session 重置次数
+    # （同 session 连续唤醒达到 MAP_WAKER_SESSION_MAX_WAKES → 强制新会话，
+    # 防上下文无限膨胀）。
+    session_resets_wake_limit: int = 0
 
     def add(self, other: SimpleWakerStats) -> None:
         self.cycles += other.cycles
@@ -193,6 +201,8 @@ class SimpleWakerStats:
         self.action_items_errors += other.action_items_errors
         self.cycle_errors += other.cycle_errors
         self.stalled_lock_notifications += other.stalled_lock_notifications
+        self.session_resets_topic_switch += other.session_resets_topic_switch
+        self.session_resets_wake_limit += other.session_resets_wake_limit
 
 
 def parse_topic_progress(data: dict[str, Any] | None) -> tuple[TopicProgressEntry, ...]:

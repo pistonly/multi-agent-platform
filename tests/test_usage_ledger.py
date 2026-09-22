@@ -1,9 +1,11 @@
 """CLI 出口记账测量面（实验 4e4206de I7 / A7）。
 
 钉住验收：
-- 每次调用落一行 JSONL ``{ts, persona, kind, cmd, output_bytes, exit_code}``；
+- 每次调用落一行 JSONL ``{ts, persona, kind, cmd, output_bytes, exit_code, session_id}``；
   ``kind`` 取 ``MAP_WAKE_KINDS`` env，非唤醒调用为 null。
 - 落点 ``<map_dir>/usage/cli-calls.jsonl``；记账失败绝不影响 CLI（best-effort）。
+- ``session_id`` 来自 ``.map/usage/runtime-sessions/<persona>.json`` 指针
+  （实验 bccb59ea A3 join 键）；指针缺失 / 损坏时为 null，不猜测。
 - ``map usage summary --since`` 是单一机器可判路径：按 persona 聚合窗口内
   ``{persona, work_calls, total_output_bytes}``。
 """
@@ -25,14 +27,18 @@ from cli.usage_ledger import (
     CliCallRecord,
     CountingStdout,
     append_record,
+    clear_runtime_session_pointer,
     exit_code_from_exc,
     extract_cmd,
     ledger_path,
     parse_since,
     read_records,
+    read_runtime_session_id,
     record_cli_call,
+    runtime_session_pointer_path,
     summarize,
     wake_kind_from_env,
+    write_runtime_session_pointer,
 )
 
 
@@ -227,6 +233,89 @@ def test_record_cli_call_no_map_dir_is_noop():
     record_cli_call(
         map_dir=None, persona="host", cmd="work", output_bytes=1, exit_code=0
     )  # 不抛异常
+
+
+# --- runtime session 指针（实验 bccb59ea A3 join 键）-------------------------
+
+
+def test_runtime_session_pointer_lifecycle(tmp_path: Path):
+    """write → read 得 id → 重写覆盖 → clear → read None。"""
+    write_runtime_session_pointer(tmp_path, "host", "sess-abc123")
+    assert read_runtime_session_id(tmp_path, "host") == "sess-abc123"
+    # 覆盖写（session 切换）
+    write_runtime_session_pointer(tmp_path, "host", "sess-def456")
+    assert read_runtime_session_id(tmp_path, "host") == "sess-def456"
+    assert runtime_session_pointer_path(tmp_path, "host").exists()
+    clear_runtime_session_pointer(tmp_path, "host")
+    assert read_runtime_session_id(tmp_path, "host") is None
+
+
+def test_record_cli_call_injects_session_id_from_pointer(tmp_path: Path):
+    """指针存在 → 记账行带 session_id；指针清除后 → null（不猜测）。"""
+    write_runtime_session_pointer(tmp_path, "host", "sess-abc123")
+    record_cli_call(
+        map_dir=tmp_path, persona="host", cmd="work", output_bytes=1, exit_code=0
+    )
+    rows = list(read_records(tmp_path))
+    assert len(rows) == 1
+    assert rows[0]["session_id"] == "sess-abc123"
+
+    clear_runtime_session_pointer(tmp_path, "host")
+    record_cli_call(
+        map_dir=tmp_path, persona="host", cmd="work", output_bytes=1, exit_code=0
+    )
+    rows = list(read_records(tmp_path))
+    assert rows[-1]["session_id"] is None
+
+
+def test_record_cli_call_session_id_null_without_pointer(tmp_path: Path):
+    """无指针时记账 session_id 为 null 且行 schema 完整。"""
+    record_cli_call(
+        map_dir=tmp_path, persona="reviewer", cmd="work", output_bytes=1, exit_code=0
+    )
+    (row,) = list(read_records(tmp_path))
+    assert row["session_id"] is None
+    assert set(row) == {
+        "ts", "persona", "kind", "cmd", "output_bytes", "exit_code", "session_id",
+    }
+
+
+def test_runtime_session_pointer_rejects_unsafe_persona(tmp_path: Path):
+    """persona 含路径分隔符 / 目录别名 → 不落盘、读 None（防路径穿越）。"""
+    for bad in ("../evil", "a/b", "a\\b", "", ".", ".."):
+        write_runtime_session_pointer(tmp_path, bad, "sess-x")  # 不落盘不抛
+        assert read_runtime_session_id(tmp_path, bad) is None
+    assert not (tmp_path / "usage").exists()
+
+
+def test_runtime_session_pointer_tolerates_corrupt_file(tmp_path: Path):
+    """指针文件损坏（非法 JSON / 非法结构）→ read None，不抛。"""
+    path = runtime_session_pointer_path(tmp_path, "host")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not-json", encoding="utf-8")
+    assert read_runtime_session_id(tmp_path, "host") is None
+    path.write_text('{"session_id": 42}', encoding="utf-8")  # 非字符串
+    assert read_runtime_session_id(tmp_path, "host") is None
+
+
+def test_persona_wake_backend_writes_and_clears_pointer(tmp_path: Path):
+    """PersonaAgentWakeBackend 指针集成：写盘成功 / clear 后消失 / 缺 .map 不炸。"""
+    from cli.wake_backend import PersonaAgentWakeBackend
+
+    state: dict = {}
+    backend = PersonaAgentWakeBackend(
+        project_root=tmp_path,
+        persona="host",
+        get_agent_state=lambda: state,
+        save_state_fn=lambda: None,
+        agent_client=None,
+    )
+    backend._write_session_pointer("sess-live")
+    assert read_runtime_session_id(tmp_path / ".map", "host") == "sess-live"
+    backend._clear_session_pointer()
+    assert read_runtime_session_id(tmp_path / ".map", "host") is None
+    # 缺 .map 目录时 clear 也不抛（missing_ok + best-effort）
+    backend._clear_session_pointer()
 
 
 # --- map usage summary command ---------------------------------------------
