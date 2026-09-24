@@ -82,6 +82,18 @@ def _local_topic_slug_hit(raw: str) -> str | None:
             if entry.is_dir() and topic_id_for_slug(entry.name) == want:
                 return entry.name
         return None
+    # v0.19：8..31 位前缀（map topic list 的 ID 列）同样回灌
+    if 8 <= len(body) < 32 and _HEX.fullmatch(body):
+        topics_dir = workspace / content_root / "topics"
+        if not topics_dir.is_dir():
+            return None
+        hits = [
+            entry.name
+            for entry in topics_dir.iterdir()
+            if entry.is_dir()
+            and str(topic_id_for_slug(entry.name)).replace("-", "").lower().startswith(body)
+        ]
+        return hits[0] if len(hits) == 1 else None
     topic_dir = workspace / content_root / "topics" / raw
     t = parse_topic_dir(topic_dir, workspace)
     return t.slug if t is not None else None

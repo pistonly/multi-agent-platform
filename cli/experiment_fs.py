@@ -175,10 +175,6 @@ def projection_id_for_fs_ref(raw: str) -> uuid.UUID | None:
     return fs.projection_id or fs.id
 
 
-def looks_like_hex_prefix(raw: str) -> bool:
-    text = raw.strip().lower().replace("-", "")
-    return 8 <= len(text) < 32 and all(c in "0123456789abcdef" for c in text)
-
 
 def _index_path(workspace: Path, fs: Any) -> Path:
     return workspace / fs.dir_path / "index.md"

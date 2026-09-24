@@ -32,7 +32,7 @@ from cli.topic_routing import (
 
 def topic_comment(
     topic_id: str = typer.Option(
-        ..., "--topic", "--id", help="Topic UUID (DB), folder uuid5 id, or slug."
+        ..., "--topic", "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."
     ),
     storage: str | None = typer.Option(None, "--storage", help=STORAGE_HELP),
     body: str | None = typer.Option(

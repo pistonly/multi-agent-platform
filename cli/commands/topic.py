@@ -277,7 +277,7 @@ def topic_progress() -> None:
 
 @topic_app.command("resolve", hidden=True)
 def topic_resolve(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     resolve_file: Path = typer.Option(..., "--file"),
 ) -> None:
@@ -300,7 +300,7 @@ def topic_resolve(
 @topic_app.command("advance-round")
 def topic_advance_round(
     topic_id: str = typer.Option(
-        ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
+        ..., "--id", "--topic", help="Topic ref: uuid, 8-hex id prefix, or slug."
     ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     increment_summary: bool = typer.Option(
@@ -410,7 +410,7 @@ def topic_advance_round(
 
 @topic_app.command("rollback-round", hidden=True)
 def topic_rollback_round(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """(Retired v0.13 M58) DB rollback is gone; FS rounds are file facts (edit files)."""
@@ -428,7 +428,7 @@ def topic_rollback_round(
 @topic_app.command("close")
 def topic_close(
     topic_id: str = typer.Option(
-        ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
+        ..., "--id", "--topic", help="Topic ref: uuid, 8-hex id prefix, or slug."
     ),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     reason: str | None = typer.Option(
@@ -510,7 +510,7 @@ def topic_close(
 
 @topic_app.command("reopen", hidden=True)
 def topic_reopen(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """(Retired v0.13 M58) DB reopen is gone; FS status lives in index.md."""
@@ -527,7 +527,7 @@ def topic_reopen(
 
 @topic_app.command("dismiss")
 def topic_dismiss(
-    topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+    topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
     storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
 ) -> None:
     """Hide an open topic from host todos until new activity (same as Web UI ✕).
@@ -547,7 +547,7 @@ def topic_dismiss(
 
 @topic_app.command("archive")
 def topic_archive(
-    topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名）"),
+    topic: str = typer.Option(..., "--topic", "--id", help="话题 slug（--id 为别名；也接受 `map topic list` 打印的 8 位 id 前缀）"),
     undo: bool = typer.Option(
         False, "--undo", help="还原归档话题（archive 目录移回 map/topics/）"
     ),

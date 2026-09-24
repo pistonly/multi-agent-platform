@@ -19,6 +19,7 @@ import yaml
 from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
+from cli.shortid import looks_like_hex_prefix
 
 if TYPE_CHECKING:
     from map_client.exceptions import MAPHTTPError
@@ -29,9 +30,13 @@ if TYPE_CHECKING:
 
 STORAGE_HELP = (
     "Route --id explicitly: 'fs' (map/ folder topic) or 'db' (platform DB). "
-    "Default auto-routing: uuid -> DB first, then FS uuid5; slug -> FS first, then DB slug. "
+    "Default auto-routing: uuid (full or 8+ hex prefix) -> DB first, then FS uuid5; "
+    "slug -> FS first, then DB slug. "
     "v0.13 M58: explicit 'db' on write commands is rejected with guidance (DB write paths retired)."
 )
+
+#: not found 时最多给出的 slug 模糊建议条数（did-you-mean 兜底）
+_MAX_SUGGESTIONS = 3
 
 
 # ---------------------------------------------------------------------------
@@ -237,24 +242,58 @@ def _should_scan_local_fs(
     return bool(project_key) and cfg_key == project_key
 
 
-def _fs_slug_by_uuid(ref: str) -> str | None:
-    """uuid5 id → slug 本地反查（scan_plane 实时解析，零 API）。"""
+def _fs_topic_matches(ref: str) -> list[tuple[str, uuid.UUID]]:
+    """uuid5 引用 → 本地 FS 命中的 ``(slug, uuid5)`` 列表（scan_plane，零 API）。
+
+    同时接受完整 uuid 与 8..31 位 hex 前缀——``map topic list`` 的 ID 列是
+    ``short_uuid()`` 打印的 8 位前缀，前缀必须能被吃回去，否则「list 出来
+    的 ID 用不了」（v0.19）。多命中由调用方报歧义。
+    """
     from map_fs import scan_plane
 
-    try:
-        ref_uuid = uuid.UUID(ref)
-    except ValueError:
-        return None
+    text = ref.strip().lower().replace("-", "")
+    if not text:
+        return []
     resolved = _optional_fs_workspace_and_root()
     if resolved is None:
         # 本地 workspace 不可用（无 .map）＝ FS 话题必然不存在，反查未命中；
         # 让调用方落到 DB/退役引导路径，而不是让 root 错误抢在定性之前。
-        return None
+        return []
     workspace, root = resolved
+    out: list[tuple[str, uuid.UUID]] = []
     for t in scan_plane(workspace, root).topics:
-        if t.id == ref_uuid:
-            return t.slug
-    return None
+        tid = str(t.id).replace("-", "").lower()
+        if tid == text or (looks_like_hex_prefix(text) and tid.startswith(text)):
+            out.append((t.slug, t.id))
+    return out
+
+
+def _fs_slug_matches(ref: str) -> list[str]:
+    return [slug for slug, _ in _fs_topic_matches(ref)]
+
+
+def _fs_slug_by_uuid(ref: str) -> str | None:
+    """uuid5 id（完整或前缀）→ slug 本地反查；唯一命中才返回。"""
+    hits = _fs_slug_matches(ref)
+    return hits[0] if len(hits) == 1 else None
+
+
+def _slug_suggestions(ref: str) -> list[str]:
+    """not found 兜底：把 ref 当 slug 片段，在 FS 话题里做子串模糊匹配。"""
+    from map_fs import scan_plane
+
+    needle = ref.strip().lower()
+    if not needle:
+        return []
+    resolved = _optional_fs_workspace_and_root()
+    if resolved is None:
+        return []
+    workspace, root = resolved
+    return [
+        t.slug
+        for t in scan_plane(workspace, root).topics
+        if needle in t.slug.lower()
+    ][:_MAX_SUGGESTIONS]
 
 
 def _db_uuid_by_slug(c: MAPClient, slug: str) -> uuid.UUID | None:
@@ -297,16 +336,38 @@ def _exit_not_found(message: str, ref: str, ref_uuid: uuid.UUID | None) -> NoRet
             err=True,
         )
         raise typer.Exit(1)
+    suggestions = _slug_suggestions(ref)
+    if suggestions:
+        message = f"{message}\nDid you mean: {', '.join(suggestions)} ?"
     typer.echo(message, err=True)
+    raise typer.Exit(1)
+
+
+def _exit_ambiguous_prefix(ref: str, slugs: list[str], db_hits: list[tuple[uuid.UUID, str]]) -> NoReturn:
+    """短前缀多命中：列候选让调用方加长前缀，不做静默单选。"""
+    shown = [f"  {s}  (fs)" for s in slugs[:_MAX_SUGGESTIONS]]
+    shown += [f"  {str(cid)[:8]}  {label} (db)" for cid, label in db_hits[:_MAX_SUGGESTIONS]]
+    more = "" if len(slugs) + len(db_hits) <= _MAX_SUGGESTIONS * 2 else "\n  ..."
+    typer.echo(
+        f"Error: id prefix '{ref}' is ambiguous "
+        f"({len(slugs) + len(db_hits)} matches); lengthen the prefix. Candidates:\n"
+        + "\n".join(shown)
+        + more,
+        err=True,
+    )
     raise typer.Exit(1)
 
 
 def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str, str | uuid.UUID]:
     """解析 --id 为 ('db', uuid) 或 ('fs', slug)。
 
-    自动路由：uuid → DB API 优先（404 后本地反查 FS uuid5）；
-    slug → FS 优先（map/topics/<slug>/ 存在即 FS），否则 DB slug 匹配。
+    自动路由：uuid（含 8..31 位 hex 前缀）→ DB API 优先（404 后本地反查 FS
+    uuid5）；slug → FS 优先（map/topics/<slug>/ 存在即 FS），否则 DB slug 匹配。
     --storage fs|db 显式覆盖，不命中即报错。
+
+    v0.19：短前缀与 ``map topic list`` 的 ``short_uuid`` ID 列对齐——list 打印
+    的 8 位 ID 可直接喂回 --id（此前 8 位被判成 slug，必然 not found）。
+    server 话题接口无 ``id_prefix`` 查询，DB 侧走一页 bounded 扫描。
     """
     from map_client.exceptions import MAPNotFoundError
 
@@ -316,6 +377,17 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
 
     is_uuid = _looks_like_uuid(ref)
     ref_uuid = uuid.UUID(ref) if is_uuid else None
+    is_prefix = not is_uuid and looks_like_hex_prefix(ref)
+
+    def db_prefix_hits() -> list[tuple[uuid.UUID, str]]:
+        """DB 侧无 id_prefix 查询 → 一页 bounded 扫描（不拉全表）。"""
+        pid = runner._resolve_project(c, None, None)
+        text = ref.strip().lower().replace("-", "")
+        return [
+            (t.id, t.title or t.slug or "")
+            for t in c.list_topics(pid, page_size=100)
+            if str(t.id).replace("-", "").lower().startswith(text)
+        ]
 
     def db_hit() -> uuid.UUID | None:
         if ref_uuid is None:
@@ -327,13 +399,36 @@ def _resolve_topic_ref(c: MAPClient, ref: str, storage: str | None) -> tuple[str
         return ref_uuid
 
     def fs_hit() -> str | None:
-        if ref_uuid is not None:
+        if ref_uuid is not None or is_prefix:
             return _fs_slug_by_uuid(ref)
         from map_fs import parse_topic_dir
 
         workspace, root = _fs_workspace_and_root()
         t = parse_topic_dir(workspace / root / "topics" / ref, workspace)
         return t.slug if t is not None else None
+
+    if is_prefix:
+        fs_pairs = [] if storage == "db" else _fs_topic_matches(ref)
+        fs_slugs = [slug for slug, _ in fs_pairs]
+        # DB 行常是同一 FS 话题的投影（id 相同），按 id 去重，否则误报歧义。
+        fs_ids = {str(cid).replace("-", "").lower() for _, cid in fs_pairs}
+        db_hits = [] if storage == "fs" else [
+            (cid, label)
+            for cid, label in db_prefix_hits()
+            if str(cid).replace("-", "").lower() not in fs_ids
+        ]
+        if len(fs_slugs) + len(db_hits) > 1:
+            _exit_ambiguous_prefix(ref, fs_slugs, db_hits)
+        if fs_slugs:
+            return ("fs", fs_slugs[0])
+        if db_hits:
+            return ("db", db_hits[0][0])
+        _exit_not_found(
+            f"Error: no topic matches id prefix '{ref}' "
+            "(checked map/ folders and DB); see `map topic list`",
+            ref,
+            None,
+        )
 
     if storage == "fs":
         slug = fs_hit()

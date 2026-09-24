@@ -4,11 +4,16 @@
 
 ## `topic --id` 统一路由（M51）
 
-`map topic show` 的 `--id` 接受三种形式：
+`map topic show` 的 `--id` 接受四种形式：
 
-- **DB uuid** → 平台 API 话题（uuid 格式时 DB 优先，404 后本地反查 FS uuid5）
+- **完整 uuid** → 平台 API 话题（DB 优先，404 后本地反查 FS uuid5）
+- **8 位以上 hex 前缀** → `map topic list` 的 ID 列就是这种短 ID，**可直接复制喂回 `--id`**
+  （FS 面本地 `map/` 前缀匹配，零 API；DB 面走一页 bounded 扫描；多命中报歧义并列候选）
 - **FS uuid5 id** → `map/topics/<slug>/` 文件夹话题（由 CLI 路由层解析）
 - **slug** → FS 优先（`map/topics/<slug>/` 存在即 FS），未命中按 DB slug 匹配
+
+同名冲突或想显式指定时加 `--storage fs | db`。未命中且 ref 像 slug 片段时，报错附
+`Did you mean: <slug>` 候选（例：`--id runtime-token` → 提示完整 slug）。
 
 同名冲突或想显式指定时加 `--storage fs | db`。
 

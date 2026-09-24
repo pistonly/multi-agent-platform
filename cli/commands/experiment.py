@@ -58,8 +58,8 @@ def _rid(client: MAPClient, raw: str | uuid.UUID) -> uuid.UUID:
     M1 A6: slug → FS ``map/experiments/<slug>/`` first; uuid → DB first,
     404 后由 ``_load_experiment`` 反查 FS uuid5 / projection_id.
     """
-    from cli.experiment_fs import looks_like_hex_prefix, projection_id_for_fs_ref
-    from cli.shortid import normalize_uuid_like
+    from cli.experiment_fs import projection_id_for_fs_ref
+    from cli.shortid import looks_like_hex_prefix, normalize_uuid_like
 
     text = str(raw).strip()
     if normalize_uuid_like(text) is None and not looks_like_hex_prefix(text):

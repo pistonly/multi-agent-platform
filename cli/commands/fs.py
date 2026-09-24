@@ -140,8 +140,14 @@ def is_local_plane(workspace: Path | None = None) -> bool:
 
 
 def local_topic_slug(ref: str) -> str:
-    """local plane 下把话题引用解析为 slug：目录名命中或 uuid5 本地反查。"""
+    """local plane 下把话题引用解析为 slug：目录名 / uuid5（完整或 8+ 位前缀）。
+
+    v0.19：``map topic list`` 打印的是 8 位短 ID，local plane 的写命令
+    （advance-round / close 等）必须能吃回它，否则只能复制完整 uuid5。
+    """
     from map_fs import scan_plane
+
+    from cli.shortid import looks_like_hex_prefix
 
     workspace = _workspace()
     root = _content_root_name(workspace)
@@ -151,10 +157,26 @@ def local_topic_slug(ref: str) -> str:
         ref_uuid = uuid.UUID(ref)
     except ValueError:
         ref_uuid = None
-    if ref_uuid is not None:
-        for t in scan_plane(workspace, root).topics:
-            if t.id == ref_uuid:
-                return t.slug
+    text = ref.strip().lower().replace("-", "")
+    if ref_uuid is not None or looks_like_hex_prefix(text):
+        hits = [
+            t.slug
+            for t in scan_plane(workspace, root).topics
+            if str(t.id).replace("-", "").lower() == text
+            or (
+                looks_like_hex_prefix(text)
+                and str(t.id).replace("-", "").lower().startswith(text)
+            )
+        ]
+        if len(hits) == 1:
+            return hits[0]
+        if len(hits) > 1:
+            typer.echo(
+                f"Error: id prefix '{ref}' is ambiguous ({len(hits)} local topic "
+                f"matches); lengthen the prefix. Candidates: {', '.join(hits[:3])}",
+                err=True,
+            )
+            raise typer.Exit(1)
     typer.echo(
         f"Error: plane: local — '{ref}' is not a local topic "
         "(use the topic slug or its uuid5 id; see `map topic list`)",

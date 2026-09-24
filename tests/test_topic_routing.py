@@ -30,6 +30,8 @@ from typer.testing import CliRunner
 
 # T33: routing helpers moved to cli.topic_routing (tests pin them at the
 # source); the Typer apps stay in cli.commands.topic.
+from cli import topic_routing
+from cli.commands.fs import local_topic_slug
 from cli.commands.topic import topic_app
 from cli.topic_routing import (
     _filter_local_summaries,
@@ -168,6 +170,107 @@ class TestResolveTopicRef:
         with pytest.raises(Exception) as exc_info:
             _resolve_topic_ref(c, "only-db", "fs")
         assert exc_info.value.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# v0.19：短前缀（``map topic list`` 的 short_uuid ID 列）回灌 --id
+# ---------------------------------------------------------------------------
+
+
+class TestLocalPlaneTopicRef:
+    """local plane 有第二条解析路径（``fs.local_topic_slug``），写命令走它。
+
+    advance-round / close 等在 local plane 下不经过 ``_resolve_topic_ref``，
+    所以短前缀必须在这里同样可用，否则「能 show 不能写」。
+    """
+
+    def test_short_prefix_accepted(self, workspace: Path) -> None:
+        _make_fs_topic(workspace, "local-prefix")
+        prefix = str(topic_id_for_slug("local-prefix")).replace("-", "")[:8]
+        assert local_topic_slug(prefix) == "local-prefix"
+
+    def test_slug_and_full_uuid_still_accepted(self, workspace: Path) -> None:
+        _make_fs_topic(workspace, "local-plain")
+        assert local_topic_slug("local-plain") == "local-plain"
+        assert local_topic_slug(str(topic_id_for_slug("local-plain"))) == "local-plain"
+
+    def test_unknown_prefix_errors(self, workspace: Path) -> None:
+        _make_fs_topic(workspace, "local-other")
+        with pytest.raises(Exception) as exc_info:
+            local_topic_slug("abcdef01")
+        assert exc_info.value.exit_code == 1
+    """list 打印 8 位 ID → show/comment/close 必须能直接吃回去。
+
+    此前 8 位被 ``_looks_like_uuid`` 判 False 而当 slug 处理，必然 not found。
+    """
+
+    def test_eight_hex_prefix_resolves_fs_topic(self, workspace: Path) -> None:
+        _make_fs_topic(workspace, "prefix-me")
+        fs_prefix = str(topic_id_for_slug("prefix-me")).replace("-", "")[:8]
+        assert len(fs_prefix) == 8
+        # 8 位不再被判成 uuid，也不再被当 slug
+        assert not _looks_like_uuid(fs_prefix)
+
+        kind, target = _resolve_topic_ref(_StubClient(), fs_prefix, None)
+        assert (kind, target) == ("fs", "prefix-me")
+
+    def test_prefix_shorter_than_eight_is_still_slug(self, workspace: Path) -> None:
+        """7 位及以下视作 slug（避免把 slug 里的 hex 片段误判成 id）。"""
+        _make_fs_topic(workspace, "abcdef")
+        kind, target = _resolve_topic_ref(_StubClient(), "abcdef", None)
+        assert (kind, target) == ("fs", "abcdef")
+
+    def test_prefix_resolves_db_topic(self, workspace: Path) -> None:
+        db = _db_topic("db-prefix")
+        prefix = str(db.id).replace("-", "")[:8]
+        kind, target = _resolve_topic_ref(_StubClient([db]), prefix, None)
+        assert (kind, target) == ("db", db.id)
+
+    def test_prefix_storage_db_skips_fs(self, workspace: Path) -> None:
+        _make_fs_topic(workspace, "fs-prefix")
+        db = _db_topic("db-prefix")
+        fs_prefix = str(topic_id_for_slug("fs-prefix")).replace("-", "")[:8]
+        db_prefix = str(db.id).replace("-", "")[:8]
+
+        assert _resolve_topic_ref(_StubClient([db]), db_prefix, "db") == ("db", db.id)
+        # --storage db 时不查 FS：FS 前缀在 db 视角下必须 not found
+        with pytest.raises(Exception) as exc_info:
+            _resolve_topic_ref(_StubClient([db]), fs_prefix, "db")
+        assert exc_info.value.exit_code == 1
+
+    def test_prefix_ambiguous_lists_candidates(
+        self, workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        monkeypatch.setattr(
+            topic_routing,
+            "_fs_topic_matches",
+            lambda ref: [("alpha-one", uuid.uuid4()), ("beta-two", uuid.uuid4())],
+        )
+        with pytest.raises(Exception) as exc_info:
+            _resolve_topic_ref(_StubClient(), "abcdef12", None)
+        assert exc_info.value.exit_code == 1
+        err = capsys.readouterr().err
+        assert "ambiguous" in err
+        assert "alpha-one" in err and "beta-two" in err
+
+    def test_prefix_not_found_names_prefix(
+        self, workspace: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        _make_fs_topic(workspace, "some-topic")
+        with pytest.raises(Exception) as exc_info:
+            _resolve_topic_ref(_StubClient(), "deadbeef", None)
+        assert exc_info.value.exit_code == 1
+        assert "no topic matches id prefix 'deadbeef'" in capsys.readouterr().err
+
+    def test_not_found_suggests_slug(
+        self, workspace: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """C 层兜底：slug 拼错/截断时给 did-you-mean，而不是干巴巴的 not found。"""
+        _make_fs_topic(workspace, "suggest-demo")
+        with pytest.raises(Exception) as exc_info:
+            _resolve_topic_ref(_StubClient(), "suggest", None)
+        assert exc_info.value.exit_code == 1
+        assert "Did you mean: suggest-demo" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +741,9 @@ class TestIdHelpConsistency:
     """M56C：--id help 文本分组一致（三态组 10 命令同文案；DB-only 组带标注）。"""
 
     def test_tri_state_id_help_identical(self) -> None:
-        expected = "Topic UUID (DB), folder uuid5 id, or slug."
+        # v0.19：--id 也接受 map topic list 打印的 8 位 id 前缀，文案须写明。
+        # 注意：typer 按终端宽度折叠 help，文案过长会被截断成 `...` 而误判漂移。
+        expected = "Topic ref: uuid, 8-hex id prefix, or slug."
         for name in sorted(_TRI_STATE_COMMANDS):
             result = runner.invoke(topic_app, [name, "--help"])
             assert result.exit_code == 0, name

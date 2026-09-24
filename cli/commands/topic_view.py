@@ -12,6 +12,7 @@ from map_client.client import MAPClient
 
 from cli import runner  # module ref: test monkeypatch surface (T23)
 from cli.runner import _client_ctx
+from cli.shortid import looks_like_hex_prefix
 from cli.topic_routing import (
     _fs_projection_noop,
     _fs_slug_by_uuid,
@@ -30,7 +31,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("read")
     def topic_read(
-        topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+        topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
         storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     ) -> None:
         """Mark contextual unread changes as seen; obligations still require reply/ack/mention handling.
@@ -49,7 +50,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("mark-seen")
     def topic_mark_seen(
-        topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+        topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
         storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
     ) -> None:
         """Alias of topic read: clears contextual unread only, not reply/ack/mention obligations.
@@ -69,7 +70,7 @@ def register(app: typer.Typer) -> None:
     @app.command("show")
     def topic_show(
         topic_id: str = typer.Option(
-            ..., "--id", "--topic", help="Topic UUID (DB), folder uuid5 id, or slug."
+            ..., "--id", "--topic", help="Topic ref: uuid, 8-hex id prefix, or slug."
         ),
         storage: str | None = typer.Option(None, "--storage", help=_STORAGE_HELP),
         full: bool = typer.Option(False, "--full", help="Print full comment bodies for local folder topics."),
@@ -83,7 +84,9 @@ def register(app: typer.Typer) -> None:
 
                 root = _content_root_name(workspace)
                 slug = topic_id
-                if _looks_like_uuid(topic_id):
+                # v0.19：短前缀（map topic list 的 ID 列）也走 FS 快路径，
+                # 否则会绕到 detail 渲染，和 slug 输入的输出形态不一致。
+                if _looks_like_uuid(topic_id) or looks_like_hex_prefix(topic_id):
                     found = _fs_slug_by_uuid(topic_id)
                     if found:
                         slug = found
@@ -115,7 +118,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("history")
     def topic_history(
-        topic_id: str = typer.Option(..., "--id", help="Topic UUID (DB), folder uuid5 id, or slug."),
+        topic_id: str = typer.Option(..., "--id", help="Topic ref: uuid, 8-hex id prefix, or slug."),
         kind: str | None = typer.Option(
             None,
             "--kind",

@@ -46,6 +46,17 @@ def _short(cid: uuid.UUID) -> str:
     return str(cid).replace("-", "")[:12]
 
 
+def looks_like_hex_prefix(raw: str) -> bool:
+    """True for an 8..31 hex-digit UUID prefix (table ``short_uuid`` output).
+
+    Moved here from ``cli.experiment_fs`` (single source) so topic routing can
+    accept the same shapes as ``map topic list`` prints without importing the
+    experiment layer.
+    """
+    text = raw.strip().lower().replace("-", "")
+    return 8 <= len(text) < 32 and all(c in "0123456789abcdef" for c in text)
+
+
 def normalize_uuid_like(raw: str | uuid.UUID | None) -> uuid.UUID | None:
     """Best-effort offline UUID normalization (no matcher / API call).
 
