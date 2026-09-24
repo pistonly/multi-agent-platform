@@ -2,11 +2,11 @@
 # Copy alembic.ini + alembic/ into server/_migrate so setuptools package-data
 # can ship them in the wheel (T29). The source of truth stays at repo root;
 # this directory is gitignored and regenerated at pack time.
-# ``python -m build`` also does this via scripts/map_build_backend.py.
+# ``uv build`` also does this via scripts/map_build_backend.py.
 #
 # Usage:
 #   scripts/prepare-wheel-assets.sh
-#   scripts/check-packaging.sh   # calls this, then python -m build
+#   scripts/check-packaging.sh   # calls this, then uv build
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

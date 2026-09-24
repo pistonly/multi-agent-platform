@@ -37,27 +37,30 @@ jobs:
           node-version: "24"
 
       - name: Install build tool
-        run: python -m pip install --upgrade build twine
+        # 主包与 server-pkg 都走 uv build（scripts/check-packaging.sh 与
+        # scripts/release.sh prepare），不再需要 PyPA build 包；twine 仍用于
+        # 产物元数据校验。
+        run: python -m pip install --upgrade uv twine
 
       - name: Rebuild the SPA board into server/web_dist
         run: bash scripts/sync-web-dist.sh
 
       - name: Skills distribution drift check
-        # 与 release.sh prepare 相同的门禁：.cursor/skills 与 cli/skills 漂移即红
-        run: diff -r -x '__init__.py' .cursor/skills cli/skills
+        # 与 release.sh prepare 相同的门禁：.agent/skills 与 cli/skills 漂移即红
+        run: diff -r -x '__init__.py' .agent/skills cli/skills
 
       - name: Release pre-flight (version single-source + tag + SPA provenance)
         run: bash scripts/check-release.sh --require-tag
 
       - name: Packaging gate + build main wheel/sdist
-        # check-packaging.sh 内部执行 prepare-wheel-assets + python -m build
+        # check-packaging.sh 内部执行 prepare-wheel-assets + uv build
         # + wheel 内容断言（web_dist/index.html、assets、alembic 迁移齐全）
         run: bash scripts/check-packaging.sh
 
       - name: Build server meta package
         run: |
           rm -rf server-pkg/dist
-          (cd server-pkg && python -m build)
+          (cd server-pkg && uv build --sdist --wheel . --out-dir dist)
 
       - name: twine check
         run: twine check dist/* server-pkg/dist/*

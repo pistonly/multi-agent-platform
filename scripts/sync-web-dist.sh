@@ -6,7 +6,7 @@
 #   scripts/sync-web-dist.sh              # npm run build, then copy
 #   scripts/sync-web-dist.sh --skip-build # copy an existing web/dist
 #
-# Release: run this before `python -m build` / `uv build` so the sdist and
+# Release: run this before `uv build` so the sdist and wheel contain
 # wheel contain server/web_dist/index.html. See scripts/check-release.sh.
 set -euo pipefail
 

@@ -12,6 +12,8 @@
 #   scripts/release.sh status
 #
 # MAP_RELEASE_ROOT overrides the repo root (tests).
+# UV overrides the uv binary used by prepare (builds both packages); the build
+# itself needs no PyPA build install — see scripts/check-packaging.sh.
 
 set -euo pipefail
 
@@ -253,7 +255,7 @@ cmd_prepare() {
   echo "  2. scripts/sync-bundled-skills.sh (if .agent/skills and cli/skills drifted)"
   echo "  3. scripts/sync-web-dist.sh"
   echo "  4. scripts/check-packaging.sh"
-  echo "  5. python -m build server-pkg"
+  echo "  5. uv build server-pkg"
   if [[ "$dry" -eq 1 ]]; then
     echo "release: dry-run, no build"
     return 0
@@ -269,9 +271,11 @@ cmd_prepare() {
   bash "$SCRIPT_DIR/sync-web-dist.sh"
   bash "$SCRIPT_DIR/check-packaging.sh"
   rm -rf "$ROOT/server-pkg/dist"
-  # 解释器可覆盖：本机常见多 Python 共存（homebrew python3 无 build 模块、
-  # 项目环境在别处），`MAP_RELEASE_PYTHON=python ./scripts/release.sh prepare`。
-  (cd "$ROOT/server-pkg" && "${MAP_RELEASE_PYTHON:-python3}" -m build)
+  # 统一走 uv build（与主包一致）：不依赖 PyPA build 包，也不受仓库根 build/
+  # 目录干扰——该目录在 `python -m build` 下会被当成 namespace package，报
+  # "'build' is a package and cannot be directly executed"。
+  # uv 可覆盖（本机多版本共存）：`UV=/path/to/uv ./scripts/release.sh prepare`。
+  (cd "$ROOT/server-pkg" && "${UV:-uv}" build --sdist --wheel . --out-dir dist)
   echo "release: prepare ok. Next: scripts/release.sh tag"
 }
 

@@ -39,8 +39,13 @@ if [[ ! -f "$web_index" ]]; then
 fi
 
 PYTHON="${PYTHON:-python3}"
+UV="${UV:-uv}"
 rm -rf "$ROOT/dist"
-"$PYTHON" -m build
+# 统一走 uv build：不依赖 PyPA build 包（仓库根 build/ 目录会让
+# `python -m build` 报 "'build' is a package and cannot be directly executed"）。
+# 自定义 backend（scripts/map_build_backend.py）uv 同样支持；$PYTHON 只用于
+# 下面的产物校验（纯 stdlib），任意 python3 即可。
+"$UV" build --sdist --wheel . --out-dir dist
 shopt -s nullglob
 wheels=(dist/*.whl)
 sdists=(dist/*.tar.gz)
