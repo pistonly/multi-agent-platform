@@ -20,9 +20,13 @@ from server.domain.schemas import (
     SummaryBucket,
     SummaryBucketItem,
     SummaryBucketKind,
-    TopicProgressListRead,
 )
-from server.services import notification_service, todo_service, topic_progress_service
+from server.services import (
+    fs_source_service,
+    notification_service,
+    todo_service,
+    topic_progress_service,
+)
 from server.services import project_service as svc
 from server.services import topic_work_item_service as work_items
 
@@ -96,17 +100,12 @@ def get_agent_work(
 
     bundle = work_items.topic_work_items_bundle_for_agent(db, agent)
     todos = todo_service.get_todos(db, agent, bundle=bundle)
+    # fs source-of-truth：map/ 话题的文件存在性待办由 list_topic_progress_for_agent
+    # 内部合并（单源，v0.19）——waker 轮询本端点即被 FS 待办唤醒，无第二套规则。
+    # 此前在此处手工合并，导致 /me/topic-progress 与 A2A 端点各自漏接或重复拼装。
     topic_progress = topic_progress_service.list_topic_progress_for_agent(
         db, agent, bundle=bundle
     )
-    # fs source-of-truth: map/ 话题的文件存在性待办并入统一快照，
-    # waker（simple-waker 轮询本端点）由此被 FS 待办唤醒，无第二套规则。
-    from server.services import fs_source_service
-
-    fs_progress = fs_source_service.fs_topic_progress_for_agent(db, agent)
-    if fs_progress:
-        merged = list(topic_progress.items) + fs_progress
-        topic_progress = TopicProgressListRead(items=merged, total=len(merged))
 
     notif_items, notif_total = notification_service.list_for_agent(
         db,

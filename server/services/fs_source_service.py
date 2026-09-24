@@ -142,8 +142,9 @@ def persona_short_name(agent: Agent) -> str:
 def fs_topic_progress_for_agent(db: Session, agent: Agent) -> list[TopicProgressItemRead]:
     """把 ``map/`` 话题的文件存在性待办投影成 topic-progress items。
 
-    供 ``GET /agents/me/work`` 合并——waker（simple-waker）轮询该端点，
-    FS 待办由此进入统一 work 快照，无需 waker 侧第二套规则。
+    由 ``topic_progress_service.list_topic_progress_for_agent`` 调用并合并
+    （单源，v0.19）——waker 轮询 ``GET /agents/me/work`` 即被 FS 待办唤醒，
+    无第二套规则；``GET /agents/me/topic-progress`` 与 A2A 端点同源。
     清理语义与 DB 路径一致：写 round<N>-<persona>.md 文件即清除
     pending_topic_reply；host 推进轮次即清除 round_ack。
 

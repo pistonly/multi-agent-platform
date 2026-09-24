@@ -30,7 +30,7 @@ from server.domain.a2a_mapping import (
     PERSONA_CARDS,
 )
 from server.domain.models import Agent, Project
-from server.services import fs_source_service, project_service, topic_progress_service
+from server.services import project_service, topic_progress_service
 
 a2a_router = APIRouter(tags=["a2a"])
 
@@ -144,22 +144,10 @@ def get_agent_tasks(
     tasks: list[A2ATaskRead] = []
 
     if target.project_id is not None:
+        # v0.19：FS（map/ 目录）待办已由 list_topic_progress_for_agent 内部合并，
+        # 此处不再手工拼第二遍（此前 A2A 是三个端点里唯一自己补了 FS 的）。
         progress = topic_progress_service.list_topic_progress_for_agent(db, target)
         for item in progress.items:
-            tasks.append(
-                A2ATaskRead(
-                    id=item.topic_id,
-                    kind="topic",
-                    name=f"{item.topic_title} (round {item.discussion_round})",
-                    status="working",
-                    map_ref=f"topic:{item.topic_id}#round-{item.discussion_round}",
-                )
-            )
-        fs_items = fs_source_service.fs_topic_progress_for_agent(db, target)
-        seen = {t.id for t in tasks}
-        for item in fs_items:
-            if item.topic_id in seen:
-                continue
             tasks.append(
                 A2ATaskRead(
                     id=item.topic_id,

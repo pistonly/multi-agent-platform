@@ -58,7 +58,7 @@
 ### 3.3 双平面合并与迁移
 
 - 主 `/topics` 列表合并 FS 与 DB 话题投影（FS id 即 uuid5）
-- `GET /agents/me/work` 已并入 FS topics 的 topic-progress 投影（写 round 文件即清 `pending_topic_reply` 待办）
+- FS topics 的 topic-progress 投影由 `topic_progress_service.list_topic_progress_for_agent` **统一合并**（写 round 文件即清 `pending_topic_reply` 待办）。`GET /agents/me/work`、`GET /agents/me/topic-progress`、A2A `/agents/{id}/tasks` 三个端点同源；此前只有 work 合并了这一路，另两个端点漏接（v0.19 收敛）
 - **单向迁移**：`map topic migrate --id <uuid> --slug <name>` — DB 话题（含评论树、decision）落盘为 FS 文件夹（round summary 界定轮次、同人同轮合并），完整落盘后才 archive DB 记录（列表隐藏、show 仍可见）
 
 ## 4. FS 事实源约定

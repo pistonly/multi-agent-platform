@@ -38,7 +38,10 @@ each `map work` poll. The platform owns the threshold and recipient policy:
 ### Topic progress (platform)
 
 `GET /agents/me/topic-progress` is a **projection** of per-agent **topic work items**
-(`topic_work_items_for_agent` in the API). Each open topic may include:
+(`topic_work_items_for_agent` in the API), **plus** the FS (`map/` directory) work
+projection — both merged in `topic_progress_service.list_topic_progress_for_agent`
+(v0.19), so this endpoint and `/agents/me/work` return the same topic set. Each open
+topic may include:
 
 | Field | Meaning |
 | --- | --- |
