@@ -4,6 +4,86 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 更早的历史见 git tag 与提交记录。
 
+## [0.19.0] - 2026-09-24
+
+### Added
+
+- **`map usage summary`**：CLI 出口记账的聚合视图。每次命令出口会向
+  `.map/usage/cli-calls.jsonl` 追加一行 JSONL（best-effort，失败不影响退出码），
+  本命令按 persona 统计调用次数与输出字节；`--since <ISO8601>` 限定窗口，
+  `--json` 输出机器可读数组 `[{persona, work_calls, total_output_bytes}]`。
+- **waker 会话轮次硬上限**：单 session 默认 300 轮，达阈值先 reset session 再唤醒，
+  抑制 participant 长期同话题跑数千轮导致的上下文膨胀。可用
+  `--session-max-wakes` 或 `MAP_WAKER_SESSION_MAX_WAKES` 覆盖，`<= 0` 关闭。
+
+### Changed
+
+- **高频命令默认精简视图（省 token）**：`map work` 默认精简（实测 930B vs
+  `--verbose` 4523B）、`map topic list` 默认只列 open（`--status all` 恢复全量）、
+  `map experiment show / status / log / complete` 默认精简（807B vs `--full` 8671B）。
+  **只影响未显式选择 format 的人类输出**——`--json` / `--yaml` 机器契约逐字段不变，
+  显式 `--format` 与 `--verbose` / `--full` / `--status all` 逃生口行为不变；
+  waker 与脚本侧本就显式传 `--format yaml` / `--status open`，不受影响。
+- **唤醒协议改为 work-first**：`map work` 顶部的 agent 块即身份确认，
+  `persona whoami` 降级为条件回退，省掉一次往返。
+- **`docs/map-templates/run-map.sh.example` 清理 `PYTHONHOME` / `PYTHONPATH`**，
+  避免宿主残留把 CLI 指向错误解释器。
+
+### Fixed
+
+- **`map topic progress` 此前漏掉全部 FS 话题待办**：`GET /agents/me/topic-progress`
+  只读 DB，而 FS 事实源（`map/topics/<slug>/`）的话题恒不出现——同一时刻
+  `map work` 能看到的 `round_ack` / `pending_topic_reply`，`map topic progress`
+  显示为 `items: []`。FS 投影合并收敛到 `topic_progress_service` 单点，
+  `GET /me/work` 与 A2A 端点不再各自手工拼接，并按 `topic_id` 去重
+  （远程模式下投影行与 DB 行可能指向同一话题）。
+- **话题引用接受 8 位短前缀**：`map topic list` 的 ID 列本就是 8 位前缀，
+  但解析器只认 36/32 位完整 uuid，前缀被当 slug 去找 `map/topics/<8位>/` 目录、
+  必然 `topic not found`。现 `--id` / `--topic` 支持完整 uuid、8..31 位 hex 前缀
+  与 slug 四种形态，多命中列候选而非静默单选，未命中按 slug 片段给
+  `Did you mean: <slug>`；local plane 的写命令路径（`advance-round` / `close`）
+  与 `audit --target` 同步支持，不会出现「能 show 不能写」。
+- **CLI 连接类错误输出收敛**：人类模式压缩到 ≤3 行并给出修复提示；`--json`
+  统一走 `{error, message, hint}` 信封并 exit 2；`--debug` 仍保留 traceback。
+- **`scripts/start-all-simple-wakers.sh` 在 bash 3.2（macOS）+ `set -u` 下崩溃**：
+  空数组展开导致三个 persona 的 waker 完全起不来。
+- **`map --cost` 账本少计 token**：`cost_ledger` 的 `layer2_mapper` 改两级路由
+  （现代默认表 + 字段名探测 + 版本例外），未登记 SDK 版本不再静默落 unknown，
+  真实数据 known 比例提升到 99.11%（4027 条）；同时 runtime session 指针文件
+  提供 `session_id` join 键，打通 MAP ledger 与 runtime jsonl 两源对账。
+
+## [0.18.0] - 2026-09-21
+
+### Added
+
+- **`map topic comment --append`**：每轮每人一个 round 文件 + 正文 immutable 约定下，
+  发言后想补充内容原先无处可去——`--force` 只豁免 Summary、普通发言覆盖被拒，
+  只能 advance-round（语义错位）或删文件重写（撞红线、丢 `posted_at` 审计痕迹）。
+  `--append` 在本轮 `round<N>-<persona>.md` 末尾追加 `## Addendum <n> @ <utc-ts>`
+  小节，原正文一字不动（immutable 仍成立），frontmatter 增记 `updated_at` 而
+  `posted_at` 保留。与 `--force` / `--round-summary` 互斥（exit 2）；immutable
+  报错会引导改用 `--append`，文件不存在则提示去掉 `--append`。
+
+### Changed
+
+- **Skill 真身迁至 `.agent/skills/`，去除对 Cursor 的目录绑定**：`.cursor` /
+  `.claude` / `.codex` 下的 skills 降级为指向 `../.agent/skills/` 的符号链接
+  （各 runtime 的自动发现能力保留，历史链接不断）。打包边界不变——wheel 仍只
+  打包 `cli/skills`，`.agent/` 不进发行物。
+- **`map skill install` 默认落点中立化**：无 flag 时按
+  `.cursor → .claude → .codex → .agent` 探测已存在的厂商目录，均未命中才落到
+  中性的 `.agent/skills/`；`--runtime` / `--target` 显式指定的行为不变。
+- **waker 运行时契约升到 v4**：契约文件清单切到 `.agent/skills/**`。
+  **部署后须重启 waker** 并核对 startup_sync 的 `skills_count=6`——旧进程持 v3
+  哈希会误判 drift 并静默回写。
+
+### Fixed
+
+- **统一 Claude 配置入口**：跨项目可显式共用 env 文件而不混入 shell 残留账号；
+  `runtime check` 只检查本地配置。
+- **`map host invoke` 失败返回非零**：失败路径此前吞掉 SDK 错误，现把错误传到
+  JSON 输出并以非零退出码返回。
+
 ## [0.17.0] - 2026-09-18
 
 ### Added
