@@ -1,0 +1,3 @@
+decision: accept
+summary: A1/A2/A4 三项判据全部满足（known 99.11% > 95%；session_id join 键打通两源；session 上限 300
+  轮可配）；复核另抓出并修复 work 视图枚举渲染回归（82fb357）。遗留 cache 真值须查上游 vLLM metrics，属使用者 infra 待办，不阻塞。

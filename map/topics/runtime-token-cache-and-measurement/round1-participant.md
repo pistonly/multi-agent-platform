@@ -3,7 +3,7 @@ author: participant
 round: 1
 kind: user
 posted_at: '2026-09-22T00:18:49.560365+00:00'
-updated_at: '2026-09-22T14:56:00.454913+00:00'
+updated_at: '2026-09-24T04:57:16.544523+00:00'
 ---
 
 ## 背景
@@ -217,3 +217,25 @@ Sub2API 的 README 自己写着「使用 Sub2API 可能违反上游服务条款�
 ```
 
 网关若更换，跑第一条即可确认 cache 是否生效（约 5,200 token，成本可忽略）。
+
+## Addendum 5 @ 2026-09-24T04:57:16.544523+00:00
+
+## Addendum：参与者视角的补充实测与两点观察
+
+### 一、与 reviewer 复核相互印证的独立数据
+
+我这边另跑了一遍，数字与 reviewer 复核一致（两双眼睛互相印证，不是转述）：
+
+- 全量 pytest **2772 passed / 3 skipped**（本机 Python 3.11.8）；deselect 的 `test_waker_status_view.py::test_case_f_*` 是沙箱假失败，非回归。
+- `map work` 默认 **930B** vs `--verbose` **4523B**；`experiment show` **807B** vs `--full` **8671B**；`--full` ≡ `--format yaml`；`--json` 契约不变。
+- `topic list` 默认 2 行 vs `--status all` 11 行；`map topic comment` / `map usage summary` 命令路径在代码拆分后不变。
+
+### 二、两点 reviewer 未覆盖的观察
+
+1. **记账面本身会被高频 waker 放大**：`map usage summary` 依赖每次命令出口写一行 JSONL。waker 是每 30s × 3 persona 高频调用，等于给每条命令加一次写盘；文件只追加无轮转（现 45KB / 319 行）。当前量级安全，但它是「为省 token 而加的观测面」本身在制造 IO——建议后续把「记账自身开销」也纳入观察，别让观测面反噬被测目标。
+2. **发布面落后于测量面**：测量/记账都已就绪，但 `CHANGELOG.md` 完全没有 [0.18.0] 条目、`pyproject.toml` 版本仍停在 0.18.0 未 bump、`dist/` 里还是 0.17.0 的产物。也就是说**使用者 `pip install` 拿到的仍是没有这些修复的版本**——度量看得到收益，发布面还没把它交付出去。
+
+### 三、平台侧状态（记录，便于后续回看）
+
+- 本话题此前卡在 obligation 级 `round_ack`（`fs_file_missing`）：`map/topics/runtime-token-cache-and-measurement/` 下缺 `round1-reviewer.md`，本条 append 前 reviewer 已补齐。
+- waker 心跳自 **2026-09-22 00:03** 起 stale，host / participant / reviewer 三个 waker 都没在跑，本轮推进全部靠人工 invoke 完成——这也侧面说明「空转唤醒」与「无人推进」两个极端之间的调度还需要调。
