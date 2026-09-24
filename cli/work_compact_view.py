@@ -49,6 +49,17 @@ def _short(value: Any) -> str:
     return str(value)[:8] if value is not None else ""
 
 
+def _enum(value: Any) -> str:
+    """枚举取 ``value`` 再转字符串。
+
+    Python ≥3.11 起 str-mixin 枚举的 ``str()``/f-string 会带上类名前缀
+    （``NotificationCategory.digest`` 而非 ``digest``），而 3.10 不带——
+    不显式取值会让默认视图跨版本输出不一致、且在 3.11+ 上凭空变长。
+    与 ``cli/experiment_compact_view._enum`` 同款处理。
+    """
+    return str(getattr(value, "value", value))
+
+
 def _first(obj: Any, *names: str) -> Any:
     for name in names:
         value = _get(obj, name)
@@ -73,7 +84,7 @@ def _render_agent(agent: Any) -> list[str]:
     bits = [f"agent: {_get(agent, 'name') or '?'}"]
     role = _get(agent, "role")
     if role is not None:
-        bits.append(f"({role})")
+        bits.append(f"({_enum(role)})")
     project = _get(agent, "project_key") or _get(agent, "project_id")
     if project is not None:
         bits.append(f"project={project}")
@@ -108,7 +119,7 @@ def _render_todo_entry(entry: Any) -> list[str]:
         head += f"{oid} "
     phase = _first(entry, "phase", "status")
     if phase is not None:
-        head += f"[{phase}] "
+        head += f"[{_enum(phase)}] "
     head += _excerpt(_first(entry, "experiment_title", "topic_title", "title"))
     author = _first(entry, "author_name", "review_progress")
     if author:
@@ -165,7 +176,7 @@ def _render_notifications(notifications: Any) -> list[str]:
         summary = _excerpt(_get(n, "summary"))
         target_type = _get(n, "target_type")
         target = f" -> {target_type} {_short(_get(n, 'target_id'))}".rstrip() if target_type else ""
-        lines.append(f"  - [{category}] {event} — {summary}{target}")
+        lines.append(f"  - [{_enum(category)}] {event} — {summary}{target}")
     return lines
 
 
