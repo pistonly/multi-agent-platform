@@ -199,7 +199,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install build tooling
-        run: pip install build
+        # check-packaging.sh 走 uv build，不再依赖 PyPA build 包
+        run: pip install uv
 
       - name: Build SPA and unpack-check sdist/wheel
         run: |
