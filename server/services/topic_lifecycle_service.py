@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from map_types.enums import ExperimentPhase, TopicDiscussionRound
@@ -233,7 +234,7 @@ def _latest_topic_comments_by_topic(
         .where(TopicComment.topic_id.in_(topic_ids))
         .subquery()
     )
-    winning_ids = db.scalars(
+    winning_ids: Sequence[uuid.UUID] = db.scalars(
         select(subq.c.cid).where(subq.c.rn == 1)
     ).all()
     if not winning_ids:

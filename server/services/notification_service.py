@@ -353,8 +353,7 @@ def _upsert_notification(
         stmt.returning(Notification),
         execution_options={"populate_existing": True},
     )
-    row = result.scalar_one()
-    return cast(Notification, row)
+    return cast(Notification, result.scalar_one())
 
 
 def emit_kind(
