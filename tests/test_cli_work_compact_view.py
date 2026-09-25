@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
 from map_types.schemas.agent_work import AgentWorkRead
 from map_types.schemas.notification import NotificationListRead
 from map_types.schemas.todo import TodoRead
@@ -22,6 +23,7 @@ from map_types.schemas.topic_progress import TopicProgressListRead
 from typer.testing import CliRunner
 
 import cli.main as cli_main
+import cli.runner
 from cli.main import app
 from cli.work_compact_view import render_work_compact
 
@@ -71,6 +73,16 @@ class _FixedHeartbeats:
                 ),
             ]
         )
+
+
+@pytest.fixture(autouse=True)
+def _simulate_terminal(monkeypatch) -> None:
+    """v0.19.1：精简视图只在 stdout 连到终端时生效（runner._stdout_is_tty 闸门）。
+
+    非终端（管道 / 脚本）要保持全量结构化 YAML 供机器解析；CliRunner 不是 tty，
+    这里模拟终端才能测到人类默认视图。
+    """
+    monkeypatch.setattr(cli.runner, "_stdout_is_tty", lambda: True)
 
 
 def _patch_client(monkeypatch, work) -> None:

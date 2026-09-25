@@ -44,6 +44,32 @@ def _excerpt(text: Any, limit: int = _EXCERPT_MAX) -> str:
     return s
 
 
+# v0.19.1：摘录是自由文本，裸拼进 ``key: <text>`` 可能产出非法 YAML——
+# plan 首行是 front matter 分隔符 ``---`` 时会让 yaml.safe_load 抛
+# ScannerError("mapping values are not allowed here")，13 个 machine-contract
+# 用例失败。仅在真会破坏解析时加引号，保持常见文本的人类可读性。
+_YAML_PLAIN_UNSAFE_PREFIX = tuple("-?:,[]{}#&*!|>'\"%@`")
+_YAML_RESERVED_WORDS = frozenset(
+    {"---", "...", "true", "false", "null", "yes", "no", "on", "off", "~"}
+)
+
+
+def _yaml_scalar(value: Any) -> str:
+    """渲染成 YAML 单行 scalar：必要时加双引号，否则原样（可读优先）。"""
+    s = str(value or "")
+    if s == "":
+        return '""'
+    if (
+        s != s.strip()
+        or s.startswith(_YAML_PLAIN_UNSAFE_PREFIX)
+        or ": " in s
+        or " #" in s
+        or s.lower() in _YAML_RESERVED_WORDS
+    ):
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return s
+
+
 def _plan_lines(exp: Any) -> list[str]:
     plan = _get(exp, "current_plan")
     if plan is None:
@@ -59,10 +85,10 @@ def _plan_lines(exp: Any) -> list[str]:
     head += f" ({n_lines} lines)"
     lines = [head]
     if first:
-        lines.append(f"  summary: {_excerpt(first)}")
+        lines.append(f"  summary: {_yaml_scalar(_excerpt(first))}")
     note = _get(plan, "change_note")
     if note:
-        lines.append(f"  change_note: {_excerpt(note)}")
+        lines.append(f"  change_note: {_yaml_scalar(_excerpt(note))}")
     if n_lines > _INLINE_THRESHOLD:
         lines.append(f"  (content_md elided — use --full or --format yaml to inline all {n_lines} lines)")
     return lines
@@ -83,7 +109,7 @@ def render_experiment_compact(exp: Any) -> str:
     lines.append(head)
     desc = _get(exp, "description")
     if desc:
-        lines.append(f"  description: {_excerpt(desc, _DESC_MAX)}")
+        lines.append(f"  description: {_yaml_scalar(_excerpt(desc, _DESC_MAX))}")
     lines.extend(_plan_lines(exp))
     count = _get(exp, "plan_version_count")
     lines.append(f"plan_versions: {count if count is not None else '?'}")
@@ -93,7 +119,7 @@ def render_experiment_compact(exp: Any) -> str:
     lines.append(counters)
     latest = _get(exp, "latest_log_summary")
     if latest:
-        lines.append(f"  latest: {_excerpt(latest)}")
+        lines.append(f"  latest: {_yaml_scalar(_excerpt(latest))}")
     actions = _get(exp, "actions") or []
     if actions:
         lines.append(f"actions: {', '.join(str(a) for a in actions)}")
@@ -137,7 +163,7 @@ def render_log_create_compact(resp: Any) -> str:
     lines.append(head)
     summary = _get(log, "summary") if log is not None else None
     if summary:
-        lines.append(f"  summary: {_excerpt(summary)}")
+        lines.append(f"  summary: {_yaml_scalar(_excerpt(summary))}")
     path = _get(log, "file_path") if log is not None else None
     content = _get(log, "content_md") if log is not None else None
     n_lines = len((content or "").splitlines())
@@ -150,7 +176,9 @@ def render_log_create_compact(resp: Any) -> str:
         warns = _get(validation, "warnings") or []
         if warns:
             missing = ", ".join(str(_get(w, "missing_key")) for w in warns)
-            lines.append(f"  validation: {len(warns)} warnings (missing: {missing})")
+            lines.append(
+                f"  validation: {_yaml_scalar(f'{len(warns)} warnings (missing: {missing})')}"
+            )
         else:
             lines.append("  validation: ok")
     sim = _get(resp, "similarity_warning")

@@ -4,6 +4,20 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 更早的历史见 git tag 与提交记录。
 
+## [0.19.1] - 2026-09-25
+
+### Fixed
+
+- **修复 0.19.0 精简视图破坏机器可解析输出**：`map experiment show / status / log /
+  complete` 在未显式指定 `--format` 时改为输出紧凑文本，而该输出不再是合法 YAML——
+  `log: created id=…` 这类"键与摘要同行"的写法会让后续缩进字段变成上一行的续行，
+  plan 首行是 front matter 分隔符时还会直接输出 `summary: ---`，`yaml.safe_load`
+  抛 `ScannerError: mapping values are not allowed here`。**现在紧凑视图只在 stdout
+  连到终端时生效**；管道 / 重定向 / 脚本继续拿到完整结构化 YAML，即 0.19.0
+  声明的"机器契约不动"。直接调用方（`--format json/yaml`、`--full`）不受影响。
+- **`map experiment status` 的 `phase_owner` 渲染**：Python ≥3.11 下 str-mixin 枚举
+  经 f-string 会带类名前缀，输出 `phase_owner: PhaseOwner.host` 而非 `host`。
+
 ## [0.19.0] - 2026-09-24
 
 ### Added

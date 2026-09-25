@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 
 import cli.commands.experiment as experiment_module
 import cli.main as cli_main
+import cli.runner
 from cli.main import app
 
 EXP_ID = "3f2a1c9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b"
@@ -111,6 +112,10 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv("MAP_CLI_FORMAT", raising=False)
     monkeypatch.setenv("MAP_TOKEN", "fake")
     monkeypatch.setenv("MAP_API_URL", "http://test")
+    # v0.19.1：精简视图只在 stdout 连到终端时生效（runner._stdout_is_tty 闸门，
+    # 非终端要保持全量结构化 YAML 供脚本解析）。CliRunner 不是 tty，这里模拟
+    # 终端才能测到人类默认视图。
+    monkeypatch.setattr(cli.runner, "_stdout_is_tty", lambda: True)
 
 
 def _full_yaml(fixture) -> str:
@@ -239,6 +244,23 @@ def test_log_default_trims_echo_and_json_contract(monkeypatch) -> None:
     assert via_json.exit_code == 0, via_json.output
     payload = json.loads(via_json.stdout)
     assert payload["data"] == fixture.model_dump(mode="json")
+
+
+def test_default_output_stays_machine_parseable_off_tty(monkeypatch) -> None:
+    """v0.19.1 回归防线：非终端（管道 / 脚本 / CI）默认输出必须是全量 YAML。
+
+    紧凑文本里 ``log: created id=…`` 会把后续缩进字段变成续行，plan 首行是
+    front matter 分隔符时还会写出 ``summary: ---``，两者都让
+    ``yaml.safe_load`` 抛 ScannerError（I4 引入、nightly 才暴露的回归）。
+    """
+    fixture = _fixture_detail()
+    _patch_client_ctx(monkeypatch, _FakeClient(detail=fixture))
+    monkeypatch.setattr(cli.runner, "_stdout_is_tty", lambda: False)
+    result = CliRunner().invoke(app, ["experiment", "show", "--id", EXP_ID])
+    assert result.exit_code == 0, result.output
+    payload = yaml.safe_load(result.stdout)
+    assert payload["title"] == "token 优化实验"
+    assert payload["plan_version_count"] == 3
 
 
 def test_render_experiment_compact_dict_payload() -> None:

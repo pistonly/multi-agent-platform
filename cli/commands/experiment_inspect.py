@@ -220,7 +220,10 @@ def register(app: typer.Typer) -> None:
                 return result
             typer.echo(f"actions: {list(result.actions)}")
             typer.echo(f"blocked_on: {result.blocked_on}")
-            typer.echo(f"phase_owner: {getattr(result, 'phase_owner', 'host')}")
+            # v0.19.1：PhaseOwner 是 str-mixin 枚举，Python ≥3.11 的 f-string 会带
+            # 类名前缀（"PhaseOwner.host"），破坏 `phase_owner: host` 契约。
+            owner = getattr(result, "phase_owner", "host")
+            typer.echo(f"phase_owner: {getattr(owner, 'value', owner)}")
             typer.echo(f"informational_only: {getattr(result, 'informational_only', False)}")
             if result.blocked_on == "open_unreasonable_item" or "plan_revise" in result.actions:
                 typer.echo(

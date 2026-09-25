@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -42,6 +43,21 @@ def _cli_options() -> dict[str, Any]:
     from cli import main as _main
 
     return _main._cli_options
+
+
+def _stdout_is_tty() -> bool:
+    """stdout 是否连到真实终端。
+
+    v0.19.1：精简人类视图（human_renderer）只在真人终端生效；管道 / 重定向 /
+    CliRunner（非 tty）保持全量结构化 YAML 输出，否则
+    ``map experiment log | yaml.safe_load`` 这类机器契约会被紧凑文本破坏
+    （I4 精简视图引入的回归，13 个 contract 用例在 nightly 变红）。
+    """
+    stream = sys.stdout
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError):  # 被替换成无 isatty 的对象 / 流已关闭
+        return False
 
 
 def _transport() -> httpx.BaseTransport | None:
@@ -595,6 +611,9 @@ def _run(
                 human_renderer is not None
                 and output_format == "yaml"
                 and _cli_options().get("format_source", "default") == "default"
+                # v0.19.1：再加一道 tty 闸门——紧凑视图是给人看的，非终端
+                # （管道 / 脚本 / 测试）继续给全量 YAML，机器契约不动。
+                and _stdout_is_tty()
             ):
                 # map exp 4e4206de I1：默认（未显式选 format）才用精简人类
                 # 视图；显式 --format yaml / json 走原全量输出，机器契约不动。

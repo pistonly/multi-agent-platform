@@ -72,7 +72,7 @@ map skill install          # 装入项目：自动探测 .cursor/.claude/.codex�
 - **多 persona 协作**：`.map/` persona + Skill 指导 Agent 写回 MAP
 - **Plan mode (direct)**：跳过 review/result_review 的快速执行通道；host 通过 `start --executor participant` 委派后由 `experiment-executor` Skill 接管（complete 即 `done`，见下方使用示例）
 
-**当前主线**：产品主线 v0.15 已收口（v0.11–v0.14 均已落地）；当前发布版本 **v0.19.0**（高频命令默认精简视图与 CLI 出口记账、runtime 度量修复、话题引用与待办口径修复，无独立 PRD）。实验生命周期 FS 化 M2 已开工——实验计划正文已支持由 feature flag `plan_db_content_retired` 开启（默认关闭），开启后 `map/experiments/<slug>/plan.md` 为正文唯一事实源。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v11.md](docs/status-md-v11.md)。
+**当前主线**：产品主线 v0.15 已收口（v0.11–v0.14 均已落地）；当前发布版本 **v0.19.1**（高频命令默认精简视图与 CLI 出口记账、runtime 度量修复、话题引用与待办口径修复，无独立 PRD）。实验生命周期 FS 化 M2 已开工——实验计划正文已支持由 feature flag `plan_db_content_retired` 开启（默认关闭），开启后 `map/experiments/<slug>/plan.md` 为正文唯一事实源。详见 [PRD 入口](docs/prd/README.md) 与 [status-md-v11.md](docs/status-md-v11.md)。
 
 历史里程碑详见 [PRD 归档](docs/prd/README.md#历史归档按时间倒序)。
 
